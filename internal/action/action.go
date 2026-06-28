@@ -9,6 +9,7 @@ import (
 
 	"cohort/internal/foundation"
 	"cohort/internal/llm"
+	"cohort/internal/tool"
 )
 
 // Action Agent 可执行的原子操作接口。
@@ -40,6 +41,7 @@ type BaseAction struct {
 	prefix string     // 系统提示词前缀（传给 LLM 的 system prompt）
 	client llm.Client // LLM 客户端
 	node   *ActionNode // 可选：结构化输出解析器
+	tools  *tool.ToolRegistry // 私有工具注册表（Role 注册时注入）
 }
 
 // NewBaseAction 创建一个 BaseAction。
@@ -53,6 +55,7 @@ func NewBaseAction(name, prefix string, client llm.Client) *BaseAction {
 		name:   name,
 		prefix: prefix,
 		client: client,
+		tools:  tool.NewRegistry(), // 空注册表，等待 Role 注入
 	}
 }
 
@@ -72,24 +75,42 @@ func (a *BaseAction) SetNode(node *ActionNode) {
 	a.node = node
 }
 
+// SetTools 注入工具注册表（由 Role 在初始化时调用）。
+// 会将 Role 的公有 + 私有工具合并后注入到每个 Action。
+func (a *BaseAction) SetTools(tools *tool.ToolRegistry) {
+	a.tools = tools
+}
+
+// Tools 返回工具注册表。
+func (a *BaseAction) Tools() *tool.ToolRegistry {
+	return a.tools
+}
+
+// CallTool 调用一个已注册的工具。
+// 便捷方法，等价于 a.tools.Call(ctx, name, args)。
+func (a *BaseAction) CallTool(ctx context.Context, name string, args map[string]any) (string, error) {
+	return a.tools.Call(ctx, name, args)
+}
+
 // AskLLM 向 LLM 发送请求。
 //
 // 自动完成以下步骤：
-//  1. 构建 system prompt（来自 a.prefix）
+//  1. 构建 system prompt：a.prefix + 可用工具列表
 //  2. 将框架 Message 转为 LLM ChatMessage
 //  3. 附加当前 prompt（user 角色）
 //  4. 调用 LLM Chat
-//
-// 这是 BaseAction 最核心的方法，子 Action 的 Run() 通常只有两行：
-//
-//	content, err := a.AskLLM(ctx, "请写一个 PRD...", history)
 func (a *BaseAction) AskLLM(ctx context.Context, prompt string, history []*foundation.Message) (string, error) {
-	// 1. 构建消息列表：system prompt 在最前面
-	messages := []llm.ChatMessage{
-		{Role: "system", Content: a.prefix},
+	// 1. 构建 system prompt，附带可用工具信息
+	systemPrompt := a.prefix
+	if toolsInfo := a.tools.ToolsInfo(); toolsInfo != "" {
+		systemPrompt += toolsInfo
 	}
 
-	// 2. 将框架内的 Message 转换为 LLM 的 ChatMessage（充当对话历史）
+	messages := []llm.ChatMessage{
+		{Role: "system", Content: systemPrompt},
+	}
+
+	// 2. 将框架内的 Message 转换为 LLM 的 ChatMessage
 	historyMsgs := a.frameToLLMMessages(history)
 	messages = append(messages, historyMsgs...)
 
@@ -109,10 +130,14 @@ func (a *BaseAction) AskLLM(ctx context.Context, prompt string, history []*found
 }
 
 // AskLLMStream 流式版本的 AskLLM。
-// 返回 token 通道，上层用 for chunk := range ch 消费。
 func (a *BaseAction) AskLLMStream(ctx context.Context, prompt string, history []*foundation.Message) (<-chan *llm.StreamChunk, error) {
+	systemPrompt := a.prefix
+	if toolsInfo := a.tools.ToolsInfo(); toolsInfo != "" {
+		systemPrompt += toolsInfo
+	}
+
 	messages := []llm.ChatMessage{
-		{Role: "system", Content: a.prefix},
+		{Role: "system", Content: systemPrompt},
 	}
 	historyMsgs := a.frameToLLMMessages(history)
 	messages = append(messages, historyMsgs...)

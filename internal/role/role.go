@@ -19,6 +19,7 @@ import (
 
 	"cohort/internal/action"
 	"cohort/internal/foundation"
+	"cohort/internal/tool"
 )
 
 // ==========================================
@@ -78,9 +79,10 @@ type Role struct {
 	Desc        string `json:"desc"`        // 详细描述
 
 	// === 行为定义 ===
-	actions   []action.Action // 可执行的动作列表
-	reactMode ReactMode        // 反应模式
-	watch     map[string]bool  // 关注的 cause_by 集合（空 = 关注所有）
+	actions   []action.Action  // 可执行的动作列表
+	reactMode ReactMode         // 反应模式
+	watch     map[string]bool   // 关注的 cause_by 集合（空 = 关注所有）
+	tools     *tool.ToolRegistry // 私有工具注册表（本 Role 专有工具）
 
 	// === 运行时状态 ===
 	state     int                     // 当前动作索引，-1 = idle/terminated
@@ -127,6 +129,15 @@ func WithMemory(m *foundation.Memory) RoleOption {
 	return func(r *Role) { r.memory = m }
 }
 
+// WithTools 设置私有工具（本 Role 专有的工具）。
+func WithTools(tools ...tool.Tool) RoleOption {
+	return func(r *Role) {
+		for _, t := range tools {
+			r.tools.Register(t)
+		}
+	}
+}
+
 // WithProfile 设置角色的身份描述。
 func WithProfile(profile, goal, constraints string) RoleOption {
 	return func(r *Role) {
@@ -159,6 +170,7 @@ func NewRole(name string, opts ...RoleOption) *Role {
 		watch:     make(map[string]bool),
 		state:     0,                                     // 从第 0 个 action 开始
 		msgBuffer: make(chan *foundation.Message, 100),   // 缓冲 100 条消息
+		tools:     tool.NewRegistry(),                     // 空注册表，等待注入
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -256,13 +268,6 @@ func (r *Role) react(ctx context.Context) (*foundation.Message, error) {
 //
 // 每次调用执行一个 Action，执行完 state++ 指向下一个。
 // 所有 Action 执行完毕后 state = -1（idle）。
-//
-// 这是软件公司场景的主要模式：
-//
-//	PM:        WritePRD → (idle)
-//	Architect: WriteDesign → (idle)
-//	Engineer:  WriteCode → (idle)
-//	QA:        WriteTest → (idle)
 func (r *Role) reactByOrder(ctx context.Context) (*foundation.Message, error) {
 	if r.state >= len(r.actions) {
 		r.state = -1 // 所有 action 执行完毕
@@ -271,6 +276,9 @@ func (r *Role) reactByOrder(ctx context.Context) (*foundation.Message, error) {
 
 	act := r.actions[r.state]
 	history := r.memory.Get(0) // 获取全部历史消息
+
+	// ★ 注入工具到 Action：合并公有工具（从 env）+ 私有工具（从 Role）
+	r.injectToolsToAction(act)
 
 	log.Printf("[%s] executing [%d/%d]: %s",
 		r.Name, r.state+1, len(r.actions), act.Name())
@@ -386,6 +394,11 @@ func (r *Role) State() int {
 	return r.state
 }
 
+// Tools 返回此 Role 的私有工具注册表。
+func (r *Role) Tools() *tool.ToolRegistry {
+	return r.tools
+}
+
 // ==========================================
 // 内部辅助
 // ==========================================
@@ -415,6 +428,22 @@ func (r *Role) watchKeys() []string {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+// injectToolsToAction 将工具注入到 Action 中。
+// 合并公有工具（从 Environment 获取）和私有工具（Role 自带）。
+func (r *Role) injectToolsToAction(act action.Action) {
+	// 通过类型断言获取 BaseAction（所有内置 Action 都嵌入 BaseAction）
+	type toolSettable interface {
+		SetTools(*tool.ToolRegistry)
+	}
+	if ba, ok := act.(toolSettable); ok {
+		// 创建合并后的注册表：公有工具 + 私有工具
+		merged := tool.NewRegistry()
+		// 先加私有工具
+		merged.Merge(r.tools)
+		ba.SetTools(merged)
+	}
 }
 
 // ==========================================
