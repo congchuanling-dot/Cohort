@@ -430,19 +430,20 @@ func (r *Role) watchKeys() []string {
 	return keys
 }
 
+// MergePublicTools 合并公有工具到本 Role（由 Environment.RegisterRole 调用）。
+// 公有工具追加到已有注册表，不覆盖同名私有工具。
+func (r *Role) MergePublicTools(public *tool.ToolRegistry) {
+	r.tools.Merge(public)
+}
+
 // injectToolsToAction 将工具注入到 Action 中。
-// 合并公有工具（从 Environment 获取）和私有工具（Role 自带）。
+// 使用 Role 的工具注册表（已由 Environment 合并了公有工具）。
 func (r *Role) injectToolsToAction(act action.Action) {
-	// 通过类型断言获取 BaseAction（所有内置 Action 都嵌入 BaseAction）
 	type toolSettable interface {
 		SetTools(*tool.ToolRegistry)
 	}
 	if ba, ok := act.(toolSettable); ok {
-		// 创建合并后的注册表：公有工具 + 私有工具
-		merged := tool.NewRegistry()
-		// 先加私有工具
-		merged.Merge(r.tools)
-		ba.SetTools(merged)
+		ba.SetTools(r.tools)
 	}
 }
 

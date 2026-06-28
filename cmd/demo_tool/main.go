@@ -1,11 +1,11 @@
-// Package main 演示 Tool 层：Agent 生成代码后真的写入磁盘并编译。
+// Package main 演示公有 Tool 层：Environment 注册一次，所有 Role 自动继承。
 //
 //	cd g:\beliveOnly\Cohort
 //	go run ./cmd/demo_tool/
 //
-// 对比之前的 demo：
-//   - 之前：Agent 只在对话里"说"代码，不会真的写文件
-//   - 现在：Agent 调用 WriteFile Tool 把代码写入磁盘，再调 RunCommand Tool 编译
+// 对比之前的做法：
+//   - 之前：每个 Role 手动 role.WithTools(WriteFile, RunCommand) —— 重复
+//   - 现在：env.RegisterPublicTool(WriteFile) —— 一次注册，全员共享
 package main
 
 import (
@@ -39,7 +39,7 @@ func main() {
 	}
 
 	fmt.Println(strings.Repeat("=", 70))
-	fmt.Println("  Tool 层 Demo —— Agent 生成代码 → 写磁盘 → 编译")
+	fmt.Println("  公有 Tool 层 Demo —— Environment 注册，全员共享")
 	fmt.Println(strings.Repeat("=", 70))
 	fmt.Printf("  Model: %s\n\n", model)
 
@@ -51,35 +51,38 @@ func main() {
 		Temperature: 0.1, MaxTokens: 3072,
 	})
 
-	// ==================== Step 2: 创建 Engineer + 配备 Tool ====================
+	// ==================== Step 2: 创建 Team + 注册公有工具 ====================
+	t := team.NewTeam(cfg)
+	t.SetMaxRound(3)
+
+	// ★ 注册一次，所有 Role 都自动能用
+	t.RegisterTool(tools.NewWriteFileTool())
+	t.RegisterTool(tools.NewRunCommandTool())
+	t.RegisterTool(tools.NewReadFileTool())
+
+	// ==================== Step 3: 创建 Role（不需要手动带工具）====================
 	charlie := role.NewRole("Charlie",
-		role.WithProfile(
-			"Senior Go Engineer",
-			"Write clean, idiomatic Go code",
-			"Use only Go standard library",
-		),
+		role.WithProfile("Senior Go Engineer", "Write clean Go code", "Standard library only"),
 		role.WithActions(builtin.NewWriteCode(engClient)),
 		role.WithWatch("UserRequirement"),
 		role.WithMemory(foundation.NewMemory(50)),
-		// ★ 配备私有工具：写文件 + 编译
-		role.WithTools(
-			tools.NewWriteFileTool(),
-			tools.NewRunCommandTool(),
-		),
+		// ★ 不写 WithTools —— WriteFile/RunCommand/ReadFile 从 Environment 自动继承
 	)
 
-	// ==================== Step 3: 组建 Team ====================
-	fmt.Println("┌──────────────────────────────────────────────────────┐")
-	fmt.Println("│  单 Agent + Tool 演示                                  │")
-	fmt.Println("├──────────┬──────────────────┬────────────────────────┤")
-	fmt.Println("│  Charlie │  Go Engineer     │  WriteCode              │")
-	fmt.Println("│  工具:    │  WriteFile       │  写入磁盘               │")
-	fmt.Println("│           │  RunCommand      │  编译代码               │")
-	fmt.Println("└──────────┴──────────────────┴────────────────────────┘")
+	// 如果有私有工具，仍然可以加：
+	// charlie := role.NewRole("Charlie",
+	//     role.WithTools(goFmtTool),  // ← 只有 Charlie 能用
+	// )
 
-	t := team.NewTeam(cfg)
 	t.Hire(charlie)
-	t.SetMaxRound(3)
+
+	fmt.Println("┌──────────────────────────────────────────────────────┐")
+	fmt.Println("│  公有工具（Environment 级别，所有 Role 继承）           │")
+	fmt.Println("├────────────────────┬─────────────────────────────────┤")
+	fmt.Println("│  WriteFile          │  写入文件到磁盘                  │")
+	fmt.Println("│  RunCommand         │  执行系统命令（编译/测试）       │")
+	fmt.Println("│  ReadFile           │  读取文件内容                   │")
+	fmt.Println("└────────────────────┴─────────────────────────────────┘")
 
 	task := "用 Go 标准库写一个简单的 HTTP 服务，GET /health 返回 {\"status\":\"ok\"}，监听 :8080。文件名用 main.go。"
 	fmt.Printf("\n📋 需求: %s\n\n", task)
@@ -98,17 +101,13 @@ func main() {
 	fmt.Printf("  完成！耗时 %v\n", elapsed)
 	fmt.Println(strings.Repeat("=", 70))
 
-	// 展示结果
 	allMsgs := history.Get(0)
 	for _, msg := range allMsgs {
 		if msg.CauseBy == "UserRequirement" {
 			continue
 		}
 		fmt.Println(msg.Content)
-		fmt.Println()
 	}
 
-	fmt.Println("========== Tool 层 Demo 完成 ==========")
-	fmt.Println()
-	fmt.Println("💡 检查 workspace 目录，代码已经写入磁盘。可以 cd 进去 go run . 直接运行。")
+	fmt.Println("========== 公有 Tool 层 Demo 完成 ==========")
 }

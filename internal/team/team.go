@@ -23,6 +23,7 @@ import (
 	"cohort/internal/env"
 	"cohort/internal/foundation"
 	"cohort/internal/role"
+	"cohort/internal/tool"
 )
 
 // Team 多智能体团队。
@@ -130,4 +131,10 @@ func (t *Team) Roles() []*role.Role {
 // Budget 返回当前预算设置。
 func (t *Team) Budget() float64 {
 	return t.budget
+}
+
+// RegisterTool 注册公有工具到 Environment（所有 Role 自动继承）。
+// 在 Hire 之前调用。
+func (t *Team) RegisterTool(tl tool.Tool) {
+	t.env.RegisterPublicTool(tl)
 }

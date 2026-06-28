@@ -14,6 +14,7 @@ import (
 
 	"cohort/internal/foundation"
 	"cohort/internal/role"
+	"cohort/internal/tool"
 )
 
 // Environment 消息路由中心 + Role 生命周期管理器。
@@ -28,6 +29,7 @@ type Environment struct {
 	memberAddrs map[string]map[string]bool // roleName → 它注册的地址集合
 	history     *foundation.Memory         // 全局消息历史（调试用）
 	cfg         *foundation.Config         // 全局配置
+	publicTools *tool.ToolRegistry         // ★ 公有工具注册表（所有 Role 共享）
 }
 
 // NewEnvironment 创建一个新的消息路由环境。
@@ -35,8 +37,9 @@ func NewEnvironment(cfg *foundation.Config) *Environment {
 	return &Environment{
 		roles:       make(map[string]*role.Role),
 		memberAddrs: make(map[string]map[string]bool),
-		history:     foundation.NewMemory(1000), // 全局历史容量 1000 条
+		history:     foundation.NewMemory(1000),
 		cfg:         cfg,
+		publicTools: tool.NewRegistry(),
 	}
 }
 
@@ -56,13 +59,17 @@ func (e *Environment) RegisterRole(r *role.Role, addresses ...string) {
 	e.roles[r.Name] = r
 	r.SetPublisher(e) // ★ 建立 Role → Environment 的连接
 
+	// ★ 注入公有工具到 Role
+	r.MergePublicTools(e.publicTools)
+
 	addrSet := make(map[string]bool)
 	for _, addr := range addresses {
 		addrSet[addr] = true
 	}
 	e.memberAddrs[r.Name] = addrSet
 
-	log.Printf("[Env] registered: %s (addresses: %v)", r.Name, addresses)
+	log.Printf("[Env] registered: %s (addresses: %v, public_tools: %d)",
+		r.Name, addresses, e.publicTools.Count())
 }
 
 // PublishMessage 发布消息到所有匹配的角色。
@@ -190,6 +197,29 @@ func (e *Environment) Roles() map[string]*role.Role {
 // Config 返回全局配置。
 func (e *Environment) Config() *foundation.Config {
 	return e.cfg
+}
+
+// ==========================================
+// 公有工具管理
+// ==========================================
+
+// RegisterPublicTool 注册一个公有工具（所有 Role 自动继承）。
+//
+// 在创建 Role 之前调用，后续注册的 Role 都会自动获得这个工具。
+//
+// 示例：
+//
+//	env.RegisterPublicTool(tools.NewWriteFileTool())
+//	env.RegisterPublicTool(tools.NewRunCommandTool())
+//	env.RegisterPublicTool(tools.NewReadFileTool())
+func (e *Environment) RegisterPublicTool(t tool.Tool) {
+	e.publicTools.Register(t)
+	log.Printf("[Env] public tool registered: %s", t.Name())
+}
+
+// PublicTools 返回公有工具注册表。
+func (e *Environment) PublicTools() *tool.ToolRegistry {
+	return e.publicTools
 }
 
 // Archive 归档所有生成的文件。
