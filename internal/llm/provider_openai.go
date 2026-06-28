@@ -1,14 +1,12 @@
 package llm
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -191,86 +189,11 @@ func (c *openaiClient) ChatStream(ctx context.Context, messages []ChatMessage) (
 		return nil, fmt.Errorf("openai stream HTTP %d: %s", resp.StatusCode, string(errBody))
 	}
 
-	// 2. 启动后台 goroutine 解析 SSE 流
+	// 2. 启动后台 goroutine 解析 SSE 流（共享解析器）
 	ch := make(chan *StreamChunk, 10)
-	go c.parseSSEStream(resp, ch)
+	go parseOpenAISSE(resp, ch)
 
 	return ch, nil
-}
-
-// parseSSEStream 解析 Server-Sent Events 流，将 token 片段推入 channel。
-//
-// SSE 格式：
-//
-//	data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":null}]}
-//
-//	data: [DONE]
-//
-// goroutine 会在以下情况关闭 channel：解析到 [DONE]、出现错误、ctx 被取消。
-func (c *openaiClient) parseSSEStream(resp *http.Response, ch chan<- *StreamChunk) {
-	defer resp.Body.Close()
-	defer close(ch)
-
-	scanner := bufio.NewScanner(resp.Body)
-	// 增大 buffer：某些模型单行可能很长（如一次返回大段代码）
-	scanner.Buffer(make([]byte, 0, 4096), 256*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		// SSE 空行是事件分隔符，跳过
-		if line == "" {
-			continue
-		}
-
-		// SSE 注释行（以 : 开头），跳过
-		if strings.HasPrefix(line, ":") {
-			continue
-		}
-
-		// 提取 "data: " 前缀
-		data, ok := strings.CutPrefix(line, "data: ")
-		if !ok {
-			continue
-		}
-
-		// ★ [DONE] 标记流正常结束
-		if strings.TrimSpace(data) == "[DONE]" {
-			ch <- &StreamChunk{Done: true}
-			return
-		}
-
-		// 解析 JSON chunk
-		var oaiResp openaiChatResponse
-		if err := json.Unmarshal([]byte(data), &oaiResp); err != nil {
-			ch <- &StreamChunk{
-				Done:  true,
-				Error: fmt.Errorf("openai stream decode: %w", err),
-			}
-			return
-		}
-
-		if len(oaiResp.Choices) > 0 {
-			chunk := &StreamChunk{
-				Content: oaiResp.Choices[0].Delta.Content,
-			}
-			// finish_reason 非空 → 这条是最后一个 chunk
-			if oaiResp.Choices[0].FinishReason != "" {
-				chunk.Done = true
-				ch <- chunk
-				return
-			}
-			ch <- chunk
-		}
-	}
-
-	// scanner 出错（网络断连等）
-	if err := scanner.Err(); err != nil {
-		ch <- &StreamChunk{
-			Done:  true,
-			Error: fmt.Errorf("openai stream read: %w", err),
-		}
-	}
 }
 
 // CountTokens 估算消息的 token 数。
