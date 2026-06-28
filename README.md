@@ -141,15 +141,21 @@ internal/
 │   └── context.go          ← 状态管理
 │
 ├── env/                    ← 环境层
-│   └── environment.go      ← 消息路由中心
+│   └── environment.go      ← 消息路由中心 + 公有工具注册
 │
-└── team/                   ← 编排层
-    └── team.go             ← 多 Agent 编排器
+├── team/                   ← 编排层
+│   └── team.go             ← 多 Agent 编排器
+│
+└── tool/                   ← Tool 层
+    ├── tool.go             ← Tool 接口 + ToolRegistry
+    └── builtin/            ← 内置 Tool（ReadFile / WriteFile / RunCommand）
 
 cmd/
 ├── demo/main.go            ← Foundation 层演示
 ├── llmdemo/main.go         ← LLM 层演示
-└── demo_duo/main.go        ← 双 Agent 协作演示
+├── demo_duo/main.go        ← 双 Agent 协作演示
+├── demo_company/main.go    ← 3 Agent 软件公司演示
+└── demo_tool/main.go       ← Tool 层演示（写盘+编译）
 ```
 
 ---
@@ -201,6 +207,23 @@ Alice 发布消息 { CauseBy: "WritePRD", SendTo: ["<all>"] }
   → Bob (watch: "WritePRD") 接收并处理
   → Carol (watch: "WriteCode") 忽略
 ```
+
+### Tool（工具）
+
+**Action = 做什么（调 LLM），Tool = 用什么做（纯函数）。**
+
+公有工具注册在 Environment，一次注册全员共享；私有工具注册在 Role 级别：
+
+```go
+env.RegisterPublicTool(tools.NewWriteFileTool())   // 一次
+env.RegisterPublicTool(tools.NewRunCommandTool())  // 全员可用
+
+alice := role.NewRole("Alice",
+    role.WithTools(stakeholderMapTool), // ← 只有 PM 能用的私有工具
+)
+```
+
+Tool 列表自动注入 LLM 的 system prompt，Action 在 LLM 返回后调 `CallTool()` 执行实际 IO。详情见 [开发过程总结](docs/开发过程总结.md#tool-层----让-agent-动手的能力)。
 
 ---
 
@@ -254,8 +277,9 @@ type deepseekClient struct {
 | Phase 2 | LLM Client + 5 Providers + 三级配置 | ✅ |
 | Phase 3 | Action + Role（observe→think→act） | ✅ |
 | Phase 4 | Environment + Team 编排 | ✅ |
-| Phase 5 | 内置 Action + 双 Agent 协作 | ✅ |
-| Phase 6 | 软件公司完整场景 + YAML 配置 + CI/CD | 🚧 |
+| Phase 5 | 内置 Action + 多 Agent 协作 | ✅ |
+| Phase 5.5 | Tool 层（公有/私有工具 + 写盘编译） | ✅ |
+| Phase 6 | YAML 配置 + Web UI + 面试准备 | 🚧 |
 | Phase 7 | Web UI + 面试准备 | 📋 |
 
 ---
