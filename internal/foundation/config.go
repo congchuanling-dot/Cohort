@@ -68,18 +68,26 @@ func DefaultConfig() *Config {
 }
 
 // applyEnvOverrides 用环境变量覆盖配置（12-factor 原则）。
-// 当前阶段仅覆盖 API Key，后续阶段会扩展为通用机制。
 func (c *Config) ApplyEnvOverrides() {
+	// === COHORT_ 前缀（最高优先级）===
 	if v := os.Getenv("COHORT_LLM_API_KEY"); v != "" {
 		c.LLM.APIKey = v
+	} else if v := os.Getenv("DEEPSEEK_API_KEY"); v != "" {
+		// 回退：DEEPSEEK_API_KEY（用户已有的环境变量）
+		c.LLM.APIKey = v
+		c.LLM.Provider = "deepseek"
 	}
 	if v := os.Getenv("COHORT_LLM_PROVIDER"); v != "" {
 		c.LLM.Provider = v
 	}
 	if v := os.Getenv("COHORT_LLM_MODEL"); v != "" {
 		c.LLM.Model = v
+	} else if v := os.Getenv("DEEPSEEK_MODEL"); v != "" {
+		c.LLM.Model = v
 	}
 	if v := os.Getenv("COHORT_LLM_BASE_URL"); v != "" {
+		c.LLM.BaseURL = v
+	} else if v := os.Getenv("DEEPSEEK_API_URL"); v != "" {
 		c.LLM.BaseURL = v
 	}
 }

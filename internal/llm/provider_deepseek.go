@@ -2,6 +2,7 @@ package llm
 
 import (
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -17,10 +18,13 @@ type deepseekClient struct {
 }
 
 // newDeepSeek 创建 DeepSeek 客户端。
-// 默认 BaseURL = https://api.deepseek.com/v1，其余与 OpenAI 完全一致。
+// ★ DeepSeek base_url 是 https://api.deepseek.com（无 /v1），
+// 路径直接是 /chat/completions，即 https://api.deepseek.com/chat/completions
 func newDeepSeek(cfg ProviderConfig) (Client, error) {
 	if cfg.BaseURL == "" {
-		cfg.BaseURL = "https://api.deepseek.com/v1"
+		cfg.BaseURL = "https://api.deepseek.com"
+	} else {
+		cfg.BaseURL = trimChatPath(cfg.BaseURL)
 	}
 	timeout := cfg.TimeoutSec
 	if timeout == 0 {
@@ -40,4 +44,19 @@ func newDeepSeek(cfg ProviderConfig) (Client, error) {
 // Name 返回 DeepSeek 的标识，覆盖嵌入的 openaiClient.Name()。
 func (c *deepseekClient) Name() string {
 	return "deepseek/" + c.cfg.Model
+}
+
+// trimChatPath 截掉 BaseURL 中已有的 API 路径（DeepSeek 专用）。
+//
+// DeepSeek base_url = https://api.deepseek.com（无 /v1），
+// 路径是 /chat/completions，所以需要去掉可能误配的 /v1。
+//
+//	"https://api.deepseek.com/v1/chat/completions" → "https://api.deepseek.com"
+//	"https://api.deepseek.com/chat/completions"    → "https://api.deepseek.com"
+func trimChatPath(baseURL string) string {
+	baseURL = strings.TrimRight(baseURL, "/")
+	baseURL = strings.TrimSuffix(baseURL, "/v1/chat/completions")
+	baseURL = strings.TrimSuffix(baseURL, "/chat/completions")
+	baseURL = strings.TrimSuffix(baseURL, "/v1")
+	return baseURL
 }

@@ -230,10 +230,11 @@ func (c *anthropicClient) parseSSEStream(resp *http.Response, ch chan<- *StreamC
 			continue
 		}
 
-		data, ok := strings.CutPrefix(line, "data: ")
+		data, ok := strings.CutPrefix(line, "data:")
 		if !ok {
 			continue
 		}
+		data = strings.TrimSpace(data)
 
 		// 解析 SSE 事件
 		var event struct {
@@ -265,6 +266,8 @@ func (c *anthropicClient) parseSSEStream(resp *http.Response, ch chan<- *StreamC
 			Done:  true,
 			Error: fmt.Errorf("anthropic stream read: %w", err),
 		}
+	} else {
+		ch <- &StreamChunk{Done: true}
 	}
 }
 

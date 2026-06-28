@@ -198,7 +198,12 @@ func (c *customClient) setAuth(req *http.Request) {
 // ==========================================
 
 // parseOpenAISSE 解析 OpenAI 兼容的 SSE 流。
-// goroutine 负责，解析结束后关闭 channel。
+//
+// goroutine 负责：逐行读取 SSE，解析 JSON chunk，推入 channel。
+// 三种结束条件（都会先发 Done=true，再 close(ch)）：
+//  1. 收到 "data: [DONE]" —— 标准 OpenAI 结束标记
+//  2. finish_reason 非空 —— 最后一条有效 chunk
+//  3. 流读完后自然关闭 —— 连接关闭，无 [DONE] 也无 finish_reason
 func parseOpenAISSE(resp *http.Response, ch chan<- *StreamChunk) {
 	defer resp.Body.Close()
 	defer close(ch)
@@ -214,10 +219,12 @@ func parseOpenAISSE(resp *http.Response, ch chan<- *StreamChunk) {
 		if strings.HasPrefix(line, ":") {
 			continue
 		}
-		data, ok := strings.CutPrefix(line, "data: ")
+		// 兼容 "data: " 和 "data:" 两种 SSE 前缀格式
+		data, ok := strings.CutPrefix(line, "data:")
 		if !ok {
 			continue
 		}
+		data = strings.TrimSpace(data)
 		if strings.TrimSpace(data) == "[DONE]" {
 			ch <- &StreamChunk{Done: true}
 			return
@@ -240,10 +247,17 @@ func parseOpenAISSE(resp *http.Response, ch chan<- *StreamChunk) {
 				ch <- chunk
 				return
 			}
-			ch <- chunk
+			// 跳过空内容帧（某些 API 在最后一个 finish_reason chunk 之后还会发空 content）
+			if chunk.Content != "" {
+				ch <- chunk
+			}
 		}
 	}
+
+	// 流自然结束（连接关闭）：有些 API 不发 [DONE] 也不发 finish_reason
 	if err := scanner.Err(); err != nil {
 		ch <- &StreamChunk{Done: true, Error: fmt.Errorf("sse stream read: %w", err)}
+	} else {
+		ch <- &StreamChunk{Done: true}
 	}
 }
