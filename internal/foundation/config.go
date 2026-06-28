@@ -5,13 +5,15 @@ import "os"
 // Config 全局配置，聚合所有子配置。
 // 后续阶段会加入 YAML 加载、环境变量覆盖等功能。
 type Config struct {
-	LLM       LLMConfig       // LLM 调用配置
-	Agent     AgentConfig     // Agent 运行参数
-	Workspace WorkspaceConfig // 工作区配置
+	LLM       LLMConfig         // 第 1 层：全局默认 LLM 配置（最低优先级）
+	Roles     RolesLLMConfig    // 第 2 层：按 Role 名称覆盖 LLM 配置
+	Actions   ActionsLLMConfig  // 第 3 层：按 Action 名称覆盖 LLM 配置（最高优先级）
+	Agent     AgentConfig       // Agent 运行参数
+	Workspace WorkspaceConfig   // 工作区配置
 }
 
 // LLMConfig LLM 调用配置（单一 Provider + 模型）。
-// 后续阶段会扩展为多 Provider + 分级覆盖。
+// 这是"可继承的配置单元"——只填想覆盖的字段，其余自动继承。
 type LLMConfig struct {
 	Provider    string  // openai / deepseek / anthropic / ollama / custom
 	Model       string  // 模型名称，如 deepseek-chat
@@ -22,6 +24,14 @@ type LLMConfig struct {
 	TimeoutSec  int     // 请求超时（秒）
 	MaxRetries  int     // 最大重试次数
 }
+
+// RolesLLMConfig 按 Role 名称覆盖 LLM 配置（第 2 层优先级）。
+// key = Role 名称（如 "Alex"、"Edward"），只填想覆盖的字段。
+type RolesLLMConfig map[string]*LLMConfig
+
+// ActionsLLMConfig 按 Action 名称覆盖 LLM 配置（第 3 层，最高优先级）。
+// key = Action 名称（如 "WriteCode"、"WritePRD"），只填想覆盖的字段。
+type ActionsLLMConfig map[string]*LLMConfig
 
 // AgentConfig Agent 运行时参数。
 type AgentConfig struct {
