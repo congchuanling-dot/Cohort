@@ -40,7 +40,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		LLM: LLMConfig{
 			Provider:    "deepseek",
-			Model:       "deepseek-chat",
+			Model:       "deepseek-v4-pro",
 			Temperature: 0.3,
 			MaxTokens:   4096,
 			TimeoutSec:  120,

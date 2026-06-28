@@ -2,7 +2,22 @@
 // 本文件定义 Agent 之间的通信单元——Message。
 package foundation
 
-import "time"
+import (
+	"fmt"
+	"sync/atomic"
+	"time"
+)
+
+// 全局唯一 ID 计数器（零外部依赖，不用 uuid）
+var idCounter atomic.Int64
+
+func init() {
+	idCounter.Store(time.Now().UnixNano())
+}
+
+func newMsgID() string {
+	return fmt.Sprintf("msg_%d", idCounter.Add(1))
+}
 
 // 特殊路由地址
 const (
@@ -37,6 +52,7 @@ type Message struct {
 // NewUserMessage 创建一条用户消息（广播给所有角色）。
 func NewUserMessage(content string) *Message {
 	return &Message{
+		ID:        newMsgID(),
 		Content:   content,
 		Role:      RoleUser,
 		CauseBy:   "UserRequirement",
@@ -49,6 +65,7 @@ func NewUserMessage(content string) *Message {
 // NewSystemMessage 创建一条系统消息（由 Agent 产生）。
 func NewSystemMessage(content string, causedBy, sentFrom string) *Message {
 	return &Message{
+		ID:        newMsgID(),
 		Content:   content,
 		Role:      RoleSystem,
 		CauseBy:   causedBy,
