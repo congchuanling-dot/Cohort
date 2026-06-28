@@ -10,6 +10,7 @@ import (
 	"context"
 	"log"
 	"sync"
+	"time"
 
 	"cohort/internal/foundation"
 	"cohort/internal/role"
@@ -96,12 +97,16 @@ func (e *Environment) PublishMessage(msg *foundation.Message) {
 	}
 }
 
-// Run 并发运行所有非空闲角色。
+// Run 单轮执行：并发运行所有非空闲角色。
 //
-// 使用 sync.WaitGroup 管理并发：
-//   - 所有非空闲 Role 各自在 goroutine 中执行 Run()
-//   - 等待全部完成
-//   - 任一 Role 的 Run() 返回 error 时，取消其他所有 Role 的 context
+// Role.Run() 是无限循环，所以这里用"等一轮消息处理完"的策略：
+//  1. 启动所有活跃 Role 的 goroutine
+//  2. 等待一小段时间让它们处理完当前消息
+//  3. 检查是否全员空闲
+//  4. 取消 context 让 goroutine 退出
+//  5. 返回
+//
+// 调用方（Team.Run）会在循环中多次调用此方法，每轮处理一条消息。
 func (e *Environment) Run(ctx context.Context) error {
 	e.mu.RLock()
 	active := make([]*role.Role, 0, len(e.roles))
@@ -117,35 +122,34 @@ func (e *Environment) Run(ctx context.Context) error {
 		return nil
 	}
 
-	log.Printf("[Env] running %d roles concurrently", len(active))
+	log.Printf("[Env] running %d roles", len(active))
 
-	// 创建可取消的子 context，任一 goroutine 出错就全部停
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	var wg sync.WaitGroup
-	errCh := make(chan error, len(active))
-
 	for _, r := range active {
 		r := r
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := r.Run(ctx); err != nil {
-				errCh <- err
-				cancel() // 通知其他 goroutine 退出
-			}
+			r.Run(ctx) // error 由后续日志体现，不阻塞整体流程
 		}()
 	}
 
-	// 等待所有 goroutine 完成
-	wg.Wait()
-	close(errCh)
-
-	// 收集第一个错误
-	if err, ok := <-errCh; ok {
-		return err
+	// 等待角色处理完消息（轮询，最长等 3 分钟，给 LLM 调用留足时间）
+	pollInterval := 500 * time.Millisecond
+	deadline := time.Now().Add(3 * time.Minute)
+	for time.Now().Before(deadline) {
+		time.Sleep(pollInterval)
+		if e.IsAllIdle() {
+			break
+		}
 	}
+
+	cancel()  // 通知所有 goroutine 退出
+	wg.Wait() // 等待全部退出
+
 	return nil
 }
 

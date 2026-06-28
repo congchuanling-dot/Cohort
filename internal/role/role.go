@@ -231,7 +231,11 @@ func (r *Role) Run(ctx context.Context) error {
 // ==========================================
 
 // react 根据 reactMode 分发到具体实现。
+//
+// ★ 使用 context.WithoutCancel 保护 LLM 调用不被 env 的轮询超时打断。
+// env 的 ctx 用于控制角色主循环的启停，但 LLM 调用一旦发起就必须完成。
 func (r *Role) react(ctx context.Context) (*foundation.Message, error) {
+	ctx = context.WithoutCancel(ctx)
 	switch r.reactMode {
 	case ReactByOrder:
 		return r.reactByOrder(ctx)
