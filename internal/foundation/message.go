@@ -11,6 +11,8 @@ import (
 // 全局唯一 ID 计数器（零外部依赖，不用 uuid）
 var idCounter atomic.Int64
 
+// 初始化全局 ID 计数器，让它从当前时间开始，而不是从 0 开始
+// 时间戳，纳秒数
 func init() {
 	idCounter.Store(time.Now().UnixNano())
 }

@@ -10,7 +10,7 @@
 # ==========================================
 llm:
   provider: deepseek
-  model: deepseek-chat
+  model: deepseek-v4-pro
   api_key: ${DEEPSEEK_API_KEY}   # ★ 从环境变量读取，不写死
   # base_url: https://api.deepseek.com   # 空 = 用 Provider 默认值
   temperature: 0.3
