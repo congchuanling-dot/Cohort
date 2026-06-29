@@ -104,14 +104,13 @@ func (e *Environment) PublishMessage(msg *foundation.Message) {
 	}
 }
 
-// Run 单轮执行：并发运行所有非空闲角色。
+// Run 单轮执行：并发运行所有非空闲 Role，每个处理一条消息后返回。
 //
-// Role.Run() 是无限循环，所以这里用"等一轮消息处理完"的策略：
-//  1. 启动所有活跃 Role 的 goroutine
-//  2. 等待一小段时间让它们处理完当前消息
-//  3. 检查是否全员空闲
-//  4. 取消 context 让 goroutine 退出
-//  5. 返回
+// 与 MetaGPT 的 Environment.run() 行为一致：
+//  1. 找出所有活跃 Role
+//  2. 并发启动 goroutine，每个调用 Role.RunOnce()
+//  3. RunOnce 处理一条消息后自然返回
+//  4. wg.Wait() 等所有 goroutine 返回
 //
 // 调用方（Team.Run）会在循环中多次调用此方法，每轮处理一条消息。
 func (e *Environment) Run(ctx context.Context) error {
@@ -131,32 +130,26 @@ func (e *Environment) Run(ctx context.Context) error {
 
 	log.Printf("[Env] running %d roles", len(active))
 
-	ctx, cancel := context.WithCancel(ctx)
+	// 带超时的 context：LLM 调用可能耗时很长
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 
 	var wg sync.WaitGroup
 	for _, r := range active {
-		r := r
 		wg.Add(1)
-		go func() {
+		go func(role *role.Role) {
 			defer wg.Done()
-			r.Run(ctx) // error 由后续日志体现，不阻塞整体流程
-		}()
+			hasMore, runErr := role.RunOnce(ctx)
+			if runErr != nil {
+				log.Printf("[Env] %s error: %v", role.Name, runErr)
+			}
+			if hasMore {
+				log.Printf("[Env] %s has more work pending", role.Name)
+			}
+		}(r)
 	}
 
-	// 等待角色处理完消息（轮询，最长等 3 分钟，给 LLM 调用留足时间）
-	pollInterval := 500 * time.Millisecond
-	deadline := time.Now().Add(3 * time.Minute)
-	for time.Now().Before(deadline) {
-		time.Sleep(pollInterval)
-		if e.IsAllIdle() {
-			break
-		}
-	}
-
-	cancel()  // 通知所有 goroutine 退出
-	wg.Wait() // 等待全部退出
-
+	wg.Wait() // RunOnce 自然返回，无需 cancel
 	return nil
 }
 

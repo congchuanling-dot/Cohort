@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"sync"
 
 	"cohort/internal/action"
 	"cohort/internal/foundation"
@@ -79,9 +78,9 @@ type Role struct {
 	Desc        string `json:"desc"`        // 详细描述
 
 	// === 行为定义 ===
-	actions   []action.Action  // 可执行的动作列表
-	reactMode ReactMode         // 反应模式
-	watch     map[string]bool   // 关注的 cause_by 集合（空 = 关注所有）
+	actions   []action.Action    // 可执行的动作列表
+	reactMode ReactMode          // 反应模式
+	watch     map[string]bool    // 关注的 cause_by 集合（空 = 关注所有）
 	tools     *tool.ToolRegistry // 私有工具注册表（本 Role 专有工具）
 
 	// === 运行时状态 ===
@@ -90,11 +89,6 @@ type Role struct {
 	memory    *foundation.Memory       // 消息历史存储
 	env       MessagePublisher         // 消息发布接口
 	observed  []string                 // 已观察过的消息 ID
-
-	// === 生命周期 ===
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
 }
 
 // ==========================================
@@ -179,62 +173,49 @@ func NewRole(name string, opts ...RoleOption) *Role {
 }
 
 // ==========================================
-// 主循环 —— 整个框架最核心的代码
+// RunOnce —— 处理一条消息后返回
 // ==========================================
 
-// Run 启动 Role 的主循环。
-// 阻塞直到 ctx 被取消或 msgBuffer 被关闭。
+// RunOnce 处理一条消息后返回。对照 MetaGPT 的 Role.run() —— 观察一条、执行、返回。
+//
 // 由 Environment.Run() 在 goroutine 中调用。
-//
-// 循环体：
-//
-//	select {
-//	case <-ctx.Done():  // 优雅关闭
-//	case msg := <-msgBuffer:  // 收到消息
-//	    observe(msg)  →  react(ctx)  →  publish(rsp)
-//	}
-func (r *Role) Run(ctx context.Context) error {
-	r.ctx, r.cancel = context.WithCancel(ctx)
-	defer r.cancel()
+// 返回 hasMore：Role 是否还有后续工作（!IsIdle()）。
+func (r *Role) RunOnce(ctx context.Context) (hasMore bool, err error) {
+	select {
+	case <-ctx.Done():
+		log.Printf("[%s] context done, exiting", r.Name)
+		return !r.IsIdle(), ctx.Err()
 
-	log.Printf("[%s] started | mode=%s | actions=%d | watch=%v",
-		r.Name, r.reactMode, len(r.actions), r.watchKeys())
-
-	for {
-		select {
-		case <-r.ctx.Done():
-			log.Printf("[%s] context cancelled, exiting", r.Name)
-			return r.ctx.Err()
-
-		case msg, ok := <-r.msgBuffer:
-			if !ok {
-				log.Printf("[%s] msgBuffer closed, exiting", r.Name)
-				return nil
-			}
-
-			// === Step 1: Observe ===
-			if !r.shouldObserve(msg) {
-				continue
-			}
-			r.memory.Add(msg)
-			r.markObserved(msg)
-
-			log.Printf("[%s] observed | cause_by=%s | content_len=%d",
-				r.Name, msg.CauseBy, len(msg.Content))
-
-			// === Step 2 & 3: Think + Act（合并为 React）===
-			rsp, err := r.react(r.ctx)
-			if err != nil {
-				log.Printf("[%s] react error: %v", r.Name, err)
-				continue
-			}
-
-			// === Step 4: Publish ===
-			if rsp != nil && r.env != nil {
-				r.env.PublishMessage(rsp)
-				log.Printf("[%s] published | cause_by=%s", r.Name, rsp.CauseBy)
-			}
+	case msg, ok := <-r.msgBuffer:
+		if !ok {
+			log.Printf("[%s] msgBuffer closed, exiting", r.Name)
+			return false, nil
 		}
+
+		// === Step 1: Observe ===
+		if !r.shouldObserve(msg) {
+			return !r.IsIdle(), nil // 不关注的消息，跳过
+		}
+		r.memory.Add(msg)
+		r.markObserved(msg)
+
+		log.Printf("[%s] observed | cause_by=%s | content_len=%d",
+			r.Name, msg.CauseBy, len(msg.Content))
+
+		// === Step 2 & 3: Think + Act ===
+		rsp, reactErr := r.react(ctx)
+		if reactErr != nil {
+			log.Printf("[%s] react error: %v", r.Name, reactErr)
+			return !r.IsIdle(), reactErr
+		}
+
+		// === Step 4: Publish ===
+		if rsp != nil && r.env != nil {
+			r.env.PublishMessage(rsp)
+			log.Printf("[%s] published | cause_by=%s", r.Name, rsp.CauseBy)
+		}
+
+		return !r.IsIdle(), nil
 	}
 }
 
@@ -243,11 +224,7 @@ func (r *Role) Run(ctx context.Context) error {
 // ==========================================
 
 // react 根据 reactMode 分发到具体实现。
-//
-// ★ 使用 context.WithoutCancel 保护 LLM 调用不被 env 的轮询超时打断。
-// env 的 ctx 用于控制角色主循环的启停，但 LLM 调用一旦发起就必须完成。
 func (r *Role) react(ctx context.Context) (*foundation.Message, error) {
-	ctx = context.WithoutCancel(ctx)
 	switch r.reactMode {
 	case ReactByOrder:
 		return r.reactByOrder(ctx)
