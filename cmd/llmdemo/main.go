@@ -54,8 +54,8 @@ func main() {
 	defer cancel()
 
 	resp, err := client.Chat(ctx, []llm.ChatMessage{
-		{Role: "system", Content: "你是一个 Go 语言专家。用中文一句话回答。"},
-		{Role: "user", Content: "goroutine 和线程的区别是什么？"},
+		{Role: llm.RoleSystem, Content: "你是一个 Go 语言专家。用中文一句话回答。"},
+		{Role: llm.RoleUser, Content: "goroutine 和线程的区别是什么？"},
 	})
 	if err != nil {
 		fmt.Printf("❌ 失败: %v\n\n", err)
@@ -74,8 +74,8 @@ func main() {
 	defer cancel2()
 
 	resp2, err := client.Chat(ctx2, []llm.ChatMessage{
-		{Role: "system", Content: "你是一个资深 Go 工程师。写代码要简洁、有注释。"},
-		{Role: "user", Content: "用 Go 写一个泛型版本的二分查找函数，包含错误处理。"},
+		{Role: llm.RoleSystem, Content: "你是一个资深 Go 工程师。写代码要简洁、有注释。"},
+		{Role: llm.RoleUser, Content: "用 Go 写一个泛型版本的二分查找函数，包含错误处理。"},
 	})
 	if err != nil {
 		fmt.Printf("❌ 失败: %v\n\n", err)
@@ -94,8 +94,8 @@ func main() {
 	defer cancel3()
 
 	ch, err := client.ChatStream(ctx3, []llm.ChatMessage{
-		{Role: "system", Content: "简洁回答。"},
-		{Role: "user", Content: "用一句话介绍 Go 语言的 channel。"},
+		{Role: llm.RoleSystem, Content: "简洁回答。"},
+		{Role: llm.RoleUser, Content: "用一句话介绍 Go 语言的 channel。"},
 	})
 	if err != nil {
 		fmt.Printf("❌ 失败: %v\n", err)

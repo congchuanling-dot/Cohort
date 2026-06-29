@@ -181,13 +181,13 @@ func (c *anthropicClient) buildRequest(messages []ChatMessage) anthropicRequest 
 	var antMsgs []anthropicMessage
 
 	for _, m := range messages {
-		if m.Role == "system" {
+		if m.Role == RoleSystem {
 			// Anthropic 的 system 是请求顶层字段，不在 messages 数组里
 			if systemPrompt.Len() > 0 {
 				systemPrompt.WriteString("\n")
 			}
 			systemPrompt.WriteString(m.Content)
-		} else if m.Role == "user" || m.Role == "assistant" {
+		} else if m.Role == RoleUser || m.Role == RoleAssistant {
 			// user/assistant → Anthropic 直接对应
 			antMsgs = append(antMsgs, anthropicMessage{
 				Role: m.Role,

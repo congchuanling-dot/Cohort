@@ -170,7 +170,7 @@ func NewEchoResponder() *EchoResponder {
 func (e *EchoResponder) Chat(ctx context.Context, messages []ChatMessage) (*ChatResponse, error) {
 	content := ""
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == "user" {
+		if messages[i].Role == RoleUser {
 			content = messages[i].Content
 			break
 		}

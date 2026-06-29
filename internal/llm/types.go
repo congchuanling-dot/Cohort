@@ -18,3 +18,11 @@ const (
 func (p ProviderType) String() string {
 	return string(p)
 }
+
+// ChatMessage 的 Role 常量。
+// 对应 OpenAI/DeepSeek 等 API 的标准角色，避免散落魔法字符串。
+const (
+	RoleSystem    = "system"
+	RoleUser      = "user"
+	RoleAssistant = "assistant"
+)

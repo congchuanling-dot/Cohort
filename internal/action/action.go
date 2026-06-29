@@ -107,7 +107,7 @@ func (a *BaseAction) AskLLM(ctx context.Context, prompt string, history []*found
 	}
 
 	messages := []llm.ChatMessage{
-		{Role: "system", Content: systemPrompt},
+		{Role: llm.RoleSystem, Content: systemPrompt},
 	}
 
 	// 2. 将框架内的 Message 转换为 LLM 的 ChatMessage
@@ -116,7 +116,7 @@ func (a *BaseAction) AskLLM(ctx context.Context, prompt string, history []*found
 
 	// 3. 附加当前 prompt
 	messages = append(messages, llm.ChatMessage{
-		Role:    "user",
+		Role:    llm.RoleUser,
 		Content: prompt,
 	})
 
@@ -137,12 +137,12 @@ func (a *BaseAction) AskLLMStream(ctx context.Context, prompt string, history []
 	}
 
 	messages := []llm.ChatMessage{
-		{Role: "system", Content: systemPrompt},
+		{Role: llm.RoleSystem, Content: systemPrompt},
 	}
 	historyMsgs := a.frameToLLMMessages(history)
 	messages = append(messages, historyMsgs...)
 	messages = append(messages, llm.ChatMessage{
-		Role: "user", Content: prompt,
+		Role: llm.RoleUser, Content: prompt,
 	})
 
 	return a.client.ChatStream(ctx, messages)
@@ -158,7 +158,7 @@ func (a *BaseAction) frameToLLMMessages(msgs []*foundation.Message) []llm.ChatMe
 	for _, msg := range msgs {
 		role := msg.Role
 		if role == "" {
-			role = "user"
+			role = llm.RoleUser
 		}
 		result = append(result, llm.ChatMessage{
 			Role:    role,
