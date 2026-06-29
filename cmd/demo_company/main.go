@@ -26,6 +26,7 @@ import (
 	"cohort/internal/llm"
 	"cohort/internal/role"
 	"cohort/internal/team"
+	toolbuiltin "cohort/internal/tool/builtin"
 )
 
 func main() {
@@ -99,11 +100,14 @@ func main() {
 		role.WithMemory(foundation.NewMemory(50)),
 	)
 
+	wc := builtin.NewWriteCode(engClient)
+	wc.SetOutputRoot("output") // ★ 隔离输出目录，防止污染项目根目录
+
 	charlie := role.NewRole("Charlie",
 		role.WithProfile(
 			"Senior Go Engineer", "Write clean, idiomatic, production Go code", "Use only Go standard library, write complete runnable code",
 		),
-		role.WithActions(builtin.NewWriteCode(engClient)),
+		role.WithActions(wc),
 		role.WithWatch("WriteDesign"),
 		role.WithMemory(foundation.NewMemory(50)),
 	)
@@ -120,6 +124,8 @@ func main() {
 	fmt.Println("└──────────┴──────────────┴──────────────────┴────────────────────────┘")
 
 	t := team.NewTeam(cfg)
+	t.RegisterTool(toolbuiltin.NewWriteFileTool())  // ★ 注册公有工具，所有 Role 自动继承
+	t.RegisterTool(toolbuiltin.NewRunCommandTool()) // ★ 注册公有工具，所有 Role 自动继承
 	t.Hire(alice)
 	t.Hire(bob)
 	t.Hire(charlie)

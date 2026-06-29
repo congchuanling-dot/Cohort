@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 // WriteCode 根据技术设计生成代码。
 type WriteCode struct {
 	*action.BaseAction
+	OutputRoot string // 输出根目录，所有生成的文件都写在此目录下（空 = 当前工作目录）
 }
 
 const codeSystemPrompt = `You are a senior Software Engineer with 15 years of Go experience.
@@ -44,6 +46,12 @@ func NewWriteCode(client llm.Client) *WriteCode {
 	return &WriteCode{
 		BaseAction: action.NewBaseAction("WriteCode", codeSystemPrompt, client),
 	}
+}
+
+// SetOutputRoot 设置输出根目录。生成的所有文件都会写在这个目录下。
+// 调用方（如 demo）在 Hire 之前设置，防止生成的文件污染项目根目录。
+func (a *WriteCode) SetOutputRoot(dir string) {
+	a.OutputRoot = dir
 }
 
 // Run 执行代码生成。
@@ -96,9 +104,20 @@ func (a *WriteCode) saveAndBuild(ctx context.Context, llmOutput string) string {
 		filename := strings.TrimSpace(match[1])
 		code := match[2]
 
+		// ★ 拼到输出根目录下，防止污染项目根目录
+		writePath := filename
+		if a.OutputRoot != "" {
+			writePath = filepath.Join(a.OutputRoot, filename)
+		}
+		// 安全检查：拒绝 .. 路径逃逸
+		if strings.Contains(writePath, "..") {
+			results = append(results, fmt.Sprintf("⚠️ 跳过不安全路径: %s", writePath))
+			continue
+		}
+
 		// 用 WriteFile Tool 写入磁盘
 		writeResult, err := a.CallTool(ctx, "WriteFile", map[string]any{
-			"path":    filename,
+			"path":    writePath,
 			"content": code,
 		})
 		if err != nil {
@@ -108,10 +127,12 @@ func (a *WriteCode) saveAndBuild(ctx context.Context, llmOutput string) string {
 		}
 	}
 
-	// 用 RunCommand Tool 尝试编译
-	buildResult, err := a.CallTool(ctx, "RunCommand", map[string]any{
-		"command": "go build ./...",
-	})
+	// 用 RunCommand Tool 尝试编译（在输出目录中执行）
+	buildArgs := map[string]any{"command": "go build ./..."}
+	if a.OutputRoot != "" {
+		buildArgs["workdir"] = a.OutputRoot
+	}
+	buildResult, err := a.CallTool(ctx, "RunCommand", buildArgs)
 	if err != nil {
 		results = append(results, fmt.Sprintf("❌ 编译失败: %v", err))
 	} else {
