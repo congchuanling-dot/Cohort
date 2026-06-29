@@ -176,9 +176,14 @@ func NewRole(name string, opts ...RoleOption) *Role {
 // RunOnce —— 处理一条消息后返回
 // ==========================================
 
-// RunOnce 处理一条消息后返回。 观察一条、执行、返回。
+// RunOnce 排空 msgBuffer，对关注的消息 react 一次后返回。
 //
-// 由 Environment.Run() 在 goroutine 中调用。
+// 对照 MetaGPT 的 _observe() + react()：
+//  1. 阻塞等待至少一条消息
+//  2. 非阻塞排空 buffer（防止消息堆积，确保每条消息都被"看到"）
+//  3. 过滤出 shouldObserve 的消息，存入 memory（不关注的丢弃，env.History 已有存档）
+//  4. 如果有任何关注的消息，react 一次
+//
 // 返回 hasMore：Role 是否还有后续工作（!IsIdle()）。
 func (r *Role) RunOnce(ctx context.Context) (hasMore bool, err error) {
 	select {
@@ -186,21 +191,23 @@ func (r *Role) RunOnce(ctx context.Context) (hasMore bool, err error) {
 		log.Printf("[%s] context done, exiting", r.Name)
 		return !r.IsIdle(), ctx.Err()
 
-	case msg, ok := <-r.msgBuffer:
+	case first, ok := <-r.msgBuffer:
 		if !ok {
 			log.Printf("[%s] msgBuffer closed, exiting", r.Name)
 			return false, nil
 		}
 
-		// === Step 1: Observe ===
-		if !r.shouldObserve(msg) {
-			return !r.IsIdle(), nil // 不关注的消息，跳过
-		}
-		r.memory.Add(msg)
-		r.markObserved(msg)
+		// === Step 1: Observe —— 排空 buffer，收集关注的消息 ===
+		observed := r.drainAndFilter(first)
 
-		log.Printf("[%s] observed | cause_by=%s | content_len=%d",
-			r.Name, msg.CauseBy, len(msg.Content))
+		if len(observed) == 0 {
+			return !r.IsIdle(), nil // 没有关注的消息，空跑一轮
+		}
+
+		for _, msg := range observed {
+			log.Printf("[%s] observed | cause_by=%s | content_len=%d",
+				r.Name, msg.CauseBy, len(msg.Content))
+		}
 
 		// === Step 2 & 3: Think + Act ===
 		rsp, reactErr := r.react(ctx)
@@ -216,6 +223,36 @@ func (r *Role) RunOnce(ctx context.Context) (hasMore bool, err error) {
 		}
 
 		return !r.IsIdle(), nil
+	}
+}
+
+// drainAndFilter 排空 msgBuffer 中所有消息，返回 shouldObserve 为 true 的那些。
+// 第一条消息（已从 channel 取出）需要显式传入。
+// 不关注的消息直接丢弃——它们已经在 env.History() 中有存档。
+func (r *Role) drainAndFilter(first *foundation.Message) []*foundation.Message {
+	var observed []*foundation.Message
+
+	if r.shouldObserve(first) {
+		r.memory.Add(first)
+		r.markObserved(first)
+		observed = append(observed, first)
+	}
+
+	// 非阻塞排空剩余消息
+	for {
+		select {
+		case msg, ok := <-r.msgBuffer:
+			if !ok {
+				return observed
+			}
+			if r.shouldObserve(msg) {
+				r.memory.Add(msg)
+				r.markObserved(msg)
+				observed = append(observed, msg)
+			}
+		default:
+			return observed
+		}
 	}
 }
 
@@ -344,9 +381,11 @@ func (r *Role) reactPlanAndAct(ctx context.Context) (*foundation.Message, error)
 // Runtime 方法
 // ==========================================
 
-// IsIdle 判断角色是否已空闲（所有 action 执行完毕）。
+// IsIdle 判断角色是否已完全空闲。
+// 对照 MetaGPT：state==-1 且 msgBuffer 为空才算空闲。
+// buffer 里还有消息时，即使 Actions 执行完也不算 idle。
 func (r *Role) IsIdle() bool {
-	return r.state == -1
+	return r.state == -1 && len(r.msgBuffer) == 0
 }
 
 // MessageBuffer 返回消息邮箱（只写 channel）。
