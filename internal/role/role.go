@@ -84,7 +84,7 @@ type Role struct {
 	tools     *tool.ToolRegistry // 私有工具注册表（本 Role 专有工具）
 
 	// === 运行时状态 ===
-	state     int                     // 当前动作索引，-1 = idle/terminated
+	state     int                      // 当前动作索引，-1 = idle/terminated
 	msgBuffer chan *foundation.Message // 消息邮箱（buffered channel）
 	memory    *foundation.Memory       // 消息历史存储
 	env       MessagePublisher         // 消息发布接口
@@ -162,9 +162,9 @@ func NewRole(name string, opts ...RoleOption) *Role {
 		Name:      name,
 		reactMode: ReactByOrder, // 默认 SOP 模式（最常用）
 		watch:     make(map[string]bool),
-		state:     0,                                     // 从第 0 个 action 开始
-		msgBuffer: make(chan *foundation.Message, 100),   // 缓冲 100 条消息
-		tools:     tool.NewRegistry(),                     // 空注册表，等待注入
+		state:     0,                                   // 从第 0 个 action 开始
+		msgBuffer: make(chan *foundation.Message, 100), // 缓冲 100 条消息
+		tools:     tool.NewRegistry(),                  // 空注册表，等待注入
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -176,7 +176,7 @@ func NewRole(name string, opts ...RoleOption) *Role {
 // RunOnce —— 处理一条消息后返回
 // ==========================================
 
-// RunOnce 处理一条消息后返回。对照 MetaGPT 的 Role.run() —— 观察一条、执行、返回。
+// RunOnce 处理一条消息后返回。 观察一条、执行、返回。
 //
 // 由 Environment.Run() 在 goroutine 中调用。
 // 返回 hasMore：Role 是否还有后续工作（!IsIdle()）。

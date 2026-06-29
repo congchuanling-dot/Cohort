@@ -106,7 +106,6 @@ func (e *Environment) PublishMessage(msg *foundation.Message) {
 
 // Run 单轮执行：并发运行所有非空闲 Role，每个处理一条消息后返回。
 //
-// 与 MetaGPT 的 Environment.run() 行为一致：
 //  1. 找出所有活跃 Role
 //  2. 并发启动 goroutine，每个调用 Role.RunOnce()
 //  3. RunOnce 处理一条消息后自然返回
