@@ -46,7 +46,7 @@ func NewTeam(cfg *foundation.Config) *Team {
 	return &Team{
 		env:    env.NewEnvironment(cfg),
 		cfg:    cfg,
-		nRound: 5, // 默认最多 5 轮
+		nRound: 30, // 默认最多 30 轮
 	}
 }
 
