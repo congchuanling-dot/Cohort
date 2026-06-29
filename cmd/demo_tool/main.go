@@ -11,7 +11,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -24,32 +23,26 @@ import (
 )
 
 func main() {
-	apiKey := os.Getenv("DEEPSEEK_API_KEY")
-	if apiKey == "" {
-		fmt.Println("❌ 未设置 DEEPSEEK_API_KEY")
+	// ★ YAML 配置加载（如果文件存在）
+	var cfg *foundation.Config
+	if cfg = tryLoadConfig("configs/config.yaml"); cfg == nil {
 		return
 	}
-	model := os.Getenv("DEEPSEEK_MODEL")
-	if model == "" {
-		model = "deepseek-chat"
-	}
-	baseURL := os.Getenv("DEEPSEEK_API_URL")
-	if baseURL == "" {
-		baseURL = "https://api.deepseek.com"
-	}
 
 	fmt.Println(strings.Repeat("=", 70))
-	fmt.Println("  公有 Tool 层 Demo —— Environment 注册，全员共享")
+	fmt.Println("  Tool 层 Demo —— YAML 配置 + 公有 Tool")
 	fmt.Println(strings.Repeat("=", 70))
-	fmt.Printf("  Model: %s\n\n", model)
+	fmt.Printf("  Provider: %s | Model: %s\n", cfg.LLM.Provider, cfg.LLM.Model)
 
-	cfg := foundation.DefaultConfig()
-
-	// ==================== Step 1: LLM 客户端 ====================
-	engClient, _ := llm.NewClient("deepseek", llm.ProviderConfig{
-		Model: model, APIKey: apiKey, BaseURL: baseURL,
-		Temperature: 0.1, MaxTokens: 3072,
-	})
+	// LLM 客户端 —— 用配置创建，不用硬编码
+	resolver := llm.NewLLMResolver(cfg)
+	providerName, providerCfg := resolver.Resolve("Charlie", "WriteCode")
+	engClient, err := llm.NewClient(providerName, providerCfg)
+	if err != nil {
+		fmt.Printf("❌ 创建 LLM 客户端失败: %v\n", err)
+		return
+	}
+	fmt.Printf("  LLM: %s (三级配置解析结果)\n\n", engClient.Name())
 
 	// ==================== Step 2: 创建 Team + 注册公有工具 ====================
 	t := team.NewTeam(cfg)
@@ -109,5 +102,22 @@ func main() {
 		fmt.Println(msg.Content)
 	}
 
-	fmt.Println("========== 公有 Tool 层 Demo 完成 ==========")
+	fmt.Println("========== Tool 层 Demo 完成 ==========")
+}
+
+// tryLoadConfig 尝试从 YAML 加载配置，失败则回退到环境变量。
+func tryLoadConfig(path string) *foundation.Config {
+	cfg, err := foundation.Load(path)
+	if err != nil {
+		fmt.Printf("⚠️  无法加载 %s: %v\n", path, err)
+		fmt.Println("   回退到环境变量...")
+		cfg = foundation.DefaultConfig()
+		cfg.ApplyEnvOverrides()
+		if cfg.LLM.APIKey == "" {
+			fmt.Println("❌ 未设置 DEEPSEEK_API_KEY 环境变量，无法继续")
+			return nil
+		}
+		fmt.Printf("   使用环境变量: %s/%s\n", cfg.LLM.Provider, cfg.LLM.Model)
+	}
+	return cfg
 }

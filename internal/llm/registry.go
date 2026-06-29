@@ -186,5 +186,6 @@ func llmConfigToProviderConfig(cfg *foundation.LLMConfig) ProviderConfig {
 		Temperature: cfg.Temperature,
 		MaxTokens:   cfg.MaxTokens,
 		TimeoutSec:  cfg.TimeoutSec,
+		Extra:       cfg.Extra,
 	}
 }
