@@ -36,6 +36,7 @@ func main() {
 		fmt.Println("❌ 未设置 DEEPSEEK_API_KEY")
 		return
 	}
+	//1
 	model := os.Getenv("DEEPSEEK_MODEL")
 	if model == "" {
 		model = "deepseek-chat"
