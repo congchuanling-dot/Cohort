@@ -19,7 +19,7 @@ func NewFilePatch(workspace string) *FilePatch {
 	return &FilePatch{workspaceTool: newWorkspaceTool(workspace)}
 }
 
-func (t *FilePatch) Name() string { return "file_patch" }
+func (t *FilePatch) Name() string { return ToolNameFilePatch }
 
 // Schema 要求模型提供 path、old_content、new_content。
 func (t *FilePatch) Schema() llm.ToolSchema {

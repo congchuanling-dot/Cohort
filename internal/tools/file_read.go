@@ -20,7 +20,7 @@ func NewFileRead(workspace string) *FileRead {
 	return &FileRead{workspaceTool: newWorkspaceTool(workspace)}
 }
 
-func (t *FileRead) Name() string { return "file_read" }
+func (t *FileRead) Name() string { return ToolNameFileRead }
 
 // Schema 告诉模型 file_read 支持哪些参数。
 func (t *FileRead) Schema() llm.ToolSchema {

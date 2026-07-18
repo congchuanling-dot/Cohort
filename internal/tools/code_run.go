@@ -22,7 +22,7 @@ func NewCodeRun(workspace string) *CodeRun {
 	return &CodeRun{workspaceTool: newWorkspaceTool(workspace)}
 }
 
-func (t *CodeRun) Name() string { return "code_run" }
+func (t *CodeRun) Name() string { return ToolNameCodeRun }
 
 // Schema 告诉模型需要提供 script，可选 timeout 和 cwd。
 func (t *CodeRun) Schema() llm.ToolSchema {

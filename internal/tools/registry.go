@@ -8,6 +8,19 @@ import (
 	"cohert/internal/llm"
 )
 
+const (
+	// ToolNameFileRead 读取文本文件。
+	ToolNameFileRead = "file_read"
+	// ToolNameFileWrite 创建或修改文本文件。
+	ToolNameFileWrite = "file_write"
+	// ToolNameFilePatch 替换文件中的唯一文本块。
+	ToolNameFilePatch = "file_patch"
+	// ToolNameCodeRun 在工作区执行 shell 命令。
+	ToolNameCodeRun = "code_run"
+	// ToolNameAskUser 在命令行向用户提问。
+	ToolNameAskUser = "ask_user"
+)
+
 // Tool 是所有本地工具必须实现的接口。
 // Runner 通过 Registry 调用工具，不直接依赖具体工具类型。
 type Tool interface {
@@ -35,7 +48,7 @@ func (r *Registry) Register(tool Tool) {
 // 固定顺序可以让输出更稳定，方便调试和测试。
 func (r *Registry) Schemas() []llm.ToolSchema {
 	schemas := make([]llm.ToolSchema, 0, len(r.tools))
-	order := []string{"file_read", "file_write", "file_patch", "code_run", "ask_user"}
+	order := []string{ToolNameFileRead, ToolNameFileWrite, ToolNameFilePatch, ToolNameCodeRun, ToolNameAskUser}
 	seen := map[string]bool{}
 	for _, name := range order {
 		if tool, ok := r.tools[name]; ok {

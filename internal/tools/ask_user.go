@@ -18,7 +18,7 @@ func NewAskUser() *AskUser {
 	return &AskUser{}
 }
 
-func (t *AskUser) Name() string { return "ask_user" }
+func (t *AskUser) Name() string { return ToolNameAskUser }
 
 // Schema 只要求一个 question 字段。
 func (t *AskUser) Schema() llm.ToolSchema {

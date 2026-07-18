@@ -18,7 +18,7 @@ func NewFileWrite(workspace string) *FileWrite {
 	return &FileWrite{workspaceTool: newWorkspaceTool(workspace)}
 }
 
-func (t *FileWrite) Name() string { return "file_write" }
+func (t *FileWrite) Name() string { return ToolNameFileWrite }
 
 // Schema 告诉模型 file_write 的路径、内容和写入模式参数。
 func (t *FileWrite) Schema() llm.ToolSchema {
