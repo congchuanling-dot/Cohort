@@ -266,6 +266,20 @@ go run . ask "执行 pwd 和 ls，告诉我当前工作区里有哪些文件"
 - 模型调用 `code_run`。
 - 工具结果包含命令输出和 `exit_code`。
 
+`code_run` 当前按 GA 的思路实现：
+
+- Unix/macOS 下使用 `bash -c`，不使用 `bash -lc`，避免加载用户 `.bashrc` 或 `.bash_profile`。
+- 默认 timeout 是 60 秒。
+- 模型传入的 timeout 最大会被限制到 120 秒。
+- 命令超时时会返回 `timeout: true` 和 `timeout_seconds`。
+- Unix/macOS 下超时会尽量杀掉整组子进程，避免 `bash` 退出后 `grep/find/sleep` 继续残留。
+
+如果需要本地只跑 `code_run` 相关测试：
+
+```bash
+go test ./internal/tools -run 'TestCodeRun|TestNormalize' -count=1
+```
+
 ### 4.6 ask_user 工具测试
 
 ```bash
@@ -355,7 +369,7 @@ go run . ask "读取 README.md 前 20 行并总结"
 - 改 `file_read`：跑 4.2。
 - 改 `file_write`：跑 4.3。
 - 改 `file_patch`：跑 4.4。
-- 改 `code_run`：跑 4.5。
+- 改 `code_run`：跑 4.5，并执行 `go test ./internal/tools -run 'TestCodeRun|TestNormalize' -count=1`。
 - 改 `ask_user`：跑 4.6。
 
 ## 8. 常见问题

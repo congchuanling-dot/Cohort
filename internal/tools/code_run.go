@@ -13,6 +13,21 @@ import (
 	"cohert/internal/llm"
 )
 
+const (
+	// defaultCodeRunTimeoutSeconds 是 code_run 的默认超时时间。
+	defaultCodeRunTimeoutSeconds = 60
+
+	// maxCodeRunTimeoutSeconds 是模型可请求的最大超时时间。
+	// 模型传入更大的值时会被截断，避免一次工具调用长时间占住 CLI。
+	maxCodeRunTimeoutSeconds = 120
+
+	// maxCodeRunOutputChars 限制返回给模型的最大输出长度。
+	// 工具输出会进入下一轮上下文，过长会拖慢模型甚至撑爆上下文。
+	maxCodeRunOutputChars  = 12000
+	codeRunOutputHeadChars = 6000
+	codeRunOutputTailChars = 4000
+)
+
 // CodeRun 在 workspace 中执行 shell 命令，用于构建、测试和本地检查。
 type CodeRun struct {
 	workspaceTool
@@ -31,7 +46,7 @@ func (t *CodeRun) Schema() llm.ToolSchema {
 		Description: "Run a shell command in the workspace. Use for build, test, and inspection commands.",
 		Parameters: objectSchema(map[string]any{
 			"script":  stringProp("Shell command to run"),
-			"timeout": intProp("Timeout in seconds", 60),
+			"timeout": intProp("Timeout in seconds. Default 60, max 120.", defaultCodeRunTimeoutSeconds),
 			"cwd":     stringProp("Working directory relative to workspace"),
 		}, "script"),
 	}}
@@ -43,10 +58,7 @@ func (t *CodeRun) Run(ctx context.Context, call agent.ToolCallContext) (agent.Ou
 	if script == "" {
 		return agent.Outcome{}, fmt.Errorf("script is empty")
 	}
-	timeout := asInt(call.Args["timeout"], 60)
-	if timeout <= 0 {
-		timeout = 60
-	}
+	timeout := normalizeCodeRunTimeout(asInt(call.Args["timeout"], defaultCodeRunTimeoutSeconds))
 	cwd := t.resolve(asString(call.Args["cwd"]))
 	if asString(call.Args["cwd"]) == "" {
 		cwd = t.workspace
@@ -61,35 +73,69 @@ func (t *CodeRun) Run(ctx context.Context, call agent.ToolCallContext) (agent.Ou
 	if runtime.GOOS == "windows" {
 		cmd = exec.CommandContext(runCtx, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
 	} else {
-		cmd = exec.CommandContext(runCtx, "bash", "-lc", script)
+		// -l 会加载用户 shell 配置，容易把 .bashrc/.bash_profile 里的噪音带进工具结果。
+		cmd = exec.CommandContext(runCtx, "bash", "-c", script)
 	}
 	cmd.Dir = cwd
+	prepareCodeRunCommand(cmd)
 
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	err := cmd.Run()
+	timeoutHit := runCtx.Err() == context.DeadlineExceeded
+	if timeoutHit {
+		killCodeRunProcessGroup(cmd)
+	}
 	exitCode := 0
 	if cmd.ProcessState != nil {
 		exitCode = cmd.ProcessState.ExitCode()
+	} else if timeoutHit {
+		exitCode = -1
 	}
 	stdout := out.String()
-	if len(stdout) > 12000 {
-		// 输出过长会影响模型上下文，保留首尾即可定位问题。
-		stdout = stdout[:6000] + "\n...[omitted long output]...\n" + stdout[len(stdout)-4000:]
+	if timeoutHit {
+		stdout += "\n[Timeout Error] 超时强制终止"
 	}
+	stdout = truncateCodeRunOutput(stdout)
 	status := agent.ToolStatusSuccess
 	if err != nil {
 		status = agent.ToolStatusError
 	}
-	timeoutHit := runCtx.Err() == context.DeadlineExceeded
+	data := map[string]any{
+		"status":          status,
+		"stdout":          stdout,
+		"exit_code":       exitCode,
+		"timeout":         timeoutHit,
+		"timeout_seconds": timeout,
+	}
+	if timeoutHit {
+		data["hint"] = "命令执行超时。请缩小搜索范围，优先使用 rg，并避免递归扫描 HOME、根目录或过大的目录。"
+	}
 	return agent.Outcome{
-		Data: map[string]any{
-			"status":    status,
-			"stdout":    stdout,
-			"exit_code": exitCode,
-			"timeout":   timeoutHit,
-		},
+		Data:       data,
 		NextPrompt: "\n",
 	}, nil
+}
+
+// normalizeCodeRunTimeout 规范化模型传入的超时时间。
+// 过小值使用默认值，过大值截断到最大值，避免模型让一次工具调用长时间占住进程。
+func normalizeCodeRunTimeout(timeout int) int {
+	if timeout <= 0 {
+		return defaultCodeRunTimeoutSeconds
+	}
+	if timeout > maxCodeRunTimeoutSeconds {
+		return maxCodeRunTimeoutSeconds
+	}
+	return timeout
+}
+
+// truncateCodeRunOutput 按首尾保留策略裁剪命令输出。
+func truncateCodeRunOutput(stdout string) string {
+	if len(stdout) <= maxCodeRunOutputChars {
+		return stdout
+	}
+	return stdout[:codeRunOutputHeadChars] +
+		"\n...[omitted long output]...\n" +
+		stdout[len(stdout)-codeRunOutputTailChars:]
 }
