@@ -1,28 +1,64 @@
-// Package llm 提供 LLM 调用的统一抽象层。
-// 上层代码（Action/Role）只依赖 Client 接口，
-// 完全不知道底层是 OpenAI 还是 DeepSeek 还是 Claude。
 package llm
 
-// ProviderType 枚举所有内置的 LLM 提供商类型。
-type ProviderType string
+import "context"
 
-const (
-	ProviderOpenAI    ProviderType = "openai"    // OpenAI（GPT-4o, GPT-4.1 等）
-	ProviderDeepSeek  ProviderType = "deepseek"  // DeepSeek（deepseek-chat 等）
-	ProviderAnthropic ProviderType = "anthropic" // Anthropic Claude（Opus, Sonnet, Haiku）
-	ProviderOllama    ProviderType = "ollama"    // Ollama 本地模型
-	ProviderCustom    ProviderType = "custom"    // ★ 万能兜底：任意 OpenAI 兼容 API
-)
-
-// String 返回 Provider 的字符串标识。
-func (p ProviderType) String() string {
-	return string(p)
+type Message struct {
+	Role       string     `json:"role"`
+	Content    string     `json:"content,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Name       string     `json:"name,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 }
 
-// ChatMessage 的 Role 常量。
-// 对应 OpenAI/DeepSeek 等 API 的标准角色，避免散落魔法字符串。
+type ToolCall struct {
+	ID       string       `json:"id,omitempty"`
+	Type     string       `json:"type,omitempty"`
+	Function ToolFunction `json:"function"`
+}
+
+type ToolFunction struct {
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+}
+
+type ToolSchema struct {
+	Type     string         `json:"type"`
+	Function FunctionSchema `json:"function"`
+}
+
+type FunctionSchema struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters"`
+}
+
+type Response struct {
+	Content   string
+	ToolCalls []ToolCall
+	Raw       string
+}
+
+type ChatRequest struct {
+	System   string
+	Messages []Message
+	Tools    []ToolSchema
+}
+
+type EventType string
+
 const (
-	RoleSystem    = "system"
-	RoleUser      = "user"
-	RoleAssistant = "assistant"
+	EventText  EventType = "text"
+	EventDone  EventType = "done"
+	EventError EventType = "error"
 )
+
+type Event struct {
+	Type     EventType
+	Text     string
+	Response *Response
+	Err      error
+}
+
+type Client interface {
+	Chat(ctx context.Context, req ChatRequest) (<-chan Event, error)
+}

@@ -1,31 +1,11 @@
-# Binaries
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
-cohort
-
-# Test binary
-*.test
-
-# Go workspace
-go.work
-go.work.sum
-
-# Output
-workspace/
-
-# IDE
+.DS_Store
 .idea/
 .vscode/
-*.swp
-*.swo
 
-# OS
-.DS_Store
-Thumbs.db
+/ga
+/cohert
+/bin/
+/temp/
+/workspace/
 
-# Env
-.env
-.env.local
+*.log
