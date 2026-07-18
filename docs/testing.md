@@ -1,16 +1,18 @@
 # Cohert Go MVP 测试功能文档
 
-这份文档用于测试当前 Cohert Go MVP 是否可用。测试分两类：
+这份文档用于测试当前 Cohert Go MVP 是否可用。当前先测试项目根目录内启动，不测试全局安装和任意路径启动。
+
+测试分两类：
 
 - 本地测试：不调用模型，不需要 API Key。
 - 端到端测试：调用 DeepSeek，需要 `DEEPSEEK_API_KEY`。
 
 ## 1. 测试前准备
 
-进入项目目录：
+进入项目根目录：
 
 ```bash
-cd /path/to/cohert
+cd /Users/bytedance/Desktop/myOwnProject/Cohort
 ```
 
 确认 Go 可用：
@@ -53,15 +55,29 @@ go test ./...
 ?    cohert/internal/tools      [no test files]
 ```
 
-### 2.3 构建 CLI
+### 2.3 直接运行 CLI
+
+```bash
+go run . help
+```
+
+预期结果：看到命令说明。
+
+### 2.4 构建本地二进制
 
 ```bash
 go build -o cohert ./cmd/cohert
 ```
 
-预期结果：生成本地二进制 `./cohert`。
+预期结果：在项目根目录生成本地二进制 `./cohert`。
 
-### 2.4 查看帮助
+### 2.5 查看帮助
+
+```bash
+go run . help
+```
+
+或者：
 
 ```bash
 ./cohert help
@@ -76,10 +92,10 @@ cohert tools
 cohert config
 ```
 
-### 2.5 查看工具列表
+### 2.6 查看工具列表
 
 ```bash
-./cohert tools
+go run . tools
 ```
 
 预期结果：
@@ -92,10 +108,10 @@ code_run
 ask_user
 ```
 
-### 2.6 查看配置
+### 2.7 查看配置
 
 ```bash
-./cohert config
+go run . config
 ```
 
 如果没有设置 Key，预期结果：
@@ -128,7 +144,7 @@ export DEEPSEEK_API_KEY="sk-xxx"
 ### 3.2 验证 Key 是否被项目识别
 
 ```bash
-./cohert config
+go run . config
 ```
 
 预期结果：
@@ -139,7 +155,7 @@ api_key: set
 
 ### 3.3 如果使用 `go run`
 
-也可以不构建二进制，直接运行：
+当前推荐不依赖二进制，直接运行：
 
 ```bash
 go run . config
@@ -152,7 +168,7 @@ go run . config
 ### 4.1 最小问答测试
 
 ```bash
-./cohert ask "用一句话介绍你自己"
+go run . ask "用一句话介绍你自己"
 ```
 
 预期现象：
@@ -164,7 +180,7 @@ go run . config
 ### 4.2 文件读取工具测试
 
 ```bash
-./cohert ask "读取 README.md 前 40 行，并用 5 条 bullet 总结"
+go run . ask "读取 README.md 前 40 行，并用 5 条 bullet 总结"
 ```
 
 预期现象：
@@ -183,7 +199,7 @@ Result(file_read): ...
 ### 4.3 文件写入工具测试
 
 ```bash
-./cohert ask "在 workspace/hello.txt 写入一行 Hello Cohert，然后读取它确认内容"
+go run . ask "在 workspace/hello.txt 写入一行 Hello Cohert，然后读取它确认内容"
 ```
 
 预期现象：
@@ -220,7 +236,7 @@ printf 'name=old\n' > workspace/patch-demo.txt
 运行：
 
 ```bash
-./cohert ask "把 workspace/patch-demo.txt 里的 name=old 改成 name=new，然后读取文件确认"
+go run . ask "把 workspace/patch-demo.txt 里的 name=old 改成 name=new，然后读取文件确认"
 ```
 
 预期现象：
@@ -242,7 +258,7 @@ cat workspace/patch-demo.txt
 ### 4.5 命令执行工具测试
 
 ```bash
-./cohert ask "执行 pwd 和 ls，告诉我当前工作区里有哪些文件"
+go run . ask "执行 pwd 和 ls，告诉我当前工作区里有哪些文件"
 ```
 
 预期现象：
@@ -253,7 +269,7 @@ cat workspace/patch-demo.txt
 ### 4.6 ask_user 工具测试
 
 ```bash
-./cohert ask "问我想创建什么文件名，然后用我的回答在 workspace 下创建这个文件"
+go run . ask "问我想创建什么文件名，然后用我的回答在 workspace 下创建这个文件"
 ```
 
 预期现象：
@@ -267,7 +283,7 @@ cat workspace/patch-demo.txt
 启动：
 
 ```bash
-./cohert
+go run .
 ```
 
 进入后输入：
@@ -324,14 +340,14 @@ find temp/model_responses -type f -maxdepth 1 -print
 gofmt -w ./cmd ./internal
 go test ./...
 go build -o cohert ./cmd/cohert
-./cohert tools
-./cohert config
+go run . tools
+go run . config
 ```
 
 如果改了 LLM 或 Agent Loop，再执行：
 
 ```bash
-./cohert ask "读取 README.md 前 20 行并总结"
+go run . ask "读取 README.md 前 20 行并总结"
 ```
 
 如果改了工具，再执行对应工具测试：
@@ -352,7 +368,7 @@ go build -o cohert ./cmd/cohert
 
 ```bash
 export DEEPSEEK_API_KEY="sk-xxx"
-./cohert config
+go run . config
 ```
 
 ### 8.2 `llm http status 401`
@@ -375,23 +391,22 @@ export DEEPSEEK_API_KEY="sk-xxx"
 可以换成更明确的任务：
 
 ```bash
-./cohert ask "必须调用 file_read 读取 README.md 前 20 行，然后总结"
+go run . ask "必须调用 file_read 读取 README.md 前 20 行，然后总结"
 ```
 
 ### 8.4 `bash: ./cohert: No such file or directory`
 
-说明还没构建。
-
-执行：
-
-```bash
-go build -o cohert ./cmd/cohert
-```
-
-或者直接用：
+说明还没构建本地二进制。当前推荐直接用：
 
 ```bash
 go run . tools
+```
+
+如果需要本地二进制，再执行：
+
+
+```bash
+go build -o cohert ./cmd/cohert
 ```
 
 ### 8.5 文件写到了意料之外的位置
@@ -405,7 +420,7 @@ workspace
 相对路径会基于 `workspace` 解析。检查配置：
 
 ```bash
-./cohert config
+go run . config
 ```
 
 ## 9. 当前 MVP 验收标准
@@ -414,8 +429,8 @@ workspace
 
 - `go test ./...` 通过。
 - `go build -o cohert ./cmd/cohert` 通过。
-- `./cohert tools` 输出 5 个工具。
-- `./cohert config` 能识别 API Key。
-- `./cohert ask "用一句话介绍你自己"` 能得到模型回答。
-- `./cohert ask "读取 README.md 前 40 行并总结"` 能触发 `file_read`。
-- `./cohert ask "在 workspace/hello.txt 写入 Hello Cohert"` 能生成文件。
+- `go run . tools` 输出 5 个工具。
+- `go run . config` 能识别 API Key。
+- `go run . ask "用一句话介绍你自己"` 能得到模型回答。
+- `go run . ask "读取 README.md 前 40 行并总结"` 能触发 `file_read`。
+- `go run . ask "在 workspace/hello.txt 写入 Hello Cohert"` 能生成文件。

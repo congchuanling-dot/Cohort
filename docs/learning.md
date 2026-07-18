@@ -18,12 +18,12 @@ Cohert 当前定位是本地命令行 Agent Runtime。
   -> 模型继续推理或给出最终回答
 ```
 
-第一版只做命令行，不做 UI。
+第一版只做命令行，不做 UI，也暂时不做全局安装。当前默认在项目根目录启动。
 
 ## 2. 目录结构
 
 ```text
-cmd/cohert/             CLI 入口
+cmd/cohert/        本地二进制入口
 configs/           本地配置
 internal/app/      应用装配、配置加载、Runner 创建
 internal/agent/    Agent Loop、输出 Sink、运行结果
@@ -39,7 +39,16 @@ temp/              模型响应日志，运行时生成
 
 文件：[cmd/cohert/main.go](../cmd/cohert/main.go)
 
-这里定义了当前支持的命令：
+开发阶段推荐直接在项目根目录使用 `go run .`：
+
+```text
+go run .
+go run . ask "任务"
+go run . tools
+go run . config
+```
+
+如果先构建本地二进制，也可以在项目根目录使用：
 
 ```text
 cohert
@@ -50,10 +59,11 @@ cohert config
 
 关键点：
 
-- `cohert` 进入 REPL。
-- `cohert ask` 执行一次任务。
-- `cohert tools` 只列工具，不需要 API Key。
-- `cohert config` 只看配置，不需要 API Key。
+- `go run .` 进入 REPL。
+- `go run . ask` 执行一次任务。
+- `go run . tools` 只列工具，不需要 API Key。
+- `go run . config` 只看配置，不需要 API Key。
+- `cohert` 是构建出来的本地二进制，不代表已经支持任意路径全局启动。
 - 真正跑 Agent 时才会初始化 LLM。
 
 ### 3.2 再看应用装配
@@ -233,6 +243,7 @@ type Tool interface {
 
 - UI / TUI / Web / Tauri。
 - 浏览器控制。
+- 全局安装和任意路径启动。
 - Claude 原生协议。
 - 多模型 fallback。
 - 长期记忆系统。
