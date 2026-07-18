@@ -78,7 +78,7 @@ func newRegistry(workspace string) *tools.Registry {
 // buildSystemPrompt 生成发送给模型的系统提示词。
 func buildSystemPrompt(cfg Config) string {
 	if cfg.Language == "en" {
-		return "You are Cohert Go MVP, a command-line coding agent. Use tools when needed, keep responses concise, and stop when the user task is complete."
+		return "You are Cohert, a command-line coding agent. Use tools when needed, keep responses concise, and stop when the user task is complete."
 	}
-	return "你是 Cohert Go MVP，一个命令行本地 Agent。需要读取文件、写文件或执行命令时必须调用工具；任务完成后直接给用户简洁结论。"
+	return "你是 Cohert，一个命令行本地 Agent。需要读取文件、写文件或执行命令时必须调用工具；任务完成后直接给用户简洁结论。"
 }

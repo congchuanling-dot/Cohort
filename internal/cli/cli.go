@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +10,7 @@ import (
 
 	"cohert/internal/agent"
 	"cohert/internal/app"
+	"cohert/internal/repl"
 	"cohert/internal/session"
 )
 
@@ -59,7 +59,7 @@ func Run(args []string) error {
 
 	switch args[0] {
 	case "run":
-		return runREPL(context.Background(), runner)
+		return startREPL(context.Background(), cfg, runner)
 	case "ask":
 		if len(args) < 2 {
 			return errors.New(`usage: cohert ask "your task"`)
@@ -145,62 +145,49 @@ func resumeSession(ctx context.Context, cfg app.Config, store session.Store, ses
 	}
 	runner.ResumeSession(sess.ID, history)
 	fmt.Printf("resumed session %s (%d messages): %s\n", sess.ID, len(history), sess.Title)
-	return runREPL(ctx, runner)
+	return startREPL(ctx, cfg, runner)
 }
 
-// runREPL 是交互模式。每输入一行任务，就复用同一个 Runner 继续执行。
-// 因为 Runner 内部保留 history，所以 REPL 模式天然带上下文；/clear 会清空它。
-func runREPL(ctx context.Context, runner *agent.Runner) error {
-	fmt.Println("Cohert Go MVP")
-	fmt.Println("输入任务开始执行；输入 /exit 退出，/tools 查看工具。")
-
-	scanner := bufio.NewScanner(os.Stdin)
-	for {
-		fmt.Print("\n> ")
-		if !scanner.Scan() {
-			return scanner.Err()
-		}
-		input := strings.TrimSpace(scanner.Text())
-		if input == "" {
-			continue
-		}
-		// 以 / 开头的内置命令只在本地处理，不会发送给模型。
-		switch input {
-		case "/exit", "exit", "quit":
-			return nil
-		case "/tools":
-			for _, schema := range runner.ToolSchemas() {
-				fmt.Println("-", schema.Function.Name)
-			}
-			continue
-		case "/clear":
-			runner.Reset()
-			fmt.Println("session cleared")
-			continue
-		}
-		// 普通输入会作为一次用户任务交给 Agent Runner。
-		if _, err := runner.Run(ctx, input, agent.NewConsoleSink(os.Stdout)); err != nil {
-			fmt.Fprintf(os.Stderr, "run error: %v\n", err)
-		}
-	}
+// startREPL 启动新的对话内命令交互层。
+// CLI 仍负责外部子命令分发；进入交互模式后，/model、/tools、/session 等命令由 repl 包处理。
+func startREPL(ctx context.Context, cfg app.Config, runner *agent.Runner) error {
+	store := session.NewStore(session.DefaultRootDir)
+	return repl.Start(ctx, repl.Options{
+		Config:       cfg,
+		Runner:       runner,
+		SessionStore: store,
+		In:           os.Stdin,
+		Out:          os.Stdout,
+		Err:          os.Stderr,
+	})
 }
 
 // printHelp 输出当前支持的最小命令集合。
 func printHelp() {
-	fmt.Print(`Cohert Go MVP
+	fmt.Print(`Cohert
 
 Usage:
-  cohert                 start interactive CLI
-  cohert ask "task"      run one task
-  cohert tools           list mounted tools
-  cohert config          show effective config
-  cohert session list    list local sessions
+  cohert                  start interactive CLI
+  cohert ask "task"       run one task without entering REPL
+  cohert tools            list mounted tools
+  cohert config           show effective config
+  cohert session list     list local sessions
   cohert session resume <id>
-                         resume a local session
+                          resume a local session and enter REPL
 
 Development:
-  go run .               start interactive CLI
-  go run . ask "task"    run one task
+  go run .                start interactive CLI
+  go run . ask "task"     run one task
+
+Interactive slash commands:
+  /help                   show in-REPL command help
+  /model                  show current model
+  /tools                  list tools
+  /session list           list local sessions
+  /resume <id>            resume a session
+  /compact                reserved for Context Manager
+  /clear                  clear current in-memory session
+  /exit                   exit
 
 Environment:
   DEEPSEEK_API_KEY       required unless configs/config.yaml contains api_key

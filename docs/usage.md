@@ -41,10 +41,19 @@ go run .
 启动后会看到：
 
 ```text
-Cohert Go MVP
-输入任务开始执行；输入 /exit 退出，/tools 查看工具。
++----------------------------------------------------------------------+
+| Cohert                                                               |
+| Command-line Agent Runtime                                           |
++----------------------------------------------------------------------+
+| Model        deepseek-v4-pro                                         |
+| Workspace    workspace                                               |
+| Session      new session                                             |
+| Tools        5                                                       |
++----------------------------------------------------------------------+
+输入任务直接执行；输入 /help 查看命令。
+常用命令：/model /tools /session list /resume <id> /clear /exit
 
->
+cohert>
 ```
 
 然后直接输入任务：
@@ -69,6 +78,12 @@ Cohert Go MVP
 
 ```text
 /tools
+```
+
+查看所有对话内命令：
+
+```text
+/help
 ```
 
 ## 3. 执行单次任务
@@ -115,6 +130,14 @@ go run . ask "任务内容"
 
 ### 4.4 查看工具列表
 
+推荐在交互模式里输入：
+
+```text
+/tools
+```
+
+外部 CLI 也保留：
+
 ```bash
 go run . tools
 ```
@@ -133,6 +156,15 @@ ask_user
 
 ### 4.5 查看配置
 
+推荐在交互模式里输入：
+
+```text
+/model
+/config
+```
+
+外部 CLI 也保留：
+
 ```bash
 go run . config
 ```
@@ -142,6 +174,14 @@ go run . config
 这个命令不需要 API Key。
 
 ### 4.6 查看 session 列表
+
+推荐在交互模式里输入：
+
+```text
+/session list
+```
+
+外部 CLI 也保留：
 
 ```bash
 go run . session list
@@ -168,6 +208,20 @@ ID                        TITLE           MESSAGES  UPDATED              CWD
 
 ### 4.7 恢复 session
 
+推荐在交互模式里输入：
+
+```text
+/resume <session_id>
+```
+
+也可以写成：
+
+```text
+/session resume <session_id>
+```
+
+外部 CLI 兼容入口：
+
 ```bash
 go run . session resume <session_id>
 ```
@@ -189,13 +243,13 @@ go run . session resume 20260718-223408-8af91b03
 
 ```text
 resumed session 20260718-223408-8af91b03 (8 messages): 你的session有什么效果
-Cohert Go MVP
-输入任务开始执行；输入 /exit 退出，/tools 查看工具。
 ```
 
 然后可以继续问：
 
 ```text
+继续基于刚才的内容讲 session 是怎么落盘的
+```
 继续基于刚才的内容讲 session 是怎么落盘的
 ```
 
@@ -223,14 +277,14 @@ go run .
 
 4. 下次回来先列出 session。
 
-```bash
-go run . session list
+```text
+/session list
 ```
 
 5. 复制要恢复的 ID。
 
-```bash
-go run . session resume 20260718-223408-8af91b03
+```text
+/resume 20260718-223408-8af91b03
 ```
 
 6. 继续提问。
@@ -276,7 +330,7 @@ history.jsonl
 - 模型工具调用
 - 工具执行结果
 
-## 7. 什么时候用 ask，什么时候用 session resume
+## 7. 什么时候用 ask，什么时候用 resume
 
 用 `ask` 的场景：
 
@@ -298,14 +352,14 @@ go run . ask "总结 README.md"
 go run .
 ```
 
-用 `session resume` 的场景：
+用 `/resume` 的场景：
 
 - 上次聊到一半退出了。
 - 想让模型继续看到之前上下文。
 - 想继续往同一个 `history.jsonl` 追加消息。
 
-```bash
-go run . session resume <session_id>
+```text
+/resume <session_id>
 ```
 
 ## 8. 常见问题
@@ -326,10 +380,10 @@ go run . ask "用一句话介绍 Cohert"
 go run .
 ```
 
-然后再执行：
+然后在交互模式里执行：
 
-```bash
-go run . session list
+```text
+/session list
 ```
 
 ### 8.2 `session resume` 后会不会新建 session
@@ -352,7 +406,7 @@ temp/sessions/<session_id>/history.jsonl
 
 ### 8.4 恢复很久以前的 session 会有什么问题
 
-当前版本会把 `history.jsonl` 里的历史全部恢复进模型请求。
+当前版本会把 `history.jsonl` 里的历史恢复进 Runner。
 
 如果历史太长，后续可能导致：
 
@@ -376,6 +430,8 @@ sed -n '1,20p' temp/sessions/<session_id>/history.jsonl
 
 ## 9. 命令速查
 
+外部 CLI：
+
 ```bash
 # 查看帮助
 go run . help
@@ -392,10 +448,10 @@ go run . tools
 # 查看配置
 go run . config
 
-# 查看 session 列表
+# 查看 session 列表，兼容入口
 go run . session list
 
-# 恢复 session
+# 恢复 session，兼容入口
 go run . session resume <session_id>
 
 # 构建本地二进制
@@ -406,4 +462,20 @@ go build -o cohert ./cmd/cohert
 ./cohert ask "任务内容"
 ./cohert session list
 ./cohert session resume <session_id>
+```
+
+交互模式内：
+
+```text
+/help
+/model
+/config
+/tools
+/session
+/session list
+/resume <session_id>
+/session resume <session_id>
+/compact
+/clear
+/exit
 ```

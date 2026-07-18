@@ -1,6 +1,6 @@
-# Cohert Go MVP 测试功能文档
+# Cohert 测试功能文档
 
-这份文档用于测试当前 Cohert Go MVP 是否可用。当前先测试项目根目录内启动，不测试全局安装和任意路径启动。
+这份文档用于测试当前 Cohert 是否可用。当前先测试项目根目录内启动，不测试全局安装和任意路径启动。
 
 日常使用教程见：[usage.md](./usage.md)。
 
@@ -302,7 +302,24 @@ go run . ask "问我想创建什么文件名，然后用我的回答在 workspac
 go run .
 ```
 
+预期先看到启动欢迎页，包含：
+
+- `Cohert`
+- `Command-line Agent Runtime`
+- 当前模型
+- workspace
+- session 状态
+- 常用 slash 命令
+
 进入后输入：
+
+```text
+/help
+```
+
+预期输出所有对话内命令。
+
+继续输入：
 
 ```text
 /tools
@@ -340,6 +357,14 @@ temp/sessions/<session_id>/history.jsonl
 
 ### 6.1 查看本地 session 列表
 
+推荐在交互模式里输入：
+
+```text
+/session list
+```
+
+也可以用兼容的外部 CLI：
+
 ```bash
 go run . session list
 ```
@@ -351,7 +376,13 @@ go run . session list
 
 ### 6.2 恢复一个 session
 
-先从列表里复制一个 ID，然后执行：
+先从列表里复制一个 ID，然后在交互模式里执行：
+
+```text
+/resume <session_id>
+```
+
+也可以用兼容的外部 CLI：
 
 ```bash
 go run . session resume <session_id>
@@ -360,7 +391,6 @@ go run . session resume <session_id>
 预期现象：
 
 - 控制台输出 `resumed session ...`。
-- Cohert 进入交互模式。
 - 后续输入的新问题会接在旧的 `history.jsonl` 后面。
 - 模型请求会带上恢复出来的历史上下文。
 

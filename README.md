@@ -8,6 +8,14 @@ Cohert 是一个用 Go 编写的命令行智能体运行时。
 
 - `cohert`：进入交互式命令行 Agent。
 - `cohert ask "任务"`：执行单次任务。
+- 对话内 slash 命令：
+  - `/help`
+  - `/model`
+  - `/tools`
+  - `/session list`
+  - `/resume <session_id>`
+  - `/clear`
+  - `/exit`
 - OpenAI-compatible Chat Completions。
 - 默认 DeepSeek：`deepseek-v4-pro`。
 - 流式输出。
@@ -73,7 +81,14 @@ go run . ask "读取 README.md 并总结"
 go run . tools
 ```
 
-查看和恢复 session：
+进入交互模式后查看和恢复 session：
+
+```text
+/session list
+/resume <session_id>
+```
+
+外部 CLI 兼容入口：
 
 ```bash
 go run . session list
@@ -93,6 +108,7 @@ go build -o cohert ./cmd/cohert
 cmd/cohert/             CLI 入口
 configs/           本地配置
 internal/app/      应用装配和配置加载
+internal/repl/     交互式欢迎页和 slash 命令
 internal/agent/    Agent Loop
 internal/llm/      OpenAI-compatible LLM Client
 internal/tools/    工具注册和基础工具

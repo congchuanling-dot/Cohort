@@ -180,6 +180,20 @@ func (r *Runner) ToolSchemas() []llm.ToolSchema {
 	return r.Tools.Schemas()
 }
 
+// SessionID 返回当前 Runner 绑定的本地 session ID。
+//
+// 如果用户刚启动 REPL、还没有输入任何普通任务，session 还不会创建，
+// 此时返回空字符串。这样欢迎页可以展示 "new session"，而不是强行创建空会话。
+func (r *Runner) SessionID() string {
+	return r.sessionID
+}
+
+// HistoryLen 返回当前内存历史消息数量。
+// 这个数量只用于 REPL 展示和 slash 命令，不参与模型请求逻辑。
+func (r *Runner) HistoryLen() int {
+	return len(r.history)
+}
+
 func (r *Runner) Reset() {
 	r.history = nil
 	r.sessionID = ""
