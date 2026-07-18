@@ -10,6 +10,17 @@ import (
 	"time"
 
 	"cohert/internal/llm"
+	"cohert/internal/session"
+)
+
+const (
+	// defaultSessionTitle 是用户还没输入明确任务时的兜底标题。
+	// 正常情况下会用第一条用户输入生成标题，这个常量只处理空输入等边界情况。
+	defaultSessionTitle = "new session"
+
+	// maxSessionTitleLength 限制自动生成的 session 标题长度。
+	// 标题只用于 session list 展示，过长会让列表很难读，所以这里做轻量截断。
+	maxSessionTitleLength = 40
 )
 
 type ToolRunner interface {
@@ -35,9 +46,19 @@ type Runner struct {
 	SystemPrompt string     // SystemPrompt 是每次请求模型时固定携带的系统提示词。
 	MaxTurns     int        // MaxTurns 限制最大循环轮数，避免模型不断调用工具导致死循环。
 	LogDir       string     // LogDir 用来保存模型原始响应日志。
+	// SessionStore 负责把对话消息追加写入 history.jsonl。
+	// 为空时表示只保留内存 history，不做本地会话落盘。
+	SessionStore *session.Store
+	// SessionCWD 记录本次会话对应的工作目录，会写入 meta.json。
+	SessionCWD string
+	// SessionModel 记录本次会话使用的模型名，会写入 meta.json。
+	SessionModel string
 
 	// history 保存当前会话历史。小写字段表示只允许 agent 包内部直接修改。
 	history []llm.Message
+	// sessionID 是当前 Runner 对应的本地 session 目录名。
+	// 它第一次收到用户输入时创建，之后同一个 REPL Runner 会持续复用。
+	sessionID string
 }
 
 // Run 执行一次用户任务。流程是：用户输入 -> 调模型 -> 执行工具 -> 工具结果回灌 -> 继续调模型。
@@ -53,7 +74,9 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 	}
 
 	// 用户输入先进入 history，后续每一轮模型都能看到完整上下文。
-	r.history = append(r.history, llm.Message{Role: llm.RoleUser, Content: input})
+	if err := r.appendMessage(llm.Message{Role: llm.RoleUser, Content: input}, input); err != nil {
+		return RunResult{}, err
+	}
 	// 复制一份消息切片给当前任务使用，避免直接复用 history 的底层切片。
 	messages := append([]llm.Message(nil), r.history...)
 
@@ -79,16 +102,19 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 
 		// 没有 tool_calls 表示模型已经给出最终回答，任务可以结束。
 		if len(resp.ToolCalls) == 0 {
-			r.history = append(r.history, llm.Message{Role: llm.RoleAssistant, Content: resp.Content})
+			if err := r.appendMessage(llm.Message{Role: llm.RoleAssistant, Content: resp.Content}, ""); err != nil {
+				return RunResult{}, err
+			}
 			return RunResult{Status: RunStatusDone, Response: resp}, nil
 		}
 
 		// OpenAI-compatible 工具协议要求：
 		// assistant 的 tool_calls 消息必须出现在对应 tool 结果消息之前。
 		assistantMsg := llm.Message{Role: llm.RoleAssistant, Content: resp.Content, ToolCalls: resp.ToolCalls}
-		r.history = append(r.history, assistantMsg)
+		if err := r.appendMessage(assistantMsg, ""); err != nil {
+			return RunResult{}, err
+		}
 
-		var toolMessages []llm.Message
 		for i, call := range resp.ToolCalls {
 			sink.WriteToolCall(call)
 
@@ -134,14 +160,15 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			// 工具输出会被转成 role=tool 消息，下一轮模型才能读到工具结果。
 			resultText := stringify(outcome.Data)
 			sink.WriteToolResult(call.Function.Name, resultText)
-			toolMessages = append(toolMessages, llm.Message{
+			if err := r.appendMessage(llm.Message{
 				Role:       llm.RoleTool,
 				ToolCallID: call.ID,
 				Name:       call.Function.Name,
 				Content:    resultText,
-			})
+			}, ""); err != nil {
+				return RunResult{}, err
+			}
 		}
-		r.history = append(r.history, toolMessages...)
 		// 下一轮模型会看到目前为止的全部消息：用户输入、模型工具调用、工具结果。
 		messages = append([]llm.Message(nil), r.history...)
 	}
@@ -155,6 +182,54 @@ func (r *Runner) ToolSchemas() []llm.ToolSchema {
 
 func (r *Runner) Reset() {
 	r.history = nil
+	r.sessionID = ""
+}
+
+// appendMessage 同时维护内存 history 和本地 history.jsonl。
+//
+// Runner 的主流程只调用这个方法追加消息，避免某些分支只写内存、不写文件。
+// titleSeed 只在第一次创建 session 时使用，通常传第一条用户输入。
+func (r *Runner) appendMessage(message llm.Message, titleSeed string) error {
+	if err := r.ensureSession(titleSeed); err != nil {
+		return err
+	}
+	if r.SessionStore != nil && r.sessionID != "" {
+		if err := r.SessionStore.AppendHistory(r.sessionID, message); err != nil {
+			return err
+		}
+	}
+	r.history = append(r.history, message)
+	return nil
+}
+
+// ensureSession 确保当前 Runner 已经有对应的本地 session。
+//
+// 没有配置 SessionStore 时表示关闭会话落盘，Runner 仍然只用内存 history 正常运行。
+// 配置了 SessionStore 时，第一次用户输入会触发创建 meta.json，后续消息追加到同一个 history.jsonl。
+func (r *Runner) ensureSession(titleSeed string) error {
+	if r.SessionStore == nil || r.sessionID != "" {
+		return nil
+	}
+	sess, err := r.SessionStore.Create(makeSessionTitle(titleSeed), r.SessionCWD, r.SessionModel)
+	if err != nil {
+		return err
+	}
+	r.sessionID = sess.ID
+	return nil
+}
+
+// makeSessionTitle 根据用户第一条输入生成会话标题。
+//
+// 标题只是给人看的，不参与模型请求；这里保持简单截断，不引入额外摘要模型调用。
+func makeSessionTitle(input string) string {
+	title := strings.TrimSpace(input)
+	if title == "" {
+		return defaultSessionTitle
+	}
+	if len([]rune(title)) <= maxSessionTitleLength {
+		return title
+	}
+	return string([]rune(title)[:maxSessionTitleLength]) + "..."
 }
 
 // consume 消费模型流式事件：文本事件直接输出，完成事件返回完整响应，错误事件返回 error。

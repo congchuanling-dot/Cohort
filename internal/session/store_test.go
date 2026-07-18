@@ -1,11 +1,14 @@
 package session
 
 import (
+	"bufio"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"cohert/internal/llm"
 )
 
 func TestStoreCreateWritesMeta(t *testing.T) {
@@ -61,5 +64,60 @@ func TestStoreCreateWritesMeta(t *testing.T) {
 	wantHistoryPath := filepath.Join(root, sess.ID, HistoryFileName)
 	if store.HistoryPath(sess.ID) != wantHistoryPath {
 		t.Fatalf("history path = %q, want %q", store.HistoryPath(sess.ID), wantHistoryPath)
+	}
+}
+
+func TestStoreAppendHistoryWritesJSONL(t *testing.T) {
+	// 先创建 session，让 AppendHistory 有合法的 meta.json 可以刷新 UpdatedAt。
+	root := t.TempDir()
+	store := NewStore(root)
+	sess, err := store.Create("first task", "/tmp/project", "deepseek-v4-pro")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 连续追加两条消息，模拟 Runner 写入 user -> assistant 的最小链路。
+	// 这里直接使用 llm.Message，是为了保证落盘格式和模型上下文类型保持一致。
+	writeErr := store.AppendHistory(sess.ID, llm.Message{Role: llm.RoleUser, Content: "你好"})
+	if writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	writeErr = store.AppendHistory(sess.ID, llm.Message{Role: llm.RoleAssistant, Content: "你好，我是 Cohert"})
+	if writeErr != nil {
+		t.Fatal(writeErr)
+	}
+
+	// history.jsonl 应该是一行一个 HistoryEntry。
+	// 用 Scanner 按行读，可以验证它不是一个大 JSON 数组。
+	file, err := os.Open(store.HistoryPath(sess.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+
+	var entries []HistoryEntry
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		var entry HistoryEntry
+		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+			t.Fatal(err)
+		}
+		entries = append(entries, entry)
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(entries) != 2 {
+		t.Fatalf("history entries = %d, want 2", len(entries))
+	}
+	if entries[0].SessionID != sess.ID || entries[1].SessionID != sess.ID {
+		t.Fatalf("session ids = %q/%q, want %q", entries[0].SessionID, entries[1].SessionID, sess.ID)
+	}
+	if entries[0].Role != llm.RoleUser || entries[0].Message.Content != "你好" {
+		t.Fatalf("first entry = %#v", entries[0])
+	}
+	if entries[1].Role != llm.RoleAssistant || entries[1].Message.Content != "你好，我是 Cohert" {
+		t.Fatalf("second entry = %#v", entries[1])
 	}
 }

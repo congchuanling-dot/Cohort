@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"cohert/internal/llm"
 )
 
 // Store 管理本地 session 目录。
@@ -86,8 +88,7 @@ func (s Store) MetaPath(sessionID string) string {
 // HistoryPath 返回 history.jsonl 路径。
 // 后续 Runner 会往这个文件追加 HistoryEntry，一行一条消息。
 //
-// 这里暂时只提供路径，不提供 AppendHistory 方法，是因为当前任务先定义数据结构；
-// 真正追加写入需要和 Runner 的消息产生时机一起设计，放到 P0-012 更合适。
+// 路径计算集中在这里，AppendHistory 也复用这个方法，避免 Runner 自己拼文件路径。
 func (s Store) HistoryPath(sessionID string) string {
 	return filepath.Join(s.SessionDir(sessionID), HistoryFileName)
 }
@@ -110,4 +111,67 @@ func (s Store) SaveMeta(sess Session) error {
 	// 0644 表示当前用户可读写，其他用户只读。
 	// 这里不保存密钥，只保存 session 元信息，所以不需要更严格的 0600。
 	return os.WriteFile(s.MetaPath(sess.ID), data, 0644)
+}
+
+// LoadMeta 读取某个 session 的 meta.json。
+//
+// 后续做 `cohert resume <id>` 时，会先通过这个方法拿到会话元信息，
+// 再继续读取 history.jsonl 还原完整模型上下文。
+func (s Store) LoadMeta(sessionID string) (Session, error) {
+	data, err := os.ReadFile(s.MetaPath(sessionID))
+	if err != nil {
+		return Session{}, err
+	}
+	var sess Session
+	if err := json.Unmarshal(data, &sess); err != nil {
+		return Session{}, err
+	}
+	return sess, nil
+}
+
+// AppendHistory 向 history.jsonl 追加一条模型消息。
+//
+// 这个方法是 P0-012 的核心落盘入口：
+// Runner 每产生一条 user/assistant/tool 消息，就调用它追加一行 HistoryEntry。
+// 一行一条 JSON 的好处是追加成本低，而且即使程序中途退出，已经写入的历史也还在。
+func (s Store) AppendHistory(sessionID string, message llm.Message) error {
+	now := time.Now()
+	entry := HistoryEntry{
+		ID:        NewID(now),
+		SessionID: sessionID,
+		Time:      now,
+		Role:      message.Role,
+		Message:   message,
+	}
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+
+	mkdirErr := os.MkdirAll(s.SessionDir(sessionID), 0755)
+	if mkdirErr != nil {
+		return mkdirErr
+	}
+	file, err := os.OpenFile(s.HistoryPath(sessionID), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return err
+	}
+	_, writeErr := file.Write(data)
+	if writeErr != nil {
+		_ = file.Close()
+		return writeErr
+	}
+	closeErr := file.Close()
+	if closeErr != nil {
+		return closeErr
+	}
+
+	// 追加历史后刷新 meta.json 的 UpdatedAt。
+	// 这样后续列会话时，最近发生对话的 session 会排在前面。
+	sess, loadErr := s.LoadMeta(sessionID)
+	if loadErr != nil {
+		return loadErr
+	}
+	return s.SaveMeta(sess)
 }
