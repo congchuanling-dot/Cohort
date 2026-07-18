@@ -13,6 +13,7 @@ import (
 	"cohert/internal/llm"
 )
 
+// CodeRun 在 workspace 中执行 shell 命令，用于构建、测试和本地检查。
 type CodeRun struct {
 	workspaceTool
 }
@@ -23,6 +24,7 @@ func NewCodeRun(workspace string) *CodeRun {
 
 func (t *CodeRun) Name() string { return "code_run" }
 
+// Schema 告诉模型需要提供 script，可选 timeout 和 cwd。
 func (t *CodeRun) Schema() llm.ToolSchema {
 	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
 		Name:        t.Name(),
@@ -35,6 +37,7 @@ func (t *CodeRun) Schema() llm.ToolSchema {
 	}}
 }
 
+// Run 执行命令并返回 stdout、exit_code、timeout 等结构化结果。
 func (t *CodeRun) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
 	script := asString(call.Args["script"])
 	if script == "" {
@@ -49,10 +52,12 @@ func (t *CodeRun) Run(ctx context.Context, call agent.ToolCallContext) (agent.Ou
 		cwd = t.workspace
 	}
 
+	// 每次命令都带独立超时，避免 Agent 被长时间阻塞。
 	runCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
 	var cmd *exec.Cmd
+	// Windows 和类 Unix 使用不同 shell。
 	if runtime.GOOS == "windows" {
 		cmd = exec.CommandContext(runCtx, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
 	} else {
@@ -70,6 +75,7 @@ func (t *CodeRun) Run(ctx context.Context, call agent.ToolCallContext) (agent.Ou
 	}
 	stdout := out.String()
 	if len(stdout) > 12000 {
+		// 输出过长会影响模型上下文，保留首尾即可定位问题。
 		stdout = stdout[:6000] + "\n...[omitted long output]...\n" + stdout[len(stdout)-4000:]
 	}
 	status := "success"

@@ -9,6 +9,7 @@ import (
 	"time"
 )
 
+// Config 是 Cohert 的运行配置。当前只覆盖命令行 MVP 必需字段。
 type Config struct {
 	Language  string
 	Workspace string
@@ -17,6 +18,7 @@ type Config struct {
 	LLM       LLMConfig
 }
 
+// LLMConfig 描述模型服务配置，当前默认使用 OpenAI-compatible 接口。
 type LLMConfig struct {
 	Provider              string
 	Name                  string
@@ -29,9 +31,12 @@ type LLMConfig struct {
 	MaxRetries            int
 }
 
+// LoadConfig 读取项目根目录的配置文件，并用环境变量替换 ${VAR}。
+// 当前为了保持 MVP 简单，没有引入 YAML 第三方库，只解析本项目需要的简单 key/value。
 func LoadConfig(path string) (Config, error) {
 	cfg := defaultConfig()
 	if _, err := os.Stat(path); err != nil {
+		// 配置文件不存在时也能运行，使用默认值和环境变量。
 		cfg.LLM.APIKey = expandEnv(cfg.LLM.APIKey)
 		return cfg, nil
 	}
@@ -52,6 +57,7 @@ func LoadConfig(path string) (Config, error) {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
+		// 只识别顶层字段和 llm: 下的一层字段。
 		indent := len(line) - len(strings.TrimLeft(line, " "))
 		line = strings.TrimSpace(line)
 		if strings.HasSuffix(line, ":") && indent == 0 {
@@ -84,6 +90,7 @@ func LoadConfig(path string) (Config, error) {
 	return cfg, nil
 }
 
+// defaultConfig 给出开箱即用的默认配置。
 func defaultConfig() Config {
 	return Config{
 		Language:  "zh",
@@ -104,6 +111,7 @@ func defaultConfig() Config {
 	}
 }
 
+// applyRootValue 写入顶层配置字段。
 func applyRootValue(cfg *Config, key, val string) {
 	switch key {
 	case "language":
@@ -117,6 +125,7 @@ func applyRootValue(cfg *Config, key, val string) {
 	}
 }
 
+// applyLLMValue 写入 llm: 配置段里的字段。
 func applyLLMValue(cfg *LLMConfig, key, val string) {
 	switch key {
 	case "provider":
@@ -140,6 +149,7 @@ func applyLLMValue(cfg *LLMConfig, key, val string) {
 	}
 }
 
+// expandEnv 支持 ${DEEPSEEK_API_KEY} 这种环境变量写法。
 func expandEnv(v string) string {
 	if strings.HasPrefix(v, "${") && strings.HasSuffix(v, "}") {
 		return os.Getenv(strings.TrimSuffix(strings.TrimPrefix(v, "${"), "}"))
@@ -147,6 +157,7 @@ func expandEnv(v string) string {
 	return os.ExpandEnv(v)
 }
 
+// atoiDefault 解析失败时返回已有默认值，避免配置写错导致零值覆盖。
 func atoiDefault(v string, fallback int) int {
 	n, err := strconv.Atoi(v)
 	if err != nil {
@@ -155,6 +166,7 @@ func atoiDefault(v string, fallback int) int {
 	return n
 }
 
+// parseBoolDefault 支持常见布尔写法，解析失败时保留默认值。
 func parseBoolDefault(v string, fallback bool) bool {
 	switch strings.ToLower(v) {
 	case "true", "yes", "1", "on":

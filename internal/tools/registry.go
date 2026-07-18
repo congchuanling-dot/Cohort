@@ -8,24 +8,31 @@ import (
 	"cohert/internal/llm"
 )
 
+// Tool 是所有本地工具必须实现的接口。
+// Runner 通过 Registry 调用工具，不直接依赖具体工具类型。
 type Tool interface {
 	Name() string
 	Schema() llm.ToolSchema
 	Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error)
 }
 
+// Registry 保存工具名到工具实例的映射，负责 schema 输出和工具分发。
 type Registry struct {
 	tools map[string]Tool
 }
 
+// NewRegistry 创建空工具注册表。
 func NewRegistry() *Registry {
 	return &Registry{tools: map[string]Tool{}}
 }
 
+// Register 把一个工具注册到模型可调用列表中。
 func (r *Registry) Register(tool Tool) {
 	r.tools[tool.Name()] = tool
 }
 
+// Schemas 返回给模型看的工具定义。
+// 固定顺序可以让输出更稳定，方便调试和测试。
 func (r *Registry) Schemas() []llm.ToolSchema {
 	schemas := make([]llm.ToolSchema, 0, len(r.tools))
 	order := []string{"file_read", "file_write", "file_patch", "code_run", "ask_user"}
@@ -44,6 +51,7 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 	return schemas
 }
 
+// Run 根据模型返回的工具名找到具体工具并执行。
 func (r *Registry) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
 	tool, ok := r.tools[call.Name]
 	if !ok {
@@ -55,6 +63,7 @@ func (r *Registry) Run(ctx context.Context, call agent.ToolCallContext) (agent.O
 	return tool.Run(ctx, call)
 }
 
+// objectSchema 生成工具参数的 JSON Schema object。
 func objectSchema(props map[string]any, required ...string) map[string]any {
 	schema := map[string]any{
 		"type":       "object",
@@ -66,6 +75,7 @@ func objectSchema(props map[string]any, required ...string) map[string]any {
 	return schema
 }
 
+// stringProp/intProp/boolProp 是工具 schema 的小工具函数，减少重复 map 写法。
 func stringProp(desc string) map[string]any {
 	return map[string]any{"type": "string", "description": desc}
 }

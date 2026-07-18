@@ -11,6 +11,7 @@ import (
 	"cohert/internal/llm"
 )
 
+// FileRead 读取文本文件，并可按行号截取内容。
 type FileRead struct {
 	workspaceTool
 }
@@ -21,6 +22,7 @@ func NewFileRead(workspace string) *FileRead {
 
 func (t *FileRead) Name() string { return "file_read" }
 
+// Schema 告诉模型 file_read 支持哪些参数。
 func (t *FileRead) Schema() llm.ToolSchema {
 	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
 		Name:        t.Name(),
@@ -34,6 +36,7 @@ func (t *FileRead) Schema() llm.ToolSchema {
 	}}
 }
 
+// Run 执行文件读取。读取失败会作为工具结果返回给模型，避免整个 Agent 直接中断。
 func (t *FileRead) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
 	path := t.resolve(asString(call.Args["path"]))
 	start := asInt(call.Args["start"], 1)
@@ -57,6 +60,7 @@ func (t *FileRead) Run(ctx context.Context, call agent.ToolCallContext) (agent.O
 	lineNo := 0
 	written := 0
 	for scanner.Scan() {
+		// 支持 ctx 取消，后续接入超时或用户中断时可以及时退出。
 		select {
 		case <-ctx.Done():
 			return agent.Outcome{}, ctx.Err()

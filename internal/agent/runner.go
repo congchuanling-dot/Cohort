@@ -17,38 +17,49 @@ type ToolRunner interface {
 	Run(ctx context.Context, call ToolCallContext) (Outcome, error)
 }
 
+// ToolCallContext 是一次工具调用的上下文，由 Runner 传给具体工具。
 type ToolCallContext struct {
+	// Name 是模型想调用的工具名，例如 file_read、code_run。
 	Name      string
-	Args      map[string]any
-	Response  llm.Response
-	Turn      int
-	Index     int
+	Args      map[string]any // Args 是模型传给工具的 JSON 参数，已经解析成 map。
+	Response  llm.Response   // Response 是当前轮模型的完整响应，方便工具按需参考上下文。
+	Turn      int            // Turn 是当前第几轮 Agent 循环。
+	Index     int            // Index 是当前工具调用在本轮 tool_calls 里的下标。
 	ToolCount int
 }
 
+// Runner 表示一个 Agent 会话，负责串起模型、工具、历史消息和循环控制。
 type Runner struct {
-	Client       llm.Client
-	Tools        ToolRunner
-	SystemPrompt string
-	MaxTurns     int
-	LogDir       string
+	Client       llm.Client // Client 负责和模型服务通信。
+	Tools        ToolRunner // Tools 负责提供工具 schema，并执行模型请求的工具。
+	SystemPrompt string     // SystemPrompt 是每次请求模型时固定携带的系统提示词。
+	MaxTurns     int        // MaxTurns 限制最大循环轮数，避免模型不断调用工具导致死循环。
+	LogDir       string     // LogDir 用来保存模型原始响应日志。
 
+	// history 保存当前会话历史。小写字段表示只允许 agent 包内部直接修改。
 	history []llm.Message
 }
 
+// Run 执行一次用户任务。流程是：用户输入 -> 调模型 -> 执行工具 -> 工具结果回灌 -> 继续调模型。
+// 当模型不再返回 tool_calls，而是直接回答时，本次任务结束。
 func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunResult, error) {
+	// 没配置最大轮数时给一个保守默认值，避免无限循环。
 	if r.MaxTurns <= 0 {
 		r.MaxTurns = 40
 	}
+	// 每次运行前确保日志目录存在，日志失败属于运行环境错误。
 	if err := r.ensureLogDir(); err != nil {
 		return RunResult{}, err
 	}
 
+	// 用户输入先进入 history，后续每一轮模型都能看到完整上下文。
 	r.history = append(r.history, llm.Message{Role: llm.RoleUser, Content: input})
+	// 复制一份消息切片给当前任务使用，避免直接复用 history 的底层切片。
 	messages := append([]llm.Message(nil), r.history...)
 
 	for turn := 1; turn <= r.MaxTurns; turn++ {
 		sink.WriteText(fmt.Sprintf("\nLLM Running (Turn %d) ...\n\n", turn))
+		// 把系统提示词、历史消息、工具 schema 一起发给模型。
 		stream, err := r.Client.Chat(ctx, llm.ChatRequest{
 			System:   r.SystemPrompt,
 			Messages: messages,
@@ -58,27 +69,34 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			return RunResult{}, err
 		}
 
+		// consume 会消费流式响应：文本实时输出，最终返回完整 Response。
 		resp, err := consume(stream, sink)
 		if err != nil {
 			return RunResult{}, err
 		}
+		// 记录模型原始响应用于排查问题，不影响主流程。
 		r.logResponse(turn, resp)
 
+		// 没有 tool_calls 表示模型已经给出最终回答，任务可以结束。
 		if len(resp.ToolCalls) == 0 {
 			r.history = append(r.history, llm.Message{Role: llm.RoleAssistant, Content: resp.Content})
 			return RunResult{Status: "done", Response: resp}, nil
 		}
 
+		// OpenAI-compatible 工具协议要求：
+		// assistant 的 tool_calls 消息必须出现在对应 tool 结果消息之前。
 		assistantMsg := llm.Message{Role: llm.RoleAssistant, Content: resp.Content, ToolCalls: resp.ToolCalls}
 		r.history = append(r.history, assistantMsg)
 
 		var toolMessages []llm.Message
 		for i, call := range resp.ToolCalls {
+			// 模型返回的工具参数是 JSON 字符串，这里先解析成 map 给工具使用。
 			args, err := parseToolArgs(call.Function.Arguments)
 			if err != nil {
 				args = map[string]any{}
 			}
 			sink.WriteToolCall(call)
+			// Registry 会根据工具名分发到具体工具，例如 file_read.Run。
 			outcome, runErr := r.Tools.Run(ctx, ToolCallContext{
 				Name:      call.Function.Name,
 				Args:      args,
@@ -88,6 +106,8 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 				ToolCount: len(resp.ToolCalls),
 			})
 			if runErr != nil {
+				// 工具失败时不直接中断 Agent，而是把错误作为工具结果交回模型。
+				// 这样模型有机会修正参数后再次调用。
 				outcome = Outcome{
 					Data:       map[string]any{"status": "error", "msg": runErr.Error()},
 					NextPrompt: "\n",
@@ -96,6 +116,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			if outcome.ShouldExit {
 				return RunResult{Status: "exited", Response: resp}, nil
 			}
+			// 工具输出会被转成 role=tool 消息，下一轮模型才能读到工具结果。
 			resultText := stringify(outcome.Data)
 			sink.WriteToolResult(call.Function.Name, resultText)
 			toolMessages = append(toolMessages, llm.Message{
@@ -106,8 +127,10 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			})
 		}
 		r.history = append(r.history, toolMessages...)
+		// 下一轮模型会看到目前为止的全部消息：用户输入、模型工具调用、工具结果。
 		messages = append([]llm.Message(nil), r.history...)
 	}
+	// 达到最大轮数说明模型一直没有收敛，返回受控状态而不是无限运行。
 	return RunResult{Status: "max_turns_exceeded"}, nil
 }
 
@@ -119,6 +142,7 @@ func (r *Runner) Reset() {
 	r.history = nil
 }
 
+// consume 消费模型流式事件：文本事件直接输出，完成事件返回完整响应，错误事件返回 error。
 func consume(stream <-chan llm.Event, sink OutputSink) (*llm.Response, error) {
 	for event := range stream {
 		switch event.Type {
@@ -139,6 +163,7 @@ func consume(stream <-chan llm.Event, sink OutputSink) (*llm.Response, error) {
 	return nil, fmt.Errorf("llm stream closed without done event")
 }
 
+// parseToolArgs 把模型返回的 JSON 参数字符串解析成工具可用的 map。
 func parseToolArgs(raw string) (map[string]any, error) {
 	args := map[string]any{}
 	if strings.TrimSpace(raw) == "" {
@@ -150,6 +175,7 @@ func parseToolArgs(raw string) (map[string]any, error) {
 	return args, nil
 }
 
+// stringify 把工具结果转成字符串，方便写入 role=tool 的消息 Content。
 func stringify(v any) string {
 	switch x := v.(type) {
 	case string:
@@ -165,6 +191,7 @@ func stringify(v any) string {
 	}
 }
 
+// ensureLogDir 确保日志目录存在。LogDir 为空时表示不写日志。
 func (r *Runner) ensureLogDir() error {
 	if r.LogDir == "" {
 		return nil
@@ -172,6 +199,7 @@ func (r *Runner) ensureLogDir() error {
 	return os.MkdirAll(r.LogDir, 0755)
 }
 
+// logResponse 记录每轮模型原始响应，方便后续排查 tool_calls 或流式解析问题。
 func (r *Runner) logResponse(turn int, resp *llm.Response) {
 	if r.LogDir == "" || resp == nil {
 		return

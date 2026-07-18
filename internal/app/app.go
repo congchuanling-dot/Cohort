@@ -11,17 +11,22 @@ import (
 	"cohert/internal/tools"
 )
 
+// NewRunner 根据配置创建完整的 Agent Runner。
+// 这里是应用装配层：负责把 LLM Client、工具注册器、系统提示词组合到一起。
 func NewRunner(cfg Config) (*agent.Runner, error) {
 	if cfg.LLM.APIKey == "" {
 		return nil, errors.New("missing API key: set DEEPSEEK_API_KEY or configs/config.yaml llm.api_key")
 	}
+	// workspace 是文件和命令工具默认工作的目录。
 	if err := os.MkdirAll(cfg.Workspace, 0755); err != nil {
 		return nil, err
 	}
+	// LogDir 保存模型原始响应，方便排查工具调用和流式解析问题。
 	if err := os.MkdirAll(cfg.LogDir, 0755); err != nil {
 		return nil, err
 	}
 
+	// 当前 MVP 先支持 OpenAI-compatible 协议，DeepSeek 也走这套接口。
 	client := llm.NewOpenAIClient(llm.OpenAIConfig{
 		Name:           cfg.LLM.Name,
 		APIKey:         cfg.LLM.APIKey,
@@ -35,6 +40,7 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 
 	registry := newRegistry(cfg.Workspace)
 
+	// Runner 不直接知道具体工具类型，只依赖 ToolRunner 接口。
 	return &agent.Runner{
 		Client:       client,
 		Tools:        registry,
@@ -44,10 +50,12 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 	}, nil
 }
 
+// ToolSchemas 给 CLI 的 tools 命令使用，只列工具 schema，不初始化 LLM。
 func ToolSchemas(cfg Config) []llm.ToolSchema {
 	return newRegistry(cfg.Workspace).Schemas()
 }
 
+// newRegistry 集中注册当前 MVP 暴露给模型的本地工具。
 func newRegistry(workspace string) *tools.Registry {
 	registry := tools.NewRegistry()
 	registry.Register(tools.NewFileRead(workspace))
@@ -58,6 +66,7 @@ func newRegistry(workspace string) *tools.Registry {
 	return registry
 }
 
+// buildSystemPrompt 生成发送给模型的系统提示词。
 func buildSystemPrompt(cfg Config) string {
 	if cfg.Language == "en" {
 		return "You are Cohert Go MVP, a command-line coding agent. Use tools when needed, keep responses concise, and stop when the user task is complete."

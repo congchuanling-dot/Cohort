@@ -9,6 +9,7 @@ import (
 	"cohert/internal/llm"
 )
 
+// FileWrite 创建或修改文本文件，支持 overwrite/append/prepend 三种模式。
 type FileWrite struct {
 	workspaceTool
 }
@@ -19,6 +20,7 @@ func NewFileWrite(workspace string) *FileWrite {
 
 func (t *FileWrite) Name() string { return "file_write" }
 
+// Schema 告诉模型 file_write 的路径、内容和写入模式参数。
 func (t *FileWrite) Schema() llm.ToolSchema {
 	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
 		Name:        t.Name(),
@@ -36,6 +38,7 @@ func (t *FileWrite) Schema() llm.ToolSchema {
 	}}
 }
 
+// Run 执行写文件操作。所有相对路径都会先解析到 workspace 下。
 func (t *FileWrite) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
 	_ = ctx
 	path := t.resolve(asString(call.Args["path"]))
@@ -45,6 +48,7 @@ func (t *FileWrite) Run(ctx context.Context, call agent.ToolCallContext) (agent.
 		mode = "overwrite"
 	}
 	if err := ensureParent(path); err != nil {
+		// 写入前先创建父目录，避免模型写 workspace/a/b.txt 时目录不存在。
 		return agent.Outcome{}, err
 	}
 

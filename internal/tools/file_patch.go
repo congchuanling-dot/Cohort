@@ -10,6 +10,7 @@ import (
 	"cohert/internal/llm"
 )
 
+// FilePatch 用精确文本块替换文件内容，适合小范围修改。
 type FilePatch struct {
 	workspaceTool
 }
@@ -20,6 +21,7 @@ func NewFilePatch(workspace string) *FilePatch {
 
 func (t *FilePatch) Name() string { return "file_patch" }
 
+// Schema 要求模型提供 path、old_content、new_content。
 func (t *FilePatch) Schema() llm.ToolSchema {
 	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
 		Name:        t.Name(),
@@ -32,6 +34,7 @@ func (t *FilePatch) Schema() llm.ToolSchema {
 	}}
 }
 
+// Run 只允许 old_content 唯一匹配时写入，避免误改多个位置。
 func (t *FilePatch) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
 	_ = ctx
 	path := t.resolve(asString(call.Args["path"]))
@@ -46,6 +49,7 @@ func (t *FilePatch) Run(ctx context.Context, call agent.ToolCallContext) (agent.
 	}
 	text := string(data)
 	count := strings.Count(text, oldContent)
+	// 找不到或匹配多次都返回给模型，让模型重新读取文件后再修正 patch。
 	if count == 0 {
 		return agent.Outcome{
 			Data:       map[string]any{"status": "error", "msg": "old_content not found"},

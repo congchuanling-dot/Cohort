@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+// asString/asInt/asBool 把模型传入的 any 类型参数转换成工具需要的 Go 类型。
+// 模型参数来自 JSON，数字常见类型是 float64，所以这里集中做兼容处理。
 func asString(v any) string {
 	switch x := v.(type) {
 	case string:

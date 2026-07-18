@@ -12,7 +12,10 @@ import (
 	"cohert/internal/app"
 )
 
+// Run 是命令行入口的主分发函数。
+// 它只负责解析用户输入的子命令，真正的 Agent 执行交给 agent.Runner。
 func Run(args []string) error {
+	// 不带参数时默认进入交互模式，方便开发阶段直接 go run .
 	if len(args) == 0 {
 		args = []string{"run"}
 	}
@@ -21,11 +24,13 @@ func Run(args []string) error {
 		return nil
 	}
 
+	// 当前 MVP 先从项目根目录的 configs/config.yaml 读取配置。
 	cfg, err := app.LoadConfig("configs/config.yaml")
 	if err != nil {
 		return err
 	}
 
+	// config/tools 是轻量命令，不需要初始化 LLM Client，也不需要 API Key。
 	switch args[0] {
 	case "config":
 		fmt.Printf("model: %s\napi_base: %s\nworkspace: %s\n", cfg.LLM.Model, cfg.LLM.APIBase, cfg.Workspace)
@@ -42,6 +47,7 @@ func Run(args []string) error {
 		return nil
 	}
 
+	// 真正执行任务前才创建 Runner，此时会检查 API Key、工作区、日志目录等。
 	runner, err := app.NewRunner(cfg)
 	if err != nil {
 		return err
@@ -62,6 +68,8 @@ func Run(args []string) error {
 	}
 }
 
+// runREPL 是交互模式。每输入一行任务，就复用同一个 Runner 继续执行。
+// 因为 Runner 内部保留 history，所以 REPL 模式天然带上下文；/clear 会清空它。
 func runREPL(ctx context.Context, runner *agent.Runner) error {
 	fmt.Println("Cohert Go MVP")
 	fmt.Println("输入任务开始执行；输入 /exit 退出，/tools 查看工具。")
@@ -76,6 +84,7 @@ func runREPL(ctx context.Context, runner *agent.Runner) error {
 		if input == "" {
 			continue
 		}
+		// 以 / 开头的内置命令只在本地处理，不会发送给模型。
 		switch input {
 		case "/exit", "exit", "quit":
 			return nil
@@ -89,12 +98,14 @@ func runREPL(ctx context.Context, runner *agent.Runner) error {
 			fmt.Println("session cleared")
 			continue
 		}
+		// 普通输入会作为一次用户任务交给 Agent Runner。
 		if _, err := runner.Run(ctx, input, agent.NewConsoleSink(os.Stdout)); err != nil {
 			fmt.Fprintf(os.Stderr, "run error: %v\n", err)
 		}
 	}
 }
 
+// printHelp 输出当前支持的最小命令集合。
 func printHelp() {
 	fmt.Print(`Cohert Go MVP
 
