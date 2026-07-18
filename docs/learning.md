@@ -51,10 +51,10 @@ go run . config
 如果先构建本地二进制，也可以在项目根目录使用：
 
 ```text
-cohert
-cohert ask "任务"
-cohert tools
-cohert config
+./cohert
+./cohert ask "任务"
+./cohert tools
+./cohert config
 ```
 
 关键点：
@@ -63,7 +63,7 @@ cohert config
 - `go run . ask` 执行一次任务。
 - `go run . tools` 只列工具，不需要 API Key。
 - `go run . config` 只看配置，不需要 API Key。
-- `cohert` 是构建出来的本地二进制，不代表已经支持任意路径全局启动。
+- `./cohert` 是构建出来的本地二进制，不代表已经支持任意路径全局启动。
 - 真正跑 Agent 时才会初始化 LLM。
 
 ### 3.2 再看应用装配
@@ -258,7 +258,7 @@ type Tool interface {
 
 1. 给 `internal/llm/openai.go` 增加单元测试，覆盖 SSE tool_calls 拼接。
 2. 给 `file_patch` 增加单元测试，覆盖 0 次、1 次、多次匹配。
-3. 增加 `cohert doctor`，检查 Go 版本、API Key、模型连通性。
+3. 增加 `go run . doctor`，检查 Go 版本、API Key、模型连通性。
 4. 增加 session 目录和 `history.jsonl`。
-5. 增加 `cohert session list/resume`。
+5. 增加 `go run . session list/resume`。
 6. 再考虑 TUI 或 Web UI。

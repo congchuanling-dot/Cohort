@@ -44,7 +44,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 		return RunResult{}, err
 	}
 
-	r.history = append(r.history, llm.Message{Role: "user", Content: input})
+	r.history = append(r.history, llm.Message{Role: llm.RoleUser, Content: input})
 	messages := append([]llm.Message(nil), r.history...)
 
 	for turn := 1; turn <= r.MaxTurns; turn++ {
@@ -65,11 +65,11 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 		r.logResponse(turn, resp)
 
 		if len(resp.ToolCalls) == 0 {
-			r.history = append(r.history, llm.Message{Role: "assistant", Content: resp.Content})
+			r.history = append(r.history, llm.Message{Role: llm.RoleAssistant, Content: resp.Content})
 			return RunResult{Status: "done", Response: resp}, nil
 		}
 
-		assistantMsg := llm.Message{Role: "assistant", Content: resp.Content, ToolCalls: resp.ToolCalls}
+		assistantMsg := llm.Message{Role: llm.RoleAssistant, Content: resp.Content, ToolCalls: resp.ToolCalls}
 		r.history = append(r.history, assistantMsg)
 
 		var toolMessages []llm.Message
@@ -99,7 +99,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			resultText := stringify(outcome.Data)
 			sink.WriteToolResult(call.Function.Name, resultText)
 			toolMessages = append(toolMessages, llm.Message{
-				Role:       "tool",
+				Role:       llm.RoleTool,
 				ToolCallID: call.ID,
 				Name:       call.Function.Name,
 				Content:    resultText,
