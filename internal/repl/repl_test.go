@@ -75,6 +75,35 @@ func TestStartHandlesSlashCommandsLocally(t *testing.T) {
 	}
 }
 
+func TestStartPrintsCommandPaletteForSlashInNonTerminal(t *testing.T) {
+	// 非真实终端里无法打开上下键选择菜单，因此 "/" 会退化为文本命令面板。
+	client := &fakeClient{}
+	runner := &agent.Runner{
+		Client: client,
+		Tools:  fakeTools{},
+	}
+
+	var out bytes.Buffer
+	err := Start(context.Background(), Options{
+		Config:       testConfig(),
+		Runner:       runner,
+		SessionStore: session.NewStore(t.TempDir()),
+		In:           strings.NewReader("/\n/exit\n"),
+		Out:          &out,
+		Err:          &out,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := out.String()
+	if !strings.Contains(output, "Slash commands") {
+		t.Fatalf("output does not contain command palette:\n%s", output)
+	}
+	if client.calls != 0 {
+		t.Fatalf("model calls = %d, want 0", client.calls)
+	}
+}
+
 func TestStartResumesSessionWithSlashCommand(t *testing.T) {
 	store := session.NewStore(t.TempDir())
 	sess, err := store.Create("old task", "/tmp/project", "deepseek-v4-pro")

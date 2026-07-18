@@ -10,6 +10,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/chzyer/readline"
+	"github.com/manifoldco/promptui"
 	"golang.org/x/term"
 
 	"cohert/internal/agent"
@@ -129,29 +130,36 @@ func (r *scannerLineReader) ReadLine() (string, error) {
 }
 
 type readlineLineReader struct {
-	instance *readline.Instance
+	in  *os.File
+	out io.Writer
+	err io.Writer
 }
 
 func (r readlineLineReader) ReadLine() (string, error) {
-	return r.instance.Readline()
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:            promptText,
+		Stdin:             r.in,
+		Stdout:            r.out,
+		Stderr:            r.err,
+		AutoComplete:      slashCompleter(),
+		InterruptPrompt:   "^C",
+		EOFPrompt:         "exit",
+		HistorySearchFold: true,
+	})
+	if err != nil {
+		return "", err
+	}
+	defer rl.Close()
+	return rl.Readline()
 }
 
 func newLineReader(opts Options) (lineReader, func(), error) {
 	if file, ok := opts.In.(*os.File); ok && term.IsTerminal(int(file.Fd())) {
-		rl, err := readline.NewEx(&readline.Config{
-			Prompt:            promptText,
-			Stdin:             file,
-			Stdout:            opts.Out,
-			Stderr:            opts.Err,
-			AutoComplete:      slashCompleter(),
-			InterruptPrompt:   "^C",
-			EOFPrompt:         "exit",
-			HistorySearchFold: true,
-		})
-		if err != nil {
-			return nil, nil, err
-		}
-		return readlineLineReader{instance: rl}, func() { _ = rl.Close() }, nil
+		return readlineLineReader{
+			in:  file,
+			out: opts.Out,
+			err: opts.Err,
+		}, func() {}, nil
 	}
 
 	reader := &scannerLineReader{
@@ -190,6 +198,13 @@ type SlashCommand struct {
 	Args []string
 }
 
+type slashMenuItem struct {
+	Usage       string
+	Description string
+	Command     SlashCommand
+	NeedSession bool
+}
+
 func parseSlashCommand(input string) SlashCommand {
 	raw := strings.TrimSpace(input)
 	trimmed := strings.TrimPrefix(raw, "/")
@@ -204,10 +219,133 @@ func parseSlashCommand(input string) SlashCommand {
 	}
 }
 
+func selectSlashCommand(opts Options) (SlashCommand, bool, error) {
+	inFile, inOK := opts.In.(*os.File)
+	outFile, outOK := opts.Out.(*os.File)
+	if !inOK || !outOK || !term.IsTerminal(int(inFile.Fd())) || !term.IsTerminal(int(outFile.Fd())) {
+		return SlashCommand{}, false, nil
+	}
+
+	items := []slashMenuItem{
+		{
+			Usage:       "/help",
+			Description: "显示所有对话内命令",
+			Command:     SlashCommand{Raw: "/help", Name: commandHelp},
+		},
+		{
+			Usage:       "/model",
+			Description: "查看当前模型、供应商和 API 地址",
+			Command:     SlashCommand{Raw: "/model", Name: commandModel},
+		},
+		{
+			Usage:       "/config",
+			Description: "查看当前运行配置摘要",
+			Command:     SlashCommand{Raw: "/config", Name: commandConfig},
+		},
+		{
+			Usage:       "/tools",
+			Description: "查看当前可用工具",
+			Command:     SlashCommand{Raw: "/tools", Name: commandTools},
+		},
+		{
+			Usage:       "/session",
+			Description: "查看当前 session 状态",
+			Command:     SlashCommand{Raw: "/session", Name: commandSession},
+		},
+		{
+			Usage:       "/session list",
+			Description: "列出本地历史 session",
+			Command:     SlashCommand{Raw: "/session list", Name: commandSession, Args: []string{sessionCommandList}},
+		},
+		{
+			Usage:       "/resume <id>",
+			Description: "恢复一个历史 session",
+			Command:     SlashCommand{Raw: "/resume", Name: commandResume},
+			NeedSession: true,
+		},
+		{
+			Usage:       "/compact",
+			Description: "预留上下文压缩入口",
+			Command:     SlashCommand{Raw: "/compact", Name: commandCompact},
+		},
+		{
+			Usage:       "/clear",
+			Description: "清空当前内存上下文，下一次输入创建新 session",
+			Command:     SlashCommand{Raw: "/clear", Name: commandClear},
+		},
+		{
+			Usage:       "/exit",
+			Description: "退出 Cohert",
+			Command:     SlashCommand{Raw: "/exit", Name: commandExit},
+		},
+	}
+
+	selectPrompt := promptui.Select{
+		Label: "Slash commands",
+		Items: items,
+		Size:  10,
+		Templates: &promptui.SelectTemplates{
+			Label:    "{{ . }}",
+			Active:   "▸ {{ .Usage | cyan }}  {{ .Description }}",
+			Inactive: "  {{ .Usage }}  {{ .Description }}",
+			Selected: "✓ {{ .Usage | cyan }}",
+			Details: `
+{{ "Command" | faint }}: {{ .Usage }}
+{{ "Action" | faint }}:  {{ .Description }}`,
+		},
+		Stdin:  inFile,
+		Stdout: outFile,
+	}
+	index, _, err := selectPrompt.Run()
+	if err != nil {
+		if err == promptui.ErrInterrupt {
+			return SlashCommand{}, true, nil
+		}
+		return SlashCommand{}, false, err
+	}
+	selected := items[index]
+	cmd := selected.Command
+	if selected.NeedSession {
+		sessionID, err := promptSessionID(inFile, outFile)
+		if err != nil {
+			if err == promptui.ErrInterrupt {
+				return SlashCommand{}, true, nil
+			}
+			return SlashCommand{}, false, err
+		}
+		cmd.Args = []string{sessionID}
+		cmd.Raw = "/resume " + sessionID
+	}
+	return cmd, true, nil
+}
+
+func promptSessionID(inFile *os.File, outFile *os.File) (string, error) {
+	prompt := promptui.Prompt{
+		Label: "Session ID",
+		Validate: func(input string) error {
+			if strings.TrimSpace(input) == "" {
+				return fmt.Errorf("session id is required")
+			}
+			return nil
+		},
+		Stdin:  inFile,
+		Stdout: outFile,
+	}
+	return prompt.Run()
+}
+
 func handleSlashCommand(opts Options, cmd SlashCommand) (bool, error) {
 	switch cmd.Name {
 	case "":
-		printCommandPalette(opts.Out)
+		selected, ok, err := selectSlashCommand(opts)
+		if err != nil {
+			return false, err
+		}
+		if !ok {
+			printCommandPalette(opts.Out)
+			return false, nil
+		}
+		return handleSlashCommand(opts, selected)
 	case commandExit, commandQuit:
 		fmt.Fprintln(opts.Out, "bye")
 		return true, nil
@@ -285,7 +423,7 @@ func printWelcome(out io.Writer, cfg app.Config, runner *agent.Runner) {
 	fmt.Fprintf(out, "│ Tools      %-47d │\n", tools)
 	fmt.Fprintln(out, "├────────────────────────────────────────────────────────────┤")
 	fmt.Fprintln(out, "│ 直接输入任务开始执行                                      │")
-	fmt.Fprintln(out, "│ 输入 / 查看命令面板；输入 / 后按 Tab 选择命令             │")
+	fmt.Fprintln(out, "│ 输入 / 打开命令菜单；用 ↑↓ 选择，Enter 执行              │")
 	fmt.Fprintln(out, "╰────────────────────────────────────────────────────────────╯")
 }
 
@@ -322,7 +460,7 @@ func printCommandPalette(out io.Writer) {
   /clear                清空当前内存上下文
   /exit                 退出
 
-提示：在真实终端里输入 / 后按 Tab 可以补全选择。
+提示：真实终端里输入 / 会打开可选择菜单；输入命令前缀后也可以按 Tab 补全。
 `)
 }
 
