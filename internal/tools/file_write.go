@@ -80,7 +80,7 @@ func (t *FileWrite) Run(ctx context.Context, call agent.ToolCallContext) (agent.
 	}
 	return agent.Outcome{
 		Data: map[string]any{
-			"status":        "success",
+			"status":        agent.ToolStatusSuccess,
 			"path":          path,
 			"written_bytes": len(content),
 			"mode":          mode,

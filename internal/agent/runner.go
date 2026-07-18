@@ -90,27 +90,42 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 
 		var toolMessages []llm.Message
 		for i, call := range resp.ToolCalls {
+			sink.WriteToolCall(call)
+
 			// 模型返回的工具参数是 JSON 字符串，这里先解析成 map 给工具使用。
 			args, err := parseToolArgs(call.Function.Arguments)
+			var outcome Outcome
 			if err != nil {
-				args = map[string]any{}
-			}
-			sink.WriteToolCall(call)
-			// Registry 会根据工具名分发到具体工具，例如 file_read.Run。
-			outcome, runErr := r.Tools.Run(ctx, ToolCallContext{
-				Name:      call.Function.Name,
-				Args:      args,
-				Response:  *resp,
-				Turn:      turn,
-				Index:     i,
-				ToolCount: len(resp.ToolCalls),
-			})
-			if runErr != nil {
-				// 工具失败时不直接中断 Agent，而是把错误作为工具结果交回模型。
-				// 这样模型有机会修正参数后再次调用。
 				outcome = Outcome{
-					Data:       map[string]any{"status": "error", "msg": runErr.Error()},
+					Data: NewToolError(
+						"bad_json",
+						"tool arguments are not valid JSON: "+err.Error(),
+						"请重新生成合法 JSON 参数。不要省略引号、逗号或右括号；必要时先读取文件确认参数内容。",
+					),
 					NextPrompt: "\n",
+				}
+			} else {
+				// Registry 会根据工具名分发到具体工具，例如 file_read.Run。
+				var runErr error
+				outcome, runErr = r.Tools.Run(ctx, ToolCallContext{
+					Name:      call.Function.Name,
+					Args:      args,
+					Response:  *resp,
+					Turn:      turn,
+					Index:     i,
+					ToolCount: len(resp.ToolCalls),
+				})
+				if runErr != nil {
+					// 工具失败时不直接中断 Agent，而是把错误作为工具结果交回模型。
+					// 这样模型有机会修正参数后再次调用。
+					outcome = Outcome{
+						Data: NewToolError(
+							"tool_run_failed",
+							runErr.Error(),
+							"请根据错误信息修正工具名或参数后重试；如果缺少文件内容，先调用 file_read。",
+						),
+						NextPrompt: "\n",
+					}
 				}
 			}
 			if outcome.ShouldExit {

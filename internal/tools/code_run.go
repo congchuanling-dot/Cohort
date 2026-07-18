@@ -78,9 +78,9 @@ func (t *CodeRun) Run(ctx context.Context, call agent.ToolCallContext) (agent.Ou
 		// 输出过长会影响模型上下文，保留首尾即可定位问题。
 		stdout = stdout[:6000] + "\n...[omitted long output]...\n" + stdout[len(stdout)-4000:]
 	}
-	status := "success"
+	status := agent.ToolStatusSuccess
 	if err != nil {
-		status = "error"
+		status = agent.ToolStatusError
 	}
 	timeoutHit := runCtx.Err() == context.DeadlineExceeded
 	return agent.Outcome{

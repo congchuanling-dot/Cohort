@@ -16,6 +16,32 @@ type Outcome struct {
 }
 
 const (
+	// ToolStatusSuccess 表示工具执行成功。
+	ToolStatusSuccess = "success"
+	// ToolStatusError 表示工具执行失败，但错误会作为工具结果回灌给模型。
+	ToolStatusError = "error"
+)
+
+// ToolErrorData 是工具错误返回给模型的统一格式。
+// Code 给程序和测试判断错误类型，Message 给用户看，Hint 给模型下一步修正建议。
+type ToolErrorData struct {
+	Status  string `json:"status"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Hint    string `json:"hint"`
+}
+
+// NewToolError 创建统一的工具错误结果。
+func NewToolError(code string, message string, hint string) ToolErrorData {
+	return ToolErrorData{
+		Status:  ToolStatusError,
+		Code:    code,
+		Message: message,
+		Hint:    hint,
+	}
+}
+
+const (
 	// RunStatusDone 表示模型已经给出最终回答，本次任务正常结束。
 	RunStatusDone = "done"
 	// RunStatusExited 表示工具主动要求退出当前任务。

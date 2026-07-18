@@ -41,7 +41,14 @@ func (t *FilePatch) Run(ctx context.Context, call agent.ToolCallContext) (agent.
 	oldContent := asString(call.Args["old_content"])
 	newContent := asString(call.Args["new_content"])
 	if oldContent == "" {
-		return agent.Outcome{}, fmt.Errorf("old_content is empty")
+		return agent.Outcome{
+			Data: agent.NewToolError(
+				"old_content_empty",
+				"old_content is empty",
+				"请先调用 file_read 确认文件当前内容，再提供需要替换的完整 old_content。",
+			),
+			NextPrompt: "\n",
+		}, nil
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -52,13 +59,21 @@ func (t *FilePatch) Run(ctx context.Context, call agent.ToolCallContext) (agent.
 	// 找不到或匹配多次都返回给模型，让模型重新读取文件后再修正 patch。
 	if count == 0 {
 		return agent.Outcome{
-			Data:       map[string]any{"status": "error", "msg": "old_content not found"},
+			Data: agent.NewToolError(
+				"old_content_not_found",
+				"old_content not found",
+				"请先调用 file_read 确认文件当前内容，再基于真实内容生成更小、更精确的 old_content。",
+			),
 			NextPrompt: "\n",
 		}, nil
 	}
 	if count > 1 {
 		return agent.Outcome{
-			Data:       map[string]any{"status": "error", "msg": fmt.Sprintf("old_content matched %d times", count)},
+			Data: agent.NewToolError(
+				"old_content_not_unique",
+				fmt.Sprintf("old_content matched %d times", count),
+				"请提供包含上下文行的更长 old_content，确保只匹配一个位置。",
+			),
 			NextPrompt: "\n",
 		}, nil
 	}
@@ -67,7 +82,7 @@ func (t *FilePatch) Run(ctx context.Context, call agent.ToolCallContext) (agent.
 		return agent.Outcome{}, err
 	}
 	return agent.Outcome{
-		Data:       map[string]any{"status": "success", "path": path},
+		Data:       map[string]any{"status": agent.ToolStatusSuccess, "path": path},
 		NextPrompt: "\n",
 	}, nil
 }

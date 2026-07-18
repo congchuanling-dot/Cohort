@@ -69,7 +69,11 @@ func (r *Registry) Run(ctx context.Context, call agent.ToolCallContext) (agent.O
 	tool, ok := r.tools[call.Name]
 	if !ok {
 		return agent.Outcome{
-			Data:       map[string]any{"status": "error", "msg": "unknown tool: " + call.Name},
+			Data: agent.NewToolError(
+				"unknown_tool",
+				"unknown tool: "+call.Name,
+				"请改用当前可用工具之一："+ToolNameFileRead+"、"+ToolNameFileWrite+"、"+ToolNameFilePatch+"、"+ToolNameCodeRun+"、"+ToolNameAskUser,
+			),
 			NextPrompt: "未知工具 " + call.Name,
 		}, fmt.Errorf("unknown tool %q", call.Name)
 	}
