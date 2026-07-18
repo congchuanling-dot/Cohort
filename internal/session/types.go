@@ -59,6 +59,17 @@ type Session struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// Summary 是 session list 使用的轻量展示结构。
+// 它把 meta.json 里的 Session 元信息和 history.jsonl 的消息行数放在一起，
+// 这样 CLI 列表不需要加载完整 Message 内容，也能告诉用户这个会话大概有多少上下文。
+type Summary struct {
+	// Session 是 meta.json 中的会话元信息。
+	Session Session
+	// MessageCount 是 history.jsonl 的有效行数。
+	// 一行对应一条 HistoryEntry，包含 user/assistant/tool 三类消息。
+	MessageCount int
+}
+
 // HistoryEntry 是 history.jsonl 中的一行记录。
 // Message 保存真正发给模型或从工具返回的消息；外层字段用于恢复、排序和后续做对话树。
 //

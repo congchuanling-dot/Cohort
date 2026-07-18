@@ -185,6 +185,15 @@ func (r *Runner) Reset() {
 	r.sessionID = ""
 }
 
+// ResumeSession 把已有 session 的历史装回 Runner。
+//
+// sessionID 会继续作为后续 history.jsonl 的追加目标；
+// history 会复制一份保存到 Runner 内部，避免调用方后续修改切片影响正在运行的会话。
+func (r *Runner) ResumeSession(sessionID string, history []llm.Message) {
+	r.sessionID = sessionID
+	r.history = append([]llm.Message(nil), history...)
+}
+
 // appendMessage 同时维护内存 history 和本地 history.jsonl。
 //
 // Runner 的主流程只调用这个方法追加消息，避免某些分支只写内存、不写文件。

@@ -2,6 +2,8 @@
 
 这份文档用于测试当前 Cohert Go MVP 是否可用。当前先测试项目根目录内启动，不测试全局安装和任意路径启动。
 
+日常使用教程见：[usage.md](./usage.md)。
+
 测试分两类：
 
 - 本地测试：不调用模型，不需要 API Key。
@@ -328,7 +330,47 @@ go run .
 /exit
 ```
 
-## 6. 日志检查
+## 6. 会话恢复测试
+
+当前 Cohert 会把对话消息写入：
+
+```text
+temp/sessions/<session_id>/history.jsonl
+```
+
+### 6.1 查看本地 session 列表
+
+```bash
+go run . session list
+```
+
+预期结果：
+
+- 如果还没有历史会话，输出 `no sessions`。
+- 如果已经运行过任务，会看到 `ID`、`TITLE`、`MESSAGES`、`UPDATED`、`CWD`。
+
+### 6.2 恢复一个 session
+
+先从列表里复制一个 ID，然后执行：
+
+```bash
+go run . session resume <session_id>
+```
+
+预期现象：
+
+- 控制台输出 `resumed session ...`。
+- Cohert 进入交互模式。
+- 后续输入的新问题会接在旧的 `history.jsonl` 后面。
+- 模型请求会带上恢复出来的历史上下文。
+
+### 6.3 本地测试 session 读写
+
+```bash
+go test ./internal/session ./internal/agent -run 'TestStoreListAndLoadHistory|TestRunnerResumeSessionContinuesExistingHistory' -count=1
+```
+
+## 7. 日志检查
 
 模型响应日志写入：
 
@@ -346,7 +388,7 @@ find temp/model_responses -type f -maxdepth 1 -print
 
 注意：日志里可能包含模型原始响应，不要提交 `temp/`。
 
-## 7. 回归测试清单
+## 8. 回归测试清单
 
 每次改代码后至少执行：
 
@@ -371,10 +413,11 @@ go run . ask "读取 README.md 前 20 行并总结"
 - 改 `file_patch`：跑 4.4。
 - 改 `code_run`：跑 4.5，并执行 `go test ./internal/tools -run 'TestCodeRun|TestNormalize' -count=1`。
 - 改 `ask_user`：跑 4.6。
+- 改 session：跑 6.1、6.2，并执行 `go test ./internal/session ./internal/agent -run 'TestStoreListAndLoadHistory|TestRunnerResumeSessionContinuesExistingHistory' -count=1`。
 
-## 8. 常见问题
+## 9. 常见问题
 
-### 8.1 `api_key: missing`
+### 9.1 `api_key: missing`
 
 说明环境变量没有设置。
 
@@ -385,7 +428,7 @@ export DEEPSEEK_API_KEY="sk-xxx"
 go run . config
 ```
 
-### 8.2 `llm http status 401`
+### 9.2 `llm http status 401`
 
 说明 Key 无效、过期或没有权限。
 
@@ -394,7 +437,7 @@ go run . config
 - 检查 `DEEPSEEK_API_KEY` 是否正确。
 - 检查 DeepSeek 控制台余额或权限。
 
-### 8.3 模型没有调用工具
+### 9.3 模型没有调用工具
 
 可能原因：
 
@@ -408,7 +451,7 @@ go run . config
 go run . ask "必须调用 file_read 读取 README.md 前 20 行，然后总结"
 ```
 
-### 8.4 `bash: ./cohert: No such file or directory`
+### 9.4 `bash: ./cohert: No such file or directory`
 
 说明还没构建本地二进制。当前推荐直接用：
 
@@ -423,7 +466,7 @@ go run . tools
 go build -o cohert ./cmd/cohert
 ```
 
-### 8.5 文件写到了意料之外的位置
+### 9.5 文件写到了意料之外的位置
 
 默认工作区是：
 
@@ -437,7 +480,7 @@ workspace
 go run . config
 ```
 
-## 9. 当前 MVP 验收标准
+## 10. 当前 MVP 验收标准
 
 满足以下条件即可认为 MVP 可用：
 

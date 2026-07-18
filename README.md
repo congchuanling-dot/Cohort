@@ -53,6 +53,8 @@ go run . config
 
 ## 启动
 
+完整使用教程见：[docs/usage.md](docs/usage.md)。
+
 交互式：
 
 ```bash
@@ -69,6 +71,13 @@ go run . ask "读取 README.md 并总结"
 
 ```bash
 go run . tools
+```
+
+查看和恢复 session：
+
+```bash
+go run . session list
+go run . session resume <session_id>
 ```
 
 ## 构建

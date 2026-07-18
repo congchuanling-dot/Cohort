@@ -121,3 +121,65 @@ func TestStoreAppendHistoryWritesJSONL(t *testing.T) {
 		t.Fatalf("second entry = %#v", entries[1])
 	}
 }
+
+func TestStoreListAndLoadHistory(t *testing.T) {
+	// 这个测试覆盖 P0-013/P0-014 的核心读路径：
+	// session list 需要读取 meta.json 并统计消息数；
+	// session resume 需要读取 history.jsonl 并还原成 []llm.Message。
+	root := t.TempDir()
+	store := NewStore(root)
+
+	first, err := store.Create("first task", "/tmp/project-a", "deepseek-v4-pro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.Create("second task", "/tmp/project-b", "deepseek-v4-pro")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	appendErr := store.AppendHistory(first.ID, llm.Message{Role: llm.RoleUser, Content: "第一条"})
+	if appendErr != nil {
+		t.Fatal(appendErr)
+	}
+	appendErr = store.AppendHistory(second.ID, llm.Message{Role: llm.RoleUser, Content: "第二条用户"})
+	if appendErr != nil {
+		t.Fatal(appendErr)
+	}
+	appendErr = store.AppendHistory(second.ID, llm.Message{Role: llm.RoleAssistant, Content: "第二条回复"})
+	if appendErr != nil {
+		t.Fatal(appendErr)
+	}
+
+	summaries, err := store.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summaries) != 2 {
+		t.Fatalf("session summaries = %d, want 2", len(summaries))
+	}
+	// second 后追加历史，UpdatedAt 应该更新得更晚，所以列表里排在前面。
+	if summaries[0].Session.ID != second.ID {
+		t.Fatalf("first listed session = %q, want %q", summaries[0].Session.ID, second.ID)
+	}
+	if summaries[0].MessageCount != 2 {
+		t.Fatalf("second message count = %d, want 2", summaries[0].MessageCount)
+	}
+	if summaries[1].Session.ID != first.ID || summaries[1].MessageCount != 1 {
+		t.Fatalf("second listed summary = %#v, want first session with 1 message", summaries[1])
+	}
+
+	history, err := store.LoadHistory(second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 2 {
+		t.Fatalf("history messages = %d, want 2", len(history))
+	}
+	if history[0].Role != llm.RoleUser || history[0].Content != "第二条用户" {
+		t.Fatalf("first restored message = %#v", history[0])
+	}
+	if history[1].Role != llm.RoleAssistant || history[1].Content != "第二条回复" {
+		t.Fatalf("second restored message = %#v", history[1])
+	}
+}

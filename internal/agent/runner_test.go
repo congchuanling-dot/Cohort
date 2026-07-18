@@ -34,6 +34,20 @@ func (fakeToolRunner) Run(ctx context.Context, call ToolCallContext) (Outcome, e
 	return Outcome{}, nil
 }
 
+type recordingClient struct {
+	response llm.Response
+	requests []llm.ChatRequest
+}
+
+func (c *recordingClient) Chat(ctx context.Context, req llm.ChatRequest) (<-chan llm.Event, error) {
+	c.requests = append(c.requests, req)
+	out := make(chan llm.Event, 2)
+	out <- llm.Event{Type: llm.EventText, Text: c.response.Content}
+	out <- llm.Event{Type: llm.EventDone, Response: &c.response}
+	close(out)
+	return out, nil
+}
+
 func TestRunnerWritesHistoryJSONL(t *testing.T) {
 	// 这个测试验证 P0-012 的核心行为：
 	// Runner 不只维护内存 history，也会把 user/assistant 消息追加到 history.jsonl。
@@ -85,6 +99,73 @@ func TestRunnerWritesHistoryJSONL(t *testing.T) {
 	}
 	if entries[1].Role != llm.RoleAssistant || entries[1].Message.Content != "收到" {
 		t.Fatalf("second entry = %#v", entries[1])
+	}
+}
+
+func TestRunnerResumeSessionContinuesExistingHistory(t *testing.T) {
+	// 这个测试验证 P0-014/P0-015 的关键约定：
+	// resume 后 Runner 会把旧 history 发给模型，并继续追加到同一个 history.jsonl。
+	store := session.NewStore(t.TempDir())
+	sess, err := store.Create("old task", "/tmp/project", "deepseek-v4-pro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendErr := store.AppendHistory(sess.ID, llm.Message{Role: llm.RoleUser, Content: "旧问题"})
+	if appendErr != nil {
+		t.Fatal(appendErr)
+	}
+	appendErr = store.AppendHistory(sess.ID, llm.Message{Role: llm.RoleAssistant, Content: "旧回答"})
+	if appendErr != nil {
+		t.Fatal(appendErr)
+	}
+	history, err := store.LoadHistory(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client := &recordingClient{response: llm.Response{Content: "新回答"}}
+	runner := &Runner{
+		Client:       client,
+		Tools:        fakeToolRunner{},
+		MaxTurns:     1,
+		SessionStore: &store,
+		SessionCWD:   "/tmp/project",
+		SessionModel: "deepseek-v4-pro",
+	}
+	runner.ResumeSession(sess.ID, history)
+
+	var out bytes.Buffer
+	result, err := runner.Run(context.Background(), "新问题", NewConsoleSink(&out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != RunStatusDone {
+		t.Fatalf("status = %q, want %q", result.Status, RunStatusDone)
+	}
+	if runner.sessionID != sess.ID {
+		t.Fatalf("runner session id = %q, want %q", runner.sessionID, sess.ID)
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("requests = %d, want 1", len(client.requests))
+	}
+	if len(client.requests[0].Messages) != 3 {
+		t.Fatalf("request messages = %d, want old 2 + new user", len(client.requests[0].Messages))
+	}
+	if client.requests[0].Messages[0].Content != "旧问题" ||
+		client.requests[0].Messages[1].Content != "旧回答" ||
+		client.requests[0].Messages[2].Content != "新问题" {
+		t.Fatalf("request messages = %#v", client.requests[0].Messages)
+	}
+
+	entries := readHistoryEntries(t, store.HistoryPath(sess.ID))
+	if len(entries) != 4 {
+		t.Fatalf("history entries = %d, want 4", len(entries))
+	}
+	if entries[2].Role != llm.RoleUser || entries[2].Message.Content != "新问题" {
+		t.Fatalf("third entry = %#v", entries[2])
+	}
+	if entries[3].Role != llm.RoleAssistant || entries[3].Message.Content != "新回答" {
+		t.Fatalf("fourth entry = %#v", entries[3])
 	}
 }
 

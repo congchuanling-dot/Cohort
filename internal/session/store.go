@@ -1,9 +1,13 @@
 package session
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"cohert/internal/llm"
@@ -127,6 +131,105 @@ func (s Store) LoadMeta(sessionID string) (Session, error) {
 		return Session{}, err
 	}
 	return sess, nil
+}
+
+// List 返回所有可读取的 session 摘要，并按 UpdatedAt 从新到旧排序。
+//
+// 它只读取每个 session 目录下的 meta.json，并统计 history.jsonl 行数；
+// 不会加载完整消息内容，所以即使历史很长，session list 也能保持轻量。
+func (s Store) List() ([]Summary, error) {
+	entries, err := os.ReadDir(s.RootDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var summaries []Summary
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		sessionID := entry.Name()
+		sess, err := s.LoadMeta(sessionID)
+		if err != nil {
+			return nil, err
+		}
+		count, err := s.CountHistory(sessionID)
+		if err != nil {
+			return nil, err
+		}
+		summaries = append(summaries, Summary{
+			Session:      sess,
+			MessageCount: count,
+		})
+	}
+
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i].Session.UpdatedAt.After(summaries[j].Session.UpdatedAt)
+	})
+	return summaries, nil
+}
+
+// CountHistory 统计某个 session 的 history.jsonl 有多少条有效消息。
+//
+// history.jsonl 不存在时返回 0，因为刚创建但还没产生消息的 session 是合法状态。
+func (s Store) CountHistory(sessionID string) (int, error) {
+	file, err := os.Open(s.HistoryPath(sessionID))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	defer file.Close()
+
+	count := 0
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		if strings.TrimSpace(scanner.Text()) == "" {
+			continue
+		}
+		count++
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// LoadHistory 读取 history.jsonl，并按写入顺序还原成模型消息列表。
+//
+// Runner 恢复 session 时只需要 llm.Message 切片；
+// HistoryEntry 的 ID、Time、ParentID 等外层字段主要用于审计、列表和未来分支能力。
+func (s Store) LoadHistory(sessionID string) ([]llm.Message, error) {
+	file, err := os.Open(s.HistoryPath(sessionID))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer file.Close()
+
+	var messages []llm.Message
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var entry HistoryEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			return nil, err
+		}
+		messages = append(messages, entry.Message)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return messages, nil
 }
 
 // AppendHistory 向 history.jsonl 追加一条模型消息。

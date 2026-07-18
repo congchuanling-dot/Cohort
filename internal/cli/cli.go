@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"text/tabwriter"
 
 	"cohert/internal/agent"
 	"cohert/internal/app"
+	"cohert/internal/session"
 )
 
 // Run 是命令行入口的主分发函数。
@@ -40,6 +42,8 @@ func Run(args []string) error {
 			fmt.Println("api_key: set")
 		}
 		return nil
+	case "session":
+		return runSessionCommand(context.Background(), cfg, args[1:])
 	case "tools":
 		for _, schema := range app.ToolSchemas(cfg) {
 			fmt.Println(schema.Function.Name)
@@ -66,6 +70,82 @@ func Run(args []string) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+// runSessionCommand 处理本地会话命令。
+//
+// list 只读取 temp/sessions，不需要 API Key；
+// resume 会恢复历史并进入交互模式，继续对话时才需要初始化 Runner。
+func runSessionCommand(ctx context.Context, cfg app.Config, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: cohert session list | cohert session resume <id>")
+	}
+	store := session.NewStore(session.DefaultRootDir)
+
+	switch args[0] {
+	case "list":
+		return printSessionList(store)
+	case "resume":
+		if len(args) < 2 {
+			return errors.New("usage: cohert session resume <id>")
+		}
+		return resumeSession(ctx, cfg, store, args[1])
+	default:
+		return fmt.Errorf("unknown session command %q", args[0])
+	}
+}
+
+// printSessionList 输出本地已有会话。
+//
+// 这里使用 tabwriter，是为了让不同长度的标题和 ID 在终端里对齐，
+// 但仍保持纯文本输出，方便复制和后续脚本处理。
+func printSessionList(store session.Store) error {
+	summaries, err := store.List()
+	if err != nil {
+		return err
+	}
+	if len(summaries) == 0 {
+		fmt.Println("no sessions")
+		return nil
+	}
+
+	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(writer, "ID\tTITLE\tMESSAGES\tUPDATED\tCWD")
+	for _, summary := range summaries {
+		sess := summary.Session
+		fmt.Fprintf(
+			writer,
+			"%s\t%s\t%d\t%s\t%s\n",
+			sess.ID,
+			sess.Title,
+			summary.MessageCount,
+			sess.UpdatedAt.Format("2006-01-02 15:04:05"),
+			sess.CWD,
+		)
+	}
+	return writer.Flush()
+}
+
+// resumeSession 读取 history.jsonl 并把消息恢复到 Runner.history。
+//
+// 恢复后不会立刻向模型发送消息，而是进入 REPL，等待用户输入下一条任务；
+// 下一条用户消息会继续追加到同一个 history.jsonl。
+func resumeSession(ctx context.Context, cfg app.Config, store session.Store, sessionID string) error {
+	sess, err := store.LoadMeta(sessionID)
+	if err != nil {
+		return err
+	}
+	history, err := store.LoadHistory(sessionID)
+	if err != nil {
+		return err
+	}
+	runner, err := app.NewRunner(cfg)
+	if err != nil {
+		return err
+	}
+	runner.ResumeSession(sess.ID, history)
+	fmt.Printf("resumed session %s (%d messages): %s\n", sess.ID, len(history), sess.Title)
+	return runREPL(ctx, runner)
 }
 
 // runREPL 是交互模式。每输入一行任务，就复用同一个 Runner 继续执行。
@@ -114,6 +194,9 @@ Usage:
   cohert ask "task"      run one task
   cohert tools           list mounted tools
   cohert config          show effective config
+  cohert session list    list local sessions
+  cohert session resume <id>
+                         resume a local session
 
 Development:
   go run .               start interactive CLI

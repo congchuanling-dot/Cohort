@@ -32,6 +32,7 @@
 | OpenAI SSE 测试 | 已完成 | 覆盖文本流和 tool_calls 分片拼接 |
 | Session 数据结构 | 已完成 | 已有 `Session`、`HistoryEntry`、`Store` |
 | history.jsonl 写入 | 已完成 | Runner 会把 user/assistant/tool 消息追加落盘 |
+| session list/resume | 已完成 | 支持列出本地会话并恢复历史上下文 |
 | 开发记录文档 | 已完成 | 已建立 `docs/开发记录文档.md` |
 
 ### 1.2 当前主要问题
@@ -40,7 +41,6 @@
 | --- | --- | --- | --- |
 | `code_run` 可能卡住 | 高 | 模型可能执行大范围 `grep -r`、`find`，当前超时和进程树清理不够硬 | 最高 |
 | `code_run` 可跳出 workspace | 高 | 模型可在脚本里写 `cd /Users/...` | 最高 |
-| session 只能写不能恢复 | 高 | 已有 `history.jsonl`，但没有 list/resume 命令 | 高 |
 | 工具输出可能撑爆上下文 | 中 | 长 stdout 和长 history 缺少统一裁剪策略 | 高 |
 | 运行链路缺少结构化日志 | 中 | 只有模型 raw log，缺少 turn/tool/run 级别日志 | 中 |
 | 文件工具反馈不够细 | 中 | 读错路径、patch 成功后缺少候选和摘要 | 中 |
@@ -259,12 +259,12 @@ Cohert 当前不优先做这些：
 
 | ID | 任务 | 说明 | 依赖 | 预估 |
 | --- | --- | --- | --- | ---: |
-| P0-013 | 增加 session list 数据读取 | 读取 `meta.json`，统计 `history.jsonl` 行数 | P0-011 | 0.4 |
-| P0-014 | 增加 session resume 数据读取 | 读取 `history.jsonl`，恢复 `[]llm.Message` | P0-012 | 0.5 |
-| P0-015 | Runner 支持加载历史 | 创建 Runner 后可注入已有 history 和 sessionID | P0-014 | 0.4 |
-| P0-016 | CLI 接入 session list | `go run . session list` | P0-013 | 0.3 |
-| P0-017 | CLI 接入 session resume | `go run . session resume <id>` | P0-015 | 0.4 |
-| P0-018 | session 测试和文档 | 覆盖 list/resume，更新测试文档和开发记录 | P0-016、P0-017 | 0.4 |
+| P0-013 | 增加 session list 数据读取 | 已完成：读取 `meta.json`，统计 `history.jsonl` 行数 | P0-011 | 0.4 |
+| P0-014 | 增加 session resume 数据读取 | 已完成：读取 `history.jsonl`，恢复 `[]llm.Message` | P0-012 | 0.5 |
+| P0-015 | Runner 支持加载历史 | 已完成：创建 Runner 后可注入已有 history 和 sessionID | P0-014 | 0.4 |
+| P0-016 | CLI 接入 session list | 已完成：`go run . session list` | P0-013 | 0.3 |
+| P0-017 | CLI 接入 session resume | 已完成：`go run . session resume <id>` | P0-015 | 0.4 |
+| P0-018 | session 测试和文档 | 已完成：覆盖 list/resume，更新测试文档和开发记录 | P0-016、P0-017 | 0.4 |
 
 交付物：
 
@@ -460,9 +460,9 @@ P1 只在 P0 核心稳定后推进。
 5. P0-064：命令结果结构优化。
 6. P0-065：code_run timeout 测试。
 7. P0-066：shell 启动方式测试。
-8. P0-013：增加 session list 数据读取。
-9. P0-014：增加 session resume 数据读取。
-10. P0-016：CLI 接入 session list。
+8. P0-020：增加裁剪配置。
+9. P0-021：裁剪工具结果。
+10. P0-090：定义 run.log 格式。
 
 doctor 和 command guard 都不再放进最优先 10 项。
 
@@ -488,12 +488,12 @@ P0-068 command guard 后置
 
 session 恢复：
 P0-012
-  -> P0-014
-  -> P0-015
-  -> P0-017
+  -> P0-014 已完成
+  -> P0-015 已完成
+  -> P0-017 已完成
 P0-011
-  -> P0-013
-  -> P0-016
+  -> P0-013 已完成
+  -> P0-016 已完成
 
 上下文和日志：
 P0-010
