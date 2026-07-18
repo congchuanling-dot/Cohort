@@ -41,19 +41,20 @@ go run .
 启动后会看到：
 
 ```text
-+----------------------------------------------------------------------+
-| Cohert                                                               |
-| Command-line Agent Runtime                                           |
-+----------------------------------------------------------------------+
-| Model        deepseek-v4-pro                                         |
-| Workspace    workspace                                               |
-| Session      new session                                             |
-| Tools        5                                                       |
-+----------------------------------------------------------------------+
-输入任务直接执行；输入 /help 查看命令。
-常用命令：/model /tools /session list /resume <id> /clear /exit
+╭────────────────────────────────────────────────────────────╮
+│ Cohert                                                     │
+│ Command-line Agent Runtime                                │
+├────────────────────────────────────────────────────────────┤
+│ Model      deepseek-v4-pro                                 │
+│ Workspace  workspace                                       │
+│ Session    new session                                     │
+│ Tools      5                                               │
+├────────────────────────────────────────────────────────────┤
+│ 直接输入任务开始执行                                      │
+│ 输入 / 查看命令面板；输入 / 后按 Tab 选择命令             │
+╰────────────────────────────────────────────────────────────╯
 
-cohert>
+cohert ›
 ```
 
 然后直接输入任务：
@@ -84,6 +85,25 @@ cohert>
 
 ```text
 /help
+```
+
+在真实终端里，可以输入 `/` 后按 `Tab` 选择命令。
+
+如果直接输入 `/` 并回车，会显示命令面板：
+
+```text
+Slash commands
+
+  /help                 显示命令帮助
+  /model                查看当前模型
+  /config               查看运行配置
+  /tools                查看工具列表
+  /session              查看当前 session
+  /session list         列出历史 session
+  /resume <id>          恢复 session
+  /compact              预留上下文压缩入口
+  /clear                清空当前内存上下文
+  /exit                 退出
 ```
 
 ## 3. 执行单次任务

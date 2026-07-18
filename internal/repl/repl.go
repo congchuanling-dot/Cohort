@@ -5,8 +5,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/chzyer/readline"
+	"golang.org/x/term"
 
 	"cohert/internal/agent"
 	"cohert/internal/app"
@@ -14,6 +18,8 @@ import (
 )
 
 const (
+	promptText = "cohert › "
+
 	commandExit    = "exit"
 	commandQuit    = "quit"
 	commandHelp    = "help"
@@ -64,13 +70,25 @@ func Start(ctx context.Context, opts Options) error {
 
 	printWelcome(opts.Out, opts.Config, opts.Runner)
 
-	scanner := bufio.NewScanner(opts.In)
+	reader, closeReader, err := newLineReader(opts)
+	if err != nil {
+		return err
+	}
+	defer closeReader()
+
 	for {
-		fmt.Fprint(opts.Out, "\ncohert> ")
-		if !scanner.Scan() {
-			return scanner.Err()
+		input, err := reader.ReadLine()
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			if err == readline.ErrInterrupt {
+				fmt.Fprintln(opts.Out)
+				continue
+			}
+			return err
 		}
-		input := strings.TrimSpace(scanner.Text())
+		input = strings.TrimSpace(input)
 		if input == "" {
 			continue
 		}
@@ -88,6 +106,76 @@ func Start(ctx context.Context, opts Options) error {
 			fmt.Fprintf(opts.Err, "run error: %v\n", err)
 		}
 	}
+}
+
+type lineReader interface {
+	ReadLine() (string, error)
+}
+
+type scannerLineReader struct {
+	scanner *bufio.Scanner
+	out     io.Writer
+}
+
+func (r *scannerLineReader) ReadLine() (string, error) {
+	fmt.Fprint(r.out, "\n"+promptText)
+	if !r.scanner.Scan() {
+		if err := r.scanner.Err(); err != nil {
+			return "", err
+		}
+		return "", io.EOF
+	}
+	return r.scanner.Text(), nil
+}
+
+type readlineLineReader struct {
+	instance *readline.Instance
+}
+
+func (r readlineLineReader) ReadLine() (string, error) {
+	return r.instance.Readline()
+}
+
+func newLineReader(opts Options) (lineReader, func(), error) {
+	if file, ok := opts.In.(*os.File); ok && term.IsTerminal(int(file.Fd())) {
+		rl, err := readline.NewEx(&readline.Config{
+			Prompt:            promptText,
+			Stdin:             file,
+			Stdout:            opts.Out,
+			Stderr:            opts.Err,
+			AutoComplete:      slashCompleter(),
+			InterruptPrompt:   "^C",
+			EOFPrompt:         "exit",
+			HistorySearchFold: true,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return readlineLineReader{instance: rl}, func() { _ = rl.Close() }, nil
+	}
+
+	reader := &scannerLineReader{
+		scanner: bufio.NewScanner(opts.In),
+		out:     opts.Out,
+	}
+	return reader, func() {}, nil
+}
+
+func slashCompleter() *readline.PrefixCompleter {
+	return readline.NewPrefixCompleter(
+		readline.PcItem("/help"),
+		readline.PcItem("/model"),
+		readline.PcItem("/config"),
+		readline.PcItem("/tools"),
+		readline.PcItem("/session",
+			readline.PcItem("list"),
+			readline.PcItem("resume"),
+		),
+		readline.PcItem("/resume"),
+		readline.PcItem("/compact"),
+		readline.PcItem("/clear"),
+		readline.PcItem("/exit"),
+	)
 }
 
 func isSlashInput(input string) bool {
@@ -118,6 +206,8 @@ func parseSlashCommand(input string) SlashCommand {
 
 func handleSlashCommand(opts Options, cmd SlashCommand) (bool, error) {
 	switch cmd.Name {
+	case "":
+		printCommandPalette(opts.Out)
 	case commandExit, commandQuit:
 		fmt.Fprintln(opts.Out, "bye")
 		return true, nil
@@ -185,19 +275,18 @@ func printWelcome(out io.Writer, cfg app.Config, runner *agent.Runner) {
 		sessionID = "new session"
 	}
 	tools := len(runner.ToolSchemas())
-	width := 72
-	line := strings.Repeat("-", width-2)
-	fmt.Fprintf(out, "+%s+\n", line)
-	fmt.Fprintf(out, "| %-68s |\n", "Cohert")
-	fmt.Fprintf(out, "| %-68s |\n", "Command-line Agent Runtime")
-	fmt.Fprintf(out, "+%s+\n", line)
-	fmt.Fprintf(out, "| %-12s %-55s |\n", "Model", cfg.LLM.Model)
-	fmt.Fprintf(out, "| %-12s %-55s |\n", "Workspace", shorten(cfg.Workspace, 55))
-	fmt.Fprintf(out, "| %-12s %-55s |\n", "Session", shorten(sessionID, 55))
-	fmt.Fprintf(out, "| %-12s %-55d |\n", "Tools", tools)
-	fmt.Fprintf(out, "+%s+\n", line)
-	fmt.Fprintln(out, "输入任务直接执行；输入 /help 查看命令。")
-	fmt.Fprintln(out, "常用命令：/model /tools /session list /resume <id> /clear /exit")
+	fmt.Fprintln(out, "╭────────────────────────────────────────────────────────────╮")
+	fmt.Fprintln(out, "│ Cohert                                                     │")
+	fmt.Fprintln(out, "│ Command-line Agent Runtime                                │")
+	fmt.Fprintln(out, "├────────────────────────────────────────────────────────────┤")
+	fmt.Fprintf(out, "│ Model      %-47s │\n", shorten(cfg.LLM.Model, 47))
+	fmt.Fprintf(out, "│ Workspace  %-47s │\n", shorten(cfg.Workspace, 47))
+	fmt.Fprintf(out, "│ Session    %-47s │\n", shorten(sessionID, 47))
+	fmt.Fprintf(out, "│ Tools      %-47d │\n", tools)
+	fmt.Fprintln(out, "├────────────────────────────────────────────────────────────┤")
+	fmt.Fprintln(out, "│ 直接输入任务开始执行                                      │")
+	fmt.Fprintln(out, "│ 输入 / 查看命令面板；输入 / 后按 Tab 选择命令             │")
+	fmt.Fprintln(out, "╰────────────────────────────────────────────────────────────╯")
 }
 
 func printSlashHelp(out io.Writer) {
@@ -216,6 +305,24 @@ func printSlashHelp(out io.Writer) {
   /exit                    退出 Cohert
 
 普通输入不会走 slash 命令，会直接交给 Agent 执行。
+`)
+}
+
+func printCommandPalette(out io.Writer) {
+	fmt.Fprint(out, `Slash commands
+
+  /help                 显示命令帮助
+  /model                查看当前模型
+  /config               查看运行配置
+  /tools                查看工具列表
+  /session              查看当前 session
+  /session list         列出历史 session
+  /resume <id>          恢复 session
+  /compact              预留上下文压缩入口
+  /clear                清空当前内存上下文
+  /exit                 退出
+
+提示：在真实终端里输入 / 后按 Tab 可以补全选择。
 `)
 }
 
