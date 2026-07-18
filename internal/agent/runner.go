@@ -80,7 +80,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 		// 没有 tool_calls 表示模型已经给出最终回答，任务可以结束。
 		if len(resp.ToolCalls) == 0 {
 			r.history = append(r.history, llm.Message{Role: llm.RoleAssistant, Content: resp.Content})
-			return RunResult{Status: "done", Response: resp}, nil
+			return RunResult{Status: RunStatusDone, Response: resp}, nil
 		}
 
 		// OpenAI-compatible 工具协议要求：
@@ -114,7 +114,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 				}
 			}
 			if outcome.ShouldExit {
-				return RunResult{Status: "exited", Response: resp}, nil
+				return RunResult{Status: RunStatusExited, Response: resp}, nil
 			}
 			// 工具输出会被转成 role=tool 消息，下一轮模型才能读到工具结果。
 			resultText := stringify(outcome.Data)
@@ -131,7 +131,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 		messages = append([]llm.Message(nil), r.history...)
 	}
 	// 达到最大轮数说明模型一直没有收敛，返回受控状态而不是无限运行。
-	return RunResult{Status: "max_turns_exceeded"}, nil
+	return RunResult{Status: RunStatusMaxTurnsExceeded}, nil
 }
 
 func (r *Runner) ToolSchemas() []llm.ToolSchema {

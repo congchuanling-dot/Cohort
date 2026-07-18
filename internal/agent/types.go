@@ -15,6 +15,15 @@ type Outcome struct {
 	ShouldExit bool
 }
 
+const (
+	// RunStatusDone 表示模型已经给出最终回答，本次任务正常结束。
+	RunStatusDone = "done"
+	// RunStatusExited 表示工具主动要求退出当前任务。
+	RunStatusExited = "exited"
+	// RunStatusMaxTurnsExceeded 表示达到最大轮数仍未完成，Runner 主动停止。
+	RunStatusMaxTurnsExceeded = "max_turns_exceeded"
+)
+
 // RunResult 表示一次 Runner.Run 的最终状态。
 type RunResult struct {
 	Status   string
