@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Cohert Browser Bridge",
+  "version": "0.1.0",
+  "description": "Connect Cohert to a real Chrome session for tab scanning and controlled JavaScript execution.",
+  "permissions": [
+    "tabs",
+    "activeTab",
+    "scripting",
+    "debugger",
+    "alarms"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Cohert Browser Bridge"
+  }
+}

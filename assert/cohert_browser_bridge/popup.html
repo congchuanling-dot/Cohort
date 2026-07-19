@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Cohert Browser Bridge</title>
+  <style>
+    body {
+      width: 360px;
+      margin: 0;
+      padding: 12px;
+      color: #202124;
+      background: #f8fafd;
+      font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 15px;
+      font-weight: 650;
+    }
+    .row {
+      margin: 6px 0;
+      line-height: 1.4;
+    }
+    .label {
+      color: #5f6368;
+    }
+    button {
+      margin: 8px 0;
+      padding: 5px 10px;
+      border: 1px solid #dadce0;
+      border-radius: 6px;
+      background: #fff;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #eef3fb;
+    }
+    pre {
+      max-height: 220px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      padding: 8px;
+      border: 1px solid #e0e3e7;
+      border-radius: 6px;
+      background: #fff;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Cohert Browser Bridge</h1>
+  <div class="row"><span class="label">Status:</span> <span id="status">loading</span></div>
+  <div class="row"><span class="label">WebSocket:</span> <span id="wsUrl"></span></div>
+  <div class="row"><span class="label">Tabs:</span> <span id="tabCount">0</span></div>
+  <button id="refresh">Refresh</button>
+  <button id="reconnect">Reconnect</button>
+  <pre id="tabs"></pre>
+  <script src="popup.js"></script>
+</body>
+</html>
