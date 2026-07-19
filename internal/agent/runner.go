@@ -105,6 +105,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			if err := r.appendMessage(llm.Message{Role: llm.RoleAssistant, Content: resp.Content}, ""); err != nil {
 				return RunResult{}, err
 			}
+			ensureTerminalLineBreak(sink, resp.Content)
 			return RunResult{Status: RunStatusDone, Response: resp}, nil
 		}
 
@@ -257,14 +258,17 @@ func makeSessionTitle(input string) string {
 
 // consume 消费模型流式事件：文本事件直接输出，完成事件返回完整响应，错误事件返回 error。
 func consume(stream <-chan llm.Event, sink OutputSink) (*llm.Response, error) {
+	var written strings.Builder
 	for event := range stream {
 		switch event.Type {
 		case llm.EventText:
 			sink.WriteText(event.Text)
+			written.WriteString(event.Text)
 		case llm.EventDone:
 			if event.Response == nil {
 				return &llm.Response{}, nil
 			}
+			writeMissingFinalText(sink, written.String(), event.Response.Content)
 			return event.Response, nil
 		case llm.EventError:
 			if event.Err != nil {
@@ -274,6 +278,26 @@ func consume(stream <-chan llm.Event, sink OutputSink) (*llm.Response, error) {
 		}
 	}
 	return nil, fmt.Errorf("llm stream closed without done event")
+}
+
+func writeMissingFinalText(sink OutputSink, written string, final string) {
+	if final == "" {
+		return
+	}
+	if written == "" {
+		sink.WriteText(final)
+		return
+	}
+	if strings.HasPrefix(final, written) && len(final) > len(written) {
+		sink.WriteText(final[len(written):])
+	}
+}
+
+func ensureTerminalLineBreak(sink OutputSink, content string) {
+	if content == "" || strings.HasSuffix(content, "\n") {
+		return
+	}
+	sink.WriteText("\n")
 }
 
 // parseToolArgs 把模型返回的 JSON 参数字符串解析成工具可用的 map。
