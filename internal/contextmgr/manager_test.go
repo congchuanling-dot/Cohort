@@ -1,6 +1,8 @@
 package contextmgr
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -107,6 +109,133 @@ func TestManagerBuildDropsOrphanToolResults_BitsUT(t *testing.T) {
 	}
 	if len(result.Stats.Warnings) == 0 {
 		t.Fatal("expected warning for orphan tool result")
+	}
+}
+
+func TestManagerBuildInjectsSessionMemory_BitsUT(t *testing.T) {
+	sessionDir := t.TempDir()
+	memoryText := "# Session Memory\n\n## 用户目标\n\n- 实现上下文管理"
+	if err := os.WriteFile(filepath.Join(sessionDir, sessionMemoryFileName), []byte(memoryText), 0644); err != nil {
+		t.Fatal(err)
+	}
+	messages := []llm.Message{
+		{Role: llm.RoleUser, Content: "继续"},
+	}
+
+	result := Manager{Config: Config{
+		MaxHistoryMessages:     20,
+		KeepRecentToolResults:  1,
+		MaxToolResultChars:     1000,
+		CompactedToolHeadChars: 100,
+		CompactedToolTailChars: 100,
+		MaxRequestChars:        10000,
+		ContextWindowTokens:    1000000,
+		MaxOutputTokens:        0,
+		SafetyTokens:           0,
+		CompactTriggerRatio:    0.70,
+		EnableMicroCompact:     true,
+		MaxSessionMemoryChars:  20000,
+	}}.Build(BuildInput{Messages: messages, SessionDir: sessionDir})
+
+	if !result.Stats.InjectedSessionMemory {
+		t.Fatal("expected session memory to be injected")
+	}
+	if result.Stats.SessionMemoryChars != len([]rune(memoryText)) {
+		t.Fatalf("session memory chars = %d, want %d", result.Stats.SessionMemoryChars, len([]rune(memoryText)))
+	}
+	if len(result.Messages) != 2 {
+		t.Fatalf("messages = %d, want 2", len(result.Messages))
+	}
+	if result.Messages[0].Role != llm.RoleAssistant || !strings.Contains(result.Messages[0].Content, sessionMemoryNotice) {
+		t.Fatalf("first message is not session memory: %#v", result.Messages[0])
+	}
+	if !strings.Contains(result.Messages[0].Content, "实现上下文管理") {
+		t.Fatalf("session memory content missing:\n%s", result.Messages[0].Content)
+	}
+	if result.Messages[1].Content != "继续" {
+		t.Fatalf("user message shifted incorrectly: %#v", result.Messages)
+	}
+}
+
+func TestManagerBuildTruncatesInjectedSessionMemory_BitsUT(t *testing.T) {
+	sessionDir := t.TempDir()
+	memoryText := "1234567890"
+	if err := os.WriteFile(filepath.Join(sessionDir, sessionMemoryFileName), []byte(memoryText), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := Manager{Config: Config{
+		MaxHistoryMessages:     20,
+		KeepRecentToolResults:  1,
+		MaxToolResultChars:     1000,
+		CompactedToolHeadChars: 100,
+		CompactedToolTailChars: 100,
+		MaxRequestChars:        10000,
+		ContextWindowTokens:    1000000,
+		MaxOutputTokens:        0,
+		SafetyTokens:           0,
+		CompactTriggerRatio:    0.70,
+		EnableMicroCompact:     true,
+		MaxSessionMemoryChars:  4,
+	}}.Build(BuildInput{
+		Messages:   []llm.Message{{Role: llm.RoleUser, Content: "继续"}},
+		SessionDir: sessionDir,
+	})
+
+	if !result.Stats.SessionMemoryTruncated {
+		t.Fatal("expected session memory to be truncated")
+	}
+	if result.Stats.SessionMemoryChars != 4 {
+		t.Fatalf("session memory chars = %d, want 4", result.Stats.SessionMemoryChars)
+	}
+	if !strings.Contains(result.Messages[0].Content, "1234") {
+		t.Fatalf("truncated head missing:\n%s", result.Messages[0].Content)
+	}
+	if strings.Contains(result.Messages[0].Content, "567890") {
+		t.Fatalf("untruncated tail leaked into request:\n%s", result.Messages[0].Content)
+	}
+	if !strings.Contains(result.Messages[0].Content, "[Cohert session memory truncated]") {
+		t.Fatalf("truncate notice missing:\n%s", result.Messages[0].Content)
+	}
+}
+
+func TestManagerBuildPreservesSessionMemoryDuringTrim_BitsUT(t *testing.T) {
+	sessionDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(sessionDir, sessionMemoryFileName), []byte("stable project facts"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	messages := []llm.Message{
+		{Role: llm.RoleUser, Content: "old user"},
+		{Role: llm.RoleAssistant, Content: "old answer"},
+		{Role: llm.RoleUser, Content: "latest user"},
+	}
+
+	result := Manager{Config: Config{
+		MaxHistoryMessages:     3,
+		KeepRecentToolResults:  1,
+		MaxToolResultChars:     1000,
+		CompactedToolHeadChars: 100,
+		CompactedToolTailChars: 100,
+		MaxRequestChars:        10000,
+		ContextWindowTokens:    20,
+		MaxOutputTokens:        0,
+		SafetyTokens:           0,
+		CompactTriggerRatio:    0.70,
+		EnableMicroCompact:     true,
+		MaxSessionMemoryChars:  20000,
+	}}.Build(BuildInput{Messages: messages, SessionDir: sessionDir})
+
+	if len(result.Messages) != 3 {
+		t.Fatalf("messages = %d, want 3: %#v", len(result.Messages), result.Messages)
+	}
+	if !strings.Contains(result.Messages[0].Content, sessionMemoryNotice) {
+		t.Fatalf("session memory was not preserved as protected prefix: %#v", result.Messages)
+	}
+	if result.Messages[1].Content != contextNotice {
+		t.Fatalf("second message = %#v, want context notice", result.Messages[1])
+	}
+	if result.Messages[2].Content != "latest user" {
+		t.Fatalf("latest user was not preserved: %#v", result.Messages)
 	}
 }
 

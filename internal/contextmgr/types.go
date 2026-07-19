@@ -2,7 +2,10 @@ package contextmgr
 
 import "cohert/internal/llm"
 
-const contextNotice = "[Cohert context notice] Earlier conversation messages were omitted from this request. Full history is preserved in history.jsonl."
+const (
+	contextNotice       = "[Cohert context notice] Earlier conversation messages were omitted from this request. Full history is preserved in history.jsonl."
+	sessionMemoryNotice = "[Cohert session memory]"
+)
 
 // Config 控制本轮模型请求前的确定性上下文压缩。
 type Config struct {
@@ -29,6 +32,10 @@ type Config struct {
 	// MaxRequestChars 限制本轮 request messages 的估算字符总量。
 	// Micro Compact 后如果仍超限，会继续按 group 裁剪旧历史。
 	MaxRequestChars int
+
+	// MaxSessionMemoryChars 限制 memory.md 注入请求前的最大字符数。
+	// memory.md 是稳定事实，不应该无限增长；超过后会截断注入副本，不修改磁盘文件。
+	MaxSessionMemoryChars int
 
 	// ContextWindowTokens 是当前模型最大上下文窗口。
 	// 它由 app 层根据当前模型名从内置表填充，不从用户配置读取。
@@ -60,6 +67,7 @@ func DefaultConfig() Config {
 		CompactedToolHeadChars: 4000,
 		CompactedToolTailChars: 4000,
 		MaxRequestChars:        100000,
+		MaxSessionMemoryChars:  20000,
 		MaxOutputTokens:        4096,
 		SafetyTokens:           4000,
 		CompactTriggerRatio:    0.70,
@@ -87,6 +95,9 @@ func (c Config) Normalize() Config {
 	}
 	if c.MaxRequestChars <= 0 {
 		c.MaxRequestChars = defaults.MaxRequestChars
+	}
+	if c.MaxSessionMemoryChars <= 0 {
+		c.MaxSessionMemoryChars = defaults.MaxSessionMemoryChars
 	}
 	if c.ContextWindowTokens <= 0 {
 		c.ContextWindowTokens = defaultContextWindowTokens
@@ -176,6 +187,15 @@ type Stats struct {
 
 	// InsertedNotice 表示是否插入了 context notice 提醒模型早期消息已省略。
 	InsertedNotice bool
+
+	// InjectedSessionMemory 表示本轮请求是否注入了 session memory。
+	InjectedSessionMemory bool
+
+	// SessionMemoryChars 是注入请求的 session memory 字符数，不包含消息角色等协议字段。
+	SessionMemoryChars int
+
+	// SessionMemoryTruncated 表示 memory.md 因超过 MaxSessionMemoryChars 而在请求副本中被截断。
+	SessionMemoryTruncated bool
 
 	// Warnings 记录协议修复或异常历史，例如孤立 tool result 被丢弃。
 	Warnings []string

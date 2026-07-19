@@ -486,6 +486,18 @@ context:
 - `max_request_chars`：本轮请求消息的字符预算。
 - `enable_micro_compact`：是否启用规则压缩。
 
+### 9.1 Session Memory
+
+如果当前 session 目录下存在：
+
+```text
+temp/sessions/<session_id>/memory.md
+```
+
+Cohert 会在每次请求模型前读取它，并作为 `[Cohert session memory]` 注入到 request messages 前部。
+
+当前第一版只负责读取和注入，不自动生成 `memory.md`。后续会把 `/compact` 接到 memory 生成流程。
+
 查看当前配置：
 
 ```text

@@ -605,6 +605,8 @@ llm.Message{
 
 ## 11. 第三层：Session Memory 设计
 
+说明：这里的“第三层”是本文档工程阶段编号；对应 Claude Code 四层思路里的第二层 `Session Memory Compact`。
+
 ### 11.1 文件位置
 
 建议保存到：
@@ -651,16 +653,20 @@ temp/sessions/<session_id>/memory.md
 - ...
 ```
 
-### 11.3 第一版更新方式
+### 11.3 第一版实现方式
 
-第一版可以先不自动更新 `memory.md`。
+第一版不自动生成或更新 `memory.md`，只做读取和注入。
 
-先实现读取和注入：
+行为：
 
 ```text
 如果 session 目录存在 memory.md
   -> 读取
-  -> 注入请求 messages 前部
+  -> 截断到 MaxSessionMemoryChars
+  -> 作为受保护前缀注入 request messages 前部
+
+如果 memory.md 不存在或为空
+  -> 跳过，不影响正常请求
 ```
 
 注入格式：
@@ -672,11 +678,54 @@ llm.Message{
 }
 ```
 
-后续再做：
+关键约束：
 
-- `session memory edit`
-- 模型自动更新 memory
-- 每轮结束后提取事实
+```text
+memory.md 不写入 Runner.history
+memory.md 不写入 history.jsonl
+group trim 不会把 memory.md 当作最旧历史裁掉
+memory.md 内容会计入 70% 阈值预算
+```
+
+### 11.4 第二版迭代记录
+
+第二版再实现 `memory.md` 的生成和更新，第一版先不做。
+
+建议入口：
+
+```text
+/compact
+go run . session memory <session_id>
+```
+
+第二版行为：
+
+```text
+读取当前 session 的 history.jsonl
+构造 memory 生成 prompt
+调用 LLM 提取稳定事实
+覆盖写入 temp/sessions/<session_id>/memory.md
+后续请求由第一版注入逻辑自动加载
+```
+
+生成要求：
+
+```text
+只提取稳定事实
+不记录临时命令输出
+不记录一次性中间过程
+不每轮自动总结
+生成失败不影响正常对话
+```
+
+第二版需要补充：
+
+- `/compact` 生成 `memory.md`。
+- `session memory <id>` 外部命令。
+- memory 生成 prompt。
+- 生成失败的错误提示。
+- 覆盖写入前的备份或确认策略。
+- 单元测试和 REPL 回归测试。
 
 ## 12. 第四层：Full Compact 设计
 
