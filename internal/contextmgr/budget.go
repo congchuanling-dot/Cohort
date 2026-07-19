@@ -26,11 +26,8 @@ type budget struct {
 }
 
 // ResolveContextWindowTokens 根据模型名返回上下文窗口。
-// 如果配置里显式传入 configured，则优先使用配置值；否则使用内置模型映射。
-func ResolveContextWindowTokens(model string, configured int) int {
-	if configured > 0 {
-		return configured
-	}
+// 模型 API 通常不提供稳定的上下文窗口接口，因此这里使用内置模型表。
+func ResolveContextWindowTokens(model string) int {
 	key := strings.ToLower(strings.TrimSpace(model))
 	if value, ok := modelContextWindows[key]; ok {
 		return value

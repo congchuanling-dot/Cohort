@@ -31,7 +31,7 @@ type Config struct {
 	MaxRequestChars int
 
 	// ContextWindowTokens 是当前模型最大上下文窗口。
-	// API 通常不提供该值，默认通过模型名映射填充，也可以在配置中手动覆盖。
+	// 它由 app 层根据当前模型名从内置表填充，不从用户配置读取。
 	ContextWindowTokens int
 
 	// MaxOutputTokens 是为模型回复预留的 token 数。
@@ -43,7 +43,7 @@ type Config struct {
 	SafetyTokens int
 
 	// CompactTriggerRatio 是触发压缩的上下文占用比例。
-	// 例如 0.70 表示估算输入达到可用输入预算 70% 后才开始压缩。
+	// 默认固定为 0.70，表示估算输入达到可用输入预算 70% 后才开始压缩。
 	CompactTriggerRatio float64
 
 	// EnableMicroCompact 控制是否启用旧工具结果压缩。

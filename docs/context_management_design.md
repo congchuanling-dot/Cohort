@@ -326,14 +326,10 @@ assistant tool_calls 和后续对应 tool messages 作为一个 group 处理。
 
 ## 7. 配置设计
 
-建议在 `configs/config.yaml` 中新增：
+建议在 `configs/config.yaml` 中保留可调的压缩细节，不暴露模型上下文窗口：
 
 ```yaml
 context:
-  context_window_tokens: 64000
-  max_output_tokens: 4096
-  safety_tokens: 8000
-  auto_compact_buffer_tokens: 13000
   max_history_messages: 40
   keep_recent_tool_results: 3
   max_tool_result_chars: 12000
@@ -350,10 +346,6 @@ context:
 
 | 字段 | 说明 |
 | --- | --- |
-| `context_window_tokens` | 模型上下文窗口大小，优先由用户配置 |
-| `max_output_tokens` | 给模型输出预留的 token |
-| `safety_tokens` | 安全余量，避免估算偏小导致请求爆掉 |
-| `auto_compact_buffer_tokens` | 后续自动 compact 的触发缓冲 |
 | `max_history_messages` | 请求中最多保留的原始历史消息数量 |
 | `keep_recent_tool_results` | 最近几个工具结果完整保留 |
 | `max_tool_result_chars` | 单条工具结果超过该值就压缩 |
@@ -381,11 +373,10 @@ context:
 
 OpenAI-compatible API 通常不会稳定返回模型最大 context window。
 
-因此 Cohert 不应该依赖自动获取，而应该采用：
+因此 Cohert 不应该依赖自动获取，也不应该让用户手动配置模型窗口，而应该采用：
 
 ```text
-配置优先
-内置模型表兜底
+根据 llm.model 查内置模型表
 未知模型使用保守默认值
 请求失败后提示用户调整
 ```
@@ -407,7 +398,7 @@ var ModelContextWindows = map[string]int{
 优先级：
 
 ```text
-配置文件 context.context_window_tokens
+llm.model
   -> 模型名内置表
   -> 默认 1000000
 ```
@@ -429,7 +420,7 @@ max_request_chars = 100000
 如果 API 提供方后续仍不提供模型上下文窗口接口，可以继续采用两种策略：
 
 ```text
-第一优先级：内置模型 map + 配置覆盖
+第一优先级：内置模型 map
 后续增强：用探测请求做二分逼近，但默认不启用
 ```
 

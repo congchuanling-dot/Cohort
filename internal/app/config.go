@@ -41,7 +41,7 @@ func LoadConfig(path string) (Config, error) {
 	if _, err := os.Stat(path); err != nil {
 		// 配置文件不存在时也能运行，使用默认值和环境变量。
 		cfg.LLM.APIKey = expandEnv(cfg.LLM.APIKey)
-		return cfg, nil
+		return finalizeConfig(cfg), nil
 	}
 
 	file, err := os.Open(path)
@@ -92,7 +92,12 @@ func LoadConfig(path string) (Config, error) {
 	if cfg.LogDir != "" {
 		cfg.LogDir = filepath.Clean(cfg.LogDir)
 	}
-	return cfg, nil
+	return finalizeConfig(cfg), nil
+}
+
+func finalizeConfig(cfg Config) Config {
+	cfg.Context.ContextWindowTokens = contextmgr.ResolveContextWindowTokens(cfg.LLM.Model)
+	return cfg
 }
 
 // defaultConfig 给出开箱即用的默认配置。
@@ -145,14 +150,6 @@ func applyContextValue(cfg *contextmgr.Config, key, val string) {
 		cfg.CompactedToolTailChars = atoiDefault(val, cfg.CompactedToolTailChars)
 	case "max_request_chars":
 		cfg.MaxRequestChars = atoiDefault(val, cfg.MaxRequestChars)
-	case "context_window_tokens":
-		cfg.ContextWindowTokens = atoiDefault(val, cfg.ContextWindowTokens)
-	case "max_output_tokens":
-		cfg.MaxOutputTokens = atoiDefault(val, cfg.MaxOutputTokens)
-	case "safety_tokens":
-		cfg.SafetyTokens = atoiDefault(val, cfg.SafetyTokens)
-	case "compact_trigger_ratio":
-		cfg.CompactTriggerRatio = atofDefault(val, cfg.CompactTriggerRatio)
 	case "enable_micro_compact":
 		cfg.EnableMicroCompact = parseBoolDefault(val, cfg.EnableMicroCompact)
 	}
@@ -193,14 +190,6 @@ func expandEnv(v string) string {
 // atoiDefault 解析失败时返回已有默认值，避免配置写错导致零值覆盖。
 func atoiDefault(v string, fallback int) int {
 	n, err := strconv.Atoi(v)
-	if err != nil {
-		return fallback
-	}
-	return n
-}
-
-func atofDefault(v string, fallback float64) float64 {
-	n, err := strconv.ParseFloat(v, 64)
 	if err != nil {
 		return fallback
 	}

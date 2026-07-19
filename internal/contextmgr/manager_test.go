@@ -190,13 +190,13 @@ func TestManagerBuildDoesNotTrimWhenMicroCompactFitsBudget_BitsUT(t *testing.T) 
 }
 
 func TestResolveContextWindowTokensUsesModelMap_BitsUT(t *testing.T) {
-	if got := ResolveContextWindowTokens("dsv4pro", 0); got != 1000000 {
+	if got := ResolveContextWindowTokens("dsv4pro"); got != 1000000 {
 		t.Fatalf("dsv4pro context window = %d, want 1000000", got)
 	}
-	if got := ResolveContextWindowTokens("deepseek-v4-pro", 0); got != 1000000 {
+	if got := ResolveContextWindowTokens("deepseek-v4-pro"); got != 1000000 {
 		t.Fatalf("deepseek-v4-pro context window = %d, want 1000000", got)
 	}
-	if got := ResolveContextWindowTokens("unknown", 123); got != 123 {
-		t.Fatalf("configured context window = %d, want 123", got)
+	if got := ResolveContextWindowTokens("unknown"); got != defaultContextWindowTokens {
+		t.Fatalf("unknown model context window = %d, want %d", got, defaultContextWindowTokens)
 	}
 }

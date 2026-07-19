@@ -42,7 +42,6 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 
 	registry := newRegistry(cfg.Workspace)
 	sessionStore := session.NewStore(session.DefaultRootDir)
-	cfg.Context.ContextWindowTokens = contextmgr.ResolveContextWindowTokens(cfg.LLM.Model, cfg.Context.ContextWindowTokens)
 	contextManager := &contextmgr.Manager{Config: cfg.Context.Normalize()}
 	cwd, err := os.Getwd()
 	if err != nil {
