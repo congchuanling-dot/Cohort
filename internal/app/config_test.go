@@ -14,6 +14,10 @@ log_dir: ./temp/model_responses
 max_turns: 7
 
 context:
+  context_window_tokens: 123456
+  max_output_tokens: 333
+  safety_tokens: 444
+  compact_trigger_ratio: 0.75
   max_history_messages: 9
   keep_recent_tool_results: 1
   max_tool_result_chars: 99
@@ -53,6 +57,18 @@ llm:
 	}
 	if cfg.Context.MaxRequestChars != 999 {
 		t.Fatalf("max request chars = %d, want 999", cfg.Context.MaxRequestChars)
+	}
+	if cfg.Context.ContextWindowTokens != 123456 {
+		t.Fatalf("context window tokens = %d, want 123456", cfg.Context.ContextWindowTokens)
+	}
+	if cfg.Context.MaxOutputTokens != 333 {
+		t.Fatalf("max output tokens = %d, want 333", cfg.Context.MaxOutputTokens)
+	}
+	if cfg.Context.SafetyTokens != 444 {
+		t.Fatalf("safety tokens = %d, want 444", cfg.Context.SafetyTokens)
+	}
+	if cfg.Context.CompactTriggerRatio != 0.75 {
+		t.Fatalf("compact trigger ratio = %f, want 0.75", cfg.Context.CompactTriggerRatio)
 	}
 	if cfg.Context.EnableMicroCompact {
 		t.Fatal("enable micro compact = true, want false")

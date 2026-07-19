@@ -10,6 +10,11 @@ type messageGroup struct {
 	Messages []llm.Message
 }
 
+func dropOrphanToolResults(messages []llm.Message, stats *Stats) []llm.Message {
+	groups := groupMessages(messages, stats)
+	return flattenGroups(groups)
+}
+
 func trimMessages(messages []llm.Message, cfg Config, stats *Stats) []llm.Message {
 	groups := groupMessages(messages, stats)
 	kept := keepGroupsFromTail(groups, cfg)

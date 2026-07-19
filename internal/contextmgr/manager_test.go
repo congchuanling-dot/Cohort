@@ -25,6 +25,10 @@ func TestManagerBuildCompactsOldToolResults_BitsUT(t *testing.T) {
 		CompactedToolHeadChars: 8,
 		CompactedToolTailChars: 8,
 		MaxRequestChars:        10000,
+		ContextWindowTokens:    120,
+		MaxOutputTokens:        0,
+		SafetyTokens:           0,
+		CompactTriggerRatio:    0.70,
 		EnableMicroCompact:     true,
 	}}.Build(BuildInput{Messages: messages})
 
@@ -63,6 +67,10 @@ func TestManagerBuildTrimsByToolCallGroup_BitsUT(t *testing.T) {
 		CompactedToolHeadChars: 100,
 		CompactedToolTailChars: 100,
 		MaxRequestChars:        10000,
+		ContextWindowTokens:    30,
+		MaxOutputTokens:        0,
+		SafetyTokens:           0,
+		CompactTriggerRatio:    0.70,
 		EnableMicroCompact:     true,
 	}}.Build(BuildInput{Messages: messages})
 
@@ -99,5 +107,96 @@ func TestManagerBuildDropsOrphanToolResults_BitsUT(t *testing.T) {
 	}
 	if len(result.Stats.Warnings) == 0 {
 		t.Fatal("expected warning for orphan tool result")
+	}
+}
+
+func TestManagerBuildSkipsCompactBelowTriggerThreshold_BitsUT(t *testing.T) {
+	oldContent := strings.Repeat("A", 80)
+	messages := []llm.Message{
+		{Role: llm.RoleUser, Content: "run old command"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "old", Function: llm.ToolFunction{Name: "code_run"}}}},
+		{Role: llm.RoleTool, ToolCallID: "old", Name: "code_run", Content: oldContent},
+	}
+
+	result := Manager{Config: Config{
+		MaxHistoryMessages:     2,
+		KeepRecentToolResults:  0,
+		MaxToolResultChars:     30,
+		CompactedToolHeadChars: 8,
+		CompactedToolTailChars: 8,
+		MaxRequestChars:        10,
+		ContextWindowTokens:    1000000,
+		MaxOutputTokens:        0,
+		SafetyTokens:           0,
+		CompactTriggerRatio:    0.70,
+		EnableMicroCompact:     true,
+	}}.Build(BuildInput{Messages: messages})
+
+	if !result.Stats.SkippedCompact {
+		t.Fatal("expected compact to be skipped below trigger threshold")
+	}
+	if result.Stats.TriggerReason != triggerReasonBelowThreshold {
+		t.Fatalf("trigger reason = %q, want %q", result.Stats.TriggerReason, triggerReasonBelowThreshold)
+	}
+	if result.Stats.CompactedToolResults != 0 {
+		t.Fatalf("compacted tool results = %d, want 0", result.Stats.CompactedToolResults)
+	}
+	if result.Stats.InsertedNotice {
+		t.Fatal("did not expect context notice below trigger threshold")
+	}
+	if len(result.Messages) != len(messages) {
+		t.Fatalf("messages = %d, want original %d", len(result.Messages), len(messages))
+	}
+	if result.Messages[2].Content != oldContent {
+		t.Fatal("tool result was compacted below trigger threshold")
+	}
+}
+
+func TestManagerBuildDoesNotTrimWhenMicroCompactFitsBudget_BitsUT(t *testing.T) {
+	oldContent := strings.Repeat("A", 80) + strings.Repeat("Z", 80)
+	messages := []llm.Message{
+		{Role: llm.RoleUser, Content: "old user"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "old", Function: llm.ToolFunction{Name: "code_run"}}}},
+		{Role: llm.RoleTool, ToolCallID: "old", Name: "code_run", Content: oldContent},
+		{Role: llm.RoleAssistant, Content: "final answer"},
+	}
+
+	result := Manager{Config: Config{
+		MaxHistoryMessages:     2,
+		KeepRecentToolResults:  0,
+		MaxToolResultChars:     30,
+		CompactedToolHeadChars: 5,
+		CompactedToolTailChars: 5,
+		MaxRequestChars:        10000,
+		ContextWindowTokens:    150,
+		MaxOutputTokens:        0,
+		SafetyTokens:           0,
+		CompactTriggerRatio:    0.70,
+		EnableMicroCompact:     true,
+	}}.Build(BuildInput{Messages: messages})
+
+	if result.Stats.CompactedToolResults != 1 {
+		t.Fatalf("compacted tool results = %d, want 1", result.Stats.CompactedToolResults)
+	}
+	if result.Stats.InsertedNotice {
+		t.Fatal("did not expect group trim after micro compact fits budget")
+	}
+	if len(result.Messages) != len(messages) {
+		t.Fatalf("messages = %d, want original group count %d", len(result.Messages), len(messages))
+	}
+	if !strings.Contains(result.Messages[2].Content, "[tool result compacted]") {
+		t.Fatalf("tool result was not compacted:\n%s", result.Messages[2].Content)
+	}
+}
+
+func TestResolveContextWindowTokensUsesModelMap_BitsUT(t *testing.T) {
+	if got := ResolveContextWindowTokens("dsv4pro", 0); got != 1000000 {
+		t.Fatalf("dsv4pro context window = %d, want 1000000", got)
+	}
+	if got := ResolveContextWindowTokens("deepseek-v4-pro", 0); got != 1000000 {
+		t.Fatalf("deepseek-v4-pro context window = %d, want 1000000", got)
+	}
+	if got := ResolveContextWindowTokens("unknown", 123); got != 123 {
+		t.Fatalf("configured context window = %d, want 123", got)
 	}
 }

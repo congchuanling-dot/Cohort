@@ -30,6 +30,22 @@ type Config struct {
 	// Micro Compact 后如果仍超限，会继续按 group 裁剪旧历史。
 	MaxRequestChars int
 
+	// ContextWindowTokens 是当前模型最大上下文窗口。
+	// API 通常不提供该值，默认通过模型名映射填充，也可以在配置中手动覆盖。
+	ContextWindowTokens int
+
+	// MaxOutputTokens 是为模型回复预留的 token 数。
+	// 输入上下文预算会从模型窗口里扣掉这部分，避免输入占满后导致输出失败。
+	MaxOutputTokens int
+
+	// SafetyTokens 是上下文估算安全余量。
+	// 当前 token 估算较粗，保留安全余量可以降低请求超窗风险。
+	SafetyTokens int
+
+	// CompactTriggerRatio 是触发压缩的上下文占用比例。
+	// 例如 0.70 表示估算输入达到可用输入预算 70% 后才开始压缩。
+	CompactTriggerRatio float64
+
 	// EnableMicroCompact 控制是否启用旧工具结果压缩。
 	// 关闭后仍会执行 group trim，但 tool result 内容不会被头尾压缩。
 	EnableMicroCompact bool
@@ -44,6 +60,9 @@ func DefaultConfig() Config {
 		CompactedToolHeadChars: 4000,
 		CompactedToolTailChars: 4000,
 		MaxRequestChars:        100000,
+		MaxOutputTokens:        4096,
+		SafetyTokens:           4000,
+		CompactTriggerRatio:    0.70,
 		EnableMicroCompact:     true,
 	}
 }
@@ -68,6 +87,18 @@ func (c Config) Normalize() Config {
 	}
 	if c.MaxRequestChars <= 0 {
 		c.MaxRequestChars = defaults.MaxRequestChars
+	}
+	if c.ContextWindowTokens <= 0 {
+		c.ContextWindowTokens = defaultContextWindowTokens
+	}
+	if c.MaxOutputTokens < 0 {
+		c.MaxOutputTokens = defaults.MaxOutputTokens
+	}
+	if c.SafetyTokens < 0 {
+		c.SafetyTokens = defaults.SafetyTokens
+	}
+	if c.CompactTriggerRatio <= 0 || c.CompactTriggerRatio > 1 {
+		c.CompactTriggerRatio = defaults.CompactTriggerRatio
 	}
 	return c
 }
@@ -114,6 +145,25 @@ type Stats struct {
 
 	// FinalChars 是压缩和裁剪后的 messages 估算字符数。
 	FinalChars int
+
+	// OriginalTokens 是原始 messages 的估算 token 数。
+	OriginalTokens int
+
+	// FinalTokens 是 Build 后 request messages 的估算 token 数。
+	FinalTokens int
+
+	// UsableInputTokens 是扣除输出预留和安全余量后的可用输入 token 预算。
+	UsableInputTokens int
+
+	// CompactTriggerTokens 是触发压缩的 token 阈值。
+	// 低于该值时不会执行 Micro Compact 或 Group Trim。
+	CompactTriggerTokens int
+
+	// SkippedCompact 表示本轮低于触发阈值，因此跳过压缩和裁剪。
+	SkippedCompact bool
+
+	// TriggerReason 记录本轮为什么跳过或触发压缩，便于后续日志和调试。
+	TriggerReason string
 
 	// TrimmedMessages 是本轮请求中被 group trim 或协议清理移除的消息数量。
 	TrimmedMessages int

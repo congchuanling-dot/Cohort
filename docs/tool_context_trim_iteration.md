@@ -1,6 +1,6 @@
 # Tool 上下文剪切迭代记录
 
-本文档记录当前 Context Manager 对 tool 上下文的处理现状、已知问题，以及下一版按模型上下文阈值触发压缩的技术方案。
+本文档记录当前 Context Manager 对 tool 上下文的处理现状，以及按模型上下文阈值触发压缩的技术方案。
 
 ## 当前实现形状
 
@@ -16,12 +16,15 @@ Runner.history 完整消息
 
 `Runner.history` 和 `history.jsonl` 都保留完整原始消息。Context Manager 只处理本轮发给模型的临时副本。
 
-当前 `Manager.Build()` 每次被调用都会按固定顺序执行：
+当前 `Manager.Build()` 每次被调用都会先估算上下文占用，再决定是否压缩：
 
 ```text
 clone messages
-  -> Micro Compact
-  -> group trim
+  -> protocol repair
+  -> estimate tokens
+  -> below 70% threshold: return cloned messages
+  -> over 70% threshold: Micro Compact
+  -> if still over budget: group trim
   -> return request messages
 ```
 
@@ -97,11 +100,11 @@ assistant(tool_calls) + 后续匹配 tool results
 
 这样做是为了避免发给 OpenAI-compatible API 的消息破坏 tool calling 协议。
 
-## 当前问题
+## 已知问题和取舍
 
 当前实现能保证基本安全，但策略还不够好。
 
-### 问题一：每次请求前都会尝试压缩和裁剪
+### 取舍一：每次请求前都会重新构造 request messages
 
 当前 `Runner.Run()` 中两处会构造 request messages：
 
@@ -118,52 +121,48 @@ messages := r.buildRequestMessages()
 messages = r.buildRequestMessages()
 ```
 
-这个调用时机本身是合理的，因为每次调用模型前都需要重新构造本轮 request messages。
+这个调用时机是合理的，因为每次调用模型前都需要重新构造本轮 request messages。
 
-真正的问题是：
-
-```text
-ContextManager.Build() 当前没有“是否需要压缩”的判断。
-```
-
-也就是说，只要调用 `Build()`，它就会尝试 Micro Compact 和 group trim。
-
-### 问题二：触发条件和模型上下文窗口脱节
-
-当前触发主要由这两个配置控制：
+当前策略已经改为：
 
 ```text
-MaxHistoryMessages
-MaxRequestChars
+每次请求前评估
+低于 70% 阈值不压缩
+超过 70% 阈值才压缩
 ```
 
-问题是：
+### 取舍二：模型上下文窗口来自内置表和配置
 
-- `MaxHistoryMessages` 只看消息数量，不知道模型 context window。
-- `MaxRequestChars` 是字符预算，不是 token 预算。
-- 当前配置没有表达“达到模型最大上下文 70% 才开始压缩”。
-- 即使实际上下文只占模型窗口很小一部分，也可能因为消息数超过阈值被裁剪。
-
-### 问题三：Micro Compact 和 Group Trim 没有分级触发
-
-更理想的策略应该是：
+模型 API 提供方通常没有稳定接口返回当前模型上下文长度，因此当前采用：
 
 ```text
-低于阈值
-  -> 不压缩、不裁剪，只做必要的协议清理或直接返回原始副本
-
-达到 70% 阈值
-  -> 先 Micro Compact 旧工具结果
-
-Micro Compact 后仍超过预算
-  -> 再 group trim 旧历史
+配置 context.context_window_tokens 优先
+内置模型 map 兜底
+未知模型使用默认值
 ```
 
-当前实现没有这个分级决策。
+当前内置值：
 
-## 下一版目标
+```text
+deepseek-v4-pro: 1000000
+dsv4pro:         1000000
+```
 
-下一版目标不是移除 `buildRequestMessages()` 调用。
+二分探测模型最大上下文可以作为后续增强，但当前不启用。
+
+### 取舍三：token 估算仍然是粗略估算
+
+当前第一版继续用字符估算：
+
+```text
+estimated_tokens = len([]rune(text)) / 2
+```
+
+后续如果要更准确，需要按模型接 tokenizer。
+
+## 当前目标
+
+目标不是移除 `buildRequestMessages()` 调用。
 
 正确方向是：
 
@@ -198,7 +197,7 @@ type Config struct {
 默认建议：
 
 ```text
-context_window_tokens: 64000
+context_window_tokens: 1000000
 max_output_tokens: 4096
 safety_tokens: 4000
 compact_trigger_ratio: 0.70
@@ -226,7 +225,7 @@ estimated_tokens = len([]rune(messages_text)) / 2
 
 ## Build 流程改造
 
-建议把 `Manager.Build()` 改成：
+`Manager.Build()` 当前应保持：
 
 ```text
 clone messages
@@ -245,7 +244,7 @@ Group Trim
 return trimmed messages
 ```
 
-伪代码：
+伪代码形状：
 
 ```go
 func (m Manager) Build(input BuildInput) BuildResult {
@@ -303,11 +302,11 @@ messages = r.buildRequestMessages()
 
 ## 配置文件改造
 
-`configs/config.yaml` 建议改成：
+`configs/config.yaml` 当前配置：
 
 ```yaml
 context:
-  context_window_tokens: 64000
+  context_window_tokens: 1000000
   max_output_tokens: 4096
   safety_tokens: 4000
   compact_trigger_ratio: 0.70
@@ -320,11 +319,11 @@ context:
   enable_micro_compact: true
 ```
 
-`max_request_chars` 后续可以保留为兜底，但主触发条件应该转为 token budget。
+`max_request_chars` 后续可以保留为兜底，但主触发条件已经转为 token budget。
 
 ## Stats 改造
 
-建议增加统计字段：
+已增加统计字段：
 
 ```go
 type Stats struct {
@@ -355,7 +354,7 @@ over_usable_input_budget
 
 ## 测试补充
 
-下一版需要补以下测试：
+需要持续保留以下测试：
 
 ```text
 低于 70% 阈值
@@ -376,15 +375,14 @@ over_usable_input_budget
   -> Build 根据预算决定是否压缩
 ```
 
-## 推荐改造顺序
+## 后续迭代顺序
 
 ```text
-1. 扩展 Config：context window、输出预留、安全余量、70% 阈值。
-2. 新增 budget.go 的 token 估算和预算计算。
-3. 改造 Manager.Build：低于阈值时 no-op 返回。
-4. 保留 Runner.buildRequestMessages 调用，只更新注释。
-5. 更新 configs/config.yaml 和 docs/usage.md。
-6. 补充 contextmgr 和 runner 接入测试。
+1. 引入更精确 tokenizer。
+2. 按更多模型扩展内置 context window map。
+3. 增加可选二分探测模式，但默认关闭。
+4. 将 context stats 接入日志，方便观察每轮是否触发压缩。
+5. 后续接入 memory.md 和 compact.md。
 ```
 
 核心原则：

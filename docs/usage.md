@@ -465,6 +465,10 @@ configs/config.yaml
 
 ```yaml
 context:
+  context_window_tokens: 1000000
+  max_output_tokens: 4096
+  safety_tokens: 4000
+  compact_trigger_ratio: 0.70
   max_history_messages: 40
   keep_recent_tool_results: 2
   max_tool_result_chars: 12000
@@ -476,6 +480,10 @@ context:
 
 字段说明：
 
+- `context_window_tokens`：当前模型最大上下文窗口。`deepseek-v4-pro` / `dsv4pro` 默认按 1000000 处理，也可以手动覆盖。
+- `max_output_tokens`：为模型输出预留的 token。
+- `safety_tokens`：估算安全余量。
+- `compact_trigger_ratio`：压缩触发比例，默认 `0.70`，表示达到可用输入预算 70% 后才压缩。
 - `max_history_messages`：本轮请求最多保留的历史消息数。
 - `keep_recent_tool_results`：最近多少条工具结果保持完整。
 - `max_tool_result_chars`：单条工具结果超过该字符数后会被压缩。

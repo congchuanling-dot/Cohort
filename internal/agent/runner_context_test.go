@@ -58,6 +58,10 @@ func TestRunnerUsesContextManagerForModelRequest_BitsUT(t *testing.T) {
 			CompactedToolHeadChars: 100,
 			CompactedToolTailChars: 100,
 			MaxRequestChars:        10000,
+			ContextWindowTokens:    25,
+			MaxOutputTokens:        0,
+			SafetyTokens:           0,
+			CompactTriggerRatio:    0.70,
 			EnableMicroCompact:     true,
 		}},
 		history: []llm.Message{
@@ -124,6 +128,10 @@ func TestRunnerRebuildsContextAfterToolResult_BitsUT(t *testing.T) {
 			CompactedToolHeadChars: 5,
 			CompactedToolTailChars: 5,
 			MaxRequestChars:        10000,
+			ContextWindowTokens:    80,
+			MaxOutputTokens:        0,
+			SafetyTokens:           0,
+			CompactTriggerRatio:    0.70,
 			EnableMicroCompact:     true,
 		}},
 	}

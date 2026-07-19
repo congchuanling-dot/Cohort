@@ -145,6 +145,14 @@ func applyContextValue(cfg *contextmgr.Config, key, val string) {
 		cfg.CompactedToolTailChars = atoiDefault(val, cfg.CompactedToolTailChars)
 	case "max_request_chars":
 		cfg.MaxRequestChars = atoiDefault(val, cfg.MaxRequestChars)
+	case "context_window_tokens":
+		cfg.ContextWindowTokens = atoiDefault(val, cfg.ContextWindowTokens)
+	case "max_output_tokens":
+		cfg.MaxOutputTokens = atoiDefault(val, cfg.MaxOutputTokens)
+	case "safety_tokens":
+		cfg.SafetyTokens = atoiDefault(val, cfg.SafetyTokens)
+	case "compact_trigger_ratio":
+		cfg.CompactTriggerRatio = atofDefault(val, cfg.CompactTriggerRatio)
 	case "enable_micro_compact":
 		cfg.EnableMicroCompact = parseBoolDefault(val, cfg.EnableMicroCompact)
 	}
@@ -185,6 +193,14 @@ func expandEnv(v string) string {
 // atoiDefault 解析失败时返回已有默认值，避免配置写错导致零值覆盖。
 func atoiDefault(v string, fallback int) int {
 	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback
+	}
+	return n
+}
+
+func atofDefault(v string, fallback float64) float64 {
+	n, err := strconv.ParseFloat(v, 64)
 	if err != nil {
 		return fallback
 	}

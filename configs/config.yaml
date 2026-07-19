@@ -15,6 +15,10 @@ llm:
   max_retries: 2
 
 context:
+  context_window_tokens: 1000000
+  max_output_tokens: 4096
+  safety_tokens: 4000
+  compact_trigger_ratio: 0.70
   max_history_messages: 40
   keep_recent_tool_results: 2
   max_tool_result_chars: 12000

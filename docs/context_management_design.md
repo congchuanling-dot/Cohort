@@ -88,6 +88,8 @@ Micro Compact 是零成本压缩。
 
 ### 2.2 Session Memory Compact
 
+Session Memory Compact 不在每轮对话后自动执行。它应由手动命令、上下文阈值、阶段完成或 Auto Compact 策略低频触发，只提取稳定事实，不记录临时执行细节。
+
 Session Memory Compact 是低成本结构化记忆。
 
 它不是简单总结，而是提取会话中的稳定事实，例如：
@@ -136,6 +138,18 @@ Auto Compact 解决什么时候压缩。
 - 避免压缩流程本身递归触发压缩。
 
 对 Cohert 来说，Auto Compact 不建议第一版就做复杂。第一版先做请求前确定性裁剪；等稳定后再加入自动摘要和熔断器。
+
+当前实现采用“每次请求前评估，超过阈值才压缩”的策略：
+
+```text
+estimated_input_tokens < 可用输入预算的 70%
+  -> 不做 Micro Compact
+  -> 不做 Group Trim
+
+estimated_input_tokens >= 可用输入预算的 70%
+  -> 先做 Micro Compact
+  -> 如仍超过预算，再做 Group Trim
+```
 
 ## 3. Cohert 设计目标
 
@@ -380,7 +394,8 @@ OpenAI-compatible API 通常不会稳定返回模型最大 context window。
 
 ```go
 var ModelContextWindows = map[string]int{
-    "deepseek-v4-pro":    64000,
+    "deepseek-v4-pro":    1000000,
+    "dsv4pro":            1000000,
     "deepseek-chat":      64000,
     "deepseek-reasoner":  64000,
     "gpt-4o":             128000,
@@ -394,7 +409,7 @@ var ModelContextWindows = map[string]int{
 ```text
 配置文件 context.context_window_tokens
   -> 模型名内置表
-  -> 默认 30000
+  -> 默认 1000000
 ```
 
 第一版 token 估算可以用字符估算：
@@ -410,6 +425,13 @@ max_request_chars = 100000
 ```
 
 后续如果需要更精确，再引入 tokenizer。
+
+如果 API 提供方后续仍不提供模型上下文窗口接口，可以继续采用两种策略：
+
+```text
+第一优先级：内置模型 map + 配置覆盖
+后续增强：用探测请求做二分逼近，但默认不启用
+```
 
 ## 9. 第一层：Micro Compact 设计
 

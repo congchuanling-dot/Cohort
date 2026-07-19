@@ -36,6 +36,10 @@ func Run(args []string) error {
 	switch args[0] {
 	case "config":
 		fmt.Printf("model: %s\napi_base: %s\nworkspace: %s\n", cfg.LLM.Model, cfg.LLM.APIBase, cfg.Workspace)
+		fmt.Printf("context.context_window_tokens: %d\n", cfg.Context.ContextWindowTokens)
+		fmt.Printf("context.max_output_tokens: %d\n", cfg.Context.MaxOutputTokens)
+		fmt.Printf("context.safety_tokens: %d\n", cfg.Context.SafetyTokens)
+		fmt.Printf("context.compact_trigger_ratio: %.2f\n", cfg.Context.CompactTriggerRatio)
 		fmt.Printf("context.max_history_messages: %d\n", cfg.Context.MaxHistoryMessages)
 		fmt.Printf("context.max_tool_result_chars: %d\n", cfg.Context.MaxToolResultChars)
 		fmt.Printf("context.max_request_chars: %d\n", cfg.Context.MaxRequestChars)
