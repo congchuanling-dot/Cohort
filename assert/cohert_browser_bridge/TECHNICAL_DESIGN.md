@@ -80,6 +80,7 @@ assert/cohert_browser_bridge/
   README.md
   TECHNICAL_DESIGN.md
   DEVELOPMENT_TUTORIAL.md
+  MANIFEST_EXPLAINED.md
 ```
 
 ## 插件内部职责

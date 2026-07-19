@@ -1,7 +1,13 @@
 (function () {
+  // content script 会被注入到页面里。
+  // 如果页面有 iframe，content script 可能在多个 frame 里运行；第一版只在顶层页面显示标记。
   if (window.top !== window.self) return;
+
+  // 防止页面局部刷新或脚本重复注入时创建多个角标。
   if (document.getElementById("cohert-browser-bridge-indicator")) return;
 
+  // 这个角标不是核心功能，只是开发调试用：
+  // 看到它就说明插件已经成功注入当前 http/https 页面。
   const indicator = document.createElement("div");
   indicator.id = "cohert-browser-bridge-indicator";
   indicator.textContent = "Cohert bridge";
@@ -22,12 +28,14 @@
   ].join(";");
 
   const append = () => {
+    // document_idle 时通常已有 body，但少数页面加载时机特殊，所以这里仍然做一次保护。
     if (document.body) {
       document.body.appendChild(indicator);
     }
   };
 
   if (document.readyState === "loading") {
+    // body 还没准备好时，等 DOMContentLoaded 再挂载角标。
     document.addEventListener("DOMContentLoaded", append, { once: true });
   } else {
     append();

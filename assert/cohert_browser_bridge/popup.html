@@ -1,9 +1,11 @@
 <!doctype html>
 <html>
 <head>
+  <!-- popup 是点击 Chrome 插件图标后弹出的调试面板。 -->
   <meta charset="utf-8">
   <title>Cohert Browser Bridge</title>
   <style>
+    /* 固定宽度是 Chrome 插件 popup 的常见写法，避免内容撑得太宽。 */
     body {
       width: 360px;
       margin: 0;
@@ -12,18 +14,22 @@
       background: #f8fafd;
       font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
+    /* 插件标题。 */
     h1 {
       margin: 0 0 8px;
       font-size: 15px;
       font-weight: 650;
     }
+    /* 每一行状态，例如 Status/WebSocket/Tabs。 */
     .row {
       margin: 6px 0;
       line-height: 1.4;
     }
+    /* label 用低饱和颜色，和实际状态值做区分。 */
     .label {
       color: #5f6368;
     }
+    /* Refresh/Reconnect 两个按钮只用于人工调试。 */
     button {
       margin: 8px 0;
       padding: 5px 10px;
@@ -35,6 +41,7 @@
     button:hover {
       background: #eef3fb;
     }
+    /* tab 列表可能比较长，用 pre 保留换行并限制最大高度。 */
     pre {
       max-height: 220px;
       overflow: auto;
@@ -50,12 +57,23 @@
 </head>
 <body>
   <h1>Cohert Browser Bridge</h1>
+  <!-- 连接状态：connected 或 waiting for Cohert。 -->
   <div class="row"><span class="label">Status:</span> <span id="status">loading</span></div>
+
+  <!-- 当前插件要连接的本地 WebSocket 地址。 -->
   <div class="row"><span class="label">WebSocket:</span> <span id="wsUrl"></span></div>
+
+  <!-- 当前可脚本化的 http/https 标签页数量。 -->
   <div class="row"><span class="label">Tabs:</span> <span id="tabCount">0</span></div>
+
+  <!-- Refresh 只刷新 popup 展示；Reconnect 会让 background 再尝试连一次 Go 侧服务。 -->
   <button id="refresh">Refresh</button>
   <button id="reconnect">Reconnect</button>
+
+  <!-- popup.js 会把 tab id/title/url 渲染到这里。 -->
   <pre id="tabs"></pre>
+
+  <!-- popup 页面自己的逻辑入口。 -->
   <script src="popup.js"></script>
 </body>
 </html>

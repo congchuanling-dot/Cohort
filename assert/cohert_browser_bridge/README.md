@@ -39,6 +39,12 @@ DEVELOPMENT_TUTORIAL.md
 
 这份教程按从零开发的角度解释 `manifest.json`、`background.js`、`content.js`、`popup` 和后续 Go 侧接入方式。
 
+如果只想逐行理解 Chrome 插件入口配置，看：
+
+```text
+MANIFEST_EXPLAINED.md
+```
+
 ## 默认连接
 
 插件会连接：
