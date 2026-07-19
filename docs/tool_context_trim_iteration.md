@@ -182,7 +182,7 @@ buildRequestMessages()
 
 ## 70% 阈值方案
 
-新增配置：
+内部配置结构：
 
 ```go
 type Config struct {
@@ -205,7 +205,7 @@ compact_trigger_ratio: 0.70
 输入预算：
 
 ```text
-usable_input_tokens = context_window_tokens - max_output_tokens - safety_tokens
+usable_input_tokens = model_context_window_tokens - max_output_tokens - safety_tokens
 ```
 
 压缩触发阈值：

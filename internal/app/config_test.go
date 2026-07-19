@@ -54,6 +54,9 @@ llm:
 	if cfg.Context.MaxRequestChars != 999 {
 		t.Fatalf("max request chars = %d, want 999", cfg.Context.MaxRequestChars)
 	}
+	if cfg.Context.ContextWindowTokens != 1000000 {
+		t.Fatalf("resolved context window tokens = %d, want 1000000", cfg.Context.ContextWindowTokens)
+	}
 	if cfg.Context.EnableMicroCompact {
 		t.Fatal("enable micro compact = true, want false")
 	}

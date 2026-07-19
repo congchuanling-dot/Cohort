@@ -767,7 +767,7 @@ Compact prompt 应要求模型输出：
 估算：
 
 ```text
-input_budget = context_window_tokens - max_output_tokens - safety_tokens
+input_budget = model_context_window_tokens - max_output_tokens - safety_tokens
 ```
 
 当：
