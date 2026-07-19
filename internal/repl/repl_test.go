@@ -196,6 +196,53 @@ func TestStartCompactGeneratesSessionMemory_BitsUT(t *testing.T) {
 	}
 }
 
+func TestStartFullCompactGeneratesCompactSummary_BitsUT(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	sess, err := store.Create("full compact task", "/tmp/project", "deepseek-v4-pro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeClient{}
+	runner := &agent.Runner{
+		Client:       client,
+		Tools:        fakeTools{},
+		SessionStore: &store,
+	}
+	runner.ResumeSession(sess.ID, []llm.Message{
+		{Role: llm.RoleUser, Content: "我要继续做 full compact"},
+	})
+
+	var out bytes.Buffer
+	startErr := Start(context.Background(), Options{
+		Config:       testConfig(),
+		Runner:       runner,
+		SessionStore: store,
+		In:           strings.NewReader("/full-compact\n/exit\n"),
+		Out:          &out,
+		Err:          &out,
+	})
+	if startErr != nil {
+		t.Fatal(startErr)
+	}
+	if client.calls != 1 {
+		t.Fatalf("model calls = %d, want 1", client.calls)
+	}
+	compactPath := filepath.Join(store.SessionDir(sess.ID), contextmgr.CompactSummaryFileName)
+	data, err := os.ReadFile(compactPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(data)) != "ok" {
+		t.Fatalf("compact content = %q, want ok", string(data))
+	}
+	output := out.String()
+	for _, want := range []string{"full compact:", "status: updated compact.md", "path: " + compactPath} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output does not contain %q:\n%s", want, output)
+		}
+	}
+}
+
 func TestStartPrintsSessionMemory_BitsUT(t *testing.T) {
 	store := session.NewStore(t.TempDir())
 	sess, err := store.Create("memory task", "/tmp/project", "deepseek-v4-pro")

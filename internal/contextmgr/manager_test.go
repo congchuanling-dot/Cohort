@@ -239,6 +239,53 @@ func TestManagerBuildPreservesSessionMemoryDuringTrim_BitsUT(t *testing.T) {
 	}
 }
 
+func TestManagerBuildInjectsCompactSummaryAfterSessionMemory_BitsUT(t *testing.T) {
+	sessionDir := t.TempDir()
+	memoryText := "# Session Memory\n\n- stable facts"
+	compactText := "1. Primary Request and Intent:\n\n- long history summary"
+	if err := os.WriteFile(filepath.Join(sessionDir, SessionMemoryFileName), []byte(memoryText), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionDir, CompactSummaryFileName), []byte(compactText), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := Manager{Config: Config{
+		MaxHistoryMessages:     20,
+		KeepRecentToolResults:  1,
+		MaxToolResultChars:     1000,
+		CompactedToolHeadChars: 100,
+		CompactedToolTailChars: 100,
+		MaxRequestChars:        10000,
+		ContextWindowTokens:    1000000,
+		MaxOutputTokens:        0,
+		SafetyTokens:           0,
+		CompactTriggerRatio:    0.70,
+		EnableMicroCompact:     true,
+		MaxSessionMemoryChars:  20000,
+		MaxCompactSummaryChars: 60000,
+	}}.Build(BuildInput{
+		Messages:   []llm.Message{{Role: llm.RoleUser, Content: "继续"}},
+		SessionDir: sessionDir,
+	})
+
+	if !result.Stats.InjectedSessionMemory || !result.Stats.InjectedCompactSummary {
+		t.Fatalf("expected memory and compact summary to be injected: %#v", result.Stats)
+	}
+	if len(result.Messages) != 3 {
+		t.Fatalf("messages = %d, want 3: %#v", len(result.Messages), result.Messages)
+	}
+	if !strings.Contains(result.Messages[0].Content, sessionMemoryNotice) {
+		t.Fatalf("first message is not session memory: %#v", result.Messages[0])
+	}
+	if !strings.Contains(result.Messages[1].Content, compactSummaryNotice) {
+		t.Fatalf("second message is not compact summary: %#v", result.Messages[1])
+	}
+	if result.Messages[2].Content != "继续" {
+		t.Fatalf("recent history shifted incorrectly: %#v", result.Messages)
+	}
+}
+
 func TestManagerBuildSkipsCompactBelowTriggerThreshold_BitsUT(t *testing.T) {
 	oldContent := strings.Repeat("A", 80)
 	messages := []llm.Message{

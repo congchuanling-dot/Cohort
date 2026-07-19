@@ -22,17 +22,18 @@ import (
 const (
 	promptText = "cohert › "
 
-	commandExit    = "exit"
-	commandQuit    = "quit"
-	commandHelp    = "help"
-	commandTools   = "tools"
-	commandModel   = "model"
-	commandConfig  = "config"
-	commandSession = "session"
-	commandResume  = "resume"
-	commandCompact = "compact"
-	commandMemory  = "memory"
-	commandClear   = "clear"
+	commandExit        = "exit"
+	commandQuit        = "quit"
+	commandHelp        = "help"
+	commandTools       = "tools"
+	commandModel       = "model"
+	commandConfig      = "config"
+	commandSession     = "session"
+	commandResume      = "resume"
+	commandCompact     = "compact"
+	commandFullCompact = "full-compact"
+	commandMemory      = "memory"
+	commandClear       = "clear"
 
 	sessionCommandList   = "list"
 	sessionCommandResume = "resume"
@@ -189,6 +190,7 @@ func slashCompleter() *readline.PrefixCompleter {
 		),
 		readline.PcItem("/resume"),
 		readline.PcItem("/compact"),
+		readline.PcItem("/full-compact"),
 		readline.PcItem("/clear"),
 		readline.PcItem("/exit"),
 	)
@@ -273,8 +275,13 @@ func selectSlashCommand(opts Options) (SlashCommand, bool, error) {
 		},
 		{
 			Usage:       "/compact",
-			Description: "预留上下文压缩入口",
+			Description: "生成或更新当前 session 的 memory.md",
 			Command:     SlashCommand{Raw: "/compact", Name: commandCompact},
+		},
+		{
+			Usage:       "/full-compact",
+			Description: "生成或更新当前 session 的 compact.md",
+			Command:     SlashCommand{Raw: "/full-compact", Name: commandFullCompact},
 		},
 		{
 			Usage:       "/clear",
@@ -374,6 +381,8 @@ func handleSlashCommand(opts Options, cmd SlashCommand) (bool, error) {
 		return false, resumeSession(opts, cmd.Args[0])
 	case commandCompact:
 		return false, compactSessionMemory(opts)
+	case commandFullCompact:
+		return false, fullCompactSession(opts)
 	case commandMemory:
 		return false, printSessionMemory(opts.Out, opts.Runner)
 	case commandClear:
@@ -452,6 +461,7 @@ func printSlashHelp(out io.Writer) {
   /session resume <id>     恢复指定 session
   /resume <id>             恢复指定 session 的简写
   /compact                 生成或更新当前 session 的 memory.md
+  /full-compact            生成或更新当前 session 的 compact.md
   /memory                  查看当前 session memory.md
   /clear                   清空当前内存上下文，下一次输入会创建新 session
   /exit                    退出 Cohert
@@ -472,6 +482,7 @@ func printCommandPalette(out io.Writer) {
   /session memory       查看 session memory
   /resume <id>          恢复 session
   /compact              生成或更新 session memory
+  /full-compact         生成或更新 compact summary
   /memory               查看 session memory
   /clear                清空当前内存上下文
   /exit                 退出
@@ -512,6 +523,7 @@ func printConfig(out io.Writer, cfg app.Config) {
 	fmt.Fprintf(out, "  max_tool_result_chars:    %d\n", cfg.Context.MaxToolResultChars)
 	fmt.Fprintf(out, "  max_request_chars:        %d\n", cfg.Context.MaxRequestChars)
 	fmt.Fprintf(out, "  max_session_memory_chars: %d\n", cfg.Context.MaxSessionMemoryChars)
+	fmt.Fprintf(out, "  max_compact_summary_chars: %d\n", cfg.Context.MaxCompactSummaryChars)
 	fmt.Fprintf(out, "  enable_micro_compact:     %t\n", cfg.Context.EnableMicroCompact)
 	printModel(out, cfg)
 }
@@ -560,6 +572,25 @@ func compactSessionMemory(opts Options) error {
 		return err
 	}
 	fmt.Fprintln(opts.Out, "  status: updated memory.md")
+	fmt.Fprintf(opts.Out, "  session: %s\n", result.SessionID)
+	fmt.Fprintf(opts.Out, "  path: %s\n", result.Path)
+	if result.BackedUp {
+		fmt.Fprintf(opts.Out, "  backup: %s\n", result.BackupPath)
+	} else {
+		fmt.Fprintln(opts.Out, "  backup: none")
+	}
+	fmt.Fprintf(opts.Out, "  chars: %d\n", result.Chars)
+	return nil
+}
+
+func fullCompactSession(opts Options) error {
+	fmt.Fprintln(opts.Out, "full compact:")
+	fmt.Fprintln(opts.Out, "  generating compact.md...")
+	result, err := opts.Runner.FullCompactSession(opts.Context)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(opts.Out, "  status: updated compact.md")
 	fmt.Fprintf(opts.Out, "  session: %s\n", result.SessionID)
 	fmt.Fprintf(opts.Out, "  path: %s\n", result.Path)
 	if result.BackedUp {

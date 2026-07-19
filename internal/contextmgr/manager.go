@@ -12,7 +12,7 @@ import "cohert/internal/llm"
 // 流程顺序：
 //  1. clone 完整历史，避免误改调用方。
 //  2. 清理协议非法的孤立 tool 消息。
-//  3. 如果 session 目录存在 memory.md，把它作为受保护前缀注入请求。
+//  3. 如果 session 目录存在 memory.md 和 compact.md，把它们作为受保护前缀注入请求。
 //  4. 估算 token，占用低于 70% 时直接返回。
 //  5. 超过 70% 时先压缩旧 tool result。
 //  6. 压缩后仍超预算时，才按 message group 裁旧历史。
@@ -49,7 +49,16 @@ func (m Manager) Build(input BuildInput) BuildResult {
 		stats.Warnings = append(stats.Warnings, "failed to load session memory: "+memoryErr.Error())
 	}
 	memoryMessage, hasMemory := buildSessionMemoryMessage(memoryText, cfg, &stats)
-	messagesWithMemory := prependSessionMemory(messages, memoryMessage, hasMemory)
+
+	// 第三层 Full Compact 的第一版同样只在请求前读取 compact.md。
+	// 生成由 /full-compact 手动触发；只要文件存在，后续每轮请求都会自动注入。
+	// 注入顺序固定为 memory.md -> compact.md -> 最近历史。
+	compactText, _, compactErr := loadCompactSummary(input.SessionDir)
+	if compactErr != nil {
+		stats.Warnings = append(stats.Warnings, "failed to load compact summary: "+compactErr.Error())
+	}
+	compactMessage, hasCompact := buildCompactSummaryMessage(compactText, cfg, &stats)
+	messagesWithContext := prependProtectedContext(messages, memoryMessage, hasMemory, compactMessage, hasCompact)
 
 	// newBudget 根据模型上下文窗口计算两个值：
 	//   UsableInputTokens：本轮输入最多可占多少 token。
@@ -60,14 +69,14 @@ func (m Manager) Build(input BuildInput) BuildResult {
 
 	// 低于 70% 阈值时，本轮不做 Micro Compact，也不做 Group Trim。
 	// 这里返回的是“协议清理后的副本”，不是原始 Runner.history。
-	requestTokens := estimateTokens(messagesWithMemory)
+	requestTokens := estimateTokens(messagesWithContext)
 	if requestTokens < budget.CompactTriggerTokens {
 		stats.SkippedCompact = true
 		stats.TriggerReason = triggerReasonBelowThreshold
-		stats.FinalMessages = len(messagesWithMemory)
-		stats.FinalChars = messagesChars(messagesWithMemory)
+		stats.FinalMessages = len(messagesWithContext)
+		stats.FinalChars = messagesChars(messagesWithContext)
 		stats.FinalTokens = estimateTokensFromChars(stats.FinalChars)
-		return BuildResult{Messages: messagesWithMemory, Stats: stats}
+		return BuildResult{Messages: messagesWithContext, Stats: stats}
 	}
 	stats.TriggerReason = triggerReasonOverThreshold
 
@@ -80,22 +89,29 @@ func (m Manager) Build(input BuildInput) BuildResult {
 	// Micro Compact 后重新估算。
 	// 如果压缩旧 tool result 后已经放得进模型窗口，就停止，不继续裁剪历史消息。
 	// 这样可以尽量保留完整对话结构，只牺牲旧工具输出的中间部分。
-	messagesWithMemory = prependSessionMemory(messages, memoryMessage, hasMemory)
-	compactedChars := messagesChars(messagesWithMemory)
+	messagesWithContext = prependProtectedContext(messages, memoryMessage, hasMemory, compactMessage, hasCompact)
+	compactedChars := messagesChars(messagesWithContext)
 	compactedTokens := estimateTokensFromChars(compactedChars)
 	if compactedTokens <= budget.UsableInputTokens && compactedChars <= cfg.MaxRequestChars {
-		stats.FinalMessages = len(messagesWithMemory)
+		stats.FinalMessages = len(messagesWithContext)
 		stats.FinalChars = compactedChars
 		stats.FinalTokens = compactedTokens
-		return BuildResult{Messages: messagesWithMemory, Stats: stats}
+		return BuildResult{Messages: messagesWithContext, Stats: stats}
 	}
 	stats.TriggerReason = triggerReasonOverBudget
 
 	// 最后才按 group 裁剪旧历史。group 裁剪会保护 tool-call 协议完整性，
 	// 必要时插入一条 context notice，告诉模型早期消息已从本轮请求中省略。
-	trimCfg := reserveBudgetForSessionMemory(cfg, memoryMessage, hasMemory)
+	var protected []llm.Message
+	if hasMemory {
+		protected = append(protected, memoryMessage)
+	}
+	if hasCompact {
+		protected = append(protected, compactMessage)
+	}
+	trimCfg := reserveBudgetForProtectedContext(cfg, protected...)
 	messages = trimMessages(messages, trimCfg, &stats)
-	messages = prependSessionMemory(messages, memoryMessage, hasMemory)
+	messages = prependProtectedContext(messages, memoryMessage, hasMemory, compactMessage, hasCompact)
 	stats.FinalMessages = len(messages)
 	stats.FinalChars = messagesChars(messages)
 	stats.FinalTokens = estimateTokensFromChars(stats.FinalChars)

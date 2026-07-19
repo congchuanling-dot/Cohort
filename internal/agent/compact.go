@@ -20,9 +20,18 @@ const (
 不要记录临时命令输出、无关寒暄、重复过程或模型中间废话。
 必须使用用户提供的 markdown 结构；没有内容的栏目写 "- 暂无"。`
 
-	maxMemorySourceChars = 120000
-	memorySourceHead     = 60000
-	memorySourceTail     = 60000
+	fullCompactGenerationSystemPrompt = `你是 Cohert 的 Full Compact 生成器。
+
+你的任务是从完整会话历史中生成 compact.md，用于恢复长会话的关键上下文。
+compact.md 应保留任务目标、技术背景、关键文件、错误修复、当前进度和下一步。
+不要保存 <analysis> 内容；最终答案必须包含 <summary>...</summary>。`
+
+	maxMemorySourceChars  = 120000
+	memorySourceHead      = 60000
+	memorySourceTail      = 60000
+	maxCompactSourceChars = 240000
+	compactSourceHead     = 120000
+	compactSourceTail     = 120000
 )
 
 var ErrNoActiveSession = errors.New("no active session")
@@ -38,6 +47,24 @@ type CompactMemoryResult struct {
 
 // SessionMemorySnapshot 是当前 session memory.md 的只读快照，用于 /memory 展示。
 type SessionMemorySnapshot struct {
+	SessionID string
+	Path      string
+	Content   string
+	Chars     int
+	Exists    bool
+}
+
+// FullCompactResult 描述 /full-compact 生成 compact.md 的结果。
+type FullCompactResult struct {
+	SessionID  string
+	Path       string
+	BackupPath string
+	BackedUp   bool
+	Chars      int
+}
+
+// CompactSummarySnapshot 是当前 session compact.md 的只读快照，用于后续查看命令扩展。
+type CompactSummarySnapshot struct {
 	SessionID string
 	Path      string
 	Content   string
@@ -104,6 +131,65 @@ func (r *Runner) CompactSessionMemory(ctx context.Context) (CompactMemoryResult,
 	}, nil
 }
 
+// FullCompactSession 调用模型把当前 Runner.history 压缩成长历史摘要，并写入 compact.md。
+//
+// 这是 P1 第一版 Full Compact：只支持手动 /full-compact 触发生成。
+// 生成后的 compact.md 会在后续请求前由 contextmgr 自动读取，并按 memory.md -> compact.md -> 最近历史的顺序注入。
+func (r *Runner) FullCompactSession(ctx context.Context) (FullCompactResult, error) {
+	if r.Client == nil {
+		return FullCompactResult{}, errors.New("full compact requires llm client")
+	}
+	if r.SessionStore == nil || r.sessionID == "" {
+		return FullCompactResult{}, errors.New("full compact requires an active session")
+	}
+	if len(r.history) == 0 {
+		return FullCompactResult{}, errors.New("full compact requires non-empty history")
+	}
+
+	sessionDir := r.sessionDir()
+	if strings.TrimSpace(sessionDir) == "" {
+		return FullCompactResult{}, errors.New("full compact cannot resolve session directory")
+	}
+
+	prompt := buildFullCompactPrompt(r.history)
+	stream, err := r.Client.Chat(ctx, llm.ChatRequest{
+		System: fullCompactGenerationSystemPrompt,
+		Messages: []llm.Message{{
+			Role:    llm.RoleUser,
+			Content: prompt,
+		}},
+	})
+	if err != nil {
+		return FullCompactResult{}, err
+	}
+	resp, err := consume(stream, silentSink{})
+	if err != nil {
+		return FullCompactResult{}, err
+	}
+	summary := extractSummaryContent(resp.Content)
+	if summary == "" {
+		return FullCompactResult{}, errors.New("full compact returned empty summary")
+	}
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		return FullCompactResult{}, err
+	}
+	path := filepath.Join(sessionDir, contextmgr.CompactSummaryFileName)
+	backupPath, backedUp, err := backupCompactSummary(path)
+	if err != nil {
+		return FullCompactResult{}, err
+	}
+	if err := os.WriteFile(path, []byte(summary+"\n"), 0644); err != nil {
+		return FullCompactResult{}, err
+	}
+	return FullCompactResult{
+		SessionID:  r.sessionID,
+		Path:       path,
+		BackupPath: backupPath,
+		BackedUp:   backedUp,
+		Chars:      len([]rune(summary)),
+	}, nil
+}
+
 // LoadSessionMemory 读取当前 session 的 memory.md，供 /memory 和 /session memory 展示。
 // 没有 active session 会返回错误；memory.md 不存在时返回 Exists=false。
 func (r *Runner) LoadSessionMemory() (SessionMemorySnapshot, error) {
@@ -136,8 +222,48 @@ func (r *Runner) LoadSessionMemory() (SessionMemorySnapshot, error) {
 	}, nil
 }
 
+// LoadCompactSummary 读取当前 session 的 compact.md。
+// 第一版暂未挂查看命令，但保留这个 API，便于后续补 /summary 或 /session compact。
+func (r *Runner) LoadCompactSummary() (CompactSummarySnapshot, error) {
+	if r.SessionStore == nil || r.sessionID == "" {
+		return CompactSummarySnapshot{}, ErrNoActiveSession
+	}
+	sessionDir := r.sessionDir()
+	if strings.TrimSpace(sessionDir) == "" {
+		return CompactSummarySnapshot{}, errors.New("cannot resolve session directory")
+	}
+	path := filepath.Join(sessionDir, contextmgr.CompactSummaryFileName)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return CompactSummarySnapshot{
+				SessionID: r.sessionID,
+				Path:      path,
+				Exists:    false,
+			}, nil
+		}
+		return CompactSummarySnapshot{}, err
+	}
+	content := strings.TrimRight(string(data), "\n")
+	return CompactSummarySnapshot{
+		SessionID: r.sessionID,
+		Path:      path,
+		Content:   content,
+		Chars:     len([]rune(content)),
+		Exists:    strings.TrimSpace(content) != "",
+	}, nil
+}
+
 func backupSessionMemory(memoryPath string) (backupPath string, backedUp bool, err error) {
-	data, err := os.ReadFile(memoryPath)
+	return backupNonEmptyFile(memoryPath, contextmgr.SessionMemoryBackupFileName)
+}
+
+func backupCompactSummary(summaryPath string) (backupPath string, backedUp bool, err error) {
+	return backupNonEmptyFile(summaryPath, contextmgr.CompactSummaryBackupFileName)
+}
+
+func backupNonEmptyFile(path string, backupFileName string) (backupPath string, backedUp bool, err error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return "", false, nil
@@ -147,7 +273,7 @@ func backupSessionMemory(memoryPath string) (backupPath string, backedUp bool, e
 	if strings.TrimSpace(string(data)) == "" {
 		return "", false, nil
 	}
-	backupPath = filepath.Join(filepath.Dir(memoryPath), contextmgr.SessionMemoryBackupFileName)
+	backupPath = filepath.Join(filepath.Dir(path), backupFileName)
 	if err := os.WriteFile(backupPath, data, 0644); err != nil {
 		return "", false, err
 	}
@@ -206,6 +332,43 @@ func buildMemoryGenerationPrompt(history []llm.Message) string {
 ` + rendered
 }
 
+func buildFullCompactPrompt(history []llm.Message) string {
+	rendered := limitCompactSource(renderMessagesForMemory(history))
+	return `请从下面的 Cohert 会话历史中生成 full compact 摘要。
+
+输出必须包含 <summary>...</summary>，summary 内部必须严格使用这个结构：
+
+1. Primary Request and Intent:
+
+2. Key Technical Concepts:
+
+3. Files and Code Sections:
+
+4. Errors and Fixes:
+
+5. Problem Solving:
+
+6. User Messages:
+
+7. Pending Tasks:
+
+8. Current Work:
+
+9. Next Step:
+
+要求：
+- 可以在 <analysis> 中先分析，但保存时只会保留 <summary> 内部内容。
+- 保留对后续继续任务有帮助的关键事实。
+- 记录关键文件路径、函数名、重要约束和未完成任务。
+- 不记录大段命令输出、无关寒暄或重复过程。
+- 不编造历史里没有的信息。
+- 如果某一栏没有内容，写 "None"。
+
+会话历史：
+
+` + rendered
+}
+
 func renderMessagesForMemory(messages []llm.Message) string {
 	var b strings.Builder
 	for i, message := range messages {
@@ -237,6 +400,31 @@ func limitMemorySource(text string) string {
 	head := string(runes[:memorySourceHead])
 	tail := string(runes[len(runes)-memorySourceTail:])
 	return head + "\n\n[... earlier memory generation source omitted by Cohert ...]\n\n" + tail
+}
+
+func limitCompactSource(text string) string {
+	runes := []rune(text)
+	if len(runes) <= maxCompactSourceChars {
+		return text
+	}
+	head := string(runes[:compactSourceHead])
+	tail := string(runes[len(runes)-compactSourceTail:])
+	return head + "\n\n[... earlier full compact source omitted by Cohert ...]\n\n" + tail
+}
+
+func extractSummaryContent(content string) string {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return ""
+	}
+	lower := strings.ToLower(content)
+	start := strings.Index(lower, "<summary>")
+	end := strings.LastIndex(lower, "</summary>")
+	if start >= 0 && end > start {
+		start += len("<summary>")
+		return strings.TrimSpace(content[start:end])
+	}
+	return content
 }
 
 type silentSink struct{}

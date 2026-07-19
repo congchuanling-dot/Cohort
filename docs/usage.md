@@ -103,6 +103,7 @@ Slash commands
   /session memory       查看 session memory
   /resume <id>          恢复 session
   /compact              生成或更新 session memory
+  /full-compact         生成或更新 compact summary
   /memory               查看 session memory
   /clear                清空当前内存上下文
   /exit                 退出
@@ -474,6 +475,7 @@ context:
   compacted_tool_tail_chars: 4000
   max_request_chars: 100000
   max_session_memory_chars: 20000
+  max_compact_summary_chars: 60000
   enable_micro_compact: true
 ```
 
@@ -488,6 +490,7 @@ context:
 - `compacted_tool_tail_chars`：压缩后保留尾部字符数。
 - `max_request_chars`：本轮请求消息的字符预算。
 - `max_session_memory_chars`：`memory.md` 注入请求前允许携带的最大字符数。
+- `max_compact_summary_chars`：`compact.md` 注入请求前允许携带的最大字符数。
 - `enable_micro_compact`：是否启用规则压缩。
 
 ### 9.1 Session Memory
@@ -528,6 +531,26 @@ temp/model_responses/context.log
 ```
 
 这份日志只包含消息数、估算 token、触发原因、是否注入 memory、是否压缩或裁剪等统计信息，不记录 message 内容。
+
+生成或更新长历史摘要：
+
+```text
+/full-compact
+```
+
+`/full-compact` 会读取当前 Runner.history，调用模型生成结构化 full compact 摘要，并覆盖写入当前 session 的 `compact.md`。这个过程不会写入 `history.jsonl`，也不会调用工具。
+
+如果已有 `compact.md`，覆盖前会先备份为：
+
+```text
+temp/sessions/<session_id>/compact.bak.md
+```
+
+只要当前 session 目录下存在 `compact.md`，Cohert 会在每次请求模型前自动读取并注入。注入顺序固定为：
+
+```text
+memory.md -> compact.md -> 最近对话消息
+```
 
 查看当前配置：
 
@@ -589,6 +612,7 @@ go build -o cohert ./cmd/cohert
 /resume <session_id>
 /session resume <session_id>
 /compact
+/full-compact
 /clear
 /exit
 ```

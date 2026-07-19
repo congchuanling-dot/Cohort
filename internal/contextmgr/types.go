@@ -3,8 +3,9 @@ package contextmgr
 import "cohert/internal/llm"
 
 const (
-	contextNotice       = "[Cohert context notice] Earlier conversation messages were omitted from this request. Full history is preserved in history.jsonl."
-	sessionMemoryNotice = "[Cohert session memory]"
+	contextNotice        = "[Cohert context notice] Earlier conversation messages were omitted from this request. Full history is preserved in history.jsonl."
+	sessionMemoryNotice  = "[Cohert session memory]"
+	compactSummaryNotice = "[Cohert compact summary]"
 )
 
 // Config 控制本轮模型请求前的确定性上下文压缩。
@@ -37,6 +38,10 @@ type Config struct {
 	// memory.md 是稳定事实，不应该无限增长；超过后会截断注入副本，不修改磁盘文件。
 	MaxSessionMemoryChars int
 
+	// MaxCompactSummaryChars 限制 compact.md 注入请求前的最大字符数。
+	// compact.md 承载长历史摘要，默认比 memory.md 更大；超过后只截断请求副本，不修改磁盘文件。
+	MaxCompactSummaryChars int
+
 	// ContextWindowTokens 是当前模型最大上下文窗口。
 	// 它由 app 层根据当前模型名从内置表填充，不从用户配置读取。
 	ContextWindowTokens int
@@ -68,6 +73,7 @@ func DefaultConfig() Config {
 		CompactedToolTailChars: 4000,
 		MaxRequestChars:        100000,
 		MaxSessionMemoryChars:  20000,
+		MaxCompactSummaryChars: 60000,
 		MaxOutputTokens:        4096,
 		SafetyTokens:           4000,
 		CompactTriggerRatio:    0.70,
@@ -98,6 +104,9 @@ func (c Config) Normalize() Config {
 	}
 	if c.MaxSessionMemoryChars <= 0 {
 		c.MaxSessionMemoryChars = defaults.MaxSessionMemoryChars
+	}
+	if c.MaxCompactSummaryChars <= 0 {
+		c.MaxCompactSummaryChars = defaults.MaxCompactSummaryChars
 	}
 	if c.ContextWindowTokens <= 0 {
 		c.ContextWindowTokens = defaultContextWindowTokens
@@ -196,6 +205,15 @@ type Stats struct {
 
 	// SessionMemoryTruncated 表示 memory.md 因超过 MaxSessionMemoryChars 而在请求副本中被截断。
 	SessionMemoryTruncated bool
+
+	// InjectedCompactSummary 表示本轮请求是否注入了 compact.md。
+	InjectedCompactSummary bool
+
+	// CompactSummaryChars 是注入请求的 compact.md 摘要字符数，不包含消息角色等协议字段。
+	CompactSummaryChars int
+
+	// CompactSummaryTruncated 表示 compact.md 因超过 MaxCompactSummaryChars 而在请求副本中被截断。
+	CompactSummaryTruncated bool
 
 	// Warnings 记录协议修复或异常历史，例如孤立 tool result 被丢弃。
 	Warnings []string

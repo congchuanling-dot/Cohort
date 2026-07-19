@@ -185,7 +185,7 @@ estimated_input_tokens >= 可用输入预算的 70%
 
 包括：
 
-- 提供手动命令，例如 `go run . session compact <id>`。
+- 提供手动命令 `/full-compact`。
 - 调用模型生成结构化摘要。
 - 保存到 `compact.md`。
 - resume 后注入 `compact.md`。
@@ -789,34 +789,56 @@ warnings
 - memory 编辑命令。
 - 自动触发策略和熔断器。
 
-## 12. 第四层：Full Compact 设计
+## 12. 第四层：Full Compact compact.md
 
 ### 12.1 文件位置
 
-建议保存到：
+已实现保存到：
 
 ```text
 temp/sessions/<session_id>/compact.md
+temp/sessions/<session_id>/compact.bak.md
 ```
 
-### 12.2 手动命令
+### 12.2 第一版触发策略
 
-后续新增：
-
-```bash
-go run . session compact <session_id>
-```
-
-流程：
+第一版只做手动触发：
 
 ```text
-读取 history.jsonl
-  -> 构造 compact prompt
-  -> 调用模型生成摘要
-  -> 保存 compact.md
+/full-compact
 ```
 
-### 12.3 摘要 prompt 结构
+不做自动生成。原因是 Full Compact 会调用模型重新总结长历史，如果自动触发过早，容易带来高延迟、额外成本和摘要质量漂移。
+
+只要当前 session 目录存在 `compact.md`，后续每次请求模型前都会自动读取并注入。
+
+注入顺序固定为：
+
+```text
+memory.md
+  -> compact.md
+  -> 最近对话消息
+```
+
+### 12.3 生成流程
+
+```text
+/full-compact
+  -> 读取当前 Runner.history
+  -> 构造 compact prompt
+  -> 调用模型生成摘要
+  -> 从模型输出中提取 <summary> 内部内容
+  -> 如果已有 compact.md，先备份到 compact.bak.md
+  -> 覆盖写入 temp/sessions/<session_id>/compact.md
+```
+
+注意：
+
+- `/full-compact` 不调用工具。
+- `/full-compact` 不把生成结果写入 `history.jsonl`。
+- `/full-compact` 需要当前 Runner 已绑定 active session。
+
+### 12.4 摘要 prompt 结构
 
 Compact prompt 应要求模型输出：
 
@@ -857,7 +879,29 @@ Compact prompt 应要求模型输出：
 
 保存时去掉 `<analysis>`，只保留 `<summary>` 里的结果。
 
-### 12.4 压缩请求本身过长
+### 12.5 请求前自动注入
+
+如果当前 session 目录下存在：
+
+```text
+temp/sessions/<session_id>/compact.md
+```
+
+Context Manager 会读取并注入为一条 assistant 消息：
+
+```text
+[Cohert compact summary]
+
+<compact.md 内容>
+```
+
+如果 `compact.md` 超过 `MaxCompactSummaryChars`，只截断本轮请求副本，不修改磁盘文件，并追加：
+
+```text
+[Cohert compact summary truncated]
+```
+
+### 12.6 压缩请求本身过长
 
 如果 compact 请求本身也太长，需要降级：
 
@@ -1336,7 +1380,7 @@ P0-030：增加 session memory 查看命令
 
 ```text
 P1-030：定义 compact prompt
-P1-031：实现 session compact <id>
+P1-031：实现 /full-compact
 P1-032：保存 compact.md
 P1-033：resume 后注入 compact.md
 P1-034：处理 compact 请求过长

@@ -10,8 +10,10 @@ import (
 )
 
 const (
-	SessionMemoryFileName       = "memory.md"
-	SessionMemoryBackupFileName = "memory.bak.md"
+	SessionMemoryFileName        = "memory.md"
+	SessionMemoryBackupFileName  = "memory.bak.md"
+	CompactSummaryFileName       = "compact.md"
+	CompactSummaryBackupFileName = "compact.bak.md"
 )
 
 // loadSessionMemory 读取当前 session 目录下的 memory.md。
@@ -58,37 +60,90 @@ func buildSessionMemoryMessage(memoryText string, cfg Config, stats *Stats) (llm
 	return llm.Message{Role: llm.RoleAssistant, Content: content}, true
 }
 
-// prependSessionMemory 把 session memory 放到请求最前面。
+// loadCompactSummary 读取当前 session 目录下的 compact.md。
 //
-// memory 是稳定事实，应该先于最近对话进入模型视野。
-// 调用方保证这只是 request messages 副本，不会污染完整历史。
-func prependSessionMemory(messages []llm.Message, memory llm.Message, ok bool) []llm.Message {
-	if !ok {
+// compact.md 是 Full Compact 的产物，用来承载较长历史的结构化摘要。
+// 文件不存在或内容为空时正常跳过注入，不影响普通会话继续运行。
+func loadCompactSummary(sessionDir string) (text string, ok bool, err error) {
+	if strings.TrimSpace(sessionDir) == "" {
+		return "", false, nil
+	}
+	data, err := os.ReadFile(filepath.Join(sessionDir, CompactSummaryFileName))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	text = strings.TrimSpace(string(data))
+	if text == "" {
+		return "", false, nil
+	}
+	return text, true, nil
+}
+
+// buildCompactSummaryMessage 把 compact.md 转成一条只用于本轮请求的 assistant 消息。
+//
+// 它和 memory.md 一样不会写入 Runner.history 或 history.jsonl。
+// 注入顺序由调用方保证为：memory.md -> compact.md -> 最近对话历史。
+func buildCompactSummaryMessage(summaryText string, cfg Config, stats *Stats) (llm.Message, bool) {
+	summaryText = strings.TrimSpace(summaryText)
+	if summaryText == "" {
+		return llm.Message{}, false
+	}
+
+	limited, truncated := limitRunes(summaryText, cfg.MaxCompactSummaryChars)
+	content := compactSummaryNotice + "\n\n" + limited
+	if truncated {
+		content += "\n\n[Cohert compact summary truncated]"
+		stats.CompactSummaryTruncated = true
+	}
+
+	stats.InjectedCompactSummary = true
+	stats.CompactSummaryChars = len([]rune(limited))
+	return llm.Message{Role: llm.RoleAssistant, Content: content}, true
+}
+
+// prependProtectedContext 按固定顺序注入受保护上下文前缀。
+//
+// 顺序必须保持为 memory.md -> compact.md -> 最近对话：
+//   - memory.md 存稳定事实和用户偏好；
+//   - compact.md 存旧历史摘要；
+//   - 最近对话仍保留原始消息形状。
+func prependProtectedContext(messages []llm.Message, memory llm.Message, hasMemory bool, summary llm.Message, hasSummary bool) []llm.Message {
+	if !hasMemory && !hasSummary {
 		return messages
 	}
-	result := make([]llm.Message, 0, len(messages)+1)
-	result = append(result, memory)
+	result := make([]llm.Message, 0, len(messages)+2)
+	if hasMemory {
+		result = append(result, memory)
+	}
+	if hasSummary {
+		result = append(result, summary)
+	}
 	result = append(result, messages...)
 	return result
 }
 
-// reserveBudgetForSessionMemory 给受保护的 memory 前缀预留预算。
+// reserveBudgetForProtectedContext 给 memory.md 和 compact.md 这两个受保护前缀预留预算。
 //
-// group trim 只应该裁剪普通历史，不应该把 memory.md 当作“最旧消息”裁掉。
-// 所以进入 trimMessages 前，需要先从消息数和字符数预算里扣掉 memory 自身占用。
-func reserveBudgetForSessionMemory(cfg Config, memory llm.Message, ok bool) Config {
-	if !ok {
-		return cfg
-	}
-	if cfg.MaxHistoryMessages > 1 {
-		cfg.MaxHistoryMessages--
-	}
-	if cfg.MaxRequestChars > 0 {
-		remaining := cfg.MaxRequestChars - messageChars(memory)
-		if remaining < 1 {
-			remaining = 1
+// trimMessages 只接收普通历史消息，因此需要先从预算里扣掉前缀占用。
+// 这样 group trim 不会为了满足 MaxHistoryMessages 或 MaxRequestChars 把摘要消息裁掉。
+func reserveBudgetForProtectedContext(cfg Config, protected ...llm.Message) Config {
+	for _, message := range protected {
+		if message.Role == "" && message.Content == "" {
+			continue
 		}
-		cfg.MaxRequestChars = remaining
+		if cfg.MaxHistoryMessages > 1 {
+			cfg.MaxHistoryMessages--
+		}
+		if cfg.MaxRequestChars > 0 {
+			remaining := cfg.MaxRequestChars - messageChars(message)
+			if remaining < 1 {
+				remaining = 1
+			}
+			cfg.MaxRequestChars = remaining
+		}
 	}
 	return cfg
 }

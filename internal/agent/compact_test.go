@@ -108,6 +108,106 @@ func TestRunnerCompactSessionMemoryBacksUpExistingMemory_BitsUT(t *testing.T) {
 	}
 }
 
+func TestRunnerFullCompactSessionWritesCompactSummary_BitsUT(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	sess, err := store.Create("full compact task", "/tmp/project", "deepseek-v4-pro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &contextRecordingClient{
+		responses: []llm.Response{{Content: "<analysis>drop me</analysis>\n<summary>\n1. Primary Request and Intent:\n\n- continue long task\n</summary>"}},
+	}
+	runner := &Runner{
+		Client:       client,
+		SessionStore: &store,
+		sessionID:    sess.ID,
+		history: []llm.Message{
+			{Role: llm.RoleUser, Content: "我要做 full compact"},
+			{Role: llm.RoleAssistant, Content: "已确认手动触发"},
+		},
+	}
+
+	result, err := runner.FullCompactSession(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPath := filepath.Join(store.SessionDir(sess.ID), contextmgr.CompactSummaryFileName)
+	if result.Path != wantPath {
+		t.Fatalf("compact path = %q, want %q", result.Path, wantPath)
+	}
+	data, err := os.ReadFile(wantPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if strings.Contains(content, "analysis") {
+		t.Fatalf("compact summary should not contain analysis:\n%s", content)
+	}
+	if !strings.Contains(content, "continue long task") {
+		t.Fatalf("compact summary missing generated content:\n%s", content)
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("llm requests = %d, want 1", len(client.requests))
+	}
+	req := client.requests[0]
+	if len(req.Tools) != 0 {
+		t.Fatalf("full compact request tools = %d, want 0", len(req.Tools))
+	}
+	if !strings.Contains(req.Messages[0].Content, "full compact") {
+		t.Fatalf("full compact prompt missing compact instruction:\n%s", req.Messages[0].Content)
+	}
+	if result.BackedUp {
+		t.Fatal("did not expect backup on first full compact")
+	}
+}
+
+func TestRunnerFullCompactSessionBacksUpExistingCompactSummary_BitsUT(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	sess, err := store.Create("full compact task", "/tmp/project", "deepseek-v4-pro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compactPath := filepath.Join(store.SessionDir(sess.ID), contextmgr.CompactSummaryFileName)
+	if err := os.WriteFile(compactPath, []byte("old compact\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	client := &contextRecordingClient{
+		responses: []llm.Response{{Content: "<summary>new compact</summary>"}},
+	}
+	runner := &Runner{
+		Client:       client,
+		SessionStore: &store,
+		sessionID:    sess.ID,
+		history:      []llm.Message{{Role: llm.RoleUser, Content: "继续"}},
+	}
+
+	result, err := runner.FullCompactSession(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.BackedUp {
+		t.Fatal("expected existing compact summary to be backed up")
+	}
+	wantBackupPath := filepath.Join(store.SessionDir(sess.ID), contextmgr.CompactSummaryBackupFileName)
+	if result.BackupPath != wantBackupPath {
+		t.Fatalf("backup path = %q, want %q", result.BackupPath, wantBackupPath)
+	}
+	backup, err := os.ReadFile(wantBackupPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(backup) != "old compact\n" {
+		t.Fatalf("backup content = %q, want old compact", string(backup))
+	}
+	current, err := os.ReadFile(compactPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(current) != "new compact\n" {
+		t.Fatalf("current compact = %q, want new compact", string(current))
+	}
+}
+
 func TestRunnerLoadSessionMemory_BitsUT(t *testing.T) {
 	store := session.NewStore(t.TempDir())
 	sess, err := store.Create("memory task", "/tmp/project", "deepseek-v4-pro")

@@ -21,6 +21,7 @@ context:
   compacted_tool_tail_chars: 12
   max_request_chars: 999
 	  max_session_memory_chars: 88
+  max_compact_summary_chars: 188
   enable_micro_compact: false
 
 llm:
@@ -57,6 +58,9 @@ llm:
 	}
 	if cfg.Context.MaxSessionMemoryChars != 88 {
 		t.Fatalf("max session memory chars = %d, want 88", cfg.Context.MaxSessionMemoryChars)
+	}
+	if cfg.Context.MaxCompactSummaryChars != 188 {
+		t.Fatalf("max compact summary chars = %d, want 188", cfg.Context.MaxCompactSummaryChars)
 	}
 	if cfg.Context.ContextWindowTokens != 1000000 {
 		t.Fatalf("resolved context window tokens = %d, want 1000000", cfg.Context.ContextWindowTokens)
