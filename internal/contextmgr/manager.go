@@ -2,7 +2,19 @@ package contextmgr
 
 import "cohert/internal/llm"
 
-// Build 返回本轮模型可见的 messages。输入消息会被完整复制，调用方的历史不会被修改。
+// Build 根据完整历史构造“本轮真正发给模型”的 messages。
+//
+// 这里有一个很重要的边界：
+//   - input.Messages 来自 Runner.history，是完整历史。
+//   - Build 内部只处理复制出来的请求副本。
+//   - Runner.history 和 history.jsonl 永远不在这里裁剪或压缩。
+//
+// 流程顺序：
+//  1. clone 完整历史，避免误改调用方。
+//  2. 清理协议非法的孤立 tool 消息。
+//  3. 估算 token，占用低于 70% 时直接返回。
+//  4. 超过 70% 时先压缩旧 tool result。
+//  5. 压缩后仍超预算时，才按 message group 裁旧历史。
 func (m Manager) Build(input BuildInput) BuildResult {
 	// Normalize 兜底配置里的零值或非法值，避免配置缺失时把请求上下文裁剪到不可用。
 	cfg := m.Config.Normalize()
@@ -16,12 +28,27 @@ func (m Manager) Build(input BuildInput) BuildResult {
 	}
 	stats.OriginalTokens = estimateTokensFromChars(stats.OriginalChars)
 
-	// 协议修复不是压缩策略的一部分。即使低于 70% 阈值，也不能把孤立 tool result 发给模型。
+	// 先做协议清理，不等同于“上下文压缩”。
+	//
+	// OpenAI-compatible tool calling 要求 tool 消息前面必须有对应的：
+	//   assistant(tool_calls: [{id: "..."}])
+	//
+	// 这种孤立 tool 是非法请求形状：
+	//   tool(tool_call_id: "call-1")
+	//   user("继续")
+	//
+	// 即使当前上下文还没达到 70% 压缩阈值，也不能把这种非法 tool 消息发给模型。
 	messages = dropOrphanToolResults(messages, &stats)
 
+	// newBudget 根据模型上下文窗口计算两个值：
+	//   UsableInputTokens：本轮输入最多可占多少 token。
+	//   CompactTriggerTokens：达到多少 token 后开始压缩，默认是可用输入预算的 70%。
 	budget := newBudget(cfg)
 	stats.UsableInputTokens = budget.UsableInputTokens
 	stats.CompactTriggerTokens = budget.CompactTriggerTokens
+
+	// 低于 70% 阈值时，本轮不做 Micro Compact，也不做 Group Trim。
+	// 这里返回的是“协议清理后的副本”，不是原始 Runner.history。
 	if stats.OriginalTokens < budget.CompactTriggerTokens {
 		stats.SkippedCompact = true
 		stats.TriggerReason = triggerReasonBelowThreshold
@@ -37,6 +64,10 @@ func (m Manager) Build(input BuildInput) BuildResult {
 		// 这里不删除 tool message，也不打散 assistant tool_calls 与 tool result 的协议结构。
 		compactToolResults(messages, cfg, &stats)
 	}
+
+	// Micro Compact 后重新估算。
+	// 如果压缩旧 tool result 后已经放得进模型窗口，就停止，不继续裁剪历史消息。
+	// 这样可以尽量保留完整对话结构，只牺牲旧工具输出的中间部分。
 	compactedChars := messagesChars(messages)
 	compactedTokens := estimateTokensFromChars(compactedChars)
 	if compactedTokens <= budget.UsableInputTokens && compactedChars <= cfg.MaxRequestChars {
