@@ -100,8 +100,10 @@ Slash commands
   /tools                查看工具列表
   /session              查看当前 session
   /session list         列出历史 session
+  /session memory       查看 session memory
   /resume <id>          恢复 session
   /compact              生成或更新 session memory
+  /memory               查看 session memory
   /clear                清空当前内存上下文
   /exit                 退出
 ```
@@ -505,6 +507,27 @@ Cohert 会在每次请求模型前读取它，并作为 `[Cohert session memory]
 ```
 
 `/compact` 会读取当前 Runner.history，调用模型提取稳定事实，并覆盖写入当前 session 的 `memory.md`。这个过程不会写入 `history.jsonl`，也不会调用工具。
+
+如果已有 `memory.md`，覆盖前会先备份为：
+
+```text
+temp/sessions/<session_id>/memory.bak.md
+```
+
+查看当前 memory：
+
+```text
+/memory
+/session memory
+```
+
+Context Manager 每次构造 request messages 后，会把压缩决策写入：
+
+```text
+temp/model_responses/context.log
+```
+
+这份日志只包含消息数、估算 token、触发原因、是否注入 memory、是否压缩或裁剪等统计信息，不记录 message 内容。
 
 查看当前配置：
 

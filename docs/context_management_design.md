@@ -701,6 +701,7 @@ memory.md 内容会计入 70% 阈值预算
 读取当前 Runner.history
 构造 memory 生成 prompt
 调用 LLM 提取稳定事实
+如果已有 memory.md，先备份到 memory.bak.md
 覆盖写入 temp/sessions/<session_id>/memory.md
 后续请求由注入逻辑自动加载
 ```
@@ -724,11 +725,68 @@ memory.md 内容会计入 70% 阈值预算
 生成 prompt 的历史输入有字符上限，过长时保留头尾并插入省略标记
 ```
 
+查看入口：
+
+```text
+/memory
+/session memory
+```
+
+输出当前 session 的 `memory.md` 路径、字符数和内容。没有 active session 时提示 `no active session`；当前 session 没有 `memory.md` 时提示 `no session memory`。
+
+覆盖保护：
+
+```text
+temp/sessions/<session_id>/memory.md
+temp/sessions/<session_id>/memory.bak.md
+```
+
+`/compact` 覆盖前如果发现旧 `memory.md` 非空，会先把旧内容复制到 `memory.bak.md`。
+
+### 11.5 已实现：Context Stats 观测日志
+
+Context Manager 每次构造 request messages 后，会把本轮决策写到：
+
+```text
+temp/model_responses/context.log
+```
+
+日志是 JSONL，一行对应一次 `ContextManager.Build()`。只记录统计和决策，不记录消息内容。
+
+字段包括：
+
+```text
+session_id
+original_messages
+final_messages
+original_tokens
+final_tokens
+usable_input_tokens
+compact_trigger_tokens
+trigger_reason
+skipped_compact
+compacted_tool_results
+omitted_tool_result_chars
+trimmed_messages
+inserted_notice
+injected_session_memory
+session_memory_chars
+session_memory_truncated
+warnings
+```
+
+这份日志用于回答三个问题：
+
+```text
+本轮有没有触发 70% 阈值
+本轮有没有注入 memory.md
+本轮有没有压缩 tool result 或裁剪历史
+```
+
 后续仍需补充：
 
 - `session memory <id>` 外部命令。
-- 覆盖写入前的备份或确认策略。
-- memory 查看/编辑命令。
+- memory 编辑命令。
 - 自动触发策略和熔断器。
 
 ## 12. 第四层：Full Compact 设计
@@ -1109,6 +1167,7 @@ temp/sessions/<session_id>/
   meta.json
   history.jsonl
   memory.md
+  memory.bak.md
   compact.md
   context_state.json
   run.log
@@ -1121,6 +1180,7 @@ temp/sessions/<session_id>/
 | `meta.json` | 会话元信息 |
 | `history.jsonl` | 完整消息历史 |
 | `memory.md` | 结构化会话记忆 |
+| `memory.bak.md` | 上一次 `/compact` 覆盖前的记忆备份 |
 | `compact.md` | 模型生成的压缩摘要 |
 | `context_state.json` | 自动 compact 状态和熔断信息 |
 | `run.log` | 后续结构化运行日志 |

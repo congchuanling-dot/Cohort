@@ -3,6 +3,8 @@ package agent
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -97,6 +99,50 @@ func TestRunnerUsesContextManagerForModelRequest_BitsUT(t *testing.T) {
 	}
 	if runner.history[0].Content != "old user" {
 		t.Fatalf("full history was modified: %#v", runner.history)
+	}
+}
+
+func TestRunnerLogsContextStats_BitsUT(t *testing.T) {
+	client := &contextRecordingClient{
+		responses: []llm.Response{{Content: "ok"}},
+	}
+	logDir := t.TempDir()
+	runner := &Runner{
+		Client:   client,
+		Tools:    contextFakeTools{},
+		MaxTurns: 1,
+		LogDir:   logDir,
+		ContextManager: &contextmgr.Manager{Config: contextmgr.Config{
+			MaxHistoryMessages:     10,
+			KeepRecentToolResults:  1,
+			MaxToolResultChars:     1000,
+			CompactedToolHeadChars: 100,
+			CompactedToolTailChars: 100,
+			MaxRequestChars:        10000,
+			ContextWindowTokens:    1000000,
+			MaxOutputTokens:        0,
+			SafetyTokens:           0,
+			CompactTriggerRatio:    0.70,
+			EnableMicroCompact:     true,
+		}},
+	}
+
+	_, err := runner.Run(context.Background(), "hello", NewConsoleSink(&bytes.Buffer{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(logDir, contextStatsLogFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	logLine := string(data)
+	for _, want := range []string{`"original_messages":1`, `"final_messages":1`, `"trigger_reason":"below_compact_trigger_threshold"`} {
+		if !strings.Contains(logLine, want) {
+			t.Fatalf("context stats log does not contain %q:\n%s", want, logLine)
+		}
+	}
+	if strings.Contains(logLine, "hello") {
+		t.Fatalf("context stats log leaked message content:\n%s", logLine)
 	}
 }
 

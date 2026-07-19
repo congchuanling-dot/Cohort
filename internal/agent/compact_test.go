@@ -56,6 +56,86 @@ func TestRunnerCompactSessionMemoryWritesMemoryFile_BitsUT(t *testing.T) {
 	if !strings.Contains(req.Messages[0].Content, "会话历史") {
 		t.Fatalf("compact prompt missing history section:\n%s", req.Messages[0].Content)
 	}
+	if result.BackedUp {
+		t.Fatal("did not expect backup on first compact")
+	}
+}
+
+func TestRunnerCompactSessionMemoryBacksUpExistingMemory_BitsUT(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	sess, err := store.Create("compact task", "/tmp/project", "deepseek-v4-pro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	memoryPath := filepath.Join(store.SessionDir(sess.ID), contextmgr.SessionMemoryFileName)
+	if err := os.WriteFile(memoryPath, []byte("old memory\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	client := &contextRecordingClient{
+		responses: []llm.Response{{Content: "new memory"}},
+	}
+	runner := &Runner{
+		Client:       client,
+		SessionStore: &store,
+		sessionID:    sess.ID,
+		history:      []llm.Message{{Role: llm.RoleUser, Content: "继续"}},
+	}
+
+	result, err := runner.CompactSessionMemory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.BackedUp {
+		t.Fatal("expected existing memory to be backed up")
+	}
+	wantBackupPath := filepath.Join(store.SessionDir(sess.ID), contextmgr.SessionMemoryBackupFileName)
+	if result.BackupPath != wantBackupPath {
+		t.Fatalf("backup path = %q, want %q", result.BackupPath, wantBackupPath)
+	}
+	backup, err := os.ReadFile(wantBackupPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(backup) != "old memory\n" {
+		t.Fatalf("backup content = %q, want old memory", string(backup))
+	}
+	current, err := os.ReadFile(memoryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(current) != "new memory\n" {
+		t.Fatalf("current memory = %q, want new memory", string(current))
+	}
+}
+
+func TestRunnerLoadSessionMemory_BitsUT(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	sess, err := store.Create("memory task", "/tmp/project", "deepseek-v4-pro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	memoryPath := filepath.Join(store.SessionDir(sess.ID), contextmgr.SessionMemoryFileName)
+	if err := os.WriteFile(memoryPath, []byte("session facts\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runner := &Runner{
+		SessionStore: &store,
+		sessionID:    sess.ID,
+	}
+
+	snapshot, err := runner.LoadSessionMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snapshot.Exists {
+		t.Fatal("expected session memory to exist")
+	}
+	if snapshot.Path != memoryPath {
+		t.Fatalf("path = %q, want %q", snapshot.Path, memoryPath)
+	}
+	if snapshot.Content != "session facts" {
+		t.Fatalf("content = %q, want session facts", snapshot.Content)
+	}
 }
 
 func TestRunnerCompactSessionMemoryRequiresActiveSession_BitsUT(t *testing.T) {

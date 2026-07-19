@@ -3,6 +3,7 @@ package repl
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -30,10 +31,12 @@ const (
 	commandSession = "session"
 	commandResume  = "resume"
 	commandCompact = "compact"
+	commandMemory  = "memory"
 	commandClear   = "clear"
 
 	sessionCommandList   = "list"
 	sessionCommandResume = "resume"
+	sessionCommandMemory = "memory"
 )
 
 // Options 是启动交互模式需要的依赖。
@@ -371,6 +374,8 @@ func handleSlashCommand(opts Options, cmd SlashCommand) (bool, error) {
 		return false, resumeSession(opts, cmd.Args[0])
 	case commandCompact:
 		return false, compactSessionMemory(opts)
+	case commandMemory:
+		return false, printSessionMemory(opts.Out, opts.Runner)
 	case commandClear:
 		opts.Runner.Reset()
 		fmt.Fprintln(opts.Out, "current in-memory session cleared; next task will create a new session")
@@ -393,8 +398,10 @@ func handleSessionCommand(opts Options, args []string) error {
 			return fmt.Errorf("usage: /session resume <session_id>")
 		}
 		return resumeSession(opts, args[1])
+	case sessionCommandMemory:
+		return printSessionMemory(opts.Out, opts.Runner)
 	default:
-		return fmt.Errorf("unknown session command %q, use /session list or /resume <id>", args[0])
+		return fmt.Errorf("unknown session command %q, use /session list, /session memory, or /resume <id>", args[0])
 	}
 }
 
@@ -441,9 +448,11 @@ func printSlashHelp(out io.Writer) {
   /tools                   查看当前可用工具
   /session                 查看当前 session 状态
   /session list            列出本地历史 session
+  /session memory          查看当前 session memory.md
   /session resume <id>     恢复指定 session
   /resume <id>             恢复指定 session 的简写
   /compact                 生成或更新当前 session 的 memory.md
+  /memory                  查看当前 session memory.md
   /clear                   清空当前内存上下文，下一次输入会创建新 session
   /exit                    退出 Cohert
 
@@ -460,8 +469,10 @@ func printCommandPalette(out io.Writer) {
   /tools                查看工具列表
   /session              查看当前 session
   /session list         列出历史 session
+  /session memory       查看 session memory
   /resume <id>          恢复 session
   /compact              生成或更新 session memory
+  /memory               查看 session memory
   /clear                清空当前内存上下文
   /exit                 退出
 
@@ -551,7 +562,34 @@ func compactSessionMemory(opts Options) error {
 	fmt.Fprintln(opts.Out, "  status: updated memory.md")
 	fmt.Fprintf(opts.Out, "  session: %s\n", result.SessionID)
 	fmt.Fprintf(opts.Out, "  path: %s\n", result.Path)
+	if result.BackedUp {
+		fmt.Fprintf(opts.Out, "  backup: %s\n", result.BackupPath)
+	} else {
+		fmt.Fprintln(opts.Out, "  backup: none")
+	}
 	fmt.Fprintf(opts.Out, "  chars: %d\n", result.Chars)
+	return nil
+}
+
+func printSessionMemory(out io.Writer, runner *agent.Runner) error {
+	snapshot, err := runner.LoadSessionMemory()
+	if err != nil {
+		if errors.Is(err, agent.ErrNoActiveSession) {
+			fmt.Fprintln(out, "memory:")
+			fmt.Fprintln(out, "  status: no active session")
+			return nil
+		}
+		return err
+	}
+	fmt.Fprintln(out, "memory:")
+	fmt.Fprintf(out, "  session: %s\n", snapshot.SessionID)
+	fmt.Fprintf(out, "  path: %s\n", snapshot.Path)
+	if !snapshot.Exists {
+		fmt.Fprintln(out, "  status: no session memory")
+		return nil
+	}
+	fmt.Fprintf(out, "  chars: %d\n\n", snapshot.Chars)
+	fmt.Fprintln(out, snapshot.Content)
 	return nil
 }
 

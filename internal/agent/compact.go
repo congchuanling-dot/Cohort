@@ -25,11 +25,24 @@ const (
 	memorySourceTail     = 60000
 )
 
+var ErrNoActiveSession = errors.New("no active session")
+
 // CompactMemoryResult 描述 /compact 生成 session memory 的结果。
 type CompactMemoryResult struct {
+	SessionID  string
+	Path       string
+	BackupPath string
+	BackedUp   bool
+	Chars      int
+}
+
+// SessionMemorySnapshot 是当前 session memory.md 的只读快照，用于 /memory 展示。
+type SessionMemorySnapshot struct {
 	SessionID string
 	Path      string
+	Content   string
 	Chars     int
+	Exists    bool
 }
 
 // CompactSessionMemory 调用模型把当前 Runner.history 压缩成 session memory，并写入 memory.md。
@@ -75,14 +88,70 @@ func (r *Runner) CompactSessionMemory(ctx context.Context) (CompactMemoryResult,
 		return CompactMemoryResult{}, err
 	}
 	path := filepath.Join(sessionDir, contextmgr.SessionMemoryFileName)
+	backupPath, backedUp, err := backupSessionMemory(path)
+	if err != nil {
+		return CompactMemoryResult{}, err
+	}
 	if err := os.WriteFile(path, []byte(memory+"\n"), 0644); err != nil {
 		return CompactMemoryResult{}, err
 	}
 	return CompactMemoryResult{
+		SessionID:  r.sessionID,
+		Path:       path,
+		BackupPath: backupPath,
+		BackedUp:   backedUp,
+		Chars:      len([]rune(memory)),
+	}, nil
+}
+
+// LoadSessionMemory 读取当前 session 的 memory.md，供 /memory 和 /session memory 展示。
+// 没有 active session 会返回错误；memory.md 不存在时返回 Exists=false。
+func (r *Runner) LoadSessionMemory() (SessionMemorySnapshot, error) {
+	if r.SessionStore == nil || r.sessionID == "" {
+		return SessionMemorySnapshot{}, ErrNoActiveSession
+	}
+	sessionDir := r.sessionDir()
+	if strings.TrimSpace(sessionDir) == "" {
+		return SessionMemorySnapshot{}, errors.New("cannot resolve session directory")
+	}
+	path := filepath.Join(sessionDir, contextmgr.SessionMemoryFileName)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return SessionMemorySnapshot{
+				SessionID: r.sessionID,
+				Path:      path,
+				Exists:    false,
+			}, nil
+		}
+		return SessionMemorySnapshot{}, err
+	}
+	content := strings.TrimRight(string(data), "\n")
+	return SessionMemorySnapshot{
 		SessionID: r.sessionID,
 		Path:      path,
-		Chars:     len([]rune(memory)),
+		Content:   content,
+		Chars:     len([]rune(content)),
+		Exists:    strings.TrimSpace(content) != "",
 	}, nil
+}
+
+func backupSessionMemory(memoryPath string) (backupPath string, backedUp bool, err error) {
+	data, err := os.ReadFile(memoryPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	if strings.TrimSpace(string(data)) == "" {
+		return "", false, nil
+	}
+	backupPath = filepath.Join(filepath.Dir(memoryPath), contextmgr.SessionMemoryBackupFileName)
+	if err := os.WriteFile(backupPath, data, 0644); err != nil {
+		return "", false, err
+	}
+	return backupPath, true, nil
 }
 
 func buildMemoryGenerationPrompt(history []llm.Message) string {

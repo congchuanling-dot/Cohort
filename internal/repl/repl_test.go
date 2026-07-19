@@ -196,6 +196,66 @@ func TestStartCompactGeneratesSessionMemory_BitsUT(t *testing.T) {
 	}
 }
 
+func TestStartPrintsSessionMemory_BitsUT(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	sess, err := store.Create("memory task", "/tmp/project", "deepseek-v4-pro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	memoryPath := filepath.Join(store.SessionDir(sess.ID), contextmgr.SessionMemoryFileName)
+	if err := os.WriteFile(memoryPath, []byte("# Session Memory\n\n- stable facts\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runner := &agent.Runner{
+		Client:       &fakeClient{},
+		Tools:        fakeTools{},
+		SessionStore: &store,
+	}
+	runner.ResumeSession(sess.ID, []llm.Message{{Role: llm.RoleUser, Content: "继续"}})
+
+	var out bytes.Buffer
+	startErr := Start(context.Background(), Options{
+		Config:       testConfig(),
+		Runner:       runner,
+		SessionStore: store,
+		In:           strings.NewReader("/memory\n/session memory\n/exit\n"),
+		Out:          &out,
+		Err:          &out,
+	})
+	if startErr != nil {
+		t.Fatal(startErr)
+	}
+	output := out.String()
+	for _, want := range []string{"memory:", "path: " + memoryPath, "# Session Memory", "stable facts"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output does not contain %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestStartPrintsNoSessionMemory_BitsUT(t *testing.T) {
+	runner := &agent.Runner{
+		Client: &fakeClient{},
+		Tools:  fakeTools{},
+	}
+
+	var out bytes.Buffer
+	startErr := Start(context.Background(), Options{
+		Config:       testConfig(),
+		Runner:       runner,
+		SessionStore: session.NewStore(t.TempDir()),
+		In:           strings.NewReader("/memory\n/exit\n"),
+		Out:          &out,
+		Err:          &out,
+	})
+	if startErr != nil {
+		t.Fatal(startErr)
+	}
+	if !strings.Contains(out.String(), "status: no active session") {
+		t.Fatalf("output does not contain no active session:\n%s", out.String())
+	}
+}
+
 func testConfig() app.Config {
 	return app.Config{
 		Language:  "zh",

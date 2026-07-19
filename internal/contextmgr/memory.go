@@ -9,7 +9,10 @@ import (
 	"cohert/internal/llm"
 )
 
-const SessionMemoryFileName = "memory.md"
+const (
+	SessionMemoryFileName       = "memory.md"
+	SessionMemoryBackupFileName = "memory.bak.md"
+)
 
 // loadSessionMemory 读取当前 session 目录下的 memory.md。
 //

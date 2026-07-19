@@ -190,6 +190,7 @@ func (r *Runner) buildRequestMessages() []llm.Message {
 		SessionID:  r.sessionID,
 		SessionDir: r.sessionDir(),
 	})
+	r.logContextStats(result.Stats)
 	return result.Messages
 }
 
