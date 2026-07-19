@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"cohert/internal/agent"
+	"cohert/internal/contextmgr"
 	"cohert/internal/llm"
 	"cohert/internal/session"
 	"cohert/internal/tools"
@@ -41,6 +42,7 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 
 	registry := newRegistry(cfg.Workspace)
 	sessionStore := session.NewStore(session.DefaultRootDir)
+	contextManager := &contextmgr.Manager{Config: cfg.Context.Normalize()}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, err
@@ -48,14 +50,15 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 
 	// Runner 不直接知道具体工具类型，只依赖 ToolRunner 接口。
 	return &agent.Runner{
-		Client:       client,
-		Tools:        registry,
-		SystemPrompt: buildSystemPrompt(cfg),
-		MaxTurns:     cfg.MaxTurns,
-		LogDir:       filepath.Clean(cfg.LogDir),
-		SessionStore: &sessionStore,
-		SessionCWD:   cwd,
-		SessionModel: cfg.LLM.Model,
+		Client:         client,
+		Tools:          registry,
+		SystemPrompt:   buildSystemPrompt(cfg),
+		MaxTurns:       cfg.MaxTurns,
+		LogDir:         filepath.Clean(cfg.LogDir),
+		ContextManager: contextManager,
+		SessionStore:   &sessionStore,
+		SessionCWD:     cwd,
+		SessionModel:   cfg.LLM.Model,
 	}, nil
 }
 

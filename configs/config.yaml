@@ -13,3 +13,12 @@ llm:
   connect_timeout_seconds: 10
   read_timeout_seconds: 120
   max_retries: 2
+
+context:
+  max_history_messages: 40
+  keep_recent_tool_results: 2
+  max_tool_result_chars: 12000
+  compacted_tool_head_chars: 4000
+  compacted_tool_tail_chars: 4000
+  max_request_chars: 100000
+  enable_micro_compact: true

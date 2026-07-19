@@ -36,6 +36,10 @@ func Run(args []string) error {
 	switch args[0] {
 	case "config":
 		fmt.Printf("model: %s\napi_base: %s\nworkspace: %s\n", cfg.LLM.Model, cfg.LLM.APIBase, cfg.Workspace)
+		fmt.Printf("context.max_history_messages: %d\n", cfg.Context.MaxHistoryMessages)
+		fmt.Printf("context.max_tool_result_chars: %d\n", cfg.Context.MaxToolResultChars)
+		fmt.Printf("context.max_request_chars: %d\n", cfg.Context.MaxRequestChars)
+		fmt.Printf("context.enable_micro_compact: %t\n", cfg.Context.EnableMicroCompact)
 		if cfg.LLM.APIKey == "" {
 			fmt.Println("api_key: missing")
 		} else {

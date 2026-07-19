@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"cohert/internal/contextmgr"
 )
 
 // Config 是 Cohert 的运行配置。当前只覆盖命令行 MVP 必需字段。
@@ -16,6 +18,7 @@ type Config struct {
 	LogDir    string
 	MaxTurns  int
 	LLM       LLMConfig
+	Context   contextmgr.Config
 }
 
 // LLMConfig 描述模型服务配置，当前默认使用 OpenAI-compatible 接口。
@@ -74,6 +77,8 @@ func LoadConfig(path string) (Config, error) {
 
 		if section == "llm" {
 			applyLLMValue(&cfg.LLM, key, val)
+		} else if section == "context" {
+			applyContextValue(&cfg.Context, key, val)
 		} else {
 			applyRootValue(&cfg, key, val)
 		}
@@ -97,6 +102,7 @@ func defaultConfig() Config {
 		Workspace: "./workspace",
 		LogDir:    "./temp/model_responses",
 		MaxTurns:  40,
+		Context:   contextmgr.DefaultConfig(),
 		LLM: LLMConfig{
 			Provider:              "openai",
 			Name:                  "deepseek",
@@ -122,6 +128,25 @@ func applyRootValue(cfg *Config, key, val string) {
 		cfg.LogDir = val
 	case "max_turns":
 		cfg.MaxTurns = atoiDefault(val, cfg.MaxTurns)
+	}
+}
+
+func applyContextValue(cfg *contextmgr.Config, key, val string) {
+	switch key {
+	case "max_history_messages":
+		cfg.MaxHistoryMessages = atoiDefault(val, cfg.MaxHistoryMessages)
+	case "keep_recent_tool_results":
+		cfg.KeepRecentToolResults = atoiDefault(val, cfg.KeepRecentToolResults)
+	case "max_tool_result_chars":
+		cfg.MaxToolResultChars = atoiDefault(val, cfg.MaxToolResultChars)
+	case "compacted_tool_head_chars":
+		cfg.CompactedToolHeadChars = atoiDefault(val, cfg.CompactedToolHeadChars)
+	case "compacted_tool_tail_chars":
+		cfg.CompactedToolTailChars = atoiDefault(val, cfg.CompactedToolTailChars)
+	case "max_request_chars":
+		cfg.MaxRequestChars = atoiDefault(val, cfg.MaxRequestChars)
+	case "enable_micro_compact":
+		cfg.EnableMicroCompact = parseBoolDefault(val, cfg.EnableMicroCompact)
 	}
 }
 

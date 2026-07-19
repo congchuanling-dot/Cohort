@@ -428,15 +428,18 @@ temp/sessions/<session_id>/history.jsonl
 
 ### 8.4 恢复很久以前的 session 会有什么问题
 
-当前版本会把 `history.jsonl` 里的历史恢复进 Runner。
+当前版本会把 `history.jsonl` 里的历史完整恢复进 Runner，但不会把完整历史原样塞给模型。
 
-如果历史太长，后续可能导致：
+每次请求模型前，Context Manager 会构造本轮可见上下文：
 
-- 模型请求变慢。
-- 上下文太长。
-- 工具结果过大。
+- `history.jsonl` 保持完整，不会被裁剪。
+- `Runner.history` 保持完整，不会被裁剪。
+- 只裁剪发给模型的 `messages`。
+- 旧的超长工具结果会被压缩成头尾保留格式。
+- 过长历史会按消息 group 从旧到新裁剪。
+- `assistant tool_calls` 和对应 `tool` 结果会成组保留，不会被拆散。
 
-所以下一步需要开发上下文裁剪，把过长历史和工具输出控制住。
+如果旧消息被裁剪，本轮请求最前面会插入一条 context notice，说明完整历史仍保存在 `history.jsonl`。
 
 ### 8.5 可以直接修改 `history.jsonl` 吗
 
@@ -450,7 +453,50 @@ temp/sessions/<session_id>/history.jsonl
 sed -n '1,20p' temp/sessions/<session_id>/history.jsonl
 ```
 
-## 9. 命令速查
+## 9. Context Manager 配置
+
+Context Manager 默认开启。配置文件位置：
+
+```text
+configs/config.yaml
+```
+
+可调配置：
+
+```yaml
+context:
+  max_history_messages: 40
+  keep_recent_tool_results: 2
+  max_tool_result_chars: 12000
+  compacted_tool_head_chars: 4000
+  compacted_tool_tail_chars: 4000
+  max_request_chars: 100000
+  enable_micro_compact: true
+```
+
+字段说明：
+
+- `max_history_messages`：本轮请求最多保留的历史消息数。
+- `keep_recent_tool_results`：最近多少条工具结果保持完整。
+- `max_tool_result_chars`：单条工具结果超过该字符数后会被压缩。
+- `compacted_tool_head_chars`：压缩后保留头部字符数。
+- `compacted_tool_tail_chars`：压缩后保留尾部字符数。
+- `max_request_chars`：本轮请求消息的字符预算。
+- `enable_micro_compact`：是否启用规则压缩。
+
+查看当前配置：
+
+```text
+/config
+```
+
+外部 CLI 也可以查看：
+
+```bash
+go run . config
+```
+
+## 10. 命令速查
 
 外部 CLI：
 

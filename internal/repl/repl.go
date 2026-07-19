@@ -486,6 +486,12 @@ func printConfig(out io.Writer, cfg app.Config) {
 	fmt.Fprintf(out, "  workspace: %s\n", cfg.Workspace)
 	fmt.Fprintf(out, "  log_dir:   %s\n", cfg.LogDir)
 	fmt.Fprintf(out, "  max_turns: %d\n", cfg.MaxTurns)
+	fmt.Fprintln(out, "context:")
+	fmt.Fprintf(out, "  max_history_messages:    %d\n", cfg.Context.MaxHistoryMessages)
+	fmt.Fprintf(out, "  keep_recent_tool_results: %d\n", cfg.Context.KeepRecentToolResults)
+	fmt.Fprintf(out, "  max_tool_result_chars:    %d\n", cfg.Context.MaxToolResultChars)
+	fmt.Fprintf(out, "  max_request_chars:        %d\n", cfg.Context.MaxRequestChars)
+	fmt.Fprintf(out, "  enable_micro_compact:     %t\n", cfg.Context.EnableMicroCompact)
 	printModel(out, cfg)
 }
 

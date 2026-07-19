@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"cohert/internal/contextmgr"
 	"cohert/internal/llm"
 	"cohert/internal/session"
 )
@@ -46,6 +47,8 @@ type Runner struct {
 	SystemPrompt string     // SystemPrompt 是每次请求模型时固定携带的系统提示词。
 	MaxTurns     int        // MaxTurns 限制最大循环轮数，避免模型不断调用工具导致死循环。
 	LogDir       string     // LogDir 用来保存模型原始响应日志。
+	// ContextManager 负责在请求模型前构造可见上下文；完整历史仍保留在 history 和 history.jsonl。
+	ContextManager *contextmgr.Manager
 	// SessionStore 负责把对话消息追加写入 history.jsonl。
 	// 为空时表示只保留内存 history，不做本地会话落盘。
 	SessionStore *session.Store
@@ -77,8 +80,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 	if err := r.appendMessage(llm.Message{Role: llm.RoleUser, Content: input}, input); err != nil {
 		return RunResult{}, err
 	}
-	// 复制一份消息切片给当前任务使用，避免直接复用 history 的底层切片。
-	messages := append([]llm.Message(nil), r.history...)
+	messages := r.buildRequestMessages()
 
 	for turn := 1; turn <= r.MaxTurns; turn++ {
 		sink.WriteText(fmt.Sprintf("\nLLM Running (Turn %d) ...\n\n", turn))
@@ -171,10 +173,23 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			}
 		}
 		// 下一轮模型会看到目前为止的全部消息：用户输入、模型工具调用、工具结果。
-		messages = append([]llm.Message(nil), r.history...)
+		messages = r.buildRequestMessages()
 	}
 	// 达到最大轮数说明模型一直没有收敛，返回受控状态而不是无限运行。
 	return RunResult{Status: RunStatusMaxTurnsExceeded}, nil
+}
+
+func (r *Runner) buildRequestMessages() []llm.Message {
+	messages := append([]llm.Message(nil), r.history...)
+	if r.ContextManager == nil {
+		return messages
+	}
+	result := r.ContextManager.Build(contextmgr.BuildInput{
+		Messages:   messages,
+		SessionID:  r.sessionID,
+		SessionDir: r.sessionDir(),
+	})
+	return result.Messages
 }
 
 func (r *Runner) ToolSchemas() []llm.ToolSchema {
@@ -240,6 +255,13 @@ func (r *Runner) ensureSession(titleSeed string) error {
 	}
 	r.sessionID = sess.ID
 	return nil
+}
+
+func (r *Runner) sessionDir() string {
+	if r.SessionStore == nil || r.sessionID == "" {
+		return ""
+	}
+	return r.SessionStore.SessionDir(r.sessionID)
 }
 
 // makeSessionTitle 根据用户第一条输入生成会话标题。
