@@ -150,6 +150,8 @@ func applyContextValue(cfg *contextmgr.Config, key, val string) {
 		cfg.CompactedToolTailChars = atoiDefault(val, cfg.CompactedToolTailChars)
 	case "max_request_chars":
 		cfg.MaxRequestChars = atoiDefault(val, cfg.MaxRequestChars)
+	case "max_session_memory_chars":
+		cfg.MaxSessionMemoryChars = atoiDefault(val, cfg.MaxSessionMemoryChars)
 	case "enable_micro_compact":
 		cfg.EnableMicroCompact = parseBoolDefault(val, cfg.EnableMicroCompact)
 	}

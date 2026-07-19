@@ -653,9 +653,9 @@ temp/sessions/<session_id>/memory.md
 - ...
 ```
 
-### 11.3 第一版实现方式
+### 11.3 已实现：读取和注入
 
-第一版不自动生成或更新 `memory.md`，只做读取和注入。
+Context Manager 会读取并注入 `memory.md`。
 
 行为：
 
@@ -687,25 +687,22 @@ group trim 不会把 memory.md 当作最旧历史裁掉
 memory.md 内容会计入 70% 阈值预算
 ```
 
-### 11.4 第二版迭代记录
+### 11.4 已实现：/compact 生成 memory.md
 
-第二版再实现 `memory.md` 的生成和更新，第一版先不做。
-
-建议入口：
+手动生成入口：
 
 ```text
 /compact
-go run . session memory <session_id>
 ```
 
-第二版行为：
+行为：
 
 ```text
-读取当前 session 的 history.jsonl
+读取当前 Runner.history
 构造 memory 生成 prompt
 调用 LLM 提取稳定事实
 覆盖写入 temp/sessions/<session_id>/memory.md
-后续请求由第一版注入逻辑自动加载
+后续请求由注入逻辑自动加载
 ```
 
 生成要求：
@@ -718,14 +715,21 @@ go run . session memory <session_id>
 生成失败不影响正常对话
 ```
 
-第二版需要补充：
+关键约束：
 
-- `/compact` 生成 `memory.md`。
+```text
+/compact 不调用工具
+/compact 不把生成结果写入 history.jsonl
+/compact 需要当前 Runner 已绑定 active session
+生成 prompt 的历史输入有字符上限，过长时保留头尾并插入省略标记
+```
+
+后续仍需补充：
+
 - `session memory <id>` 外部命令。
-- memory 生成 prompt。
-- 生成失败的错误提示。
 - 覆盖写入前的备份或确认策略。
-- 单元测试和 REPL 回归测试。
+- memory 查看/编辑命令。
+- 自动触发策略和熔断器。
 
 ## 12. 第四层：Full Compact 设计
 
@@ -1254,8 +1258,9 @@ P0-025：更新文档和开发记录
 ```text
 P0-026：定义 memory.md 格式
 P0-027：Context Manager 注入 memory.md
-P0-028：增加 session memory 查看命令
+P0-028：接入 /compact 生成 memory.md
 P0-029：增加文档和测试
+P0-030：增加 session memory 查看命令
 ```
 
 验收：
@@ -1263,6 +1268,7 @@ P0-029：增加文档和测试
 - 有 `memory.md` 时会被注入模型请求。
 - 没有 `memory.md` 时不影响正常运行。
 - 注入内容不会写回 `history.jsonl`。
+- `/compact` 会生成或更新当前 session 的 `memory.md`。
 
 ### 阶段三：手动 Full Compact
 

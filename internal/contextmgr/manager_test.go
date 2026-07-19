@@ -115,7 +115,7 @@ func TestManagerBuildDropsOrphanToolResults_BitsUT(t *testing.T) {
 func TestManagerBuildInjectsSessionMemory_BitsUT(t *testing.T) {
 	sessionDir := t.TempDir()
 	memoryText := "# Session Memory\n\n## 用户目标\n\n- 实现上下文管理"
-	if err := os.WriteFile(filepath.Join(sessionDir, sessionMemoryFileName), []byte(memoryText), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(sessionDir, SessionMemoryFileName), []byte(memoryText), 0644); err != nil {
 		t.Fatal(err)
 	}
 	messages := []llm.Message{
@@ -160,7 +160,7 @@ func TestManagerBuildInjectsSessionMemory_BitsUT(t *testing.T) {
 func TestManagerBuildTruncatesInjectedSessionMemory_BitsUT(t *testing.T) {
 	sessionDir := t.TempDir()
 	memoryText := "1234567890"
-	if err := os.WriteFile(filepath.Join(sessionDir, sessionMemoryFileName), []byte(memoryText), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(sessionDir, SessionMemoryFileName), []byte(memoryText), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -201,7 +201,7 @@ func TestManagerBuildTruncatesInjectedSessionMemory_BitsUT(t *testing.T) {
 
 func TestManagerBuildPreservesSessionMemoryDuringTrim_BitsUT(t *testing.T) {
 	sessionDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(sessionDir, sessionMemoryFileName), []byte("stable project facts"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(sessionDir, SessionMemoryFileName), []byte("stable project facts"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	messages := []llm.Message{

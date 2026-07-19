@@ -3,11 +3,14 @@ package repl
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"cohert/internal/agent"
 	"cohert/internal/app"
+	"cohert/internal/contextmgr"
 	"cohert/internal/llm"
 	"cohert/internal/session"
 )
@@ -143,6 +146,53 @@ func TestStartResumesSessionWithSlashCommand(t *testing.T) {
 	}
 	if !strings.Contains(output, "messages: 1") {
 		t.Fatalf("output does not contain session message count:\n%s", output)
+	}
+}
+
+func TestStartCompactGeneratesSessionMemory_BitsUT(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	sess, err := store.Create("compact task", "/tmp/project", "deepseek-v4-pro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeClient{}
+	runner := &agent.Runner{
+		Client:       client,
+		Tools:        fakeTools{},
+		SessionStore: &store,
+	}
+	runner.ResumeSession(sess.ID, []llm.Message{
+		{Role: llm.RoleUser, Content: "我要继续做 session memory"},
+	})
+
+	var out bytes.Buffer
+	startErr := Start(context.Background(), Options{
+		Config:       testConfig(),
+		Runner:       runner,
+		SessionStore: store,
+		In:           strings.NewReader("/compact\n/exit\n"),
+		Out:          &out,
+		Err:          &out,
+	})
+	if startErr != nil {
+		t.Fatal(startErr)
+	}
+	if client.calls != 1 {
+		t.Fatalf("model calls = %d, want 1", client.calls)
+	}
+	memoryPath := filepath.Join(store.SessionDir(sess.ID), contextmgr.SessionMemoryFileName)
+	data, err := os.ReadFile(memoryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(data)) != "ok" {
+		t.Fatalf("memory content = %q, want ok", string(data))
+	}
+	output := out.String()
+	for _, want := range []string{"compact:", "status: updated memory.md", "path: " + memoryPath} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output does not contain %q:\n%s", want, output)
+		}
 	}
 }
 

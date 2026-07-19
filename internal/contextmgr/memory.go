@@ -9,7 +9,7 @@ import (
 	"cohert/internal/llm"
 )
 
-const sessionMemoryFileName = "memory.md"
+const SessionMemoryFileName = "memory.md"
 
 // loadSessionMemory 读取当前 session 目录下的 memory.md。
 //
@@ -19,7 +19,7 @@ func loadSessionMemory(sessionDir string) (text string, ok bool, err error) {
 	if strings.TrimSpace(sessionDir) == "" {
 		return "", false, nil
 	}
-	data, err := os.ReadFile(filepath.Join(sessionDir, sessionMemoryFileName))
+	data, err := os.ReadFile(filepath.Join(sessionDir, SessionMemoryFileName))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return "", false, nil

@@ -39,6 +39,7 @@ const (
 // Options 是启动交互模式需要的依赖。
 // CLI 负责加载配置和创建 Runner，REPL 只负责读取用户输入、展示界面和分发 slash 命令。
 type Options struct {
+	Context      context.Context
 	Config       app.Config
 	Runner       *agent.Runner
 	SessionStore session.Store
@@ -53,6 +54,10 @@ type Options struct {
 // 不会发送给模型。这样 `/model`、`/session list`、`/compact` 这类运行时控制命令
 // 可以在对话框里完成，用户不需要退出后再跑额外 CLI 命令。
 func Start(ctx context.Context, opts Options) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	opts.Context = ctx
 	if opts.In == nil {
 		return fmt.Errorf("repl input is nil")
 	}
@@ -365,7 +370,7 @@ func handleSlashCommand(opts Options, cmd SlashCommand) (bool, error) {
 		}
 		return false, resumeSession(opts, cmd.Args[0])
 	case commandCompact:
-		printCompactPlaceholder(opts.Out)
+		return false, compactSessionMemory(opts)
 	case commandClear:
 		opts.Runner.Reset()
 		fmt.Fprintln(opts.Out, "current in-memory session cleared; next task will create a new session")
@@ -438,7 +443,7 @@ func printSlashHelp(out io.Writer) {
   /session list            列出本地历史 session
   /session resume <id>     恢复指定 session
   /resume <id>             恢复指定 session 的简写
-  /compact                 预留：后续接入上下文压缩
+  /compact                 生成或更新当前 session 的 memory.md
   /clear                   清空当前内存上下文，下一次输入会创建新 session
   /exit                    退出 Cohert
 
@@ -456,7 +461,7 @@ func printCommandPalette(out io.Writer) {
   /session              查看当前 session
   /session list         列出历史 session
   /resume <id>          恢复 session
-  /compact              预留上下文压缩入口
+  /compact              生成或更新 session memory
   /clear                清空当前内存上下文
   /exit                 退出
 
@@ -495,6 +500,7 @@ func printConfig(out io.Writer, cfg app.Config) {
 	fmt.Fprintf(out, "  keep_recent_tool_results: %d\n", cfg.Context.KeepRecentToolResults)
 	fmt.Fprintf(out, "  max_tool_result_chars:    %d\n", cfg.Context.MaxToolResultChars)
 	fmt.Fprintf(out, "  max_request_chars:        %d\n", cfg.Context.MaxRequestChars)
+	fmt.Fprintf(out, "  max_session_memory_chars: %d\n", cfg.Context.MaxSessionMemoryChars)
 	fmt.Fprintf(out, "  enable_micro_compact:     %t\n", cfg.Context.EnableMicroCompact)
 	printModel(out, cfg)
 }
@@ -535,10 +541,18 @@ func printSessionList(out io.Writer, store session.Store) error {
 	return writer.Flush()
 }
 
-func printCompactPlaceholder(out io.Writer) {
-	fmt.Fprintln(out, "compact:")
-	fmt.Fprintln(out, "  status: not implemented")
-	fmt.Fprintln(out, "  note: Context Manager 方案已写好，后续会把 /compact 接到上下文压缩层。")
+func compactSessionMemory(opts Options) error {
+	fmt.Fprintln(opts.Out, "compact:")
+	fmt.Fprintln(opts.Out, "  generating session memory...")
+	result, err := opts.Runner.CompactSessionMemory(opts.Context)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(opts.Out, "  status: updated memory.md")
+	fmt.Fprintf(opts.Out, "  session: %s\n", result.SessionID)
+	fmt.Fprintf(opts.Out, "  path: %s\n", result.Path)
+	fmt.Fprintf(opts.Out, "  chars: %d\n", result.Chars)
+	return nil
 }
 
 func shorten(value string, max int) string {

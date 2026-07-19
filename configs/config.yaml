@@ -21,4 +21,5 @@ context:
   compacted_tool_head_chars: 4000
   compacted_tool_tail_chars: 4000
   max_request_chars: 100000
+  max_session_memory_chars: 20000
   enable_micro_compact: true

@@ -101,7 +101,7 @@ Slash commands
   /session              查看当前 session
   /session list         列出历史 session
   /resume <id>          恢复 session
-  /compact              预留上下文压缩入口
+  /compact              生成或更新 session memory
   /clear                清空当前内存上下文
   /exit                 退出
 ```
@@ -471,6 +471,7 @@ context:
   compacted_tool_head_chars: 4000
   compacted_tool_tail_chars: 4000
   max_request_chars: 100000
+  max_session_memory_chars: 20000
   enable_micro_compact: true
 ```
 
@@ -484,6 +485,7 @@ context:
 - `compacted_tool_head_chars`：压缩后保留头部字符数。
 - `compacted_tool_tail_chars`：压缩后保留尾部字符数。
 - `max_request_chars`：本轮请求消息的字符预算。
+- `max_session_memory_chars`：`memory.md` 注入请求前允许携带的最大字符数。
 - `enable_micro_compact`：是否启用规则压缩。
 
 ### 9.1 Session Memory
@@ -496,7 +498,13 @@ temp/sessions/<session_id>/memory.md
 
 Cohert 会在每次请求模型前读取它，并作为 `[Cohert session memory]` 注入到 request messages 前部。
 
-当前第一版只负责读取和注入，不自动生成 `memory.md`。后续会把 `/compact` 接到 memory 生成流程。
+生成或更新 `memory.md`：
+
+```text
+/compact
+```
+
+`/compact` 会读取当前 Runner.history，调用模型提取稳定事实，并覆盖写入当前 session 的 `memory.md`。这个过程不会写入 `history.jsonl`，也不会调用工具。
 
 查看当前配置：
 
