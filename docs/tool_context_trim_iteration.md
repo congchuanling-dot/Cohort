@@ -131,13 +131,12 @@ messages = r.buildRequestMessages()
 超过 70% 阈值才压缩
 ```
 
-### 取舍二：模型上下文窗口来自内置表和配置
+### 取舍二：模型上下文窗口来自内置表
 
 模型 API 提供方通常没有稳定接口返回当前模型上下文长度，因此当前采用：
 
 ```text
-配置 context.context_window_tokens 优先
-内置模型 map 兜底
+根据 llm.model 查内置模型 map
 未知模型使用默认值
 ```
 
@@ -197,7 +196,7 @@ type Config struct {
 默认建议：
 
 ```text
-context_window_tokens: 1000000
+deepseek-v4-pro / dsv4pro context window: 1000000
 max_output_tokens: 4096
 safety_tokens: 4000
 compact_trigger_ratio: 0.70
@@ -302,24 +301,19 @@ messages = r.buildRequestMessages()
 
 ## 配置文件改造
 
-`configs/config.yaml` 当前配置：
+`configs/config.yaml` 当前不暴露模型上下文窗口，只保留压缩细节：
 
 ```yaml
 context:
-  context_window_tokens: 1000000
-  max_output_tokens: 4096
-  safety_tokens: 4000
-  compact_trigger_ratio: 0.70
 
   max_history_messages: 40
   keep_recent_tool_results: 2
-  max_tool_result_chars: 12000
   compacted_tool_head_chars: 4000
   compacted_tool_tail_chars: 4000
   enable_micro_compact: true
 ```
 
-`max_request_chars` 后续可以保留为兜底，但主触发条件已经转为 token budget。
+模型窗口由 `llm.model` 映射得到，`max_request_chars` 后续可以保留为兜底，但主触发条件已经转为 token budget。
 
 ## Stats 改造
 
