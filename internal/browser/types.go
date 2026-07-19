@@ -45,10 +45,23 @@ type OpenResult struct {
 	URL    string `json:"url"`
 }
 
+// ExecuteJSResult 是 browser_execute_js 返回给模型的稳定结构。
+// 插件内部当前返回字段名是 return；Go 层统一转换成 js_return，避免模型和插件协议强绑定。
+type ExecuteJSResult struct {
+	Status    string `json:"status"`
+	TabID     string `json:"tab_id"`
+	JSReturn  string `json:"js_return"`
+	NewTabs   []Tab  `json:"new_tabs"`
+	Truncated bool   `json:"truncated,omitempty"`
+	Diff      string `json:"diff,omitempty"`
+	Error     any    `json:"error,omitempty"`
+}
+
 // Client 是工具层依赖的浏览器能力接口。
 // internal/tools 只关心这个接口，不需要知道底层是 Chrome 插件、CDP 还是以后别的桥接方案。
 type Client interface {
 	Tabs(ctx context.Context) ([]Tab, error)
 	Open(ctx context.Context, url string, tabID string, active bool) (OpenResult, error)
 	Scan(ctx context.Context, tabID string, maxChars int) (PageSnapshot, error)
+	ExecuteJS(ctx context.Context, tabID string, script string, noMonitor bool, maxReturnChars int) (ExecuteJSResult, error)
 }

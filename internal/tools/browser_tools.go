@@ -12,7 +12,8 @@ import (
 )
 
 const (
-	defaultBrowserScanChars = 12000
+	defaultBrowserScanChars     = 12000
+	defaultBrowserJSReturnChars = 8000
 )
 
 // BrowserTabs 把浏览器标签页列表暴露给模型。
@@ -129,6 +130,57 @@ func (t *BrowserScan) Run(ctx context.Context, call agent.ToolCallContext) (agen
 	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
 }
 
+// BrowserExecuteJS 在当前或指定 tab 的页面上下文里执行 JavaScript。
+// 第一版复用插件 execute_js 命令，Go 层负责把返回结构稳定成 js_return/new_tabs。
+type BrowserExecuteJS struct {
+	client browser.Client
+}
+
+func NewBrowserExecuteJS(client browser.Client) *BrowserExecuteJS {
+	return &BrowserExecuteJS{client: client}
+}
+
+func (t *BrowserExecuteJS) Name() string { return ToolNameBrowserExecuteJS }
+
+func (t *BrowserExecuteJS) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Execute JavaScript in the current or specified Chrome tab. Use simple expressions for reading page state, or explicit return for multi-line scripts.",
+		Parameters: objectSchema(map[string]any{
+			"tab_id":           stringProp("Optional tab ID. If empty, executes in the active tab."),
+			"script":           stringProp("JavaScript to execute in the page. Simple expressions like document.title are automatically returned."),
+			"no_monitor":       boolProp("Disable page-change monitoring. Reserved for future richer diff support.", false),
+			"max_return_chars": intProp("Maximum return characters. Default 8000.", defaultBrowserJSReturnChars),
+		}, "script"),
+	}}
+}
+
+func (t *BrowserExecuteJS) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	tabID := asString(call.Args["tab_id"])
+	script := normalizeBrowserScript(asString(call.Args["script"]))
+	if script == "" {
+		return agent.Outcome{
+			Data: agent.NewToolError(
+				"browser_bad_script",
+				"browser_execute_js requires a non-empty script",
+				"请提供要执行的 JavaScript，例如 document.title 或 return document.body.innerText。",
+			),
+			NextPrompt: "\n",
+		}, nil
+	}
+	maxReturnChars := asInt(call.Args["max_return_chars"], defaultBrowserJSReturnChars)
+	if maxReturnChars <= 0 {
+		maxReturnChars = defaultBrowserJSReturnChars
+	}
+	noMonitor := asBool(call.Args["no_monitor"], false)
+
+	result, err := t.client.ExecuteJS(ctx, tabID, script, noMonitor, maxReturnChars)
+	if err != nil {
+		return browserToolError(err), nil
+	}
+	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
+}
+
 func browserToolError(err error) agent.Outcome {
 	code := "browser_error"
 	hint := "确认 Chrome 已安装 Cohert Browser Bridge 插件，并且 Cohert 正在运行；插件会连接 ws://127.0.0.1:18777/browser。"
@@ -156,4 +208,43 @@ func normalizeBrowserURL(raw string) (string, error) {
 		return "", errors.New("browser_open only supports http/https URLs")
 	}
 	return raw, nil
+}
+
+func normalizeBrowserScript(script string) string {
+	script = strings.TrimSpace(script)
+	if script == "" || hasExplicitJSControl(script) {
+		return script
+	}
+	// 插件侧使用 AsyncFunction 执行源码：纯表达式如果不写 return 会得到 undefined。
+	// 为了满足 document.title 这类常见读页面场景，这里只把单行简单表达式包成 return。
+	if strings.ContainsAny(script, ";\n\r") {
+		return script
+	}
+	return "return (" + script + ")"
+}
+
+func hasExplicitJSControl(script string) bool {
+	lower := strings.ToLower(strings.TrimSpace(script))
+	prefixes := []string{
+		"return ",
+		"return\n",
+		"if ",
+		"for ",
+		"while ",
+		"switch ",
+		"try ",
+		"const ",
+		"let ",
+		"var ",
+		"function ",
+		"class ",
+		"import ",
+		"throw ",
+	}
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return strings.HasPrefix(lower, "return;")
 }

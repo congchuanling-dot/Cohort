@@ -79,6 +79,7 @@ func newRegistry(workspace string, browserClient browser.Client) *tools.Registry
 	registry.Register(tools.NewBrowserTabs(browserClient))
 	registry.Register(tools.NewBrowserOpen(browserClient))
 	registry.Register(tools.NewBrowserScan(browserClient))
+	registry.Register(tools.NewBrowserExecuteJS(browserClient))
 	registry.Register(tools.NewAskUser())
 	return registry
 }

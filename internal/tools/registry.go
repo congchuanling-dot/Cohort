@@ -27,6 +27,8 @@ const (
 	ToolNameBrowserOpen = "browser_open"
 	// ToolNameBrowserScan 读取浏览器页面正文。
 	ToolNameBrowserScan = "browser_scan"
+	// ToolNameBrowserExecuteJS 在浏览器页面中执行 JavaScript。
+	ToolNameBrowserExecuteJS = "browser_execute_js"
 )
 
 // Tool 是所有本地工具必须实现的接口。
@@ -64,6 +66,7 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameBrowserTabs,
 		ToolNameBrowserOpen,
 		ToolNameBrowserScan,
+		ToolNameBrowserExecuteJS,
 		ToolNameAskUser,
 	}
 	seen := map[string]bool{}

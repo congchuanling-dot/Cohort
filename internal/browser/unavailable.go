@@ -27,6 +27,10 @@ func (c *UnavailableClient) Scan(ctx context.Context, tabID string, maxChars int
 	return PageSnapshot{}, c.error()
 }
 
+func (c *UnavailableClient) ExecuteJS(ctx context.Context, tabID string, script string, noMonitor bool, maxReturnChars int) (ExecuteJSResult, error) {
+	return ExecuteJSResult{}, c.error()
+}
+
 func (c *UnavailableClient) error() error {
 	if c == nil || c.Err == nil {
 		return ErrNotConnected

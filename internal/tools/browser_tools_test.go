@@ -10,12 +10,16 @@ import (
 )
 
 type fakeBrowserClient struct {
-	tabs      []browser.Tab
-	openURL   string
-	openTabID string
-	scanTabID string
-	scanMax   int
-	err       error
+	tabs             []browser.Tab
+	openURL          string
+	openTabID        string
+	scanTabID        string
+	scanMax          int
+	executeTabID     string
+	executeScript    string
+	executeNoMonitor bool
+	executeMaxReturn int
+	err              error
 }
 
 func (f *fakeBrowserClient) Tabs(ctx context.Context) ([]browser.Tab, error) {
@@ -41,6 +45,22 @@ func (f *fakeBrowserClient) Scan(ctx context.Context, tabID string, maxChars int
 	f.scanTabID = tabID
 	f.scanMax = maxChars
 	return browser.PageSnapshot{Status: agent.ToolStatusSuccess, TabID: tabID, Text: "重庆明日天气"}, nil
+}
+
+func (f *fakeBrowserClient) ExecuteJS(ctx context.Context, tabID string, script string, noMonitor bool, maxReturnChars int) (browser.ExecuteJSResult, error) {
+	if f.err != nil {
+		return browser.ExecuteJSResult{}, f.err
+	}
+	f.executeTabID = tabID
+	f.executeScript = script
+	f.executeNoMonitor = noMonitor
+	f.executeMaxReturn = maxReturnChars
+	return browser.ExecuteJSResult{
+		Status:   agent.ToolStatusSuccess,
+		TabID:    tabID,
+		JSReturn: "Example",
+		NewTabs:  []browser.Tab{},
+	}, nil
 }
 
 func TestBrowserOpenRejectsNonHTTPURL(t *testing.T) {
@@ -104,6 +124,71 @@ func TestBrowserScanUsesDefaultMaxChars(t *testing.T) {
 	}
 	if client.scanMax != defaultBrowserScanChars {
 		t.Fatalf("scanMax = %d, want %d", client.scanMax, defaultBrowserScanChars)
+	}
+}
+
+func TestBrowserExecuteJSWrapsSimpleExpression(t *testing.T) {
+	client := &fakeBrowserClient{}
+	tool := NewBrowserExecuteJS(client)
+	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{
+			"tab_id":     "3",
+			"script":     "document.title",
+			"no_monitor": true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.executeTabID != "3" {
+		t.Fatalf("executeTabID = %q, want 3", client.executeTabID)
+	}
+	if client.executeScript != "return (document.title)" {
+		t.Fatalf("executeScript = %q", client.executeScript)
+	}
+	if !client.executeNoMonitor {
+		t.Fatal("executeNoMonitor = false, want true")
+	}
+	if client.executeMaxReturn != defaultBrowserJSReturnChars {
+		t.Fatalf("executeMaxReturn = %d, want %d", client.executeMaxReturn, defaultBrowserJSReturnChars)
+	}
+	data := outcome.Data.(browser.ExecuteJSResult)
+	if data.JSReturn != "Example" || data.NewTabs == nil {
+		t.Fatalf("result = %+v, want js return and non-nil new_tabs", data)
+	}
+}
+
+func TestBrowserExecuteJSKeepsExplicitReturn(t *testing.T) {
+	client := &fakeBrowserClient{}
+	tool := NewBrowserExecuteJS(client)
+	_, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{
+			"script":           "return document.body.innerText",
+			"max_return_chars": 42,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.executeScript != "return document.body.innerText" {
+		t.Fatalf("executeScript = %q", client.executeScript)
+	}
+	if client.executeMaxReturn != 42 {
+		t.Fatalf("executeMaxReturn = %d, want 42", client.executeMaxReturn)
+	}
+}
+
+func TestBrowserExecuteJSRejectsEmptyScript(t *testing.T) {
+	tool := NewBrowserExecuteJS(&fakeBrowserClient{})
+	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"script": " \n "},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := outcome.Data.(agent.ToolErrorData)
+	if data.Code != "browser_bad_script" {
+		t.Fatalf("code = %q, want browser_bad_script", data.Code)
 	}
 }
 

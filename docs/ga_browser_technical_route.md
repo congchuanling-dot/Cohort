@@ -325,15 +325,16 @@ internal/tools/browser_tools.go
 browser_tabs
 browser_open
 browser_scan
+browser_execute_js
 Chrome 插件 WebSocket 连接
 tab 列表上报
 页面 DOM 文本扫描
+页面 JavaScript 执行
 ```
 
 当前还缺：
 
 ```text
-browser_execute_js
 browser_cdp
 browser_click
 browser_click_element
@@ -343,7 +344,7 @@ CDP 预热和坐标稳定处理
 
 ## 8. Cohert 下一步开发路线
 
-### P0：暴露 browser_execute_js
+### P0：暴露 browser_execute_js（已完成）
 
 目标：先让 Cohert 具备 GA 的 `web_execute_js` 基础能力。
 
@@ -573,4 +574,3 @@ declarativeNetRequest 移除 CSP
 观察变化
 总结结果
 ```
-

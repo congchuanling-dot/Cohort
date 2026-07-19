@@ -242,6 +242,37 @@ func (b *Bridge) Scan(ctx context.Context, tabID string, maxChars int) (PageSnap
 	return result, err
 }
 
+// ExecuteJS 在指定或当前活动 tab 的页面上下文中执行 JavaScript。
+func (b *Bridge) ExecuteJS(ctx context.Context, tabID string, script string, noMonitor bool, maxReturnChars int) (ExecuteJSResult, error) {
+	var raw struct {
+		Status    string `json:"status"`
+		TabID     string `json:"tab_id"`
+		Return    string `json:"return"`
+		Truncated bool   `json:"truncated"`
+		Diff      string `json:"diff"`
+		Error     any    `json:"error"`
+	}
+	err := b.command(ctx, map[string]any{
+		"command":          "execute_js",
+		"tab_id":           tabID,
+		"script":           script,
+		"no_monitor":       noMonitor,
+		"max_return_chars": maxReturnChars,
+	}, &raw)
+	if err != nil {
+		return ExecuteJSResult{}, err
+	}
+	return ExecuteJSResult{
+		Status:    raw.Status,
+		TabID:     raw.TabID,
+		JSReturn:  raw.Return,
+		NewTabs:   []Tab{},
+		Truncated: raw.Truncated,
+		Diff:      raw.Diff,
+		Error:     raw.Error,
+	}, nil
+}
+
 func (b *Bridge) command(ctx context.Context, payload map[string]any, out any) error {
 	conn := b.currentConnection()
 	if conn == nil {
