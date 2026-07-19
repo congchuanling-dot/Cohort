@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"cohert/internal/agent"
+	"cohert/internal/browser"
 	"cohert/internal/contextmgr"
 	"cohert/internal/llm"
 	"cohert/internal/session"
@@ -40,7 +41,8 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 		MaxRetries:     cfg.LLM.MaxRetries,
 	})
 
-	registry := newRegistry(cfg.Workspace)
+	browserClient := newBrowserClient()
+	registry := newRegistry(cfg.Workspace, browserClient)
 	sessionStore := session.NewStore(session.DefaultRootDir)
 	contextManager := &contextmgr.Manager{Config: cfg.Context.Normalize()}
 	cwd, err := os.Getwd()
@@ -64,24 +66,35 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 
 // ToolSchemas 给 CLI 的 tools 命令使用，只列工具 schema，不初始化 LLM。
 func ToolSchemas(cfg Config) []llm.ToolSchema {
-	return newRegistry(cfg.Workspace).Schemas()
+	return newRegistry(cfg.Workspace, browser.NewUnavailableClient(browser.ErrNotConnected)).Schemas()
 }
 
 // newRegistry 集中注册当前 MVP 暴露给模型的本地工具。
-func newRegistry(workspace string) *tools.Registry {
+func newRegistry(workspace string, browserClient browser.Client) *tools.Registry {
 	registry := tools.NewRegistry()
 	registry.Register(tools.NewFileRead(workspace))
 	registry.Register(tools.NewFileWrite(workspace))
 	registry.Register(tools.NewFilePatch(workspace))
 	registry.Register(tools.NewCodeRun(workspace))
+	registry.Register(tools.NewBrowserTabs(browserClient))
+	registry.Register(tools.NewBrowserOpen(browserClient))
+	registry.Register(tools.NewBrowserScan(browserClient))
 	registry.Register(tools.NewAskUser())
 	return registry
+}
+
+func newBrowserClient() browser.Client {
+	bridge := browser.NewBridge(browser.DefaultListenAddr, browser.DefaultPath)
+	if err := bridge.Start(); err != nil {
+		return browser.NewUnavailableClient(err)
+	}
+	return bridge
 }
 
 // buildSystemPrompt 生成发送给模型的系统提示词。
 func buildSystemPrompt(cfg Config) string {
 	if cfg.Language == "en" {
-		return "You are Cohert, a command-line coding agent. Use tools when needed, keep responses concise, and stop when the user task is complete."
+		return "You are Cohert, a command-line local agent. Use tools when needed, keep responses concise, and stop when the user task is complete. For web lookup tasks, prefer browser_open then browser_scan. Do not use OCR for normal web pages unless DOM text is unavailable."
 	}
-	return "你是 Cohert，一个命令行本地 Agent。需要读取文件、写文件或执行命令时必须调用工具；任务完成后直接给用户简洁结论。"
+	return "你是 Cohert，一个命令行本地 Agent。需要读取文件、写文件、执行命令或查询网页时必须调用工具；网页查询优先使用 browser_open 打开页面，再用 browser_scan 读取 DOM 文本。普通网页不要默认使用 OCR，只有 DOM 文本不可用时才考虑截图/OCR。任务完成后直接给用户简洁结论。"
 }

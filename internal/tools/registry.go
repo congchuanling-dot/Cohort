@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 
 	"cohert/internal/agent"
 	"cohert/internal/llm"
@@ -19,6 +21,12 @@ const (
 	ToolNameCodeRun = "code_run"
 	// ToolNameAskUser 在命令行向用户提问。
 	ToolNameAskUser = "ask_user"
+	// ToolNameBrowserTabs 列出浏览器标签页。
+	ToolNameBrowserTabs = "browser_tabs"
+	// ToolNameBrowserOpen 打开或导航浏览器页面。
+	ToolNameBrowserOpen = "browser_open"
+	// ToolNameBrowserScan 读取浏览器页面正文。
+	ToolNameBrowserScan = "browser_scan"
 )
 
 // Tool 是所有本地工具必须实现的接口。
@@ -48,7 +56,16 @@ func (r *Registry) Register(tool Tool) {
 // 固定顺序可以让输出更稳定，方便调试和测试。
 func (r *Registry) Schemas() []llm.ToolSchema {
 	schemas := make([]llm.ToolSchema, 0, len(r.tools))
-	order := []string{ToolNameFileRead, ToolNameFileWrite, ToolNameFilePatch, ToolNameCodeRun, ToolNameAskUser}
+	order := []string{
+		ToolNameFileRead,
+		ToolNameFileWrite,
+		ToolNameFilePatch,
+		ToolNameCodeRun,
+		ToolNameBrowserTabs,
+		ToolNameBrowserOpen,
+		ToolNameBrowserScan,
+		ToolNameAskUser,
+	}
 	seen := map[string]bool{}
 	for _, name := range order {
 		if tool, ok := r.tools[name]; ok {
@@ -68,16 +85,26 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 func (r *Registry) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
 	tool, ok := r.tools[call.Name]
 	if !ok {
+		names := r.toolNames()
 		return agent.Outcome{
 			Data: agent.NewToolError(
 				"unknown_tool",
 				"unknown tool: "+call.Name,
-				"请改用当前可用工具之一："+ToolNameFileRead+"、"+ToolNameFileWrite+"、"+ToolNameFilePatch+"、"+ToolNameCodeRun+"、"+ToolNameAskUser,
+				"请改用当前可用工具之一："+strings.Join(names, "、"),
 			),
 			NextPrompt: "未知工具 " + call.Name,
 		}, fmt.Errorf("unknown tool %q", call.Name)
 	}
 	return tool.Run(ctx, call)
+}
+
+func (r *Registry) toolNames() []string {
+	names := make([]string, 0, len(r.tools))
+	for name := range r.tools {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // objectSchema 生成工具参数的 JSON Schema object。

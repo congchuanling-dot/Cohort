@@ -124,6 +124,44 @@ async function scanTab(request) {
   };
 }
 
+async function openTab(request) {
+  // browser_open 的插件侧实现。
+  // 没传 tab_id 时新建标签页；传了 tab_id 时复用已有标签页导航到目标 URL。
+  const targetURL = String(request.url || "").trim();
+  if (!/^https?:\/\//i.test(targetURL)) {
+    throw new Error("open requires an absolute http/https URL");
+  }
+
+  const active = request.active !== false;
+  let tab;
+  const rawTabID = request.tab_id || request.tabId;
+  if (rawTabID !== undefined && rawTabID !== null && String(rawTabID).trim() !== "") {
+    tab = await chrome.tabs.update(Number(rawTabID), { url: targetURL, active });
+  } else {
+    tab = await chrome.tabs.create({ url: targetURL, active });
+  }
+
+  tab = await waitForTabComplete(tab.id, 8000);
+  return {
+    status: "success",
+    tab_id: String(tab.id),
+    title: tab.title || "",
+    url: tab.url || targetURL
+  };
+}
+
+async function waitForTabComplete(tabId, timeoutMs) {
+  // tabs.create/tabs.update 返回时页面往往还没加载完。
+  // 这里最多等 8 秒，能让 browser_open 后紧接 browser_scan 的天气查询链路更稳定。
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab.status === "complete") return tab;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return await chrome.tabs.get(tabId);
+}
+
 function serializeJsValue(value) {
   // JS 执行结果可能是 DOM 节点、window、document、复杂对象。
   // 这些对象不能直接 JSON.stringify，所以这里把常见不可序列化对象转成字符串。
@@ -224,6 +262,9 @@ async function handleCommand(message) {
   }
   if (command === "scan") {
     return await scanTab(message);
+  }
+  if (command === "open") {
+    return await openTab(message);
   }
   if (command === "execute_js") {
     return await executeJs(message);
