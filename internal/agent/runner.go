@@ -172,7 +172,8 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 				return RunResult{}, err
 			}
 		}
-		// 下一轮模型会看到目前为止的全部消息：用户输入、模型工具调用、工具结果。
+		// 工具结果已经进入完整 history；下一轮模型请求前重新构造可见上下文。
+		// Context Manager 应根据预算决定是否压缩，而不是每轮固定裁剪。
 		messages = r.buildRequestMessages()
 	}
 	// 达到最大轮数说明模型一直没有收敛，返回受控状态而不是无限运行。

@@ -6,13 +6,33 @@ const contextNotice = "[Cohert context notice] Earlier conversation messages wer
 
 // Config 控制本轮模型请求前的确定性上下文压缩。
 type Config struct {
-	MaxHistoryMessages     int
-	KeepRecentToolResults  int
-	MaxToolResultChars     int
+	// MaxHistoryMessages 限制本轮请求最多携带多少条历史消息。
+	// 超过后会按 message group 从旧到新裁剪，但不会修改 Runner.history 或 history.jsonl。
+	MaxHistoryMessages int
+
+	// KeepRecentToolResults 表示最近多少条 tool result 保持完整不压缩。
+	// 最近工具结果通常最贴近当前任务，优先完整保留。
+	KeepRecentToolResults int
+
+	// MaxToolResultChars 是单条 tool result 允许进入请求的最大字符数。
+	// 更旧且超过该阈值的 tool result 会被 Micro Compact 成头尾保留格式。
+	MaxToolResultChars int
+
+	// CompactedToolHeadChars 是工具结果压缩后保留的头部字符数。
+	// 头部通常包含命令起始输出、文件开头或错误发生前的上下文。
 	CompactedToolHeadChars int
+
+	// CompactedToolTailChars 是工具结果压缩后保留的尾部字符数。
+	// 尾部通常包含最终错误、测试总结、退出码附近日志等关键信息。
 	CompactedToolTailChars int
-	MaxRequestChars        int
-	EnableMicroCompact     bool
+
+	// MaxRequestChars 限制本轮 request messages 的估算字符总量。
+	// Micro Compact 后如果仍超限，会继续按 group 裁剪旧历史。
+	MaxRequestChars int
+
+	// EnableMicroCompact 控制是否启用旧工具结果压缩。
+	// 关闭后仍会执行 group trim，但 tool result 内容不会被头尾压缩。
+	EnableMicroCompact bool
 }
 
 // DefaultConfig 返回第一版 Context Manager 的保守默认值。
@@ -54,31 +74,59 @@ func (c Config) Normalize() Config {
 
 // Manager 构造发给模型的可见上下文，不修改 Runner.history 或 history.jsonl。
 type Manager struct {
+	// Config 是本 Manager 使用的上下文预算和压缩策略。
 	Config Config
 }
 
 // BuildInput 是一次请求前上下文构造所需的信息。
 type BuildInput struct {
-	Messages   []llm.Message
-	SessionID  string
+	// Messages 是从 Runner.history 复制出来的完整消息列表。
+	// Build 会再次复制后处理，调用方传入的切片不会被修改。
+	Messages []llm.Message
+
+	// SessionID 是当前 session 标识，预留给后续 memory.md、compact.md 和状态文件使用。
+	SessionID string
+
+	// SessionDir 是当前 session 在磁盘上的目录，预留给后续读取 session memory 或 compact summary。
 	SessionDir string
 }
 
 // BuildResult 是压缩后的请求消息和统计信息。
 type BuildResult struct {
+	// Messages 是本轮真正发给 LLM Client 的消息。
+	// 它可能包含 context notice、压缩后的 tool result，且可能少于原始历史。
 	Messages []llm.Message
-	Stats    Stats
+
+	// Stats 描述本次构造过程发生的压缩、裁剪和告警。
+	Stats Stats
 }
 
 // Stats 记录本次请求前上下文压缩做了什么，便于测试和后续日志。
 type Stats struct {
-	OriginalMessages       int
-	FinalMessages          int
-	OriginalChars          int
-	FinalChars             int
-	TrimmedMessages        int
-	CompactedToolResults   int
+	// OriginalMessages 是输入 Build 前的原始消息数量。
+	OriginalMessages int
+
+	// FinalMessages 是 Build 后发给模型的消息数量。
+	FinalMessages int
+
+	// OriginalChars 是原始 messages 的估算字符数。
+	OriginalChars int
+
+	// FinalChars 是压缩和裁剪后的 messages 估算字符数。
+	FinalChars int
+
+	// TrimmedMessages 是本轮请求中被 group trim 或协议清理移除的消息数量。
+	TrimmedMessages int
+
+	// CompactedToolResults 是被 Micro Compact 压缩过内容的 tool result 数量。
+	CompactedToolResults int
+
+	// OmittedToolResultChars 是工具结果压缩后省略掉的字符数估算。
 	OmittedToolResultChars int
-	InsertedNotice         bool
-	Warnings               []string
+
+	// InsertedNotice 表示是否插入了 context notice 提醒模型早期消息已省略。
+	InsertedNotice bool
+
+	// Warnings 记录协议修复或异常历史，例如孤立 tool result 被丢弃。
+	Warnings []string
 }
