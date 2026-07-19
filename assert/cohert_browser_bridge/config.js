@@ -3,7 +3,6 @@
 // 挂到 self 上，是为了让 MV3 service worker 里的其他脚本能稳定读取。
 self.COHERT_BRIDGE_CONFIG = {
   // Cohert Go 侧后续要监听的本地 WebSocket 地址。
-  // 不使用 18765/18766：GA/TMWebDriver 可能已经占用这两个端口。
   wsUrl: "ws://127.0.0.1:18777/browser",
 
   // 未连接时，background.js 会通过这个 alarm 周期性尝试重连。

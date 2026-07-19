@@ -50,7 +50,7 @@ MANIFEST_EXPLAINED.md
 插件会连接：
 
 ```text
-ws://127.0.0.1:18766/browser
+ws://127.0.0.1:18777/browser
 ```
 
 后续 Cohert 的 Go 侧 browser bridge server 应监听这个地址。

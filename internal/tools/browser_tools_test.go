@@ -74,6 +74,22 @@ func TestBrowserOpenCallsClient(t *testing.T) {
 	}
 }
 
+func TestBrowserOpenNormalizesMarkdownURL(t *testing.T) {
+	client := &fakeBrowserClient{}
+	tool := NewBrowserOpen(client)
+	_, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{
+			"url": " `https://www.weather.com.cn/weather/101040100.shtml` ",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.openURL != "https://www.weather.com.cn/weather/101040100.shtml" {
+		t.Fatalf("openURL = %q", client.openURL)
+	}
+}
+
 func TestBrowserScanUsesDefaultMaxChars(t *testing.T) {
 	client := &fakeBrowserClient{}
 	tool := NewBrowserScan(client)

@@ -241,7 +241,7 @@ assert/cohert_browser_bridge/
 
 ```javascript
 self.COHERT_BRIDGE_CONFIG = {
-  wsUrl: "ws://127.0.0.1:18766/browser",
+  wsUrl: "ws://127.0.0.1:18777/browser",
   maxScanChars: 12000,
   maxJsReturnChars: 8000
 };
@@ -249,10 +249,10 @@ self.COHERT_BRIDGE_CONFIG = {
 
 它集中放插件配置。
 
-为什么用 `18766`：
+为什么用 `18777`：
 
-- GA 默认使用 `18765`。
-- Cohert 用 `18766` 避免和 GA 冲突。
+- GA/TMWebDriver 常见端口是 `18765/18766`。
+- Cohert 用 `18777` 避免和 GA 冲突。
 
 为什么写到 `self`：
 
@@ -261,7 +261,7 @@ self.COHERT_BRIDGE_CONFIG = {
 
 面试说法：
 
-> 插件默认连接本机 `ws://127.0.0.1:18766/browser`，这个端口后续由 Cohert Go 侧 bridge server 监听。配置单独放在 `config.js`，便于后面改端口或扫描长度。
+> 插件默认连接本机 `ws://127.0.0.1:18777/browser`，这个端口后续由 Cohert Go 侧 bridge server 监听。配置单独放在 `config.js`，便于后面改端口或扫描长度。
 
 ### 5.3 background.js
 
@@ -594,7 +594,7 @@ Chrome API 只能在插件环境里真实测试。
 
 ```text
 internal/browser/server.go
-  监听 ws://127.0.0.1:18766/browser
+  监听 ws://127.0.0.1:18777/browser
   接收插件 ext_ready / tabs_update
   维护 tabs 快照
   给插件发送 tabs / scan / execute_js 命令
@@ -707,7 +707,7 @@ https://...
 插件会一直尝试连接：
 
 ```text
-ws://127.0.0.1:18766/browser
+ws://127.0.0.1:18777/browser
 ```
 
 ### 12.3 为什么 execute_js 要写 return
