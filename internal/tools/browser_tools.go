@@ -702,12 +702,25 @@ func normalizeBrowserScript(script string) string {
 	if script == "" || hasExplicitJSControl(script) {
 		return script
 	}
+	if looksLikeBrowserJSONCommand(script) {
+		return script
+	}
 	// 插件侧使用 AsyncFunction 执行源码：纯表达式如果不写 return 会得到 undefined。
 	// 为了满足 document.title 这类常见读页面场景，这里只把单行简单表达式包成 return。
 	if strings.ContainsAny(script, ";\n\r") {
 		return script
 	}
 	return "return (" + script + ")"
+}
+
+func looksLikeBrowserJSONCommand(script string) bool {
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(script), &payload); err != nil {
+		return false
+	}
+	_, hasCmd := payload["cmd"]
+	_, hasCommand := payload["command"]
+	return hasCmd || hasCommand
 }
 
 func hasExplicitJSControl(script string) bool {

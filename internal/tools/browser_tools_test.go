@@ -316,6 +316,22 @@ func TestBrowserExecuteJSWrapsSimpleExpression(t *testing.T) {
 	}
 }
 
+func TestBrowserExecuteJSKeepsJSONCommandRaw(t *testing.T) {
+	client := &fakeBrowserClient{}
+	tool := NewBrowserExecuteJS(client)
+	_, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{
+			"script": `{"cmd":"cdp","method":"Runtime.evaluate","params":{"expression":"document.title"}}`,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.executeScript != `{"cmd":"cdp","method":"Runtime.evaluate","params":{"expression":"document.title"}}` {
+		t.Fatalf("executeScript = %q", client.executeScript)
+	}
+}
+
 func TestBrowserExecuteJSKeepsExplicitReturn(t *testing.T) {
 	client := &fakeBrowserClient{}
 	tool := NewBrowserExecuteJS(client)

@@ -418,14 +418,32 @@ function buildPageEvalScript(script) {
 }
 
 async function executeJs(request) {
-  // browser_execute_js 的第一版实现：在目标 tab 里执行一段读取型 JS，并把结果截断后回传。
-  // 高风险操作确认不应该放在插件层做，后续应放在 Cohert 工具层统一判断。
-  const tabId = await resolveTabId(request.tab_id || request.tabId);
+  // browser_execute_js 支持两类输入：
+  // 1. 普通 JavaScript：进入页面主世界执行。
+  // 2. JSON 命令对象：走插件内部路由，例如 {"cmd":"cdp",...}。
+  // 这样 CDP 等高级能力可以藏在 execute_js 后面，不必暴露成独立 LLM 工具。
   const script = request.script || request.code || "";
   if (!String(script).trim()) {
     throw new Error("script is required");
   }
 
+  const routed = parseExecuteJSCommand(script);
+  if (routed) {
+    const routedResult = await handleExecuteJSCommand(routed, request);
+    const clipped = truncateText(
+      JSON.stringify(routedResult),
+      request.max_return_chars || request.maxReturnChars || COHERT_BRIDGE_CONFIG.maxJsReturnChars
+    );
+    return {
+      status: "success",
+      tab_id: String(routedResult?.tab_id || routed.tab_id || routed.tabId || request.tab_id || request.tabId || ""),
+      return: clipped.text,
+      truncated: clipped.truncated,
+      diff: routedResult?.diff || "internal command routed"
+    };
+  }
+
+  const tabId = await resolveTabId(request.tab_id || request.tabId);
   const shouldMonitor = request.no_monitor !== true && request.noMonitor !== true;
   const before = shouldMonitor ? await collectLightSnapshot(tabId) : { tab: await chrome.tabs.get(tabId) };
   const [{ result }] = await chrome.scripting.executeScript({
@@ -457,6 +475,95 @@ async function executeJs(request) {
     truncated: clipped.truncated,
     diff: shouldMonitor ? buildLightDiff(before, after) : "monitor disabled"
   };
+}
+
+function parseExecuteJSCommand(script) {
+  // 如果 execute_js 的 script 是 JSON 对象且带 cmd/command，就不当 JS 执行。
+  if (typeof script === "object" && script !== null) {
+    return script.cmd || script.command ? script : null;
+  }
+  const raw = String(script || "").trim();
+  if (!raw || !raw.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && (parsed.cmd || parsed.command)) return parsed;
+  } catch (_err) {
+    return null;
+  }
+  return null;
+}
+
+async function handleExecuteJSCommand(command, parentRequest) {
+  const routed = { ...command };
+  if (routed.tab_id === undefined && routed.tabId === undefined) {
+    if (parentRequest.tab_id !== undefined) routed.tab_id = parentRequest.tab_id;
+    if (parentRequest.tabId !== undefined) routed.tabId = parentRequest.tabId;
+  }
+  if (routed.no_monitor === undefined && routed.noMonitor === undefined) {
+    if (parentRequest.no_monitor !== undefined) routed.no_monitor = parentRequest.no_monitor;
+    if (parentRequest.noMonitor !== undefined) routed.noMonitor = parentRequest.noMonitor;
+  }
+  const cmd = routed.cmd || routed.command;
+  if (cmd === "execute_js") {
+    throw new Error("execute_js JSON route cannot call execute_js recursively");
+  }
+  return await handleRoutedCommand(routed);
+}
+
+async function handleRoutedCommand(message) {
+  const command = message.command || message.cmd;
+  if (command === "tabs") {
+    return { status: "success", tabs: await listTabs() };
+  }
+  if (command === "scan") {
+    return await scanTab(message);
+  }
+  if (command === "open") {
+    return await openTab(message);
+  }
+  if (command === "cdp") {
+    return await handleCDP(message);
+  }
+  if (command === "click") {
+    return await clickTab(message);
+  }
+  if (command === "type") {
+    return await typeInTab(message);
+  }
+  if (command === "wait") {
+    return await waitInTab(message);
+  }
+  if (command === "batch") {
+    return await handleBatch(message);
+  }
+  throw new Error("unknown command: " + command);
+}
+
+async function handleBatch(message) {
+  // GA 的 batch 思路：一次 execute_js 请求里顺序执行多个内部命令，减少模型反复调用工具。
+  // 第一版保持简单，不做 $N.path 引用；后续如确实需要再补。
+  const commands = Array.isArray(message.commands) ? message.commands : [];
+  if (commands.length === 0) {
+    throw new Error("batch requires non-empty commands");
+  }
+  const results = [];
+  for (const item of commands) {
+    const next = { ...item };
+    if (next.tab_id === undefined && next.tabId === undefined) {
+      if (message.tab_id !== undefined) next.tab_id = message.tab_id;
+      if (message.tabId !== undefined) next.tabId = message.tabId;
+    }
+    try {
+      results.push(await handleRoutedCommand(next));
+    } catch (err) {
+      results.push({
+        status: "error",
+        command: next.command || next.cmd || "",
+        error: err?.message || String(err)
+      });
+    }
+  }
+  return { status: "success", results };
 }
 
 function buildLightDiff(before, after) {
@@ -666,31 +773,10 @@ async function handleCommand(message) {
   // Cohert Go 侧发来的命令在这里统一分发。
   // 协议保持小而稳定：tabs / scan / open / execute_js / cdp / click / type / wait。
   const command = message.command || message.cmd;
-  if (command === "tabs") {
-    return { status: "success", tabs: await listTabs() };
-  }
-  if (command === "scan") {
-    return await scanTab(message);
-  }
-  if (command === "open") {
-    return await openTab(message);
-  }
   if (command === "execute_js") {
     return await executeJs(message);
   }
-  if (command === "cdp") {
-    return await handleCDP(message);
-  }
-  if (command === "click") {
-    return await clickTab(message);
-  }
-  if (command === "type") {
-    return await typeInTab(message);
-  }
-  if (command === "wait") {
-    return await waitInTab(message);
-  }
-  throw new Error("unknown command: " + command);
+  return await handleRoutedCommand(message);
 }
 
 function sendResult(id, result) {

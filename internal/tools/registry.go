@@ -30,6 +30,7 @@ const (
 	// ToolNameBrowserExecuteJS 在浏览器页面中执行 JavaScript。
 	ToolNameBrowserExecuteJS = "browser_execute_js"
 	// ToolNameBrowserCDP 向浏览器发送原始 CDP 命令。
+	// 这是内部调试工具，默认不注册给模型；普通动作通过 browser_execute_js JSON 路由或高层工具完成。
 	ToolNameBrowserCDP = "browser_cdp"
 	// ToolNameBrowserClick 使用 CDP 鼠标事件点击 viewport 坐标。
 	ToolNameBrowserClick = "browser_click"
@@ -85,7 +86,6 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameBrowserOpen,
 		ToolNameBrowserScan,
 		ToolNameBrowserExecuteJS,
-		ToolNameBrowserCDP,
 		ToolNameBrowserClick,
 		ToolNameBrowserClickElement,
 		ToolNameBrowserType,

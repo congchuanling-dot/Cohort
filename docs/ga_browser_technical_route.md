@@ -332,14 +332,26 @@ tab 列表上报
 页面 JavaScript 执行
 ```
 
-当前还缺：
+已补齐：
 
 ```text
-browser_cdp
+插件内部 cdp command
+browser_execute_js JSON 命令路由
 browser_click
 browser_click_element
+browser_type
+browser_type_element
+browser_wait_for_load / selector / text / stable
 页面变化监控
 CDP 预热和坐标稳定处理
+```
+
+当前需要继续收敛：
+
+```text
+减少公开工具数量
+把 CDP 保持为内部能力
+让模型优先使用 browser_execute_js、browser_scan 和高层动作工具
 ```
 
 ## 8. Cohert 下一步开发路线
@@ -383,39 +395,52 @@ browser_execute_js 执行 document.body.innerText 能返回正文
 browser_execute_js 执行 location.href = "..." 能导航
 ```
 
-### P1：新增 browser_cdp
+### P1：对齐 GA 的 browser_execute_js JSON 命令路由（已完成）
 
-目标：对齐 GA 的 CDP 桥能力。
+目标：对齐 GA 的工具暴露方式，不把 CDP 作为单独公开工具给模型，而是让 `browser_execute_js` 同时支持普通 JS 和 JSON 命令对象。
 
 开发内容：
 
 - 插件 `background.js` 增加 `cdp` command。
-- Go 协议层增加 `CDPCommand`。
-- Go 工具层新增 `browser_cdp`。
-- 参数：
+- `browser_execute_js` 检测 `script` 是否为 JSON 对象。
+- 如果 JSON 中包含 `cmd` 或 `command`，则不进入页面 JS 执行，而是走插件内部命令路由。
+- Go 层 `normalizeBrowserScript` 对 JSON 命令保持原样，不自动包 `return (...)`。
+- `browser_cdp` 默认不注册给模型，只保留为内部调试能力。
+
+普通 JS：
+
+```text
+browser_execute_js script="document.title"
+```
+
+JSON 命令：
 
 ```json
 {
-  "tab_id": "必填或默认当前 tab",
+  "cmd": "cdp",
+  "tabId": 123,
   "method": "Input.dispatchMouseEvent",
   "params": {}
 }
 ```
 
-插件执行：
+插件路由：
 
 ```text
-chrome.debugger.attach
-chrome.debugger.sendCommand
-chrome.debugger.detach
+browser_execute_js
+  -> parse JSON
+  -> 发现 cmd
+  -> handleRoutedCommand
+  -> handleCDP / click / type / wait / batch
 ```
 
 验收：
 
 ```text
-browser_cdp Page.bringToFront 成功
-browser_cdp Runtime.evaluate 成功
-browser_cdp Input.dispatchMouseEvent 能发出鼠标事件
+browser_execute_js 普通 JS 仍能返回 document.title
+browser_execute_js 传 {"cmd":"tabs"} 能返回 tab 列表
+browser_execute_js 传 {"cmd":"cdp",...} 能走 chrome.debugger.sendCommand
+模型默认工具列表中不出现 browser_cdp
 ```
 
 ### P2：新增 browser_click
@@ -521,11 +546,12 @@ DOM 是否变化
 
 ```text
 1. browser_execute_js
-2. 插件 cdp command
-3. browser_cdp
-4. browser_click
-5. browser_click_element
-6. 页面变化监控
+2. browser_execute_js JSON 命令路由
+3. 插件内部 cdp command
+4. browser_click / browser_click_element
+5. browser_type / browser_type_element
+6. browser_wait_for_load / selector / text / stable
+7. 页面变化监控
 ```
 
 不要直接跳到 OCR，也不要先做复杂 selector 引擎。
@@ -533,7 +559,7 @@ DOM 是否变化
 原因：
 
 - `browser_execute_js` 是 DOM 感知和元素定位的基础。
-- `browser_cdp` 是真实点击、截图、输入的基础。
+- CDP 是真实点击、截图、输入的基础，但应隐藏在内部路由或高层工具后面。
 - `browser_click` 把 CDP 三事件封装掉，降低模型误用概率。
 - `browser_click_element` 建立在 JS 定位和 CDP 点击之上。
 - 页面变化监控最后补，可以先让动作闭环跑通。
@@ -579,7 +605,7 @@ declarativeNetRequest 移除 CSP
 
 当前已按“JS 定位、CDP 动作、轻量 diff 反馈”的路线补齐第一版浏览器交互链路。
 
-### 11.1 插件 cdp command
+### 11.1 插件内部 cdp command
 
 插件 `assert/cohert_browser_bridge/background.js` 已新增 `cdp` command。
 
@@ -595,32 +621,50 @@ resolveTabId
 
 设计要点：
 
-- `cdp` 是底层调试入口，不要求模型直接用它完成普通点击和输入。
+- `cdp` 是底层调试入口，默认不作为模型公开工具。
+- 普通点击和输入必须优先走 `browser_click_element`、`browser_type_element` 或 `browser_execute_js` JSON 命令路由。
 - 每次命令都在 `finally` 中尝试 detach，避免 debugger 长期占用 tab。
 - `params` 保持通用 object，不在插件层绑定某个 CDP method 的 schema。
 
-### 11.2 Go 层 browser_cdp
+### 11.2 browser_execute_js JSON 命令路由
 
-Go 层已新增：
+Cohert 已按 GA 的做法收敛工具面：`browser_cdp` 保留为内部调试能力，但默认不注册给模型。
 
-```text
-internal/browser.CDP
-internal/tools.BrowserCDP
-browser_cdp 工具注册
-```
-
-工具参数：
+模型仍然只需要通过 `browser_execute_js` 进入高级浏览器能力：
 
 ```json
 {
-  "tab_id": "可选",
+  "cmd": "cdp",
+  "tabId": 123,
   "method": "Runtime.evaluate",
-  "params": {},
-  "no_monitor": false
+  "params": {
+    "expression": "document.title"
+  }
 }
 ```
 
-它的定位是“高级调试和补能力”，常规页面交互应优先使用 `browser_click_element` 和 `browser_type_element`。
+路由规则：
+
+```text
+browser_execute_js
+  -> script 是普通 JS：进入页面主世界执行
+  -> script 是 JSON 且包含 cmd/command：进入插件内部路由
+```
+
+当前内部路由支持：
+
+```text
+tabs
+scan
+open
+cdp
+click
+type
+wait
+batch
+```
+
+这样既保留 CDP 能力，又避免模型把 `browser_cdp` 当万能工具反复手搓底层动作。
 
 ### 11.3 browser_click
 
