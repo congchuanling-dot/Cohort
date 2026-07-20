@@ -17,6 +17,7 @@ import (
 const (
 	defaultBrowserScanChars      = 12000
 	defaultBrowserJSReturnChars  = 8000
+	defaultBrowserSnapshotItems  = 80
 	defaultBrowserWaitTimeoutMS  = 10000
 	defaultBrowserWaitIntervalMS = 200
 )
@@ -434,6 +435,86 @@ func (t *BrowserTypeElement) Run(ctx context.Context, call agent.ToolCallContext
 		Text:     typed.Text,
 		Clear:    typed.Clear,
 		Diff:     typed.Diff,
+	}
+	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
+}
+
+// BrowserPressKey 发送 Enter、Escape、Tab、Cmd+Enter 等真实键盘按键。
+// 它封装 CDP Input.dispatchKeyEvent，避免模型手写底层 keyDown/keyUp 参数。
+type BrowserPressKey struct {
+	client browser.Client
+}
+
+func NewBrowserPressKey(client browser.Client) *BrowserPressKey {
+	return &BrowserPressKey{client: client}
+}
+
+func (t *BrowserPressKey) Name() string { return ToolNameBrowserPressKey }
+
+func (t *BrowserPressKey) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Press a real browser key or shortcut with CDP keyboard events. Use for Enter search, Escape close popup, Tab focus navigation, Cmd+Enter/Ctrl+Enter submit or send.",
+		Parameters: objectSchema(map[string]any{
+			"tab_id":     stringProp("Optional tab ID. If empty, presses key in the active tab."),
+			"key":        stringProp("Key or shortcut, for example Enter, Escape, Tab, ArrowUp, ArrowDown, Cmd+Enter, Ctrl+Enter, Meta+A."),
+			"no_monitor": boolProp("Disable lightweight page-change monitoring.", false),
+		}, "key"),
+	}}
+}
+
+func (t *BrowserPressKey) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	tabID := asString(call.Args["tab_id"])
+	key := strings.TrimSpace(asString(call.Args["key"]))
+	if key == "" {
+		return agent.Outcome{
+			Data: agent.NewToolError(
+				"browser_bad_key",
+				"browser_press_key requires a non-empty key",
+				"请提供按键名称，例如 Enter、Escape、Tab、Cmd+Enter 或 Ctrl+Enter。",
+			),
+			NextPrompt: "\n",
+		}, nil
+	}
+	result, err := t.client.PressKey(ctx, tabID, key, asBool(call.Args["no_monitor"], false))
+	if err != nil {
+		return browserToolError(err), nil
+	}
+	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
+}
+
+// BrowserSnapshot 返回当前页面的可交互元素摘要。
+// 它是“找按钮/输入框”的高层工具，减少模型反复写 Runtime.evaluate 探测 DOM。
+type BrowserSnapshot struct {
+	client browser.Client
+}
+
+func NewBrowserSnapshot(client browser.Client) *BrowserSnapshot {
+	return &BrowserSnapshot{client: client}
+}
+
+func (t *BrowserSnapshot) Name() string { return ToolNameBrowserSnapshot }
+
+func (t *BrowserSnapshot) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Return a compact snapshot of visible interactive elements in the current page: index, tag, text, aria-label, title, role, class summary, suggested selector, rect, visible, and disabled. Use before clicking or typing when selector is unknown.",
+		Parameters: objectSchema(map[string]any{
+			"tab_id":       stringProp("Optional tab ID. If empty, snapshots the active tab."),
+			"max_elements": intProp("Maximum interactive elements to return. Default 80.", defaultBrowserSnapshotItems),
+		}),
+	}}
+}
+
+func (t *BrowserSnapshot) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	tabID := asString(call.Args["tab_id"])
+	maxElements := asInt(call.Args["max_elements"], defaultBrowserSnapshotItems)
+	if maxElements <= 0 {
+		maxElements = defaultBrowserSnapshotItems
+	}
+	result, err := t.client.Snapshot(ctx, tabID, maxElements)
+	if err != nil {
+		return browserToolError(err), nil
 	}
 	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
 }
