@@ -112,7 +112,7 @@ func buildSystemPrompt(cfg Config) string {
 }
 
 func readSOPIndex() string {
-	content, err := os.ReadFile(filepath.Clean("docs/sop_index.md"))
+	content, err := os.ReadFile(filepath.Clean("sops/index.md"))
 	if err != nil {
 		return ""
 	}
