@@ -574,3 +574,150 @@ declarativeNetRequest 移除 CSP
 观察变化
 总结结果
 ```
+
+## 11. Cohert 浏览器输入链路落地状态
+
+当前已按“JS 定位、CDP 动作、轻量 diff 反馈”的路线补齐第一版浏览器交互链路。
+
+### 11.1 插件 cdp command
+
+插件 `assert/cohert_browser_bridge/background.js` 已新增 `cdp` command。
+
+执行流程：
+
+```text
+resolveTabId
+  -> chrome.debugger.attach
+  -> chrome.debugger.sendCommand
+  -> chrome.debugger.detach
+  -> 返回 CDP 原始 result 和轻量 diff
+```
+
+设计要点：
+
+- `cdp` 是底层调试入口，不要求模型直接用它完成普通点击和输入。
+- 每次命令都在 `finally` 中尝试 detach，避免 debugger 长期占用 tab。
+- `params` 保持通用 object，不在插件层绑定某个 CDP method 的 schema。
+
+### 11.2 Go 层 browser_cdp
+
+Go 层已新增：
+
+```text
+internal/browser.CDP
+internal/tools.BrowserCDP
+browser_cdp 工具注册
+```
+
+工具参数：
+
+```json
+{
+  "tab_id": "可选",
+  "method": "Runtime.evaluate",
+  "params": {},
+  "no_monitor": false
+}
+```
+
+它的定位是“高级调试和补能力”，常规页面交互应优先使用 `browser_click_element` 和 `browser_type_element`。
+
+### 11.3 browser_click
+
+`browser_click` 已实现坐标点击封装。
+
+插件内部使用一次 debugger attach 连续发送：
+
+```text
+Page.bringToFront
+Input.dispatchMouseEvent mouseMoved(0, 0)
+Input.dispatchMouseEvent mouseMoved(x, y)
+Input.dispatchMouseEvent mousePressed(x, y)
+Input.dispatchMouseEvent mouseReleased(x, y)
+```
+
+关键点：
+
+- 坐标是 viewport 坐标，和 `getBoundingClientRect()` 一致。
+- 三段鼠标事件在同一次 attach 内完成，避免 attach/detach 之间页面状态漂移。
+- 返回 `clicked_at` 和轻量 `diff`，方便模型判断点击是否生效。
+
+### 11.4 browser_click_element
+
+`browser_click_element` 已实现 selector 点击。
+
+执行流程：
+
+```text
+browser_execute_js
+  -> document.querySelector(selector)
+  -> scrollIntoView
+  -> getBoundingClientRect
+  -> 计算中心点
+  -> browser_click
+```
+
+这里仍然坚持一个边界：
+
+- JS 只负责定位和计算坐标。
+- 不调用 `element.click()`。
+- 真正点击必须走 CDP 鼠标事件。
+
+### 11.5 browser_type
+
+`browser_type` 已实现对当前焦点元素输入文本。
+
+插件内部使用：
+
+```text
+Page.bringToFront
+可选 Cmd+A / Backspace 清空
+Input.insertText
+```
+
+选择 `Input.insertText` 的原因：
+
+- 它比直接改 `element.value` 更接近真实输入。
+- 页面框架更容易收到真实输入链路产生的状态变化。
+- 文本输入比逐字符拼 `dispatchKeyEvent` 更简单稳定。
+
+### 11.6 browser_type_element
+
+`browser_type_element` 已实现 selector 输入。
+
+执行流程：
+
+```text
+browser_execute_js 定位元素并计算 rect
+  -> browser_click 聚焦元素
+  -> browser_type 输入文本
+```
+
+聚焦点击的 `no_monitor` 固定为 true，最终页面变化由输入动作统一返回，避免一次工具调用产生两段噪音 diff。
+
+### 11.7 页面变化监控
+
+插件已为 `execute_js / cdp / click / type` 接入轻量页面变化监控。
+
+快照内容：
+
+```text
+tab url
+tab title
+当前可脚本化 tab 数量
+document.body.innerText 长度
+可交互元素数量
+当前 activeElement 摘要
+```
+
+返回的是短文本 diff，例如：
+
+```text
+url changed
+body text length 1024->1400
+interactive elements 18->20
+focus INPUT[name=q]->BUTTON
+tab count 1->2
+```
+
+第一版不返回完整 DOM diff，也不做 OCR。这样能满足动作闭环判断，同时避免工具结果污染上下文。

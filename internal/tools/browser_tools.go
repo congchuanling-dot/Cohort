@@ -2,7 +2,10 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"net/url"
 	"strings"
 
@@ -181,6 +184,258 @@ func (t *BrowserExecuteJS) Run(ctx context.Context, call agent.ToolCallContext) 
 	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
 }
 
+// BrowserCDP 是原始 Chrome Debugger Protocol 入口。
+// 它主要用于调试和补齐新能力；常见点击和输入应优先使用更安全的封装工具。
+type BrowserCDP struct {
+	client browser.Client
+}
+
+func NewBrowserCDP(client browser.Client) *BrowserCDP {
+	return &BrowserCDP{client: client}
+}
+
+func (t *BrowserCDP) Name() string { return ToolNameBrowserCDP }
+
+func (t *BrowserCDP) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Send one Chrome DevTools Protocol command to the current or specified Chrome tab. Prefer browser_click/browser_type for normal interactions.",
+		Parameters: objectSchema(map[string]any{
+			"tab_id":     stringProp("Optional tab ID. If empty, uses the active tab."),
+			"method":     stringProp("CDP method name, for example Runtime.evaluate or Input.dispatchMouseEvent."),
+			"params":     objectProp("CDP command parameters."),
+			"no_monitor": boolProp("Disable lightweight page-change monitoring.", false),
+		}, "method"),
+	}}
+}
+
+func (t *BrowserCDP) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	tabID := asString(call.Args["tab_id"])
+	method := strings.TrimSpace(asString(call.Args["method"]))
+	if method == "" {
+		return agent.Outcome{
+			Data: agent.NewToolError(
+				"browser_bad_cdp_method",
+				"browser_cdp requires a non-empty method",
+				"请提供 CDP method，例如 Runtime.evaluate、Page.bringToFront 或 Input.dispatchMouseEvent。",
+			),
+			NextPrompt: "\n",
+		}, nil
+	}
+	result, err := t.client.CDP(ctx, tabID, method, asObject(call.Args["params"]), asBool(call.Args["no_monitor"], false))
+	if err != nil {
+		return browserToolError(err), nil
+	}
+	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
+}
+
+// BrowserClick 在 viewport 坐标执行真实鼠标点击。
+// x/y 来自 getBoundingClientRect 或用户明确给出的页面坐标，不是屏幕坐标。
+type BrowserClick struct {
+	client browser.Client
+}
+
+func NewBrowserClick(client browser.Client) *BrowserClick {
+	return &BrowserClick{client: client}
+}
+
+func (t *BrowserClick) Name() string { return ToolNameBrowserClick }
+
+func (t *BrowserClick) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Click a viewport coordinate in Chrome using CDP mouse events. Use browser_click_element when a CSS selector is available.",
+		Parameters: objectSchema(map[string]any{
+			"tab_id":     stringProp("Optional tab ID. If empty, clicks in the active tab."),
+			"x":          numberProp("Viewport X coordinate from getBoundingClientRect."),
+			"y":          numberProp("Viewport Y coordinate from getBoundingClientRect."),
+			"no_monitor": boolProp("Disable lightweight page-change monitoring.", false),
+		}, "x", "y"),
+	}}
+}
+
+func (t *BrowserClick) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	tabID := asString(call.Args["tab_id"])
+	x := asFloat(call.Args["x"], math.NaN())
+	y := asFloat(call.Args["y"], math.NaN())
+	if math.IsNaN(x) || math.IsNaN(y) {
+		return agent.Outcome{
+			Data: agent.NewToolError(
+				"browser_bad_click_point",
+				"browser_click requires numeric x and y",
+				"请传入 viewport 坐标，例如 {\"x\": 120, \"y\": 300}。",
+			),
+			NextPrompt: "\n",
+		}, nil
+	}
+	result, err := t.client.Click(ctx, tabID, x, y, asBool(call.Args["no_monitor"], false))
+	if err != nil {
+		return browserToolError(err), nil
+	}
+	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
+}
+
+// BrowserClickElement 用 CSS selector 定位元素，再走 CDP 坐标点击。
+// JS 只负责找元素和算 rect；真正点击仍由 CDP 产生真实输入事件。
+type BrowserClickElement struct {
+	client browser.Client
+}
+
+func NewBrowserClickElement(client browser.Client) *BrowserClickElement {
+	return &BrowserClickElement{client: client}
+}
+
+func (t *BrowserClickElement) Name() string { return ToolNameBrowserClickElement }
+
+func (t *BrowserClickElement) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Find an element by CSS selector, compute its viewport center, then click it with CDP mouse events.",
+		Parameters: objectSchema(map[string]any{
+			"tab_id":     stringProp("Optional tab ID. If empty, uses the active tab."),
+			"selector":   stringProp("CSS selector for the target element."),
+			"no_monitor": boolProp("Disable lightweight page-change monitoring.", false),
+		}, "selector"),
+	}}
+}
+
+func (t *BrowserClickElement) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	tabID := asString(call.Args["tab_id"])
+	selector := strings.TrimSpace(asString(call.Args["selector"]))
+	if selector == "" {
+		return badSelectorOutcome(), nil
+	}
+	rect, err := locateElementRect(ctx, t.client, tabID, selector)
+	if err != nil {
+		return browserToolError(err), nil
+	}
+	point := centerPoint(rect)
+	click, err := t.client.Click(ctx, tabID, point.X, point.Y, asBool(call.Args["no_monitor"], false))
+	if err != nil {
+		return browserToolError(err), nil
+	}
+	result := browser.ElementClickResult{
+		Status:    click.Status,
+		TabID:     click.TabID,
+		Selector:  selector,
+		Rect:      rect,
+		ClickedAt: click.ClickedAt,
+		Diff:      click.Diff,
+	}
+	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
+}
+
+// BrowserType 向当前焦点输入文本。聚焦由 browser_click 或 browser_type_element 负责。
+type BrowserType struct {
+	client browser.Client
+}
+
+func NewBrowserType(client browser.Client) *BrowserType {
+	return &BrowserType{client: client}
+}
+
+func (t *BrowserType) Name() string { return ToolNameBrowserType }
+
+func (t *BrowserType) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Type text into the currently focused page element using CDP keyboard input. Focus the element first with browser_click or browser_type_element.",
+		Parameters: objectSchema(map[string]any{
+			"tab_id":     stringProp("Optional tab ID. If empty, types in the active tab."),
+			"text":       stringProp("Text to insert into the focused element."),
+			"clear":      boolProp("Select all existing text and delete it before typing.", false),
+			"no_monitor": boolProp("Disable lightweight page-change monitoring.", false),
+		}, "text"),
+	}}
+}
+
+func (t *BrowserType) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	tabID := asString(call.Args["tab_id"])
+	text := asString(call.Args["text"])
+	if text == "" {
+		return agent.Outcome{
+			Data: agent.NewToolError(
+				"browser_bad_type_text",
+				"browser_type requires non-empty text",
+				"请提供要输入的文本。",
+			),
+			NextPrompt: "\n",
+		}, nil
+	}
+	result, err := t.client.Type(ctx, tabID, text, asBool(call.Args["clear"], false), asBool(call.Args["no_monitor"], false))
+	if err != nil {
+		return browserToolError(err), nil
+	}
+	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
+}
+
+// BrowserTypeElement 先按 selector 定位并点击聚焦，再输入文本。
+type BrowserTypeElement struct {
+	client browser.Client
+}
+
+func NewBrowserTypeElement(client browser.Client) *BrowserTypeElement {
+	return &BrowserTypeElement{client: client}
+}
+
+func (t *BrowserTypeElement) Name() string { return ToolNameBrowserTypeElement }
+
+func (t *BrowserTypeElement) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Find an input-like element by CSS selector, click it with CDP to focus, then type text with CDP keyboard input.",
+		Parameters: objectSchema(map[string]any{
+			"tab_id":     stringProp("Optional tab ID. If empty, uses the active tab."),
+			"selector":   stringProp("CSS selector for the target input element."),
+			"text":       stringProp("Text to insert into the element."),
+			"clear":      boolProp("Select all existing text and delete it before typing.", false),
+			"no_monitor": boolProp("Disable lightweight page-change monitoring.", false),
+		}, "selector", "text"),
+	}}
+}
+
+func (t *BrowserTypeElement) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	tabID := asString(call.Args["tab_id"])
+	selector := strings.TrimSpace(asString(call.Args["selector"]))
+	if selector == "" {
+		return badSelectorOutcome(), nil
+	}
+	text := asString(call.Args["text"])
+	if text == "" {
+		return agent.Outcome{
+			Data: agent.NewToolError(
+				"browser_bad_type_text",
+				"browser_type_element requires non-empty text",
+				"请提供要输入的文本。",
+			),
+			NextPrompt: "\n",
+		}, nil
+	}
+	rect, err := locateElementRect(ctx, t.client, tabID, selector)
+	if err != nil {
+		return browserToolError(err), nil
+	}
+	point := centerPoint(rect)
+	if _, err := t.client.Click(ctx, tabID, point.X, point.Y, true); err != nil {
+		return browserToolError(err), nil
+	}
+	typed, err := t.client.Type(ctx, tabID, text, asBool(call.Args["clear"], false), asBool(call.Args["no_monitor"], false))
+	if err != nil {
+		return browserToolError(err), nil
+	}
+	result := browser.ElementTypeResult{
+		Status:   typed.Status,
+		TabID:    typed.TabID,
+		Selector: selector,
+		Rect:     rect,
+		TypedAt:  point,
+		Text:     typed.Text,
+		Clear:    typed.Clear,
+		Diff:     typed.Diff,
+	}
+	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
+}
+
 func browserToolError(err error) agent.Outcome {
 	code := "browser_error"
 	hint := "确认 Chrome 已安装 Cohert Browser Bridge 插件，并且 Cohert 正在运行；插件会连接 ws://127.0.0.1:18777/browser。"
@@ -191,6 +446,70 @@ func browserToolError(err error) agent.Outcome {
 	return agent.Outcome{
 		Data:       agent.NewToolError(code, err.Error(), hint),
 		NextPrompt: "\n",
+	}
+}
+
+func badSelectorOutcome() agent.Outcome {
+	return agent.Outcome{
+		Data: agent.NewToolError(
+			"browser_bad_selector",
+			"selector is required",
+			"请提供 CSS selector，例如 button[type=submit] 或 input[name=q]。",
+		),
+		NextPrompt: "\n",
+	}
+}
+
+func locateElementRect(ctx context.Context, client browser.Client, tabID string, selector string) (browser.Rect, error) {
+	selectorJSON, err := json.Marshal(selector)
+	if err != nil {
+		return browser.Rect{}, err
+	}
+	// 这里让 JS 只做两件事：滚动目标元素到 viewport 内，并读取真实渲染后的 rect。
+	// 不在 JS 里调用 element.click()，避免产生 isTrusted=false 的合成点击事件。
+	script := fmt.Sprintf(`const selector = %s;
+const element = document.querySelector(selector);
+if (!element) {
+  throw new Error("element not found: " + selector);
+}
+element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+const rect = element.getBoundingClientRect();
+const style = getComputedStyle(element);
+if (rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
+  throw new Error("element is not visible: " + selector);
+}
+return {
+  x: rect.x,
+  y: rect.y,
+  width: rect.width,
+  height: rect.height,
+  top: rect.top,
+  right: rect.right,
+  bottom: rect.bottom,
+  left: rect.left
+};`, string(selectorJSON))
+	result, err := client.ExecuteJS(ctx, tabID, script, true, 2000)
+	if err != nil {
+		return browser.Rect{}, err
+	}
+	if result.Status == "error" {
+		return browser.Rect{}, fmt.Errorf("browser element lookup error: %v", result.Error)
+	}
+	var rect browser.Rect
+	if err := json.Unmarshal([]byte(result.JSReturn), &rect); err != nil {
+		return browser.Rect{}, fmt.Errorf("decode element rect: %w", err)
+	}
+	if rect.Width <= 0 || rect.Height <= 0 {
+		return browser.Rect{}, fmt.Errorf("element has invalid rect: width=%v height=%v", rect.Width, rect.Height)
+	}
+	return rect, nil
+}
+
+func centerPoint(rect browser.Rect) browser.Point {
+	return browser.Point{
+		X: rect.Left + rect.Width/2,
+		Y: rect.Top + rect.Height/2,
 	}
 }
 

@@ -273,6 +273,48 @@ func (b *Bridge) ExecuteJS(ctx context.Context, tabID string, script string, noM
 	}, nil
 }
 
+// CDP 向插件透传一条 Chrome Debugger Protocol 命令。
+// 这一层只负责协议转发，不理解具体 method 语义；点击、输入等高频动作由更上层工具封装。
+func (b *Bridge) CDP(ctx context.Context, tabID string, method string, params map[string]any, noMonitor bool) (CDPResult, error) {
+	var result CDPResult
+	err := b.command(ctx, map[string]any{
+		"command":    "cdp",
+		"tab_id":     tabID,
+		"method":     method,
+		"params":     params,
+		"no_monitor": noMonitor,
+	}, &result)
+	return result, err
+}
+
+// Click 在指定 viewport 坐标执行一次真实鼠标左键点击。
+// 插件侧会在一次 debugger attach 生命周期内连续发送 mouseMoved/mousePressed/mouseReleased。
+func (b *Bridge) Click(ctx context.Context, tabID string, x float64, y float64, noMonitor bool) (ClickResult, error) {
+	var result ClickResult
+	err := b.command(ctx, map[string]any{
+		"command":    "click",
+		"tab_id":     tabID,
+		"x":          x,
+		"y":          y,
+		"no_monitor": noMonitor,
+	}, &result)
+	return result, err
+}
+
+// Type 向当前已聚焦的页面元素输入文本。
+// 聚焦动作由 browser_click 或 browser_type_element 负责，这里只处理键盘输入。
+func (b *Bridge) Type(ctx context.Context, tabID string, text string, clear bool, noMonitor bool) (TypeResult, error) {
+	var result TypeResult
+	err := b.command(ctx, map[string]any{
+		"command":    "type",
+		"tab_id":     tabID,
+		"text":       text,
+		"clear":      clear,
+		"no_monitor": noMonitor,
+	}, &result)
+	return result, err
+}
+
 func (b *Bridge) command(ctx context.Context, payload map[string]any, out any) error {
 	conn := b.currentConnection()
 	if conn == nil {

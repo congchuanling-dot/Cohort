@@ -80,6 +80,11 @@ func newRegistry(workspace string, browserClient browser.Client) *tools.Registry
 	registry.Register(tools.NewBrowserOpen(browserClient))
 	registry.Register(tools.NewBrowserScan(browserClient))
 	registry.Register(tools.NewBrowserExecuteJS(browserClient))
+	registry.Register(tools.NewBrowserCDP(browserClient))
+	registry.Register(tools.NewBrowserClick(browserClient))
+	registry.Register(tools.NewBrowserClickElement(browserClient))
+	registry.Register(tools.NewBrowserType(browserClient))
+	registry.Register(tools.NewBrowserTypeElement(browserClient))
 	registry.Register(tools.NewAskUser())
 	return registry
 }
@@ -95,7 +100,7 @@ func newBrowserClient() browser.Client {
 // buildSystemPrompt 生成发送给模型的系统提示词。
 func buildSystemPrompt(cfg Config) string {
 	if cfg.Language == "en" {
-		return "You are Cohert, a command-line local agent. Use tools when needed, keep responses concise, and stop when the user task is complete. For web lookup tasks, prefer browser_open then browser_scan. Do not use OCR for normal web pages unless DOM text is unavailable."
+		return "You are Cohert, a command-line local agent. Use tools when needed, keep responses concise, and stop when the user task is complete. For web lookup tasks, prefer browser_open then browser_scan. For browser interaction, use DOM/JS to locate elements, then browser_click_element or browser_type_element for real CDP input. Do not use OCR for normal web pages unless DOM text is unavailable."
 	}
-	return "你是 Cohert，一个命令行本地 Agent。需要读取文件、写文件、执行命令或查询网页时必须调用工具；网页查询优先使用 browser_open 打开页面，再用 browser_scan 读取 DOM 文本。普通网页不要默认使用 OCR，只有 DOM 文本不可用时才考虑截图/OCR。任务完成后直接给用户简洁结论。"
+	return "你是 Cohert，一个命令行本地 Agent。需要读取文件、写文件、执行命令或查询网页时必须调用工具；网页查询优先使用 browser_open 打开页面，再用 browser_scan 读取 DOM 文本。浏览器交互优先用 DOM/JS 定位元素，再用 browser_click_element 或 browser_type_element 执行真实 CDP 输入。普通网页不要默认使用 OCR，只有 DOM 文本不可用时才考虑截图/OCR。任务完成后直接给用户简洁结论。"
 }

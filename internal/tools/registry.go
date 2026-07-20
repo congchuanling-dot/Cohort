@@ -29,6 +29,16 @@ const (
 	ToolNameBrowserScan = "browser_scan"
 	// ToolNameBrowserExecuteJS 在浏览器页面中执行 JavaScript。
 	ToolNameBrowserExecuteJS = "browser_execute_js"
+	// ToolNameBrowserCDP 向浏览器发送原始 CDP 命令。
+	ToolNameBrowserCDP = "browser_cdp"
+	// ToolNameBrowserClick 使用 CDP 鼠标事件点击 viewport 坐标。
+	ToolNameBrowserClick = "browser_click"
+	// ToolNameBrowserClickElement 按 CSS selector 定位并点击元素。
+	ToolNameBrowserClickElement = "browser_click_element"
+	// ToolNameBrowserType 使用 CDP 键盘输入向当前焦点输入文本。
+	ToolNameBrowserType = "browser_type"
+	// ToolNameBrowserTypeElement 按 CSS selector 聚焦元素并输入文本。
+	ToolNameBrowserTypeElement = "browser_type_element"
 )
 
 // Tool 是所有本地工具必须实现的接口。
@@ -67,6 +77,11 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameBrowserOpen,
 		ToolNameBrowserScan,
 		ToolNameBrowserExecuteJS,
+		ToolNameBrowserCDP,
+		ToolNameBrowserClick,
+		ToolNameBrowserClickElement,
+		ToolNameBrowserType,
+		ToolNameBrowserTypeElement,
 		ToolNameAskUser,
 	}
 	seen := map[string]bool{}
@@ -131,6 +146,18 @@ func intProp(desc string, def int) map[string]any {
 	return map[string]any{"type": "integer", "description": desc, "default": def}
 }
 
+func numberProp(desc string) map[string]any {
+	return map[string]any{"type": "number", "description": desc}
+}
+
 func boolProp(desc string, def bool) map[string]any {
 	return map[string]any{"type": "boolean", "description": desc, "default": def}
+}
+
+func objectProp(desc string) map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"description":          desc,
+		"additionalProperties": true,
+	}
 }

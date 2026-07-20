@@ -57,6 +57,75 @@ type ExecuteJSResult struct {
 	Error     any    `json:"error,omitempty"`
 }
 
+// CDPResult 是 browser_cdp 的底层返回结构。
+// Result 保留 CDP 原始返回值，方便调试 Runtime.evaluate、Page.captureScreenshot 等不同命令。
+type CDPResult struct {
+	Status string         `json:"status"`
+	TabID  string         `json:"tab_id"`
+	Method string         `json:"method"`
+	Result map[string]any `json:"result,omitempty"`
+	Diff   string         `json:"diff,omitempty"`
+}
+
+// Point 表示 viewport 坐标，不是屏幕物理坐标。
+// Chrome Debugger Protocol 的 Input.dispatchMouseEvent 使用的就是 viewport 坐标。
+type Point struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+// Rect 是元素在 viewport 中的边界框。
+// browser_click_element / browser_type_element 会先用 JS 读取 rect，再取中心点交给 CDP。
+type Rect struct {
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
+	Top    float64 `json:"top"`
+	Right  float64 `json:"right"`
+	Bottom float64 `json:"bottom"`
+	Left   float64 `json:"left"`
+}
+
+// ClickResult 是 browser_click 和 browser_click_element 的稳定返回结构。
+type ClickResult struct {
+	Status    string `json:"status"`
+	TabID     string `json:"tab_id"`
+	ClickedAt Point  `json:"clicked_at"`
+	Diff      string `json:"diff,omitempty"`
+}
+
+// ElementClickResult 是按 selector 点击元素后的返回结构。
+type ElementClickResult struct {
+	Status    string `json:"status"`
+	TabID     string `json:"tab_id"`
+	Selector  string `json:"selector"`
+	Rect      Rect   `json:"rect"`
+	ClickedAt Point  `json:"clicked_at"`
+	Diff      string `json:"diff,omitempty"`
+}
+
+// TypeResult 是 browser_type 和 browser_type_element 的稳定返回结构。
+type TypeResult struct {
+	Status string `json:"status"`
+	TabID  string `json:"tab_id"`
+	Text   string `json:"text,omitempty"`
+	Clear  bool   `json:"clear,omitempty"`
+	Diff   string `json:"diff,omitempty"`
+}
+
+// ElementTypeResult 是按 selector 聚焦元素并输入文本后的返回结构。
+type ElementTypeResult struct {
+	Status   string `json:"status"`
+	TabID    string `json:"tab_id"`
+	Selector string `json:"selector"`
+	Rect     Rect   `json:"rect"`
+	TypedAt  Point  `json:"typed_at"`
+	Text     string `json:"text,omitempty"`
+	Clear    bool   `json:"clear,omitempty"`
+	Diff     string `json:"diff,omitempty"`
+}
+
 // Client 是工具层依赖的浏览器能力接口。
 // internal/tools 只关心这个接口，不需要知道底层是 Chrome 插件、CDP 还是以后别的桥接方案。
 type Client interface {
@@ -64,4 +133,7 @@ type Client interface {
 	Open(ctx context.Context, url string, tabID string, active bool) (OpenResult, error)
 	Scan(ctx context.Context, tabID string, maxChars int) (PageSnapshot, error)
 	ExecuteJS(ctx context.Context, tabID string, script string, noMonitor bool, maxReturnChars int) (ExecuteJSResult, error)
+	CDP(ctx context.Context, tabID string, method string, params map[string]any, noMonitor bool) (CDPResult, error)
+	Click(ctx context.Context, tabID string, x float64, y float64, noMonitor bool) (ClickResult, error)
+	Type(ctx context.Context, tabID string, text string, clear bool, noMonitor bool) (TypeResult, error)
 }

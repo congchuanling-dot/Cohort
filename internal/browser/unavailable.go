@@ -31,6 +31,18 @@ func (c *UnavailableClient) ExecuteJS(ctx context.Context, tabID string, script 
 	return ExecuteJSResult{}, c.error()
 }
 
+func (c *UnavailableClient) CDP(ctx context.Context, tabID string, method string, params map[string]any, noMonitor bool) (CDPResult, error) {
+	return CDPResult{}, c.error()
+}
+
+func (c *UnavailableClient) Click(ctx context.Context, tabID string, x float64, y float64, noMonitor bool) (ClickResult, error) {
+	return ClickResult{}, c.error()
+}
+
+func (c *UnavailableClient) Type(ctx context.Context, tabID string, text string, clear bool, noMonitor bool) (TypeResult, error) {
+	return TypeResult{}, c.error()
+}
+
 func (c *UnavailableClient) error() error {
 	if c == nil || c.Err == nil {
 		return ErrNotConnected

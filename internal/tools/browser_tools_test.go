@@ -19,6 +19,15 @@ type fakeBrowserClient struct {
 	executeScript    string
 	executeNoMonitor bool
 	executeMaxReturn int
+	cdpTabID         string
+	cdpMethod        string
+	cdpParams        map[string]any
+	clickTabID       string
+	clickX           float64
+	clickY           float64
+	typeTabID        string
+	typeText         string
+	typeClear        bool
 	err              error
 }
 
@@ -63,6 +72,36 @@ func (f *fakeBrowserClient) ExecuteJS(ctx context.Context, tabID string, script 
 	}, nil
 }
 
+func (f *fakeBrowserClient) CDP(ctx context.Context, tabID string, method string, params map[string]any, noMonitor bool) (browser.CDPResult, error) {
+	if f.err != nil {
+		return browser.CDPResult{}, f.err
+	}
+	f.cdpTabID = tabID
+	f.cdpMethod = method
+	f.cdpParams = params
+	return browser.CDPResult{Status: agent.ToolStatusSuccess, TabID: tabID, Method: method, Result: map[string]any{}}, nil
+}
+
+func (f *fakeBrowserClient) Click(ctx context.Context, tabID string, x float64, y float64, noMonitor bool) (browser.ClickResult, error) {
+	if f.err != nil {
+		return browser.ClickResult{}, f.err
+	}
+	f.clickTabID = tabID
+	f.clickX = x
+	f.clickY = y
+	return browser.ClickResult{Status: agent.ToolStatusSuccess, TabID: tabID, ClickedAt: browser.Point{X: x, Y: y}}, nil
+}
+
+func (f *fakeBrowserClient) Type(ctx context.Context, tabID string, text string, clear bool, noMonitor bool) (browser.TypeResult, error) {
+	if f.err != nil {
+		return browser.TypeResult{}, f.err
+	}
+	f.typeTabID = tabID
+	f.typeText = text
+	f.typeClear = clear
+	return browser.TypeResult{Status: agent.ToolStatusSuccess, TabID: tabID, Text: text, Clear: clear}, nil
+}
+
 func TestBrowserOpenRejectsNonHTTPURL(t *testing.T) {
 	tool := NewBrowserOpen(&fakeBrowserClient{})
 	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{
@@ -74,6 +113,52 @@ func TestBrowserOpenRejectsNonHTTPURL(t *testing.T) {
 	data := outcome.Data.(agent.ToolErrorData)
 	if data.Code != "browser_bad_url" {
 		t.Fatalf("code = %q, want browser_bad_url", data.Code)
+	}
+}
+
+func TestBrowserCDPCallsClient(t *testing.T) {
+	client := &fakeBrowserClient{}
+	tool := NewBrowserCDP(client)
+	_, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{
+			"tab_id": "9",
+			"method": "Runtime.evaluate",
+			"params": map[string]any{"expression": "document.title"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.cdpTabID != "9" || client.cdpMethod != "Runtime.evaluate" || client.cdpParams["expression"] != "document.title" {
+		t.Fatalf("cdp call = tab %q method %q params %+v", client.cdpTabID, client.cdpMethod, client.cdpParams)
+	}
+}
+
+func TestBrowserClickCallsClient(t *testing.T) {
+	client := &fakeBrowserClient{}
+	tool := NewBrowserClick(client)
+	_, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"tab_id": "5", "x": 12.5, "y": 40},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.clickTabID != "5" || client.clickX != 12.5 || client.clickY != 40 {
+		t.Fatalf("click call = tab %q x %v y %v", client.clickTabID, client.clickX, client.clickY)
+	}
+}
+
+func TestBrowserTypeCallsClient(t *testing.T) {
+	client := &fakeBrowserClient{}
+	tool := NewBrowserType(client)
+	_, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"tab_id": "5", "text": "hello", "clear": true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.typeTabID != "5" || client.typeText != "hello" || !client.typeClear {
+		t.Fatalf("type call = tab %q text %q clear %v", client.typeTabID, client.typeText, client.typeClear)
 	}
 }
 

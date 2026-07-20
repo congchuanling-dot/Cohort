@@ -38,6 +38,25 @@ func asInt(v any, fallback int) int {
 	return fallback
 }
 
+func asFloat(v any, fallback float64) float64 {
+	switch x := v.(type) {
+	case float64:
+		return x
+	case float32:
+		return float64(x)
+	case int:
+		return float64(x)
+	case int64:
+		return float64(x)
+	case string:
+		n, err := strconv.ParseFloat(strings.TrimSpace(x), 64)
+		if err == nil {
+			return n
+		}
+	}
+	return fallback
+}
+
 func asBool(v any, fallback bool) bool {
 	switch x := v.(type) {
 	case bool:
@@ -51,4 +70,11 @@ func asBool(v any, fallback bool) bool {
 		}
 	}
 	return fallback
+}
+
+func asObject(v any) map[string]any {
+	if m, ok := v.(map[string]any); ok {
+		return m
+	}
+	return map[string]any{}
 }
