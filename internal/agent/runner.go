@@ -40,6 +40,14 @@ type ToolCallContext struct {
 	ToolCount int
 }
 
+// WorkingCheckpoint 是当前任务的短期工作记忆。
+// 它只存在于 Runner 内存中，不落盘；用于保存 SOP 关键约束、任务进度和下一步。
+type WorkingCheckpoint struct {
+	KeyInfo       string
+	RelatedSOP    string
+	UpdatedAtTurn int
+}
+
 // Runner 表示一个 Agent 会话，负责串起模型、工具、历史消息和循环控制。
 type Runner struct {
 	Client       llm.Client // Client 负责和模型服务通信。
@@ -56,12 +64,16 @@ type Runner struct {
 	SessionCWD string
 	// SessionModel 记录本次会话使用的模型名，会写入 meta.json。
 	SessionModel string
+	// WorkingCheckpoint 保存当前任务的短期关键约束，避免读过 SOP 后在多轮执行中遗忘。
+	WorkingCheckpoint WorkingCheckpoint
 
 	// history 保存当前会话历史。小写字段表示只允许 agent 包内部直接修改。
 	history []llm.Message
 	// sessionID 是当前 Runner 对应的本地 session 目录名。
 	// 它第一次收到用户输入时创建，之后同一个 REPL Runner 会持续复用。
 	sessionID string
+	// pendingHints 保存下一轮临时注入给模型的系统提醒，不写入持久 history。
+	pendingHints []string
 }
 
 // Run 执行一次用户任务。流程是：用户输入 -> 调模型 -> 执行工具 -> 工具结果回灌 -> 继续调模型。
@@ -157,6 +169,9 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 					}
 				}
 			}
+			if err == nil && call.Function.Name == "update_working_checkpoint" {
+				r.updateWorkingCheckpoint(args, turn)
+			}
 			if outcome.ShouldExit {
 				return RunResult{Status: RunStatusExited, Response: resp}, nil
 			}
@@ -171,6 +186,10 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			}, ""); err != nil {
 				return RunResult{}, err
 			}
+			r.addPendingHint(outcome.NextPrompt)
+		}
+		if turn > 0 && turn%10 == 0 {
+			r.addPendingHint("[SYSTEM HINT] 任务已运行多轮。如果已经多次失败、策略不清或涉及 SOP 约束，请重读 related_sop 并更新 update_working_checkpoint。")
 		}
 		// 工具结果已经进入完整 history；下一轮模型请求前重新构造可见上下文。
 		// Context Manager 应根据预算决定是否压缩，而不是每轮固定裁剪。
@@ -183,7 +202,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 func (r *Runner) buildRequestMessages() []llm.Message {
 	messages := append([]llm.Message(nil), r.history...)
 	if r.ContextManager == nil {
-		return messages
+		return r.appendEphemeralGuidance(messages)
 	}
 	result := r.ContextManager.Build(contextmgr.BuildInput{
 		Messages:   messages,
@@ -191,7 +210,62 @@ func (r *Runner) buildRequestMessages() []llm.Message {
 		SessionDir: r.sessionDir(),
 	})
 	r.logContextStats(result.Stats)
-	return result.Messages
+	return r.appendEphemeralGuidance(result.Messages)
+}
+
+func (r *Runner) updateWorkingCheckpoint(args map[string]any, turn int) {
+	if value := strings.TrimSpace(fmt.Sprint(args["key_info"])); value != "" && value != "<nil>" {
+		r.WorkingCheckpoint.KeyInfo = value
+	}
+	if value := strings.TrimSpace(fmt.Sprint(args["related_sop"])); value != "" && value != "<nil>" {
+		r.WorkingCheckpoint.RelatedSOP = value
+	}
+	r.WorkingCheckpoint.UpdatedAtTurn = turn
+}
+
+func (r *Runner) addPendingHint(hint string) {
+	hint = strings.TrimSpace(hint)
+	if hint == "" {
+		return
+	}
+	r.pendingHints = append(r.pendingHints, hint)
+}
+
+func (r *Runner) appendEphemeralGuidance(messages []llm.Message) []llm.Message {
+	content := r.workingCheckpointPrompt()
+	if len(r.pendingHints) > 0 {
+		if content != "" {
+			content += "\n\n"
+		}
+		content += strings.Join(r.pendingHints, "\n")
+		r.pendingHints = nil
+	}
+	if strings.TrimSpace(content) == "" {
+		return messages
+	}
+	return append(messages, llm.Message{
+		Role:    llm.RoleUser,
+		Content: content,
+	})
+}
+
+func (r *Runner) workingCheckpointPrompt() string {
+	if strings.TrimSpace(r.WorkingCheckpoint.KeyInfo) == "" && strings.TrimSpace(r.WorkingCheckpoint.RelatedSOP) == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("[WORKING CHECKPOINT]\n")
+	if r.WorkingCheckpoint.KeyInfo != "" {
+		b.WriteString("key_info: ")
+		b.WriteString(r.WorkingCheckpoint.KeyInfo)
+		b.WriteByte('\n')
+	}
+	if r.WorkingCheckpoint.RelatedSOP != "" {
+		b.WriteString("related_sop: ")
+		b.WriteString(r.WorkingCheckpoint.RelatedSOP)
+		b.WriteString("\nIf unsure, re-read related_sop before continuing.\n")
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func (r *Runner) ToolSchemas() []llm.ToolSchema {

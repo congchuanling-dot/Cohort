@@ -45,6 +45,47 @@ func (t contextFakeTools) Run(ctx context.Context, call ToolCallContext) (Outcom
 	return Outcome{Data: t.result, NextPrompt: "\n"}, nil
 }
 
+func TestRunnerInjectsWorkingCheckpoint_BitsUT(t *testing.T) {
+	client := &contextRecordingClient{
+		responses: []llm.Response{
+			{ToolCalls: []llm.ToolCall{{
+				ID:   "call-1",
+				Type: "function",
+				Function: llm.ToolFunction{
+					Name:      "update_working_checkpoint",
+					Arguments: `{"key_info":"按 browser SOP 先 wait 再 scan","related_sop":"sops/browser_sop.md"}`,
+				},
+			}}},
+			{Content: "ok"},
+		},
+	}
+	runner := &Runner{
+		Client:   client,
+		Tools:    contextFakeTools{result: `{"status":"success"}`},
+		MaxTurns: 2,
+	}
+
+	var out bytes.Buffer
+	result, err := runner.Run(context.Background(), "测试 checkpoint", NewConsoleSink(&out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != RunStatusDone {
+		t.Fatalf("status = %q, want done", result.Status)
+	}
+	if len(client.requests) != 2 {
+		t.Fatalf("requests = %d, want 2", len(client.requests))
+	}
+	second := client.requests[1].Messages
+	last := second[len(second)-1]
+	if last.Role != llm.RoleUser || !strings.Contains(last.Content, "[WORKING CHECKPOINT]") {
+		t.Fatalf("last message = %#v, want working checkpoint", last)
+	}
+	if !strings.Contains(last.Content, "按 browser SOP 先 wait 再 scan") || !strings.Contains(last.Content, "sops/browser_sop.md") {
+		t.Fatalf("checkpoint content = %q", last.Content)
+	}
+}
+
 func TestRunnerUsesContextManagerForModelRequest_BitsUT(t *testing.T) {
 	client := &contextRecordingClient{
 		responses: []llm.Response{{Content: "ok"}},

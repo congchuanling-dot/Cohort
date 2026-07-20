@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"cohert/internal/agent"
@@ -84,5 +85,16 @@ func (t *FileRead) Run(ctx context.Context, call agent.ToolCallContext) (agent.O
 	if err := scanner.Err(); err != nil {
 		return agent.Outcome{}, err
 	}
-	return agent.Outcome{Data: b.String(), NextPrompt: "\n"}, nil
+	nextPrompt := "\n"
+	if looksLikeSOPPath(path) {
+		nextPrompt = "\n[SYSTEM HINT] 你刚读取了 SOP。如果决定按它执行，请调用 update_working_checkpoint，把关键约束和 related_sop 存入工作记忆。\n"
+	}
+	return agent.Outcome{Data: b.String(), NextPrompt: nextPrompt}, nil
+}
+
+func looksLikeSOPPath(path string) bool {
+	clean := filepath.ToSlash(filepath.Clean(path))
+	base := strings.ToLower(filepath.Base(clean))
+	lower := strings.ToLower(clean)
+	return strings.Contains(lower, "/sops/") || strings.Contains(base, "sop")
 }

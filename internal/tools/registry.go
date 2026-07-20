@@ -21,6 +21,8 @@ const (
 	ToolNameCodeRun = "code_run"
 	// ToolNameAskUser 在命令行向用户提问。
 	ToolNameAskUser = "ask_user"
+	// ToolNameUpdateWorkingCheckpoint 更新短期工作记忆。
+	ToolNameUpdateWorkingCheckpoint = "update_working_checkpoint"
 	// ToolNameBrowserTabs 列出浏览器标签页。
 	ToolNameBrowserTabs = "browser_tabs"
 	// ToolNameBrowserOpen 打开或导航浏览器页面。
@@ -94,6 +96,7 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameBrowserWaitForSelector,
 		ToolNameBrowserWaitForText,
 		ToolNameBrowserWaitForStable,
+		ToolNameUpdateWorkingCheckpoint,
 		ToolNameAskUser,
 	}
 	seen := map[string]bool{}
