@@ -906,7 +906,7 @@ async function snapshotTab(request) {
         return (value || element.innerText || element.textContent || "").replace(/\s+/g, " ").trim().slice(0, 80);
       };
       const classSummary = (element) => Array.from(element.classList || []).slice(0, 4).join(".");
-      const isVisible = (element, rect, style) => {
+      const isVisible = (rect, style) => {
         if (!rect || rect.width <= 0 || rect.height <= 0) return false;
         if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return false;
         if (rect.bottom < 0 || rect.right < 0 || rect.top > window.innerHeight || rect.left > window.innerWidth) return false;
@@ -964,7 +964,7 @@ async function snapshotTab(request) {
       const elements = candidates.map((element) => {
         const rect = element.getBoundingClientRect();
         const style = getComputedStyle(element);
-        const visible = isVisible(element, rect, style);
+        const visible = isVisible(rect, style);
         const disabled = disabledOf(element);
         const text = textOf(element);
         const tag = element.tagName.toLowerCase();
