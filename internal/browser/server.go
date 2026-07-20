@@ -315,6 +315,30 @@ func (b *Bridge) Type(ctx context.Context, tabID string, text string, clear bool
 	return result, err
 }
 
+// PressKey 在当前焦点或页面上发送一个真实键盘按键或组合键。
+// 组合键用高层字符串表达，例如 Cmd+Enter、Ctrl+Enter、Meta+A。
+func (b *Bridge) PressKey(ctx context.Context, tabID string, key string, noMonitor bool) (PressKeyResult, error) {
+	var result PressKeyResult
+	err := b.command(ctx, map[string]any{
+		"command":    "press_key",
+		"tab_id":     tabID,
+		"key":        key,
+		"no_monitor": noMonitor,
+	}, &result)
+	return result, err
+}
+
+// Snapshot 返回当前页面的可交互元素摘要，帮助模型少写低层 DOM 探测脚本。
+func (b *Bridge) Snapshot(ctx context.Context, tabID string, maxElements int) (InteractiveSnapshot, error) {
+	var result InteractiveSnapshot
+	err := b.command(ctx, map[string]any{
+		"command":      "snapshot",
+		"tab_id":       tabID,
+		"max_elements": maxElements,
+	}, &result)
+	return result, err
+}
+
 // Wait 在浏览器侧轮询等待页面达到指定状态。
 // 与 Go 侧循环相比，放在插件侧可以直接读取 tab.status 和页面 DOM，避免多次 WebSocket 往返。
 func (b *Bridge) Wait(ctx context.Context, tabID string, mode string, params map[string]any, timeoutMS int, intervalMS int) (WaitResult, error) {

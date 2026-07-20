@@ -43,6 +43,14 @@ func (c *UnavailableClient) Type(ctx context.Context, tabID string, text string,
 	return TypeResult{}, c.error()
 }
 
+func (c *UnavailableClient) PressKey(ctx context.Context, tabID string, key string, noMonitor bool) (PressKeyResult, error) {
+	return PressKeyResult{}, c.error()
+}
+
+func (c *UnavailableClient) Snapshot(ctx context.Context, tabID string, maxElements int) (InteractiveSnapshot, error) {
+	return InteractiveSnapshot{}, c.error()
+}
+
 func (c *UnavailableClient) Wait(ctx context.Context, tabID string, mode string, params map[string]any, timeoutMS int, intervalMS int) (WaitResult, error) {
 	return WaitResult{}, c.error()
 }
