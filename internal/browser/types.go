@@ -126,6 +126,48 @@ type ElementTypeResult struct {
 	Diff     string `json:"diff,omitempty"`
 }
 
+// PressKeyResult 是 browser_press_key 的稳定返回结构。
+// Key 支持 Enter、Escape、Tab、ArrowUp、Cmd+Enter 等高层按键名称。
+type PressKeyResult struct {
+	Status    string   `json:"status"`
+	TabID     string   `json:"tab_id"`
+	Key       string   `json:"key"`
+	Modifiers []string `json:"modifiers,omitempty"`
+	Diff      string   `json:"diff,omitempty"`
+}
+
+// InteractiveElement 是 browser_snapshot 返回的可交互元素摘要。
+// 只保留模型决策需要的低噪声字段，避免回传完整 DOM。
+type InteractiveElement struct {
+	Index     int     `json:"index"`
+	Tag       string  `json:"tag"`
+	Text      string  `json:"text,omitempty"`
+	AriaLabel string  `json:"aria_label,omitempty"`
+	Title     string  `json:"title,omitempty"`
+	Role      string  `json:"role,omitempty"`
+	Class     string  `json:"class,omitempty"`
+	Selector  string  `json:"selector,omitempty"`
+	Rect      Rect    `json:"rect"`
+	Visible   bool    `json:"visible"`
+	Disabled  bool    `json:"disabled"`
+	Href      string  `json:"href,omitempty"`
+	Type      string  `json:"type,omitempty"`
+	Name      string  `json:"name,omitempty"`
+	ID        string  `json:"id,omitempty"`
+	Score     float64 `json:"score,omitempty"`
+}
+
+// InteractiveSnapshot 是 browser_snapshot 返回的页面交互摘要。
+type InteractiveSnapshot struct {
+	Status    string               `json:"status"`
+	TabID     string               `json:"tab_id"`
+	Title     string               `json:"title"`
+	URL       string               `json:"url"`
+	Elements  []InteractiveElement `json:"elements"`
+	Count     int                  `json:"count"`
+	Truncated bool                 `json:"truncated,omitempty"`
+}
+
 // WaitResult 是浏览器等待类工具的稳定返回结构。
 // status 为 success 表示条件满足，timeout 表示页面在限定时间内没有达到目标状态。
 type WaitResult struct {
@@ -160,5 +202,7 @@ type Client interface {
 	CDP(ctx context.Context, tabID string, method string, params map[string]any, noMonitor bool) (CDPResult, error)
 	Click(ctx context.Context, tabID string, x float64, y float64, noMonitor bool) (ClickResult, error)
 	Type(ctx context.Context, tabID string, text string, clear bool, noMonitor bool) (TypeResult, error)
+	PressKey(ctx context.Context, tabID string, key string, noMonitor bool) (PressKeyResult, error)
+	Snapshot(ctx context.Context, tabID string, maxElements int) (InteractiveSnapshot, error)
 	Wait(ctx context.Context, tabID string, mode string, params map[string]any, timeoutMS int, intervalMS int) (WaitResult, error)
 }
