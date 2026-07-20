@@ -530,6 +530,12 @@ async function handleRoutedCommand(message) {
   if (command === "type") {
     return await typeInTab(message);
   }
+  if (command === "press_key") {
+    return await pressKeyInTab(message);
+  }
+  if (command === "snapshot") {
+    return await snapshotTab(message);
+  }
   if (command === "wait") {
     return await waitInTab(message);
   }
