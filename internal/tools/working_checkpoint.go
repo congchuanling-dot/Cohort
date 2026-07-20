@@ -20,9 +20,9 @@ func (t *UpdateWorkingCheckpoint) Name() string { return ToolNameUpdateWorkingCh
 func (t *UpdateWorkingCheckpoint) Schema() llm.ToolSchema {
 	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
 		Name:        t.Name(),
-		Description: "Update short-term working memory for the current task. Use after reading an SOP, before switching subtasks, or after repeated failures. Store key constraints, pitfalls, important paths, progress, next step, and related_sop. Do not use at final completion.",
+		Description: "Update short-term working memory for the current task. Use after reading an SOP, before switching subtasks, or after repeated failures. key_info should be structured as: [任务] ... [关键约束] ... [禁止事项] ... [当前进度] ... [下一步] ... Keep it concise. Do not use at final completion.",
 		Parameters: objectSchema(map[string]any{
-			"key_info":    stringProp("Current task constraints, pitfalls, key findings, progress, and next step. Keep it concise."),
+			"key_info":    stringProp("Structured checkpoint: [任务] goal; [关键约束] SOP rules; [禁止事项] must-not-do; [当前进度] verified state; [下一步] immediate action."),
 			"related_sop": stringProp("Related SOP path or names to re-read when unsure, for example sops/browser_sop.md"),
 		}, "key_info"),
 	}}
@@ -33,10 +33,12 @@ func (t *UpdateWorkingCheckpoint) Run(ctx context.Context, call agent.ToolCallCo
 	relatedSOP := asString(call.Args["related_sop"])
 	return agent.Outcome{
 		Data: map[string]any{
-			"status":      agent.ToolStatusSuccess,
-			"key_info":    keyInfo,
-			"related_sop": relatedSOP,
-			"turn":        call.Turn,
+			"status":           agent.ToolStatusSuccess,
+			"updated":          true,
+			"related_sop":      relatedSOP,
+			"key_info_chars":   len([]rune(keyInfo)),
+			"checkpoint_turn":  call.Turn,
+			"checkpoint_index": call.Index,
 		},
 		NextPrompt: "\n",
 	}, nil

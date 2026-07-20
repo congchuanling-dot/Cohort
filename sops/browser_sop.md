@@ -1,5 +1,11 @@
 # Browser SOP
 
+## 触发场景
+
+- 用户要求打开网页、查询网页、登录、点击、输入、搜索、提取页面信息。
+- 浏览器工具返回空内容、页面未加载、按钮点了没反应、模型开始猜 selector 或 CDP 参数。
+- 需要使用 CDP JSON 路由、截图、OCR、iframe 或新 tab。
+
 ## 默认网页读取流程
 
 ```text
@@ -14,6 +20,15 @@ browser_scan
 - 网页还没加载完成就直接判断失败。
 - `browser_scan` 为空就立刻换方案。
 - 页面跳转、点击、输入后不等待就继续判断。
+
+如果读取为空：
+
+```text
+1. browser_wait_for_load
+2. browser_wait_for_stable
+3. browser_scan
+4. 仍为空再 browser_execute_js 读取 document.readyState、location.href、document.body.innerText.length
+```
 
 ## 浏览器交互流程
 
@@ -44,6 +59,15 @@ browser_wait_for_text
 browser_wait_for_stable
 ```
 
+点击/输入后的判断顺序：
+
+```text
+1. 看工具 diff
+2. 等待 selector/text/url/stable 中最贴近目标的状态
+3. 再 scan 或 execute_js 验证
+4. 没有新信息时不要重复点击同一位置
+```
+
 ## CDP JSON 路由
 
 `browser_cdp` 不作为默认公开工具使用。高级浏览器能力通过 `browser_execute_js` 的 JSON 命令路由进入插件内部：
@@ -57,6 +81,37 @@ browser_wait_for_stable
 ```
 
 普通动作优先使用高层工具，不要让模型手拼 CDP 鼠标和键盘事件。
+
+适合 JSON 路由的场景：
+
+- 需要 `Page.captureScreenshot`。
+- 需要 `Runtime.evaluate` 在 CDP 侧执行。
+- 多个内部命令必须减少 LLM 往返时。
+- 高层工具暂时没有覆盖的 CDP 能力。
+
+不适合 JSON 路由的场景：
+
+- 普通点击，用 `browser_click_element`。
+- 普通输入，用 `browser_type_element`。
+- 普通页面读取，用 `browser_scan` 或 `browser_execute_js` 普通 JS。
+
+## 新 tab 与跳转
+
+- 点击可能新开 tab 时，先看动作 diff 是否出现 tab count 变化。
+- 新 tab 出现后先 `browser_tabs`，确认目标 tab，再切换或指定 tab 操作。
+- URL 变化后必须 wait，再 scan。
+
+## 截图和 OCR
+
+- 截图优先走 CDP `Page.captureScreenshot`。
+- OCR 只在 DOM 文本不可用、canvas/image 渲染、验证码旁说明等场景兜底。
+- 普通网页不要默认 OCR。
+
+## 验收标准
+
+- 查询类任务：页面已 wait，`browser_scan` 或 JS 返回了目标信息。
+- 动作类任务：动作后有 diff 或明确 wait 结果，再做结论。
+- 登录/验证码类任务：验证码必须通过 `ask_user` 人工介入，不自动绕过。
 
 ## 常见坑
 

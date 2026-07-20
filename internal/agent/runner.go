@@ -48,6 +48,11 @@ type WorkingCheckpoint struct {
 	UpdatedAtTurn int
 }
 
+type pendingSOPRead struct {
+	Path        string
+	ReminderSet bool
+}
+
 // Runner 表示一个 Agent 会话，负责串起模型、工具、历史消息和循环控制。
 type Runner struct {
 	Client       llm.Client // Client 负责和模型服务通信。
@@ -74,6 +79,8 @@ type Runner struct {
 	sessionID string
 	// pendingHints 保存下一轮临时注入给模型的系统提醒，不写入持久 history。
 	pendingHints []string
+	// pendingSOPRead 记录最近一次读取的 SOP。若下一轮没有 checkpoint，会再提醒一次。
+	pendingSOPRead pendingSOPRead
 }
 
 // Run 执行一次用户任务。流程是：用户输入 -> 调模型 -> 执行工具 -> 工具结果回灌 -> 继续调模型。
@@ -92,6 +99,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 	if err := r.appendMessage(llm.Message{Role: llm.RoleUser, Content: input}, input); err != nil {
 		return RunResult{}, err
 	}
+	r.addSOPRouteHint(input)
 	messages := r.buildRequestMessages()
 
 	for turn := 1; turn <= r.MaxTurns; turn++ {
@@ -113,6 +121,10 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 		}
 		// 记录模型原始响应用于排查问题，不影响主流程。
 		r.logResponse(turn, resp)
+		if r.pendingSOPRead.Path != "" && !containsToolCall(resp.ToolCalls, "update_working_checkpoint") && !r.pendingSOPRead.ReminderSet {
+			r.addPendingHint(fmt.Sprintf("[SYSTEM HINT] 上一轮读取了 SOP：%s。如果决定按它执行，本轮应调用 update_working_checkpoint 保存 [任务]/[关键约束]/[禁止事项]/[当前进度]/[下一步]。", r.pendingSOPRead.Path))
+			r.pendingSOPRead.ReminderSet = true
+		}
 
 		// 没有 tool_calls 表示模型已经给出最终回答，任务可以结束。
 		if len(resp.ToolCalls) == 0 {
@@ -172,6 +184,9 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			if err == nil && call.Function.Name == "update_working_checkpoint" {
 				r.updateWorkingCheckpoint(args, turn)
 			}
+			if err == nil && call.Function.Name == "file_read" {
+				r.rememberSOPRead(args)
+			}
 			if outcome.ShouldExit {
 				return RunResult{Status: RunStatusExited, Response: resp}, nil
 			}
@@ -221,6 +236,24 @@ func (r *Runner) updateWorkingCheckpoint(args map[string]any, turn int) {
 		r.WorkingCheckpoint.RelatedSOP = value
 	}
 	r.WorkingCheckpoint.UpdatedAtTurn = turn
+	r.pendingSOPRead = pendingSOPRead{}
+}
+
+func (r *Runner) rememberSOPRead(args map[string]any) {
+	path := strings.TrimSpace(fmt.Sprint(args["path"]))
+	if !isSOPPath(path) {
+		return
+	}
+	r.pendingSOPRead = pendingSOPRead{Path: path}
+}
+
+func containsToolCall(calls []llm.ToolCall, name string) bool {
+	for _, call := range calls {
+		if call.Function.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Runner) addPendingHint(hint string) {
@@ -249,6 +282,14 @@ func (r *Runner) appendEphemeralGuidance(messages []llm.Message) []llm.Message {
 	})
 }
 
+func (r *Runner) addSOPRouteHint(input string) {
+	matches := routeSOPs(input)
+	if len(matches) == 0 {
+		return
+	}
+	r.addPendingHint("[SOP HINT] 这个任务可能相关：" + strings.Join(matches, "、") + "。请先 file_read 相关 SOP；如果采用其规则，请调用 update_working_checkpoint 保存关键约束和 related_sop。")
+}
+
 func (r *Runner) workingCheckpointPrompt() string {
 	if strings.TrimSpace(r.WorkingCheckpoint.KeyInfo) == "" && strings.TrimSpace(r.WorkingCheckpoint.RelatedSOP) == "" {
 		return ""
@@ -266,6 +307,43 @@ func (r *Runner) workingCheckpointPrompt() string {
 		b.WriteString("\nIf unsure, re-read related_sop before continuing.\n")
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func routeSOPs(input string) []string {
+	lower := strings.ToLower(input)
+	routes := []struct {
+		path     string
+		keywords []string
+	}{
+		{path: "sops/browser_sop.md", keywords: []string{"浏览器", "网页", "页面", "点击", "输入", "selector", "cdp", "ocr", "tab", "iframe", "browser", "chrome"}},
+		{path: "sops/code_run_sop.md", keywords: []string{"code_run", "命令", "脚本", "后台", "服务", "端口", "进程", "timeout", "server", "python", "shell"}},
+		{path: "sops/file_edit_sop.md", keywords: []string{"修改", "编辑", "写文件", "补丁", "patch", "实现", "开发", "代码", "文档", "删除文件"}},
+		{path: "sops/context_sop.md", keywords: []string{"context", "上下文", "compact", "token", "tool_calls", "tool result", "历史", "压缩"}},
+		{path: "sops/testing_sop.md", keywords: []string{"测试", "验证", "go test", "node --check", "检查", "验收"}},
+	}
+	var matches []string
+	seen := map[string]bool{}
+	for _, route := range routes {
+		for _, keyword := range route.keywords {
+			if strings.Contains(lower, strings.ToLower(keyword)) {
+				if !seen[route.path] {
+					matches = append(matches, route.path)
+					seen[route.path] = true
+				}
+				break
+			}
+		}
+	}
+	if len(matches) > 3 {
+		matches = matches[:3]
+	}
+	return matches
+}
+
+func isSOPPath(path string) bool {
+	path = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(path), "\\", "/"))
+	base := filepath.Base(path)
+	return strings.Contains(path, "/sops/") || strings.HasPrefix(path, "sops/") || strings.Contains(base, "sop")
 }
 
 func (r *Runner) ToolSchemas() []llm.ToolSchema {

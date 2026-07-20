@@ -86,6 +86,77 @@ func TestRunnerInjectsWorkingCheckpoint_BitsUT(t *testing.T) {
 	}
 }
 
+func TestRunnerAddsSOPRouteHint_BitsUT(t *testing.T) {
+	client := &contextRecordingClient{
+		responses: []llm.Response{{Content: "ok"}},
+	}
+	runner := &Runner{
+		Client:   client,
+		Tools:    contextFakeTools{},
+		MaxTurns: 1,
+	}
+
+	var out bytes.Buffer
+	_, err := runner.Run(context.Background(), "帮我测试浏览器点击功能", NewConsoleSink(&out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("requests = %d, want 1", len(client.requests))
+	}
+	messages := client.requests[0].Messages
+	last := messages[len(messages)-1]
+	if !strings.Contains(last.Content, "[SOP HINT]") || !strings.Contains(last.Content, "sops/browser_sop.md") || !strings.Contains(last.Content, "sops/testing_sop.md") {
+		t.Fatalf("route hint = %q", last.Content)
+	}
+}
+
+func TestRunnerRemindsCheckpointAfterSOPRead_BitsUT(t *testing.T) {
+	client := &contextRecordingClient{
+		responses: []llm.Response{
+			{ToolCalls: []llm.ToolCall{{
+				ID:   "call-1",
+				Type: "function",
+				Function: llm.ToolFunction{
+					Name:      "file_read",
+					Arguments: `{"path":"sops/browser_sop.md"}`,
+				},
+			}}},
+			{ToolCalls: []llm.ToolCall{{
+				ID:   "call-2",
+				Type: "function",
+				Function: llm.ToolFunction{
+					Name:      "browser_scan",
+					Arguments: `{}`,
+				},
+			}}},
+			{Content: "ok"},
+		},
+	}
+	runner := &Runner{
+		Client:   client,
+		Tools:    contextFakeTools{result: `{"status":"success"}`},
+		MaxTurns: 3,
+	}
+
+	var out bytes.Buffer
+	result, err := runner.Run(context.Background(), "浏览器操作", NewConsoleSink(&out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != RunStatusDone {
+		t.Fatalf("status = %q, want done", result.Status)
+	}
+	if len(client.requests) != 3 {
+		t.Fatalf("requests = %d, want 3", len(client.requests))
+	}
+	third := client.requests[2].Messages
+	last := third[len(third)-1]
+	if !strings.Contains(last.Content, "上一轮读取了 SOP") || !strings.Contains(last.Content, "update_working_checkpoint") {
+		t.Fatalf("checkpoint reminder = %q", last.Content)
+	}
+}
+
 func TestRunnerUsesContextManagerForModelRequest_BitsUT(t *testing.T) {
 	client := &contextRecordingClient{
 		responses: []llm.Response{{Content: "ok"}},
