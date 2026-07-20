@@ -775,9 +775,250 @@ async function typeInTab(request) {
   };
 }
 
+function normalizeKeySpec(rawKey) {
+  const raw = String(rawKey || "").trim();
+  if (!raw) {
+    throw new Error("press_key requires non-empty key");
+  }
+  const parts = raw.split("+").map((part) => part.trim()).filter(Boolean);
+  const main = parts.pop() || "";
+  const modifiers = [];
+  for (const part of parts) {
+    const lower = part.toLowerCase();
+    if (["cmd", "command", "meta"].includes(lower)) modifiers.push("Meta");
+    else if (["ctrl", "control"].includes(lower)) modifiers.push("Control");
+    else if (lower === "alt" || lower === "option") modifiers.push("Alt");
+    else if (lower === "shift") modifiers.push("Shift");
+    else throw new Error("unsupported key modifier: " + part);
+  }
+  const keyInfo = keyInfoFor(main);
+  let mask = 0;
+  if (modifiers.includes("Alt")) mask |= 1;
+  if (modifiers.includes("Control")) mask |= 2;
+  if (modifiers.includes("Meta")) mask |= 4;
+  if (modifiers.includes("Shift")) mask |= 8;
+  return { raw, ...keyInfo, modifiers, modifierMask: mask };
+}
+
+function keyInfoFor(key) {
+  const normalized = String(key || "").trim();
+  const lower = normalized.toLowerCase();
+  const special = {
+    enter: { key: "Enter", code: "Enter", vk: 13 },
+    return: { key: "Enter", code: "Enter", vk: 13 },
+    escape: { key: "Escape", code: "Escape", vk: 27 },
+    esc: { key: "Escape", code: "Escape", vk: 27 },
+    tab: { key: "Tab", code: "Tab", vk: 9 },
+    backspace: { key: "Backspace", code: "Backspace", vk: 8 },
+    delete: { key: "Delete", code: "Delete", vk: 46 },
+    space: { key: " ", code: "Space", vk: 32, text: " " },
+    arrowup: { key: "ArrowUp", code: "ArrowUp", vk: 38 },
+    up: { key: "ArrowUp", code: "ArrowUp", vk: 38 },
+    arrowdown: { key: "ArrowDown", code: "ArrowDown", vk: 40 },
+    down: { key: "ArrowDown", code: "ArrowDown", vk: 40 },
+    arrowleft: { key: "ArrowLeft", code: "ArrowLeft", vk: 37 },
+    left: { key: "ArrowLeft", code: "ArrowLeft", vk: 37 },
+    arrowright: { key: "ArrowRight", code: "ArrowRight", vk: 39 },
+    right: { key: "ArrowRight", code: "ArrowRight", vk: 39 }
+  };
+  if (special[lower]) return special[lower];
+  if (/^[a-z]$/i.test(normalized)) {
+    const upper = normalized.toUpperCase();
+    return { key: normalized.toLowerCase(), code: "Key" + upper, vk: upper.charCodeAt(0), text: normalized };
+  }
+  if (/^[0-9]$/.test(normalized)) {
+    return { key: normalized, code: "Digit" + normalized, vk: normalized.charCodeAt(0), text: normalized };
+  }
+  throw new Error("unsupported key: " + key);
+}
+
+async function pressKeyInTab(request) {
+  // 模型只传 Enter / Esc / Cmd+Enter 这类高层名字。
+  // 插件在内部映射成 CDP keyDown/keyUp，避免模型手写 Input.dispatchKeyEvent。
+  const tabId = await resolveTabId(request.tab_id || request.tabId);
+  const spec = normalizeKeySpec(request.key);
+  const shouldMonitor = request.no_monitor !== true && request.noMonitor !== true;
+  const before = shouldMonitor ? await collectLightSnapshot(tabId) : null;
+  await withDebugger(tabId, async (target) => {
+    await sendDebuggerCommand(target, "Page.bringToFront", {});
+    const base = {
+      key: spec.key,
+      code: spec.code,
+      windowsVirtualKeyCode: spec.vk,
+      nativeVirtualKeyCode: spec.vk,
+      modifiers: spec.modifierMask
+    };
+    const down = { type: "keyDown", ...base };
+    if (spec.text && spec.modifierMask === 0) {
+      down.text = spec.text;
+      down.unmodifiedText = spec.text;
+    }
+    await sendDebuggerCommand(target, "Input.dispatchKeyEvent", down);
+    await sendDebuggerCommand(target, "Input.dispatchKeyEvent", { type: "keyUp", ...base });
+  });
+  await sleep(200);
+  const after = shouldMonitor ? await collectLightSnapshot(tabId) : null;
+  return {
+    status: "success",
+    tab_id: String(tabId),
+    key: spec.key,
+    modifiers: spec.modifiers,
+    diff: shouldMonitor ? buildLightDiff(before, after) : "monitor disabled"
+  };
+}
+
+async function snapshotTab(request) {
+  // 返回页面交互元素摘要，替代模型反复 Runtime.evaluate 手写 DOM 探测。
+  const tabId = await resolveTabId(request.tab_id || request.tabId);
+  const tab = await chrome.tabs.get(tabId);
+  if (!isScriptable(tab.url)) {
+    throw new Error("tab is not scriptable: " + (tab.url || ""));
+  }
+  const maxElements = Math.min(Math.max(Number(request.max_elements || request.maxElements || 80), 1), 200);
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: "MAIN",
+    args: [maxElements],
+    func: (limit) => {
+      const candidates = Array.from(document.querySelectorAll([
+        "a[href]",
+        "button",
+        "input",
+        "textarea",
+        "select",
+        "summary",
+        "[role=button]",
+        "[role=link]",
+        "[role=menuitem]",
+        "[role=tab]",
+        "[contenteditable=true]",
+        "[onclick]",
+        "[tabindex]:not([tabindex='-1'])"
+      ].join(",")));
+
+      const esc = (value) => {
+        if (window.CSS && CSS.escape) return CSS.escape(String(value));
+        return String(value).replace(/["\\]/g, "\\$&");
+      };
+      const textOf = (element) => {
+        const tag = element.tagName.toLowerCase();
+        const value = tag === "input" || tag === "textarea" ? element.value || element.placeholder || "" : "";
+        return (value || element.innerText || element.textContent || "").replace(/\s+/g, " ").trim().slice(0, 80);
+      };
+      const classSummary = (element) => Array.from(element.classList || []).slice(0, 4).join(".");
+      const isVisible = (element, rect, style) => {
+        if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+        if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return false;
+        if (rect.bottom < 0 || rect.right < 0 || rect.top > window.innerHeight || rect.left > window.innerWidth) return false;
+        return true;
+      };
+      const disabledOf = (element) => {
+        return !!element.disabled || element.getAttribute("aria-disabled") === "true" || element.closest("[aria-disabled='true']") !== null;
+      };
+      const selectorFor = (element) => {
+        const tag = element.tagName.toLowerCase();
+        if (element.id && document.querySelectorAll("#" + esc(element.id)).length === 1) {
+          return "#" + esc(element.id);
+        }
+        const aria = element.getAttribute("aria-label");
+        if (aria) {
+          const selector = `${tag}[aria-label="${esc(aria)}"]`;
+          try {
+            if (document.querySelectorAll(selector).length === 1) return selector;
+          } catch (_err) {}
+        }
+        const name = element.getAttribute("name");
+        if (name) {
+          const selector = `${tag}[name="${esc(name)}"]`;
+          try {
+            if (document.querySelectorAll(selector).length === 1) return selector;
+          } catch (_err) {}
+        }
+        const parts = [];
+        let node = element;
+        while (node && node.nodeType === 1 && node !== document.body && parts.length < 5) {
+          const nodeTag = node.tagName.toLowerCase();
+          let index = 1;
+          let prev = node.previousElementSibling;
+          while (prev) {
+            if (prev.tagName === node.tagName) index++;
+            prev = prev.previousElementSibling;
+          }
+          parts.unshift(`${nodeTag}:nth-of-type(${index})`);
+          node = node.parentElement;
+        }
+        return parts.join(" > ");
+      };
+      const scoreFor = (element, visible, disabled, text) => {
+        let score = 0;
+        const tag = element.tagName.toLowerCase();
+        if (visible) score += 10;
+        if (!disabled) score += 5;
+        if (["button", "input", "textarea", "select"].includes(tag)) score += 4;
+        if (element.getAttribute("role")) score += 2;
+        if (text) score += 2;
+        if (element.getAttribute("aria-label")) score += 2;
+        return score;
+      };
+
+      const elements = candidates.map((element) => {
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        const visible = isVisible(element, rect, style);
+        const disabled = disabledOf(element);
+        const text = textOf(element);
+        const tag = element.tagName.toLowerCase();
+        return {
+          tag,
+          text,
+          aria_label: element.getAttribute("aria-label") || "",
+          title: element.getAttribute("title") || "",
+          role: element.getAttribute("role") || "",
+          class: classSummary(element),
+          selector: selectorFor(element),
+          rect: {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            top: rect.top,
+            right: rect.right,
+            bottom: rect.bottom,
+            left: rect.left
+          },
+          visible,
+          disabled,
+          href: element.getAttribute("href") || "",
+          type: element.getAttribute("type") || "",
+          name: element.getAttribute("name") || "",
+          id: element.id || "",
+          score: scoreFor(element, visible, disabled, text)
+        };
+      }).sort((a, b) => b.score - a.score || a.rect.top - b.rect.top || a.rect.left - b.rect.left);
+
+      return {
+        title: document.title || "",
+        url: location.href,
+        count: elements.length,
+        truncated: elements.length > limit,
+        elements: elements.slice(0, limit).map((item, index) => ({ index: index + 1, ...item }))
+      };
+    }
+  });
+  return {
+    status: "success",
+    tab_id: String(tabId),
+    title: result?.title || tab.title || "",
+    url: result?.url || tab.url || "",
+    elements: result?.elements || [],
+    count: result?.count || 0,
+    truncated: !!result?.truncated
+  };
+}
+
 async function handleCommand(message) {
   // Cohert Go 侧发来的命令在这里统一分发。
-  // 协议保持小而稳定：tabs / scan / open / execute_js / cdp / click / type / wait。
+  // 协议保持小而稳定：tabs / scan / open / execute_js / cdp / click / type / press_key / snapshot / wait。
   const command = message.command || message.cmd;
   if (command === "execute_js") {
     return await executeJs(message);

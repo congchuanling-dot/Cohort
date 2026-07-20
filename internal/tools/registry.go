@@ -42,6 +42,10 @@ const (
 	ToolNameBrowserType = "browser_type"
 	// ToolNameBrowserTypeElement 按 CSS selector 聚焦元素并输入文本。
 	ToolNameBrowserTypeElement = "browser_type_element"
+	// ToolNameBrowserPressKey 发送真实键盘按键或组合键。
+	ToolNameBrowserPressKey = "browser_press_key"
+	// ToolNameBrowserSnapshot 返回页面可交互元素摘要。
+	ToolNameBrowserSnapshot = "browser_snapshot"
 	// ToolNameBrowserWaitForLoad 等待页面基础加载完成。
 	ToolNameBrowserWaitForLoad = "browser_wait_for_load"
 	// ToolNameBrowserWaitForSelector 等待元素达到指定状态。
@@ -92,6 +96,8 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameBrowserClickElement,
 		ToolNameBrowserType,
 		ToolNameBrowserTypeElement,
+		ToolNameBrowserPressKey,
+		ToolNameBrowserSnapshot,
 		ToolNameBrowserWaitForLoad,
 		ToolNameBrowserWaitForSelector,
 		ToolNameBrowserWaitForText,
