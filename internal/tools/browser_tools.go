@@ -419,8 +419,8 @@ func (t *BrowserTypeElement) Run(ctx context.Context, call agent.ToolCallContext
 		return browserToolError(err), nil
 	}
 	point := centerPoint(rect)
-	if _, err := t.client.Click(ctx, tabID, point.X, point.Y, true); err != nil {
-		return browserToolError(err), nil
+	if _, clickErr := t.client.Click(ctx, tabID, point.X, point.Y, true); clickErr != nil {
+		return browserToolError(clickErr), nil
 	}
 	typed, err := t.client.Type(ctx, tabID, text, asBool(call.Args["clear"], false), asBool(call.Args["no_monitor"], false))
 	if err != nil {

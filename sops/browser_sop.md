@@ -50,6 +50,18 @@ browser_click_element
 browser_type_element
 ```
 
+按键/快捷键：
+
+```text
+browser_press_key
+```
+
+Selector 不明确时，先用：
+
+```text
+browser_snapshot
+```
+
 动作后必须根据场景等待：
 
 ```text
@@ -93,7 +105,16 @@ browser_wait_for_stable
 
 - 普通点击，用 `browser_click_element`。
 - 普通输入，用 `browser_type_element`。
+- 普通按键，用 `browser_press_key`。
+- 查找按钮/输入框，用 `browser_snapshot`。
 - 普通页面读取，用 `browser_scan` 或 `browser_execute_js` 普通 JS。
+
+## 快照与按键
+
+- 找按钮、链接、输入框、发送入口时，优先 `browser_snapshot`。
+- `browser_snapshot` 返回 selector 建议、文字、aria-label、role、rect、visible、disabled。
+- 回车搜索、Esc 关弹窗、Tab 切焦点、Cmd+Enter/Ctrl+Enter 发送消息时，优先 `browser_press_key`。
+- 不要为了按 Enter 或找按钮手写 `Runtime.evaluate` / `Input.dispatchKeyEvent`。
 
 ## 新 tab 与跳转
 

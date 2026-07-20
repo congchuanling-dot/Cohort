@@ -28,6 +28,10 @@ type fakeBrowserClient struct {
 	typeTabID        string
 	typeText         string
 	typeClear        bool
+	pressKeyTabID    string
+	pressKey         string
+	snapshotTabID    string
+	snapshotMax      int
 	waitTabID        string
 	waitMode         string
 	waitParams       map[string]any
@@ -107,6 +111,35 @@ func (f *fakeBrowserClient) Type(ctx context.Context, tabID string, text string,
 	return browser.TypeResult{Status: agent.ToolStatusSuccess, TabID: tabID, Text: text, Clear: clear}, nil
 }
 
+func (f *fakeBrowserClient) PressKey(ctx context.Context, tabID string, key string, noMonitor bool) (browser.PressKeyResult, error) {
+	if f.err != nil {
+		return browser.PressKeyResult{}, f.err
+	}
+	f.pressKeyTabID = tabID
+	f.pressKey = key
+	return browser.PressKeyResult{Status: agent.ToolStatusSuccess, TabID: tabID, Key: key}, nil
+}
+
+func (f *fakeBrowserClient) Snapshot(ctx context.Context, tabID string, maxElements int) (browser.InteractiveSnapshot, error) {
+	if f.err != nil {
+		return browser.InteractiveSnapshot{}, f.err
+	}
+	f.snapshotTabID = tabID
+	f.snapshotMax = maxElements
+	return browser.InteractiveSnapshot{
+		Status: agent.ToolStatusSuccess,
+		TabID:  tabID,
+		Elements: []browser.InteractiveElement{{
+			Index:    1,
+			Tag:      "button",
+			Text:     "发送",
+			Selector: "button:nth-of-type(1)",
+			Visible:  true,
+		}},
+		Count: 1,
+	}, nil
+}
+
 func (f *fakeBrowserClient) Wait(ctx context.Context, tabID string, mode string, params map[string]any, timeoutMS int, intervalMS int) (browser.WaitResult, error) {
 	if f.err != nil {
 		return browser.WaitResult{}, f.err
@@ -176,6 +209,38 @@ func TestBrowserTypeCallsClient(t *testing.T) {
 	}
 	if client.typeTabID != "5" || client.typeText != "hello" || !client.typeClear {
 		t.Fatalf("type call = tab %q text %q clear %v", client.typeTabID, client.typeText, client.typeClear)
+	}
+}
+
+func TestBrowserPressKeyCallsClient(t *testing.T) {
+	client := &fakeBrowserClient{}
+	tool := NewBrowserPressKey(client)
+	_, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"tab_id": "5", "key": "Cmd+Enter"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.pressKeyTabID != "5" || client.pressKey != "Cmd+Enter" {
+		t.Fatalf("press key call = tab %q key %q", client.pressKeyTabID, client.pressKey)
+	}
+}
+
+func TestBrowserSnapshotCallsClient(t *testing.T) {
+	client := &fakeBrowserClient{}
+	tool := NewBrowserSnapshot(client)
+	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"tab_id": "5", "max_elements": 12},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.snapshotTabID != "5" || client.snapshotMax != 12 {
+		t.Fatalf("snapshot call = tab %q max %d", client.snapshotTabID, client.snapshotMax)
+	}
+	data := outcome.Data.(browser.InteractiveSnapshot)
+	if len(data.Elements) != 1 || data.Elements[0].Text != "发送" {
+		t.Fatalf("snapshot result = %+v", data)
 	}
 }
 
