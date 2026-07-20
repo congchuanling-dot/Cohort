@@ -88,7 +88,7 @@ type Runner struct {
 func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunResult, error) {
 	// 没配置最大轮数时给一个保守默认值，避免无限循环。
 	if r.MaxTurns <= 0 {
-		r.MaxTurns = 40
+		r.MaxTurns = 100
 	}
 	// 每次运行前确保日志目录存在，日志失败属于运行环境错误。
 	if err := r.ensureLogDir(); err != nil {

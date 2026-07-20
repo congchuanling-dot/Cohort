@@ -1,7 +1,7 @@
 language: zh
 workspace: ./workspace
 log_dir: ./temp/model_responses
-max_turns: 40
+max_turns: 100
 
 llm:
   provider: openai

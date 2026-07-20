@@ -106,7 +106,7 @@ func defaultConfig() Config {
 		Language:  "zh",
 		Workspace: "./workspace",
 		LogDir:    "./temp/model_responses",
-		MaxTurns:  40,
+		MaxTurns:  100,
 		Context:   contextmgr.DefaultConfig(),
 		LLM: LLMConfig{
 			Provider:              "openai",
