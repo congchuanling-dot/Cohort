@@ -39,6 +39,14 @@ const (
 	ToolNameBrowserType = "browser_type"
 	// ToolNameBrowserTypeElement 按 CSS selector 聚焦元素并输入文本。
 	ToolNameBrowserTypeElement = "browser_type_element"
+	// ToolNameBrowserWaitForLoad 等待页面基础加载完成。
+	ToolNameBrowserWaitForLoad = "browser_wait_for_load"
+	// ToolNameBrowserWaitForSelector 等待元素达到指定状态。
+	ToolNameBrowserWaitForSelector = "browser_wait_for_selector"
+	// ToolNameBrowserWaitForText 等待页面出现指定文本。
+	ToolNameBrowserWaitForText = "browser_wait_for_text"
+	// ToolNameBrowserWaitForStable 等待页面轻量状态稳定。
+	ToolNameBrowserWaitForStable = "browser_wait_for_stable"
 )
 
 // Tool 是所有本地工具必须实现的接口。
@@ -82,6 +90,10 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameBrowserClickElement,
 		ToolNameBrowserType,
 		ToolNameBrowserTypeElement,
+		ToolNameBrowserWaitForLoad,
+		ToolNameBrowserWaitForSelector,
+		ToolNameBrowserWaitForText,
+		ToolNameBrowserWaitForStable,
 		ToolNameAskUser,
 	}
 	seen := map[string]bool{}

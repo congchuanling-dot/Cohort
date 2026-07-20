@@ -43,6 +43,10 @@ func (c *UnavailableClient) Type(ctx context.Context, tabID string, text string,
 	return TypeResult{}, c.error()
 }
 
+func (c *UnavailableClient) Wait(ctx context.Context, tabID string, mode string, params map[string]any, timeoutMS int, intervalMS int) (WaitResult, error) {
+	return WaitResult{}, c.error()
+}
+
 func (c *UnavailableClient) error() error {
 	if c == nil || c.Err == nil {
 		return ErrNotConnected

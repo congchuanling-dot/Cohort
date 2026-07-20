@@ -305,3 +305,67 @@ func TestBridgeTypeCommandWithMockExtension(t *testing.T) {
 
 	<-done
 }
+
+func TestBridgeWaitCommandWithMockExtension(t *testing.T) {
+	bridge := NewBridge("127.0.0.1:0", DefaultPath)
+	if err := bridge.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer bridge.Close(context.Background())
+
+	conn, _, err := websocket.DefaultDialer.Dial("ws://"+bridge.Addr()+DefaultPath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		var command map[string]any
+		if readErr := conn.ReadJSON(&command); readErr != nil {
+			t.Errorf("read command: %v", readErr)
+			return
+		}
+		if command["command"] != "wait" || command["mode"] != "selector" || command["selector"] != ".result" {
+			t.Errorf("command payload = %+v", command)
+			return
+		}
+		if command["timeout_ms"] != float64(5000) || command["interval_ms"] != float64(200) {
+			t.Errorf("command timing = %+v", command)
+			return
+		}
+		id := command["id"].(string)
+		result := map[string]any{
+			"type": messageTypeResult,
+			"id":   id,
+			"result": map[string]any{
+				"status":     "success",
+				"tab_id":     "7",
+				"mode":       "selector",
+				"matched":    true,
+				"elapsed_ms": 400,
+				"selector":   ".result",
+				"state":      "visible",
+				"exists":     true,
+				"visible":    true,
+			},
+		}
+		if writeErr := conn.WriteJSON(result); writeErr != nil {
+			t.Errorf("write result: %v", writeErr)
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	result, err := bridge.Wait(ctx, "7", "selector", map[string]any{"selector": ".result", "state": "visible"}, 5000, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Mode != "selector" || !result.Matched || result.Selector != ".result" {
+		raw, _ := json.Marshal(result)
+		t.Fatalf("result = %s", raw)
+	}
+
+	<-done
+}

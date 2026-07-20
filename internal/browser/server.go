@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	defaultCommandTimeout = 15 * time.Second
+	defaultCommandTimeout = 45 * time.Second
 
 	messageTypeReady      = "ext_ready"
 	messageTypeTabsUpdate = "tabs_update"
@@ -312,6 +312,24 @@ func (b *Bridge) Type(ctx context.Context, tabID string, text string, clear bool
 		"clear":      clear,
 		"no_monitor": noMonitor,
 	}, &result)
+	return result, err
+}
+
+// Wait 在浏览器侧轮询等待页面达到指定状态。
+// 与 Go 侧循环相比，放在插件侧可以直接读取 tab.status 和页面 DOM，避免多次 WebSocket 往返。
+func (b *Bridge) Wait(ctx context.Context, tabID string, mode string, params map[string]any, timeoutMS int, intervalMS int) (WaitResult, error) {
+	payload := map[string]any{
+		"command":     "wait",
+		"tab_id":      tabID,
+		"mode":        mode,
+		"timeout_ms":  timeoutMS,
+		"interval_ms": intervalMS,
+	}
+	for key, value := range params {
+		payload[key] = value
+	}
+	var result WaitResult
+	err := b.command(ctx, payload, &result)
 	return result, err
 }
 

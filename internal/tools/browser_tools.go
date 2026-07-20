@@ -15,8 +15,10 @@ import (
 )
 
 const (
-	defaultBrowserScanChars     = 12000
-	defaultBrowserJSReturnChars = 8000
+	defaultBrowserScanChars      = 12000
+	defaultBrowserJSReturnChars  = 8000
+	defaultBrowserWaitTimeoutMS  = 10000
+	defaultBrowserWaitIntervalMS = 200
 )
 
 // BrowserTabs 把浏览器标签页列表暴露给模型。
@@ -436,6 +438,160 @@ func (t *BrowserTypeElement) Run(ctx context.Context, call agent.ToolCallContext
 	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
 }
 
+// BrowserWaitForLoad 等待页面基础加载完成。
+// browser_open 之后优先调用它，避免页面还没出来就 browser_scan 导致误判。
+type BrowserWaitForLoad struct {
+	client browser.Client
+}
+
+func NewBrowserWaitForLoad(client browser.Client) *BrowserWaitForLoad {
+	return &BrowserWaitForLoad{client: client}
+}
+
+func (t *BrowserWaitForLoad) Name() string { return ToolNameBrowserWaitForLoad }
+
+func (t *BrowserWaitForLoad) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Wait until the current or specified Chrome tab reports loaded and the page document is interactive or complete. Use after browser_open or navigation before scanning.",
+		Parameters: objectSchema(map[string]any{
+			"tab_id":      stringProp("Optional tab ID. If empty, waits on the active tab."),
+			"timeout_ms":  intProp("Maximum wait time in milliseconds. Default 10000.", defaultBrowserWaitTimeoutMS),
+			"interval_ms": intProp("Polling interval in milliseconds. Default 200.", defaultBrowserWaitIntervalMS),
+		}),
+	}}
+}
+
+func (t *BrowserWaitForLoad) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	result, err := runBrowserWait(ctx, t.client, asString(call.Args["tab_id"]), "load", map[string]any{}, call.Args)
+	if err != nil {
+		return browserToolError(err), nil
+	}
+	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
+}
+
+// BrowserWaitForSelector 等待元素出现、可见、隐藏或消失。
+// 它比等文本更通用，适合等待搜索框、结果列表、弹窗和按钮状态。
+type BrowserWaitForSelector struct {
+	client browser.Client
+}
+
+func NewBrowserWaitForSelector(client browser.Client) *BrowserWaitForSelector {
+	return &BrowserWaitForSelector{client: client}
+}
+
+func (t *BrowserWaitForSelector) Name() string { return ToolNameBrowserWaitForSelector }
+
+func (t *BrowserWaitForSelector) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Wait for a CSS selector to become attached, visible, hidden, or detached. Use after clicks or page opens before deciding an element is missing.",
+		Parameters: objectSchema(map[string]any{
+			"tab_id":      stringProp("Optional tab ID. If empty, waits on the active tab."),
+			"selector":    stringProp("CSS selector to wait for."),
+			"state":       stringProp("Target state: attached, visible, hidden, or detached. Default visible."),
+			"timeout_ms":  intProp("Maximum wait time in milliseconds. Default 10000.", defaultBrowserWaitTimeoutMS),
+			"interval_ms": intProp("Polling interval in milliseconds. Default 200.", defaultBrowserWaitIntervalMS),
+		}, "selector"),
+	}}
+}
+
+func (t *BrowserWaitForSelector) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	selector := strings.TrimSpace(asString(call.Args["selector"]))
+	if selector == "" {
+		return badSelectorOutcome(), nil
+	}
+	state := strings.TrimSpace(asString(call.Args["state"]))
+	if state == "" {
+		state = "visible"
+	}
+	params := map[string]any{"selector": selector, "state": state}
+	result, err := runBrowserWait(ctx, t.client, asString(call.Args["tab_id"]), "selector", params, call.Args)
+	if err != nil {
+		return browserToolError(err), nil
+	}
+	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
+}
+
+// BrowserWaitForText 等待页面正文出现指定文本。
+// 它适合等待“登录成功”“提交成功”“搜索结果”这类异步文案。
+type BrowserWaitForText struct {
+	client browser.Client
+}
+
+func NewBrowserWaitForText(client browser.Client) *BrowserWaitForText {
+	return &BrowserWaitForText{client: client}
+}
+
+func (t *BrowserWaitForText) Name() string { return ToolNameBrowserWaitForText }
+
+func (t *BrowserWaitForText) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Wait until the page visible text contains a target string. Use after async actions before concluding the result is absent.",
+		Parameters: objectSchema(map[string]any{
+			"tab_id":      stringProp("Optional tab ID. If empty, waits on the active tab."),
+			"text":        stringProp("Text that should appear in document.body.innerText."),
+			"timeout_ms":  intProp("Maximum wait time in milliseconds. Default 10000.", defaultBrowserWaitTimeoutMS),
+			"interval_ms": intProp("Polling interval in milliseconds. Default 200.", defaultBrowserWaitIntervalMS),
+		}, "text"),
+	}}
+}
+
+func (t *BrowserWaitForText) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	text := strings.TrimSpace(asString(call.Args["text"]))
+	if text == "" {
+		return agent.Outcome{
+			Data: agent.NewToolError(
+				"browser_bad_wait_text",
+				"browser_wait_for_text requires non-empty text",
+				"请提供要等待出现的页面文字，例如 登录成功、提交成功 或 搜索结果。",
+			),
+			NextPrompt: "\n",
+		}, nil
+	}
+	params := map[string]any{"text": text}
+	result, err := runBrowserWait(ctx, t.client, asString(call.Args["tab_id"]), "text", params, call.Args)
+	if err != nil {
+		return browserToolError(err), nil
+	}
+	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
+}
+
+// BrowserWaitForStable 等待页面进入短时间稳定状态。
+// 它适合页面 load 已完成但前端 JS 仍在持续渲染的场景。
+type BrowserWaitForStable struct {
+	client browser.Client
+}
+
+func NewBrowserWaitForStable(client browser.Client) *BrowserWaitForStable {
+	return &BrowserWaitForStable{client: client}
+}
+
+func (t *BrowserWaitForStable) Name() string { return ToolNameBrowserWaitForStable }
+
+func (t *BrowserWaitForStable) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Wait until URL, title, body text length, and interactive element count stay stable for a short period. Use before browser_scan when pages render asynchronously.",
+		Parameters: objectSchema(map[string]any{
+			"tab_id":      stringProp("Optional tab ID. If empty, waits on the active tab."),
+			"stable_ms":   intProp("How long the lightweight page state must stay unchanged. Default 800.", 800),
+			"timeout_ms":  intProp("Maximum wait time in milliseconds. Default 10000.", defaultBrowserWaitTimeoutMS),
+			"interval_ms": intProp("Polling interval in milliseconds. Default 200.", defaultBrowserWaitIntervalMS),
+		}),
+	}}
+}
+
+func (t *BrowserWaitForStable) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	params := map[string]any{"stable_ms": asInt(call.Args["stable_ms"], 800)}
+	result, err := runBrowserWait(ctx, t.client, asString(call.Args["tab_id"]), "stable", params, call.Args)
+	if err != nil {
+		return browserToolError(err), nil
+	}
+	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
+}
+
 func browserToolError(err error) agent.Outcome {
 	code := "browser_error"
 	hint := "确认 Chrome 已安装 Cohert Browser Bridge 插件，并且 Cohert 正在运行；插件会连接 ws://127.0.0.1:18777/browser。"
@@ -447,6 +603,18 @@ func browserToolError(err error) agent.Outcome {
 		Data:       agent.NewToolError(code, err.Error(), hint),
 		NextPrompt: "\n",
 	}
+}
+
+func runBrowserWait(ctx context.Context, client browser.Client, tabID string, mode string, params map[string]any, args map[string]any) (browser.WaitResult, error) {
+	timeoutMS := asInt(args["timeout_ms"], defaultBrowserWaitTimeoutMS)
+	if timeoutMS <= 0 {
+		timeoutMS = defaultBrowserWaitTimeoutMS
+	}
+	intervalMS := asInt(args["interval_ms"], defaultBrowserWaitIntervalMS)
+	if intervalMS <= 0 {
+		intervalMS = defaultBrowserWaitIntervalMS
+	}
+	return client.Wait(ctx, tabID, mode, params, timeoutMS, intervalMS)
 }
 
 func badSelectorOutcome() agent.Outcome {

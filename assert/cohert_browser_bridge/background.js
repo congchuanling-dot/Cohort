@@ -162,6 +162,221 @@ async function waitForTabComplete(tabId, timeoutMs) {
   return await chrome.tabs.get(tabId);
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeWaitTiming(request) {
+  // wait 工具必须有硬上限，避免模型给出过大的 timeout 后长期占用 bridge 请求。
+  const timeoutMs = Math.min(Math.max(Number(request.timeout_ms || request.timeoutMs || 10000), 500), 30000);
+  const intervalMs = Math.min(Math.max(Number(request.interval_ms || request.intervalMs || 200), 100), 1000);
+  return { timeoutMs, intervalMs };
+}
+
+async function readPageState(tabId) {
+  // 读取页面的轻量状态。失败时返回 unknown，让 wait 继续轮询而不是过早失败。
+  try {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: "MAIN",
+      func: () => ({
+        readyState: document.readyState || "",
+        url: location.href,
+        title: document.title || "",
+        textLength: document.body ? (document.body.innerText || "").length : 0,
+        interactiveCount: document.querySelectorAll("a,button,input,textarea,select,[role=button],[contenteditable=true]").length
+      })
+    });
+    return result || { readyState: "unknown" };
+  } catch (_err) {
+    return { readyState: "unknown" };
+  }
+}
+
+async function waitForCondition(tabId, timing, check) {
+  const start = Date.now();
+  let last = null;
+  while (Date.now() - start <= timing.timeoutMs) {
+    last = await check();
+    if (last && last.matched) {
+      return {
+        status: "success",
+        tab_id: String(tabId),
+        elapsed_ms: Date.now() - start,
+        ...last
+      };
+    }
+    await sleep(timing.intervalMs);
+  }
+  return {
+    status: "timeout",
+    tab_id: String(tabId),
+    elapsed_ms: Date.now() - start,
+    ...(last || { matched: false })
+  };
+}
+
+async function waitForLoad(request) {
+  const tabId = await resolveTabId(request.tab_id || request.tabId);
+  const timing = normalizeWaitTiming(request);
+  return await waitForCondition(tabId, timing, async () => {
+    const tab = await chrome.tabs.get(tabId);
+    const page = await readPageState(tabId);
+    const readyState = page.readyState || "unknown";
+    const matched = tab.status === "complete" && (readyState === "interactive" || readyState === "complete");
+    return {
+      mode: "load",
+      matched,
+      ready_state: readyState,
+      tab_status: tab.status || "",
+      url: page.url || tab.url || "",
+      title: page.title || tab.title || ""
+    };
+  });
+}
+
+async function waitForSelector(request) {
+  const tabId = await resolveTabId(request.tab_id || request.tabId);
+  const selector = String(request.selector || "").trim();
+  if (!selector) {
+    throw new Error("selector is required");
+  }
+  const state = String(request.state || "visible").trim();
+  const allowed = new Set(["attached", "visible", "hidden", "detached"]);
+  if (!allowed.has(state)) {
+    throw new Error("unsupported selector state: " + state);
+  }
+  const timing = normalizeWaitTiming(request);
+  return await waitForCondition(tabId, timing, async () => {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: "MAIN",
+      args: [selector],
+      func: (selectorArg) => {
+        const element = document.querySelector(selectorArg);
+        if (!element) {
+          return { exists: false, visible: false };
+        }
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        const visible = rect.width > 0
+          && rect.height > 0
+          && style.display !== "none"
+          && style.visibility !== "hidden"
+          && Number(style.opacity || "1") > 0;
+        return {
+          exists: true,
+          visible,
+          rect: {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            top: rect.top,
+            right: rect.right,
+            bottom: rect.bottom,
+            left: rect.left
+          }
+        };
+      }
+    });
+    const exists = !!result?.exists;
+    const visible = !!result?.visible;
+    return {
+      mode: "selector",
+      selector,
+      state,
+      matched: (state === "attached" && exists)
+        || (state === "visible" && visible)
+        || (state === "hidden" && exists && !visible)
+        || (state === "detached" && !exists),
+      exists,
+      visible,
+      rect: result?.rect || null
+    };
+  });
+}
+
+async function waitForText(request) {
+  const tabId = await resolveTabId(request.tab_id || request.tabId);
+  const text = String(request.text || "").trim();
+  if (!text) {
+    throw new Error("text is required");
+  }
+  const timing = normalizeWaitTiming(request);
+  return await waitForCondition(tabId, timing, async () => {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: "MAIN",
+      args: [text],
+      func: (targetText) => {
+        const bodyText = document.body ? document.body.innerText || "" : "";
+        return {
+          matched: bodyText.includes(targetText),
+          textLength: bodyText.length
+        };
+      }
+    });
+    return {
+      mode: "text",
+      text,
+      matched: !!result?.matched,
+      text_length: result?.textLength || 0
+    };
+  });
+}
+
+async function waitForStable(request) {
+  const tabId = await resolveTabId(request.tab_id || request.tabId);
+  const timing = normalizeWaitTiming(request);
+  const stableMs = Math.min(Math.max(Number(request.stable_ms || request.stableMs || 800), 300), 5000);
+  let stableSince = 0;
+  let previousKey = "";
+  return await waitForCondition(tabId, timing, async () => {
+    const tab = await chrome.tabs.get(tabId);
+    const page = await readPageState(tabId);
+    const key = [
+      tab.status || "",
+      page.readyState || "",
+      page.url || tab.url || "",
+      page.title || tab.title || "",
+      page.textLength,
+      page.interactiveCount
+    ].join("|");
+    const now = Date.now();
+    if (key !== previousKey) {
+      previousKey = key;
+      stableSince = now;
+    }
+    const stableFor = now - stableSince;
+    const matched = stableFor >= stableMs
+      && tab.status === "complete"
+      && (page.readyState === "interactive" || page.readyState === "complete");
+    return {
+      mode: "stable",
+      matched,
+      stable_ms: stableMs,
+      stable_for_ms: stableFor,
+      ready_state: page.readyState || "unknown",
+      tab_status: tab.status || "",
+      url: page.url || tab.url || "",
+      title: page.title || tab.title || "",
+      text_length: page.textLength ?? -1,
+      interactive_count: page.interactiveCount ?? -1
+    };
+  });
+}
+
+async function waitInTab(request) {
+  // wait 是给 Agent 的“耐心”工具：页面没加载完、元素没出现、文本没刷出来时，不要立刻改方案。
+  const mode = String(request.mode || request.wait_for || request.waitFor || "").trim();
+  if (mode === "load") return await waitForLoad(request);
+  if (mode === "selector") return await waitForSelector(request);
+  if (mode === "text") return await waitForText(request);
+  if (mode === "stable") return await waitForStable(request);
+  throw new Error("unknown wait mode: " + mode);
+}
+
 function serializeJsValue(value) {
   // JS 执行结果可能是 DOM 节点、window、document、复杂对象。
   // 这些对象不能直接 JSON.stringify，所以这里把常见不可序列化对象转成字符串。
@@ -449,7 +664,7 @@ async function typeInTab(request) {
 
 async function handleCommand(message) {
   // Cohert Go 侧发来的命令在这里统一分发。
-  // 协议保持小而稳定：tabs / scan / open / execute_js / cdp / click / type。
+  // 协议保持小而稳定：tabs / scan / open / execute_js / cdp / click / type / wait。
   const command = message.command || message.cmd;
   if (command === "tabs") {
     return { status: "success", tabs: await listTabs() };
@@ -471,6 +686,9 @@ async function handleCommand(message) {
   }
   if (command === "type") {
     return await typeInTab(message);
+  }
+  if (command === "wait") {
+    return await waitInTab(message);
   }
   throw new Error("unknown command: " + command);
 }

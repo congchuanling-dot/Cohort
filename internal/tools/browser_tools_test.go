@@ -28,6 +28,11 @@ type fakeBrowserClient struct {
 	typeTabID        string
 	typeText         string
 	typeClear        bool
+	waitTabID        string
+	waitMode         string
+	waitParams       map[string]any
+	waitTimeoutMS    int
+	waitIntervalMS   int
 	err              error
 }
 
@@ -102,6 +107,18 @@ func (f *fakeBrowserClient) Type(ctx context.Context, tabID string, text string,
 	return browser.TypeResult{Status: agent.ToolStatusSuccess, TabID: tabID, Text: text, Clear: clear}, nil
 }
 
+func (f *fakeBrowserClient) Wait(ctx context.Context, tabID string, mode string, params map[string]any, timeoutMS int, intervalMS int) (browser.WaitResult, error) {
+	if f.err != nil {
+		return browser.WaitResult{}, f.err
+	}
+	f.waitTabID = tabID
+	f.waitMode = mode
+	f.waitParams = params
+	f.waitTimeoutMS = timeoutMS
+	f.waitIntervalMS = intervalMS
+	return browser.WaitResult{Status: agent.ToolStatusSuccess, TabID: tabID, Mode: mode, Matched: true}, nil
+}
+
 func TestBrowserOpenRejectsNonHTTPURL(t *testing.T) {
 	tool := NewBrowserOpen(&fakeBrowserClient{})
 	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{
@@ -159,6 +176,62 @@ func TestBrowserTypeCallsClient(t *testing.T) {
 	}
 	if client.typeTabID != "5" || client.typeText != "hello" || !client.typeClear {
 		t.Fatalf("type call = tab %q text %q clear %v", client.typeTabID, client.typeText, client.typeClear)
+	}
+}
+
+func TestBrowserWaitForLoadCallsClient(t *testing.T) {
+	client := &fakeBrowserClient{}
+	tool := NewBrowserWaitForLoad(client)
+	_, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"tab_id": "5", "timeout_ms": 1234, "interval_ms": 250},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.waitTabID != "5" || client.waitMode != "load" || client.waitTimeoutMS != 1234 || client.waitIntervalMS != 250 {
+		t.Fatalf("wait call = tab %q mode %q timeout %d interval %d", client.waitTabID, client.waitMode, client.waitTimeoutMS, client.waitIntervalMS)
+	}
+}
+
+func TestBrowserWaitForSelectorCallsClient(t *testing.T) {
+	client := &fakeBrowserClient{}
+	tool := NewBrowserWaitForSelector(client)
+	_, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"selector": ".result", "state": "attached"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.waitMode != "selector" || client.waitParams["selector"] != ".result" || client.waitParams["state"] != "attached" {
+		t.Fatalf("wait params = mode %q params %+v", client.waitMode, client.waitParams)
+	}
+}
+
+func TestBrowserWaitForTextCallsClient(t *testing.T) {
+	client := &fakeBrowserClient{}
+	tool := NewBrowserWaitForText(client)
+	_, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"text": "提交成功"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.waitMode != "text" || client.waitParams["text"] != "提交成功" {
+		t.Fatalf("wait params = mode %q params %+v", client.waitMode, client.waitParams)
+	}
+}
+
+func TestBrowserWaitForStableCallsClient(t *testing.T) {
+	client := &fakeBrowserClient{}
+	tool := NewBrowserWaitForStable(client)
+	_, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"stable_ms": 900},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.waitMode != "stable" || client.waitParams["stable_ms"] != 900 {
+		t.Fatalf("wait params = mode %q params %+v", client.waitMode, client.waitParams)
 	}
 }
 

@@ -126,6 +126,30 @@ type ElementTypeResult struct {
 	Diff     string `json:"diff,omitempty"`
 }
 
+// WaitResult 是浏览器等待类工具的稳定返回结构。
+// status 为 success 表示条件满足，timeout 表示页面在限定时间内没有达到目标状态。
+type WaitResult struct {
+	Status           string `json:"status"`
+	TabID            string `json:"tab_id"`
+	Mode             string `json:"mode"`
+	Matched          bool   `json:"matched"`
+	ElapsedMS        int    `json:"elapsed_ms"`
+	ReadyState       string `json:"ready_state,omitempty"`
+	TabStatus        string `json:"tab_status,omitempty"`
+	URL              string `json:"url,omitempty"`
+	Title            string `json:"title,omitempty"`
+	Selector         string `json:"selector,omitempty"`
+	State            string `json:"state,omitempty"`
+	Exists           bool   `json:"exists,omitempty"`
+	Visible          bool   `json:"visible,omitempty"`
+	Rect             *Rect  `json:"rect,omitempty"`
+	Text             string `json:"text,omitempty"`
+	TextLength       int    `json:"text_length,omitempty"`
+	StableMS         int    `json:"stable_ms,omitempty"`
+	StableForMS      int    `json:"stable_for_ms,omitempty"`
+	InteractiveCount int    `json:"interactive_count,omitempty"`
+}
+
 // Client 是工具层依赖的浏览器能力接口。
 // internal/tools 只关心这个接口，不需要知道底层是 Chrome 插件、CDP 还是以后别的桥接方案。
 type Client interface {
@@ -136,4 +160,5 @@ type Client interface {
 	CDP(ctx context.Context, tabID string, method string, params map[string]any, noMonitor bool) (CDPResult, error)
 	Click(ctx context.Context, tabID string, x float64, y float64, noMonitor bool) (ClickResult, error)
 	Type(ctx context.Context, tabID string, text string, clear bool, noMonitor bool) (TypeResult, error)
+	Wait(ctx context.Context, tabID string, mode string, params map[string]any, timeoutMS int, intervalMS int) (WaitResult, error)
 }

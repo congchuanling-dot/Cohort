@@ -721,3 +721,151 @@ tab count 1->2
 ```
 
 第一版不返回完整 DOM diff，也不做 OCR。这样能满足动作闭环判断，同时避免工具结果污染上下文。
+
+## 12. Cohert 浏览器等待链路落地状态
+
+当前已补齐第一版 wait 工具，目标是解决“页面还没加载出来，Agent 就过早 scan 并误判失败”的问题。
+
+新的推荐浏览器访问流程：
+
+```text
+browser_open
+  -> browser_wait_for_load
+  -> browser_wait_for_stable
+  -> browser_scan
+```
+
+点击或输入后的推荐流程：
+
+```text
+browser_click_element / browser_type_element
+  -> browser_wait_for_load / browser_wait_for_selector / browser_wait_for_text / browser_wait_for_stable
+  -> browser_scan 或继续下一步动作
+```
+
+### 12.1 插件 wait command
+
+插件 `assert/cohert_browser_bridge/background.js` 已新增统一 `wait` command。
+
+底层参数：
+
+```json
+{
+  "command": "wait",
+  "tab_id": "可选",
+  "mode": "load|selector|text|stable",
+  "timeout_ms": 10000,
+  "interval_ms": 200
+}
+```
+
+设计原因：
+
+- 等待逻辑放在插件侧，可以直接读取 `chrome.tabs.get(tabId).status` 和页面 DOM。
+- 避免 Go 侧多次 WebSocket 往返轮询。
+- 超时返回 `status: "timeout"`，不把工具调用直接变成协议错误，方便模型看到“等过了但没等到”。
+- `timeout_ms` 和 `interval_ms` 有硬限制，避免模型传入过大值导致 bridge 被长期占用。
+
+### 12.2 browser_wait_for_load
+
+用途：等待页面基础加载完成。
+
+判断条件：
+
+```text
+chrome tab status == complete
+document.readyState == interactive 或 complete
+```
+
+适合场景：
+
+- `browser_open` 后。
+- 点击链接或提交表单导致页面跳转后。
+- 页面白屏、骨架屏、loading 中时，防止模型立刻 scan。
+
+### 12.3 browser_wait_for_selector
+
+用途：等待元素达到指定状态。
+
+支持状态：
+
+```text
+attached  元素存在
+visible   元素存在且可见
+hidden    元素存在但不可见
+detached  元素不存在
+```
+
+适合场景：
+
+- 等搜索框出现。
+- 等结果列表出现。
+- 等弹窗消失。
+- 等按钮渲染出来。
+
+### 12.4 browser_wait_for_text
+
+用途：等待页面正文出现指定文本。
+
+适合场景：
+
+- 等“登录成功”。
+- 等“提交成功”。
+- 等“验证码已发送”。
+- 等搜索结果关键词出现。
+
+### 12.5 browser_wait_for_stable
+
+用途：等待页面轻量状态稳定一段时间。
+
+稳定性判断字段：
+
+```text
+tab status
+document.readyState
+url
+title
+document.body.innerText.length
+可交互元素数量
+```
+
+适合场景：
+
+- 页面 `load` 已完成，但前端 JS 仍在继续渲染。
+- SPA 页面跳转没有完整刷新。
+- 不知道该等哪个 selector 或 text 时，作为通用兜底。
+
+### 12.6 Go 工具层
+
+Go 层已新增：
+
+```text
+browser_wait_for_load
+browser_wait_for_selector
+browser_wait_for_text
+browser_wait_for_stable
+```
+
+它们都复用 `internal/browser.Client.Wait`，但对模型暴露成四个语义明确的工具。
+
+这样做的原因：
+
+- 模型不需要记住底层 `mode` 字段。
+- 工具描述能明确告诉模型何时使用。
+- 后续可分别增强 selector、text、stable 的参数，不影响底层协议。
+
+### 12.7 对 Agent 行为的影响
+
+系统提示词已更新为：
+
+```text
+网页查询优先 browser_open -> browser_wait_for_load -> browser_wait_for_stable -> browser_scan
+点击、输入、跳转或异步操作后，必须先等待 load、selector、text 或 stable，再判断失败
+```
+
+这能降低以下错误：
+
+- 页面未加载完成就 scan。
+- 元素还没渲染就判断“不存在”。
+- 异步结果还没返回就改方案。
+- SPA 页面还在渲染时读取到半成品内容。
