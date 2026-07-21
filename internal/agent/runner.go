@@ -43,6 +43,14 @@ type ToolCallContext struct {
 	Index int
 	// ToolCount 是当前轮模型一次性返回的工具调用总数。
 	ToolCount int
+	// SessionID 是当前本地 session 标识；未落盘时为空。
+	SessionID string
+	// SessionDir 是当前 session 的磁盘目录；未落盘时为空。
+	SessionDir string
+	// WorkingCheckpoint 是工具调用时的短期工作记忆快照。
+	WorkingCheckpoint WorkingCheckpoint
+	// History 是工具调用前的完整内存历史副本，用于审计和证据校验。
+	History []llm.Message
 }
 
 // WorkingCheckpoint 是当前任务的短期工作记忆。
@@ -176,12 +184,16 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 				// Registry 会根据工具名分发到具体工具，例如 file_read.Run。
 				var runErr error
 				outcome, runErr = r.Tools.Run(ctx, ToolCallContext{
-					Name:      call.Function.Name,
-					Args:      args,
-					Response:  *resp,
-					Turn:      turn,
-					Index:     i,
-					ToolCount: len(resp.ToolCalls),
+					Name:              call.Function.Name,
+					Args:              args,
+					Response:          *resp,
+					Turn:              turn,
+					Index:             i,
+					ToolCount:         len(resp.ToolCalls),
+					SessionID:         r.sessionID,
+					SessionDir:        r.sessionDir(),
+					WorkingCheckpoint: r.WorkingCheckpoint,
+					History:           append([]llm.Message(nil), r.history...),
 				})
 				if runErr != nil {
 					// 工具失败时不直接中断 Agent，而是把错误作为工具结果交回模型。

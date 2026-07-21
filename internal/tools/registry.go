@@ -23,6 +23,12 @@ const (
 	ToolNameAskUser = "ask_user"
 	// ToolNameUpdateWorkingCheckpoint 更新短期工作记忆。
 	ToolNameUpdateWorkingCheckpoint = "update_working_checkpoint"
+	// ToolNameStartLongTermUpdate 启动受控长期记忆沉淀流程。
+	ToolNameStartLongTermUpdate = "start_long_term_update"
+	// ToolNameMemoryProposeUpdate 提交长期记忆候选，不直接写入。
+	ToolNameMemoryProposeUpdate = "memory_propose_update"
+	// ToolNameMemoryApplyUpdate 应用已验证的长期记忆 append 更新。
+	ToolNameMemoryApplyUpdate = "memory_apply_update"
 	// ToolNameBrowserTabs 列出浏览器标签页。
 	ToolNameBrowserTabs = "browser_tabs"
 	// ToolNameBrowserOpen 打开或导航浏览器页面。
@@ -110,6 +116,9 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameBrowserWaitForStable,
 		ToolNameBrowserScreenshot,
 		ToolNameUpdateWorkingCheckpoint,
+		ToolNameStartLongTermUpdate,
+		ToolNameMemoryProposeUpdate,
+		ToolNameMemoryApplyUpdate,
 		ToolNameAskUser,
 	}
 	seen := map[string]bool{}
