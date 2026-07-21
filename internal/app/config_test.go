@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -67,5 +68,21 @@ llm:
 	}
 	if cfg.Context.EnableMicroCompact {
 		t.Fatal("enable micro compact = true, want false")
+	}
+}
+
+func TestBuildSystemPromptRequiresToolNarration_BitsUT(t *testing.T) {
+	zhPrompt := buildSystemPrompt(Config{Language: "zh"})
+	for _, want := range []string{"每次调用工具前", "当前已经知道什么", "可能的卡点", "每次工具返回后"} {
+		if !strings.Contains(zhPrompt, want) {
+			t.Fatalf("zh prompt does not contain %q:\n%s", want, zhPrompt)
+		}
+	}
+
+	enPrompt := buildSystemPrompt(Config{Language: "en"})
+	for _, want := range []string{"Before every tool call", "what you currently know", "likely blockers", "After each tool result"} {
+		if !strings.Contains(enPrompt, want) {
+			t.Fatalf("en prompt does not contain %q:\n%s", want, enPrompt)
+		}
 	}
 }
