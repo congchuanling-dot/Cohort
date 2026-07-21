@@ -8,6 +8,7 @@ import (
 // UnavailableClient 在 bridge server 启动失败时使用。
 // 这样 Cohert 仍能启动，模型调用浏览器工具时会拿到明确错误，而不是整个 Agent 崩掉。
 type UnavailableClient struct {
+	// Err 是 bridge 初始化失败的原始错误；为空时退化为未连接错误。
 	Err error
 }
 

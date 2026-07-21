@@ -14,6 +14,7 @@ import (
 
 // FileRead 读取文本文件，并可按行号截取内容。
 type FileRead struct {
+	// workspaceTool 提供 file_read 的路径解析能力。
 	workspaceTool
 }
 

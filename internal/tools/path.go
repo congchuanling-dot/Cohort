@@ -8,6 +8,7 @@ import (
 // workspaceTool 保存工具工作区，并提供路径解析能力。
 // 相对路径会落在 workspace 下，绝对路径会直接清理后使用。
 type workspaceTool struct {
+	// workspace 是工具解析相对路径时使用的工作区根目录。
 	workspace string
 }
 

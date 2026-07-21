@@ -28,16 +28,24 @@ const (
 // 它监听本机 WebSocket，等待 Chrome 插件主动连接。工具层调用 Tabs/Open/Scan 时，
 // Bridge 会把命令发给插件，再根据 request id 等待对应响应。
 type Bridge struct {
+	// addr 是 WebSocket server 监听地址。
 	addr string
+	// path 是浏览器插件连接的 WebSocket 路径。
 	path string
 
+	// server 是底层 HTTP server，用于承载 WebSocket endpoint。
 	server *http.Server
 
-	mu      sync.RWMutex
-	conn    *websocket.Conn
-	tabs    []Tab
+	// mu 保护 conn、tabs 和 pending 的并发读写。
+	mu sync.RWMutex
+	// conn 是当前已连接的 Chrome 插件 WebSocket。
+	conn *websocket.Conn
+	// tabs 是最近一次插件上报的标签页缓存。
+	tabs []Tab
+	// pending 保存 request id 到响应 channel 的映射。
 	pending map[string]chan bridgeResponse
 
+	// writeMu 串行化 WebSocket 写入，满足 gorilla/websocket 的并发约束。
 	writeMu sync.Mutex
 }
 
@@ -205,7 +213,9 @@ func (b *Bridge) resolvePending(raw []byte) {
 // 如果插件暂时没连接，但 Go 侧有缓存，就返回缓存；这样 popup 刚断线时仍能看到最近状态。
 func (b *Bridge) Tabs(ctx context.Context) ([]Tab, error) {
 	var result struct {
+		// Status 是插件 tabs 命令的执行状态。
 		Status string `json:"status"`
+		// Tabs 是插件返回的最新标签页列表。
 		Tabs   []Tab  `json:"tabs"`
 	}
 	if err := b.command(ctx, map[string]any{"command": "tabs"}, &result); err != nil {
@@ -245,12 +255,18 @@ func (b *Bridge) Scan(ctx context.Context, tabID string, maxChars int) (PageSnap
 // ExecuteJS 在指定或当前活动 tab 的页面上下文中执行 JavaScript。
 func (b *Bridge) ExecuteJS(ctx context.Context, tabID string, script string, noMonitor bool, maxReturnChars int) (ExecuteJSResult, error) {
 	var raw struct {
-		Status    string `json:"status"`
-		TabID     string `json:"tab_id"`
-		Return    string `json:"return"`
-		Truncated bool   `json:"truncated"`
-		Diff      string `json:"diff"`
-		Error     any    `json:"error"`
+		// Status 是插件 execute_js 命令的执行状态。
+		Status string `json:"status"`
+		// TabID 是执行脚本的标签页 ID。
+		TabID string `json:"tab_id"`
+		// Return 是插件协议里的原始返回字段。
+		Return string `json:"return"`
+		// Truncated 表示 Return 是否被插件截断。
+		Truncated bool `json:"truncated"`
+		// Diff 是页面变化监控摘要。
+		Diff string `json:"diff"`
+		// Error 是脚本执行异常时的原始错误信息。
+		Error any `json:"error"`
 	}
 	err := b.command(ctx, map[string]any{
 		"command":          "execute_js",
