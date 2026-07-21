@@ -20,6 +20,7 @@ const (
 	defaultBrowserSnapshotItems  = 80
 	defaultBrowserWaitTimeoutMS  = 10000
 	defaultBrowserWaitIntervalMS = 200
+	defaultBrowserScreenshotDir  = ".cohert/screenshots"
 )
 
 // BrowserTabs 把浏览器标签页列表暴露给模型。
@@ -308,22 +309,27 @@ func (t *BrowserClickElement) Run(ctx context.Context, call agent.ToolCallContex
 	if selector == "" {
 		return badSelectorOutcome(), nil
 	}
-	rect, err := locateElementRect(ctx, t.client, tabID, selector)
+	target, err := locateElementTarget(ctx, t.client, tabID, selector, false)
 	if err != nil {
 		return browserToolError(err), nil
 	}
-	point := centerPoint(rect)
+	point := target.Point
 	click, err := t.client.Click(ctx, tabID, point.X, point.Y, asBool(call.Args["no_monitor"], false))
 	if err != nil {
 		return browserToolError(err), nil
 	}
+	waitResult, waitErr := waitAfterBrowserAction(ctx, t.client, click.TabID)
 	result := browser.ElementClickResult{
 		Status:    click.Status,
 		TabID:     click.TabID,
 		Selector:  selector,
-		Rect:      rect,
+		Rect:      target.Rect,
 		ClickedAt: click.ClickedAt,
+		Hit:       target.Hit,
 		Diff:      click.Diff,
+	}
+	if waitErr == nil && waitResult.Status != "" {
+		result.Diff = appendBrowserDiff(result.Diff, "auto_wait_"+waitResult.Status)
 	}
 	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
 }
@@ -414,11 +420,11 @@ func (t *BrowserTypeElement) Run(ctx context.Context, call agent.ToolCallContext
 			NextPrompt: "\n",
 		}, nil
 	}
-	rect, err := locateElementRect(ctx, t.client, tabID, selector)
+	target, err := locateElementTarget(ctx, t.client, tabID, selector, true)
 	if err != nil {
 		return browserToolError(err), nil
 	}
-	point := centerPoint(rect)
+	point := target.Point
 	if _, clickErr := t.client.Click(ctx, tabID, point.X, point.Y, true); clickErr != nil {
 		return browserToolError(clickErr), nil
 	}
@@ -426,14 +432,20 @@ func (t *BrowserTypeElement) Run(ctx context.Context, call agent.ToolCallContext
 	if err != nil {
 		return browserToolError(err), nil
 	}
+	actual, verified, verifyErr := verifyElementTyped(ctx, t.client, tabID, selector, text, asBool(call.Args["clear"], false))
+	if verifyErr != nil {
+		return browserToolError(verifyErr), nil
+	}
 	result := browser.ElementTypeResult{
 		Status:   typed.Status,
 		TabID:    typed.TabID,
 		Selector: selector,
-		Rect:     rect,
+		Rect:     target.Rect,
 		TypedAt:  point,
 		Text:     typed.Text,
 		Clear:    typed.Clear,
+		Actual:   actual,
+		Verified: verified,
 		Diff:     typed.Diff,
 	}
 	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil

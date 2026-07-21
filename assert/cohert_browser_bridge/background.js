@@ -1056,9 +1056,58 @@ async function snapshotTab(request) {
   };
 }
 
+async function screenshotTab(request) {
+  // 截图通过 CDP Page.captureScreenshot 完成。
+  // base64 只回给 Go 层落盘，模型最终只看到图片路径，避免工具结果过大。
+  const tabId = await resolveTabId(request.tab_id || request.tabId);
+  const format = String(request.format || "png").toLowerCase();
+  const allowed = new Set(["png", "jpeg", "webp"]);
+  if (!allowed.has(format)) {
+    throw new Error("unsupported screenshot format: " + format);
+  }
+  const fullPage = request.full_page === true || request.fullPage === true;
+  const quality = Math.min(Math.max(Number(request.quality || 90), 1), 100);
+  const tab = await chrome.tabs.get(tabId);
+  let width = tab.width || 0;
+  let height = tab.height || 0;
+  const result = await withDebugger(tabId, async (target) => {
+    await sendDebuggerCommand(target, "Page.bringToFront", {});
+    const params = { format };
+    if (format !== "png") {
+      params.quality = quality;
+    }
+    if (fullPage) {
+      const metrics = await sendDebuggerCommand(target, "Page.getLayoutMetrics", {});
+      const size = metrics?.cssContentSize || metrics?.contentSize;
+      if (size && Number.isFinite(size.width) && Number.isFinite(size.height)) {
+        width = Math.ceil(size.width);
+        height = Math.ceil(size.height);
+        params.captureBeyondViewport = true;
+        params.clip = {
+          x: 0,
+          y: 0,
+          width: Math.max(1, width),
+          height: Math.max(1, height),
+          scale: 1
+        };
+      }
+    }
+    return await sendDebuggerCommand(target, "Page.captureScreenshot", params);
+  });
+  return {
+    status: "success",
+    tab_id: String(tabId),
+    format,
+    data: result?.data || "",
+    width,
+    height,
+    scale: 1
+  };
+}
+
 async function handleCommand(message) {
   // Cohert Go 侧发来的命令在这里统一分发。
-  // 协议保持小而稳定：tabs / scan / open / execute_js / cdp / click / type / press_key / snapshot / wait。
+  // 协议保持小而稳定：tabs / scan / open / execute_js / cdp / click / type / press_key / snapshot / screenshot / wait。
   const command = message.command || message.cmd;
   if (command === "execute_js") {
     return await executeJs(message);

@@ -52,8 +52,12 @@ const (
 	ToolNameBrowserWaitForSelector = "browser_wait_for_selector"
 	// ToolNameBrowserWaitForText 等待页面出现指定文本。
 	ToolNameBrowserWaitForText = "browser_wait_for_text"
+	// ToolNameBrowserWaitForURL 等待页面 URL 达到指定条件。
+	ToolNameBrowserWaitForURL = "browser_wait_for_url"
 	// ToolNameBrowserWaitForStable 等待页面轻量状态稳定。
 	ToolNameBrowserWaitForStable = "browser_wait_for_stable"
+	// ToolNameBrowserScreenshot 截取浏览器页面并保存图片。
+	ToolNameBrowserScreenshot = "browser_screenshot"
 )
 
 // Tool 是所有本地工具必须实现的接口。
@@ -101,7 +105,9 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameBrowserWaitForLoad,
 		ToolNameBrowserWaitForSelector,
 		ToolNameBrowserWaitForText,
+		ToolNameBrowserWaitForURL,
 		ToolNameBrowserWaitForStable,
+		ToolNameBrowserScreenshot,
 		ToolNameUpdateWorkingCheckpoint,
 		ToolNameAskUser,
 	}
