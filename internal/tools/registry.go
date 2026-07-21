@@ -70,6 +70,7 @@ type Tool interface {
 
 // Registry 保存工具名到工具实例的映射，负责 schema 输出和工具分发。
 type Registry struct {
+	// tools 保存工具名到工具实例的映射。
 	tools map[string]Tool
 }
 

@@ -12,6 +12,7 @@ import (
 
 // FilePatch 用精确文本块替换文件内容，适合小范围修改。
 type FilePatch struct {
+	// workspaceTool 提供 file_patch 的路径解析能力。
 	workspaceTool
 }
 

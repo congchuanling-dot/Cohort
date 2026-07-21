@@ -43,13 +43,20 @@ const (
 // Options 是启动交互模式需要的依赖。
 // CLI 负责加载配置和创建 Runner，REPL 只负责读取用户输入、展示界面和分发 slash 命令。
 type Options struct {
-	Context      context.Context
-	Config       app.Config
-	Runner       *agent.Runner
+	// Context 是 REPL 和 Agent 运行共用的取消上下文。
+	Context context.Context
+	// Config 是当前 CLI 加载后的运行配置。
+	Config app.Config
+	// Runner 是普通用户输入要交给的 Agent Runner。
+	Runner *agent.Runner
+	// SessionStore 是 slash 命令读取和恢复本地 session 的存储器。
 	SessionStore session.Store
-	In           io.Reader
-	Out          io.Writer
-	Err          io.Writer
+	// In 是 REPL 读取用户输入的来源。
+	In io.Reader
+	// Out 是 REPL 普通输出目标。
+	Out io.Writer
+	// Err 是 REPL 命令错误输出目标。
+	Err io.Writer
 }
 
 // Start 启动 Cohert 交互模式。
@@ -123,7 +130,9 @@ type lineReader interface {
 }
 
 type scannerLineReader struct {
+	// scanner 从非交互输入流逐行读取命令。
 	scanner *bufio.Scanner
+	// out 用于在读取前打印提示符。
 	out     io.Writer
 }
 
@@ -139,8 +148,11 @@ func (r *scannerLineReader) ReadLine() (string, error) {
 }
 
 type readlineLineReader struct {
-	in  *os.File
+	// in 是真实终端输入文件。
+	in *os.File
+	// out 是 readline 普通输出目标。
 	out io.Writer
+	// err 是 readline 错误输出目标。
 	err io.Writer
 }
 
@@ -203,15 +215,22 @@ func isSlashInput(input string) bool {
 // SlashCommand 是对话内命令的解析结果。
 // Raw 保留原始输入，Name 和 Args 用于后续分发。
 type SlashCommand struct {
-	Raw  string
+	// Raw 是用户输入的原始 slash 命令文本。
+	Raw string
+	// Name 是规范化后的命令名，不包含前导斜杠。
 	Name string
+	// Args 是命令名之后的空白分隔参数。
 	Args []string
 }
 
 type slashMenuItem struct {
-	Usage       string
+	// Usage 是展示给用户看的命令用法。
+	Usage string
+	// Description 是命令在选择菜单里的说明。
 	Description string
-	Command     SlashCommand
+	// Command 是选择该菜单项后实际执行的 slash 命令。
+	Command SlashCommand
+	// NeedSession 表示该命令需要当前 Runner 已绑定 session。
 	NeedSession bool
 }
 

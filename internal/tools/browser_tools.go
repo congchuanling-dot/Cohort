@@ -30,6 +30,7 @@ const (
 // BrowserTabs 把浏览器标签页列表暴露给模型。
 // 模型不知道当前浏览器状态时，应先调用这个工具再决定打开或扫描哪个 tab。
 type BrowserTabs struct {
+	// client 是浏览器桥能力接口，用来读取当前标签页列表。
 	client browser.Client
 }
 
@@ -61,6 +62,7 @@ func (t *BrowserTabs) Run(ctx context.Context, call agent.ToolCallContext) (agen
 // BrowserOpen 打开一个 URL，或把指定 tab 导航到目标 URL。
 // 查天气这类任务会先把搜索 URL 交给这个工具，再用 browser_scan 读取结果页。
 type BrowserOpen struct {
+	// client 是浏览器桥能力接口，用来打开或导航标签页。
 	client browser.Client
 }
 
@@ -107,6 +109,7 @@ func (t *BrowserOpen) Run(ctx context.Context, call agent.ToolCallContext) (agen
 // BrowserScan 读取当前或指定 tab 的页面正文。
 // 页面文本会进入模型上下文，所以 max_chars 必须有默认上限。
 type BrowserScan struct {
+	// client 是浏览器桥能力接口，用来读取页面标题、URL 和正文。
 	client browser.Client
 }
 
@@ -144,6 +147,7 @@ func (t *BrowserScan) Run(ctx context.Context, call agent.ToolCallContext) (agen
 // BrowserExecuteJS 在当前或指定 tab 的页面上下文里执行 JavaScript。
 // 第一版复用插件 execute_js 命令，Go 层负责把返回结构稳定成 js_return/new_tabs。
 type BrowserExecuteJS struct {
+	// client 是浏览器桥能力接口，用来在页面上下文执行脚本。
 	client browser.Client
 }
 
@@ -195,6 +199,7 @@ func (t *BrowserExecuteJS) Run(ctx context.Context, call agent.ToolCallContext) 
 // BrowserCDP 是原始 Chrome Debugger Protocol 入口。
 // 它主要用于调试和补齐新能力；常见点击和输入应优先使用更安全的封装工具。
 type BrowserCDP struct {
+	// client 是浏览器桥能力接口，用来透传 CDP 命令。
 	client browser.Client
 }
 
@@ -240,6 +245,7 @@ func (t *BrowserCDP) Run(ctx context.Context, call agent.ToolCallContext) (agent
 // BrowserClick 在 viewport 坐标执行真实鼠标点击。
 // x/y 来自 getBoundingClientRect 或用户明确给出的页面坐标，不是屏幕坐标。
 type BrowserClick struct {
+	// client 是浏览器桥能力接口，用来发送真实鼠标点击。
 	client browser.Client
 }
 
@@ -286,6 +292,7 @@ func (t *BrowserClick) Run(ctx context.Context, call agent.ToolCallContext) (age
 // BrowserClickElement 用 CSS selector 定位元素，再走 CDP 坐标点击。
 // JS 只负责找元素和算 rect；真正点击仍由 CDP 产生真实输入事件。
 type BrowserClickElement struct {
+	// client 是浏览器桥能力接口，用来定位元素并发送点击。
 	client browser.Client
 }
 
@@ -340,6 +347,7 @@ func (t *BrowserClickElement) Run(ctx context.Context, call agent.ToolCallContex
 
 // BrowserType 向当前焦点输入文本。聚焦由 browser_click 或 browser_type_element 负责。
 type BrowserType struct {
+	// client 是浏览器桥能力接口，用来向当前焦点输入文本。
 	client browser.Client
 }
 
@@ -384,6 +392,7 @@ func (t *BrowserType) Run(ctx context.Context, call agent.ToolCallContext) (agen
 
 // BrowserTypeElement 先按 selector 定位并点击聚焦，再输入文本。
 type BrowserTypeElement struct {
+	// client 是浏览器桥能力接口，用来定位输入元素并发送文本。
 	client browser.Client
 }
 
@@ -458,6 +467,7 @@ func (t *BrowserTypeElement) Run(ctx context.Context, call agent.ToolCallContext
 // BrowserPressKey 发送 Enter、Escape、Tab、Cmd+Enter 等真实键盘按键。
 // 它封装 CDP Input.dispatchKeyEvent，避免模型手写底层 keyDown/keyUp 参数。
 type BrowserPressKey struct {
+	// client 是浏览器桥能力接口，用来发送真实键盘按键。
 	client browser.Client
 }
 
@@ -502,6 +512,7 @@ func (t *BrowserPressKey) Run(ctx context.Context, call agent.ToolCallContext) (
 // BrowserSnapshot 返回当前页面的可交互元素摘要。
 // 它是“找按钮/输入框”的高层工具，减少模型反复写 Runtime.evaluate 探测 DOM。
 type BrowserSnapshot struct {
+	// client 是浏览器桥能力接口，用来生成页面交互元素摘要。
 	client browser.Client
 }
 
@@ -538,6 +549,7 @@ func (t *BrowserSnapshot) Run(ctx context.Context, call agent.ToolCallContext) (
 // BrowserWaitForLoad 等待页面基础加载完成。
 // browser_open 之后优先调用它，避免页面还没出来就 browser_scan 导致误判。
 type BrowserWaitForLoad struct {
+	// client 是浏览器桥能力接口，用来等待页面加载状态。
 	client browser.Client
 }
 
@@ -570,6 +582,7 @@ func (t *BrowserWaitForLoad) Run(ctx context.Context, call agent.ToolCallContext
 // BrowserWaitForSelector 等待元素出现、可见、隐藏或消失。
 // 它比等文本更通用，适合等待搜索框、结果列表、弹窗和按钮状态。
 type BrowserWaitForSelector struct {
+	// client 是浏览器桥能力接口，用来等待元素状态变化。
 	client browser.Client
 }
 
@@ -613,6 +626,7 @@ func (t *BrowserWaitForSelector) Run(ctx context.Context, call agent.ToolCallCon
 // BrowserWaitForText 等待页面正文出现指定文本。
 // 它适合等待“登录成功”“提交成功”“搜索结果”这类异步文案。
 type BrowserWaitForText struct {
+	// client 是浏览器桥能力接口，用来等待页面文本出现。
 	client browser.Client
 }
 
@@ -658,6 +672,7 @@ func (t *BrowserWaitForText) Run(ctx context.Context, call agent.ToolCallContext
 // BrowserWaitForURL 等待页面 URL 命中指定条件。
 // 登录跳转、搜索结果页、详情页导航这类场景优先用它，而不是只等 stable 后猜状态。
 type BrowserWaitForURL struct {
+	// client 是浏览器桥能力接口，用来等待 URL 命中条件。
 	client browser.Client
 }
 
@@ -711,6 +726,7 @@ func (t *BrowserWaitForURL) Run(ctx context.Context, call agent.ToolCallContext)
 // BrowserWaitForStable 等待页面进入短时间稳定状态。
 // 它适合页面 load 已完成但前端 JS 仍在持续渲染的场景。
 type BrowserWaitForStable struct {
+	// client 是浏览器桥能力接口，用来等待页面轻量状态稳定。
 	client browser.Client
 }
 
@@ -745,7 +761,9 @@ func (t *BrowserWaitForStable) Run(ctx context.Context, call agent.ToolCallConte
 // BrowserScreenshot 截取当前浏览器页面，并把图片保存到 workspace。
 // 工具结果只返回路径和尺寸，不把 base64 图片塞进模型上下文。
 type BrowserScreenshot struct {
-	client    browser.Client
+	// client 是浏览器桥能力接口，用来请求页面截图。
+	client browser.Client
+	// workspace 是截图文件保存的根目录。
 	workspace string
 }
 
@@ -877,14 +895,20 @@ func badSelectorOutcome() agent.Outcome {
 }
 
 type elementTarget struct {
-	Rect  browser.Rect  `json:"rect"`
+	// Rect 是目标元素的 viewport 边界框。
+	Rect browser.Rect `json:"rect"`
+	// Point 是适合点击或聚焦的 viewport 坐标。
 	Point browser.Point `json:"point"`
-	Hit   string        `json:"hit"`
-	Value string        `json:"value"`
+	// Hit 描述 Point 命中的实际 DOM 元素。
+	Hit string `json:"hit"`
+	// Value 是定位时读取到的元素当前值或文本。
+	Value string `json:"value"`
 }
 
 type elementTypeVerification struct {
-	Actual   string `json:"actual"`
+	// Actual 是输入后从 DOM 读取到的实际值。
+	Actual string `json:"actual"`
+	// Verified 表示 Actual 是否满足本次输入预期。
 	Verified bool   `json:"verified"`
 }
 

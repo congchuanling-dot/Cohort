@@ -16,6 +16,7 @@ import (
 )
 
 type fakeClient struct {
+	// calls 记录测试过程中模型客户端被调用的次数。
 	calls int
 }
 

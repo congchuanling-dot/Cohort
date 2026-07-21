@@ -30,6 +30,7 @@ const (
 
 // CodeRun 在 workspace 中执行 shell 命令，用于构建、测试和本地检查。
 type CodeRun struct {
+	// workspaceTool 提供 code_run 的默认工作目录和 cwd 解析能力。
 	workspaceTool
 }
 

@@ -11,6 +11,7 @@ import (
 
 // FileWrite 创建或修改文本文件，支持 overwrite/append/prepend 三种模式。
 type FileWrite struct {
+	// workspaceTool 提供 file_write 的路径解析能力。
 	workspaceTool
 }
 
