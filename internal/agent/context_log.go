@@ -11,28 +11,50 @@ import (
 const contextStatsLogFileName = "context.log"
 
 type contextStatsLogEntry struct {
-	SessionID               string   `json:"session_id"`
-	OriginalMessages        int      `json:"original_messages"`
-	FinalMessages           int      `json:"final_messages"`
-	OriginalChars           int      `json:"original_chars"`
-	FinalChars              int      `json:"final_chars"`
-	OriginalTokens          int      `json:"original_tokens"`
-	FinalTokens             int      `json:"final_tokens"`
-	UsableInputTokens       int      `json:"usable_input_tokens"`
-	CompactTriggerTokens    int      `json:"compact_trigger_tokens"`
-	SkippedCompact          bool     `json:"skipped_compact"`
-	TriggerReason           string   `json:"trigger_reason"`
-	TrimmedMessages         int      `json:"trimmed_messages"`
-	CompactedToolResults    int      `json:"compacted_tool_results"`
-	OmittedToolResultChars  int      `json:"omitted_tool_result_chars"`
-	InsertedNotice          bool     `json:"inserted_notice"`
-	InjectedSessionMemory   bool     `json:"injected_session_memory"`
-	SessionMemoryChars      int      `json:"session_memory_chars"`
-	SessionMemoryTruncated  bool     `json:"session_memory_truncated"`
-	InjectedCompactSummary  bool     `json:"injected_compact_summary"`
-	CompactSummaryChars     int      `json:"compact_summary_chars"`
-	CompactSummaryTruncated bool     `json:"compact_summary_truncated"`
-	Warnings                []string `json:"warnings,omitempty"`
+	// SessionID 是本条日志对应的会话标识。
+	SessionID string `json:"session_id"`
+	// OriginalMessages 是压缩前的历史消息数量。
+	OriginalMessages int `json:"original_messages"`
+	// FinalMessages 是最终发给模型的消息数量。
+	FinalMessages int `json:"final_messages"`
+	// OriginalChars 是压缩前消息的估算字符数。
+	OriginalChars int `json:"original_chars"`
+	// FinalChars 是压缩后消息的估算字符数。
+	FinalChars int `json:"final_chars"`
+	// OriginalTokens 是压缩前消息的估算 token 数。
+	OriginalTokens int `json:"original_tokens"`
+	// FinalTokens 是压缩后消息的估算 token 数。
+	FinalTokens int `json:"final_tokens"`
+	// UsableInputTokens 是扣除输出预留和安全余量后的输入预算。
+	UsableInputTokens int `json:"usable_input_tokens"`
+	// CompactTriggerTokens 是本轮开始压缩的 token 阈值。
+	CompactTriggerTokens int `json:"compact_trigger_tokens"`
+	// SkippedCompact 表示本轮是否因低于阈值跳过压缩。
+	SkippedCompact bool `json:"skipped_compact"`
+	// TriggerReason 记录触发或跳过压缩的原因。
+	TriggerReason string `json:"trigger_reason"`
+	// TrimmedMessages 是被 group trim 或协议清理移除的消息数量。
+	TrimmedMessages int `json:"trimmed_messages"`
+	// CompactedToolResults 是被 Micro Compact 压缩过的工具结果数量。
+	CompactedToolResults int `json:"compacted_tool_results"`
+	// OmittedToolResultChars 是工具结果压缩省略的字符数。
+	OmittedToolResultChars int `json:"omitted_tool_result_chars"`
+	// InsertedNotice 表示是否插入上下文省略提示。
+	InsertedNotice bool `json:"inserted_notice"`
+	// InjectedSessionMemory 表示是否注入 session memory。
+	InjectedSessionMemory bool `json:"injected_session_memory"`
+	// SessionMemoryChars 是注入请求的 session memory 字符数。
+	SessionMemoryChars int `json:"session_memory_chars"`
+	// SessionMemoryTruncated 表示注入的 session memory 是否被截断。
+	SessionMemoryTruncated bool `json:"session_memory_truncated"`
+	// InjectedCompactSummary 表示是否注入 compact summary。
+	InjectedCompactSummary bool `json:"injected_compact_summary"`
+	// CompactSummaryChars 是注入请求的 compact summary 字符数。
+	CompactSummaryChars int `json:"compact_summary_chars"`
+	// CompactSummaryTruncated 表示注入的 compact summary 是否被截断。
+	CompactSummaryTruncated bool `json:"compact_summary_truncated"`
+	// Warnings 记录协议修复或异常历史的警告。
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // logContextStats 把 Context Manager 的压缩决策写入 JSONL debug 日志。

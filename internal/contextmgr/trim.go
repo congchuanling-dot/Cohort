@@ -7,6 +7,7 @@ import (
 )
 
 type messageGroup struct {
+	// Messages 是一个不能被裁剪拆开的协议消息单元。
 	Messages []llm.Message
 }
 

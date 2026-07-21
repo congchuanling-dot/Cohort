@@ -13,25 +13,40 @@ import (
 
 // Config 是 Cohert 的运行配置。当前只覆盖命令行 MVP 必需字段。
 type Config struct {
-	Language  string
+	// Language 控制系统提示词和默认回复语言。
+	Language string
+	// Workspace 是文件、命令和截图工具解析相对路径的根目录。
 	Workspace string
-	LogDir    string
-	MaxTurns  int
-	LLM       LLMConfig
-	Context   contextmgr.Config
+	// LogDir 是模型原始响应和上下文压缩日志的保存目录。
+	LogDir string
+	// MaxTurns 限制单次 Agent 任务的最大模型循环次数。
+	MaxTurns int
+	// LLM 保存模型供应商和连接配置。
+	LLM LLMConfig
+	// Context 保存请求前上下文压缩和预算配置。
+	Context contextmgr.Config
 }
 
 // LLMConfig 描述模型服务配置，当前默认使用 OpenAI-compatible 接口。
 type LLMConfig struct {
-	Provider              string
-	Name                  string
-	APIKey                string
-	APIBase               string
-	Model                 string
-	Stream                bool
+	// Provider 是模型供应商标识，当前主要保留给未来扩展。
+	Provider string
+	// Name 是配置展示用的模型服务名称。
+	Name string
+	// APIKey 是调用模型服务的鉴权密钥，支持从环境变量展开。
+	APIKey string
+	// APIBase 是 OpenAI-compatible 服务地址。
+	APIBase string
+	// Model 是默认使用的模型名称。
+	Model string
+	// Stream 控制是否启用流式输出。
+	Stream bool
+	// ConnectTimeoutSeconds 是模型请求连接阶段超时秒数。
 	ConnectTimeoutSeconds int
-	ReadTimeoutSeconds    int
-	MaxRetries            int
+	// ReadTimeoutSeconds 是模型请求读取响应阶段超时秒数。
+	ReadTimeoutSeconds int
+	// MaxRetries 是模型请求遇到可重试错误时的重试次数。
+	MaxRetries int
 }
 
 // LoadConfig 读取项目根目录的配置文件，并用环境变量替换 ${VAR}。

@@ -15,19 +15,29 @@ import (
 
 // OpenAIConfig 是 OpenAI-compatible 模型服务的连接配置。
 type OpenAIConfig struct {
-	Name           string
-	APIKey         string
-	APIBase        string
-	Model          string
-	Stream         bool
+	// Name 是本配置的可读名称，主要用于展示和排查。
+	Name string
+	// APIKey 是访问 OpenAI-compatible 服务的鉴权密钥。
+	APIKey string
+	// APIBase 是模型服务基础地址，可以是域名、/v1 或完整 chat/completions。
+	APIBase string
+	// Model 是本次请求使用的模型名称。
+	Model string
+	// Stream 控制是否使用 SSE 流式响应。
+	Stream bool
+	// ConnectTimeout 是连接建立阶段的超时预算。
 	ConnectTimeout time.Duration
-	ReadTimeout    time.Duration
-	MaxRetries     int
+	// ReadTimeout 是读取响应阶段的超时预算。
+	ReadTimeout time.Duration
+	// MaxRetries 是遇到可重试错误时的最大重试次数。
+	MaxRetries int
 }
 
 // OpenAIClient 实现 Client 接口，负责调用 /v1/chat/completions。
 type OpenAIClient struct {
-	cfg    OpenAIConfig
+	// cfg 保存模型服务连接和请求策略配置。
+	cfg OpenAIConfig
+	// client 是实际发送 HTTP 请求的客户端。
 	client *http.Client
 }
 
@@ -121,10 +131,15 @@ func (c *OpenAIClient) doChat(ctx context.Context, req ChatRequest, out chan<- E
 
 // openAIRequest 是 /v1/chat/completions 的请求体。
 type openAIRequest struct {
-	Model      string       `json:"model"`
-	Messages   []Message    `json:"messages"`
-	Stream     bool         `json:"stream"`
-	Tools      []ToolSchema `json:"tools,omitempty"`
+	// Model 是请求的目标模型名称。
+	Model string `json:"model"`
+	// Messages 是 OpenAI-compatible 协议的对话消息列表。
+	Messages []Message `json:"messages"`
+	// Stream 表示是否要求服务端返回 SSE 流。
+	Stream bool `json:"stream"`
+	// Tools 是本次请求暴露给模型的工具定义。
+	Tools []ToolSchema `json:"tools,omitempty"`
+	// ToolChoice 控制模型是否自动选择工具。
 	ToolChoice string       `json:"tool_choice,omitempty"`
 }
 
@@ -152,7 +167,9 @@ func chatCompletionsURL(base string) string {
 
 // httpStatusError 保留 HTTP 状态码和响应体，方便上层打印具体失败原因。
 type httpStatusError struct {
+	// Code 是 HTTP 响应状态码。
 	Code int
+	// Body 是服务端返回的错误响应体，最多读取前 4096 字节。
 	Body string
 }
 
@@ -273,22 +290,34 @@ func normalizeToolCalls(calls []ToolCall) []ToolCall {
 
 // openAIResponse 是非流式接口返回结构。
 type openAIResponse struct {
+	// Choices 是非流式响应的候选结果列表，当前只取第一个。
 	Choices []struct {
+		// Message 是该候选结果里的 assistant 消息。
 		Message Message `json:"message"`
 	} `json:"choices"`
 }
 
 // openAIStreamChunk 是 SSE 每个 data payload 的结构。
 type openAIStreamChunk struct {
+	// Choices 是本个 SSE chunk 的候选增量，当前只消费第一个。
 	Choices []struct {
+		// Delta 是本次增量里的文本和工具调用片段。
 		Delta struct {
-			Content   string `json:"content"`
+			// Content 是本次流式文本增量。
+			Content string `json:"content"`
+			// ToolCalls 是本次流式工具调用增量。
 			ToolCalls []struct {
-				Index    int    `json:"index"`
-				ID       string `json:"id"`
-				Type     string `json:"type"`
+				// Index 是工具调用在本轮 tool_calls 数组中的位置。
+				Index int `json:"index"`
+				// ID 是工具调用标识，可能只在第一个 chunk 出现。
+				ID string `json:"id"`
+				// Type 是工具调用类型，通常为 function。
+				Type string `json:"type"`
+				// Function 保存函数名和参数的流式片段。
 				Function struct {
-					Name      string `json:"name"`
+					// Name 是函数名片段。
+					Name string `json:"name"`
+					// Arguments 是 JSON 参数片段，需要按 index 拼接。
 					Arguments string `json:"arguments"`
 				} `json:"function"`
 			} `json:"tool_calls"`
