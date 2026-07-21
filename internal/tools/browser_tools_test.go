@@ -2,7 +2,9 @@ package tools
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"os"
 	"testing"
 
 	"cohert/internal/agent"
@@ -10,34 +12,39 @@ import (
 )
 
 type fakeBrowserClient struct {
-	tabs             []browser.Tab
-	openURL          string
-	openTabID        string
-	scanTabID        string
-	scanMax          int
-	executeTabID     string
-	executeScript    string
-	executeNoMonitor bool
-	executeMaxReturn int
-	cdpTabID         string
-	cdpMethod        string
-	cdpParams        map[string]any
-	clickTabID       string
-	clickX           float64
-	clickY           float64
-	typeTabID        string
-	typeText         string
-	typeClear        bool
-	pressKeyTabID    string
-	pressKey         string
-	snapshotTabID    string
-	snapshotMax      int
-	waitTabID        string
-	waitMode         string
-	waitParams       map[string]any
-	waitTimeoutMS    int
-	waitIntervalMS   int
-	err              error
+	tabs              []browser.Tab
+	openURL           string
+	openTabID         string
+	scanTabID         string
+	scanMax           int
+	executeTabID      string
+	executeScript     string
+	executeNoMonitor  bool
+	executeMaxReturn  int
+	cdpTabID          string
+	cdpMethod         string
+	cdpParams         map[string]any
+	clickTabID        string
+	clickX            float64
+	clickY            float64
+	typeTabID         string
+	typeText          string
+	typeClear         bool
+	pressKeyTabID     string
+	pressKey          string
+	snapshotTabID     string
+	snapshotMax       int
+	screenshotTabID   string
+	screenshotFormat  string
+	screenshotFull    bool
+	screenshotQuality int
+	screenshotData    string
+	waitTabID         string
+	waitMode          string
+	waitParams        map[string]any
+	waitTimeoutMS     int
+	waitIntervalMS    int
+	err               error
 }
 
 func (f *fakeBrowserClient) Tabs(ctx context.Context) ([]browser.Tab, error) {
@@ -137,6 +144,28 @@ func (f *fakeBrowserClient) Snapshot(ctx context.Context, tabID string, maxEleme
 			Visible:  true,
 		}},
 		Count: 1,
+	}, nil
+}
+
+func (f *fakeBrowserClient) Screenshot(ctx context.Context, tabID string, format string, fullPage bool, quality int) (browser.ScreenshotResult, error) {
+	if f.err != nil {
+		return browser.ScreenshotResult{}, f.err
+	}
+	f.screenshotTabID = tabID
+	f.screenshotFormat = format
+	f.screenshotFull = fullPage
+	f.screenshotQuality = quality
+	data := f.screenshotData
+	if data == "" {
+		data = base64.StdEncoding.EncodeToString([]byte("fake image"))
+	}
+	return browser.ScreenshotResult{
+		Status: agent.ToolStatusSuccess,
+		TabID:  tabID,
+		Format: format,
+		Data:   data,
+		Width:  800,
+		Height: 600,
 	}, nil
 }
 
@@ -244,6 +273,31 @@ func TestBrowserSnapshotCallsClient(t *testing.T) {
 	}
 }
 
+func TestBrowserScreenshotSavesImage(t *testing.T) {
+	client := &fakeBrowserClient{
+		screenshotData: base64.StdEncoding.EncodeToString([]byte("png bytes")),
+	}
+	tool := NewBrowserScreenshot(client, t.TempDir())
+	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"tab_id": "5", "format": "png", "full_page": true, "quality": 80},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.screenshotTabID != "5" || client.screenshotFormat != "png" || !client.screenshotFull || client.screenshotQuality != 80 {
+		t.Fatalf("screenshot call = tab %q format %q full %v quality %d", client.screenshotTabID, client.screenshotFormat, client.screenshotFull, client.screenshotQuality)
+	}
+	data := outcome.Data.(map[string]any)
+	imagePath := data["image_path"].(string)
+	content, err := os.ReadFile(imagePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "png bytes" {
+		t.Fatalf("saved screenshot = %q", string(content))
+	}
+}
+
 func TestBrowserWaitForLoadCallsClient(t *testing.T) {
 	client := &fakeBrowserClient{}
 	tool := NewBrowserWaitForLoad(client)
@@ -283,6 +337,20 @@ func TestBrowserWaitForTextCallsClient(t *testing.T) {
 	}
 	if client.waitMode != "text" || client.waitParams["text"] != "提交成功" {
 		t.Fatalf("wait params = mode %q params %+v", client.waitMode, client.waitParams)
+	}
+}
+
+func TestBrowserWaitForURLCallsClient(t *testing.T) {
+	client := &fakeBrowserClient{}
+	tool := NewBrowserWaitForURL(client)
+	_, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"url_contains": "/search", "timeout_ms": 4321},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.waitMode != "url" || client.waitParams["url_contains"] != "/search" || client.waitTimeoutMS != 4321 {
+		t.Fatalf("wait url params = mode %q params %+v timeout %d", client.waitMode, client.waitParams, client.waitTimeoutMS)
 	}
 }
 

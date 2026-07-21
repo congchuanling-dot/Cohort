@@ -66,6 +66,7 @@ browser_snapshot
 
 ```text
 browser_wait_for_load
+browser_wait_for_url
 browser_wait_for_selector
 browser_wait_for_text
 browser_wait_for_stable
@@ -116,15 +117,23 @@ browser_wait_for_stable
 - 回车搜索、Esc 关弹窗、Tab 切焦点、Cmd+Enter/Ctrl+Enter 发送消息时，优先 `browser_press_key`。
 - 不要为了按 Enter 或找按钮手写 `Runtime.evaluate` / `Input.dispatchKeyEvent`。
 
+## 点击与输入
+
+- `browser_click_element` 会滚动元素到视口内，重测 rect，并通过 `elementFromPoint` 检查遮挡。
+- 如果中心点被挡，工具会尝试多个候选点；都不可点击时会返回遮挡元素信息。
+- `browser_type_element` 会先确认目标是 `input`、`textarea`、`select` 或 `contenteditable`。
+- 输入后会回读 `value` 或文本内容，并返回 `verified`，不要忽略校验结果。
+
 ## 新 tab 与跳转
 
 - 点击可能新开 tab 时，先看动作 diff 是否出现 tab count 变化。
 - 新 tab 出现后先 `browser_tabs`，确认目标 tab，再切换或指定 tab 操作。
-- URL 变化后必须 wait，再 scan。
+- URL 变化后优先用 `browser_wait_for_url` 等待目标 URL，再 wait stable 和 scan。
+- 登录、搜索、详情页跳转这类场景，不要只等 stable 后猜是否成功。
 
 ## 截图和 OCR
 
-- 截图优先走 CDP `Page.captureScreenshot`。
+- 截图优先用 `browser_screenshot`，图片会保存到 workspace，只返回路径和尺寸。
 - OCR 只在 DOM 文本不可用、canvas/image 渲染、验证码旁说明等场景兜底。
 - 普通网页不要默认 OCR。
 

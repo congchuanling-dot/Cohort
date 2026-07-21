@@ -2,12 +2,16 @@ package tools
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"cohert/internal/agent"
 	"cohert/internal/browser"
@@ -651,6 +655,59 @@ func (t *BrowserWaitForText) Run(ctx context.Context, call agent.ToolCallContext
 	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
 }
 
+// BrowserWaitForURL 等待页面 URL 命中指定条件。
+// 登录跳转、搜索结果页、详情页导航这类场景优先用它，而不是只等 stable 后猜状态。
+type BrowserWaitForURL struct {
+	client browser.Client
+}
+
+func NewBrowserWaitForURL(client browser.Client) *BrowserWaitForURL {
+	return &BrowserWaitForURL{client: client}
+}
+
+func (t *BrowserWaitForURL) Name() string { return ToolNameBrowserWaitForURL }
+
+func (t *BrowserWaitForURL) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Wait until the current page URL matches a condition. Use after clicks, form submit, login, search, or navigation when the expected result is a URL change.",
+		Parameters: objectSchema(map[string]any{
+			"tab_id":       stringProp("Optional tab ID. If empty, waits on the active tab."),
+			"url_contains": stringProp("Optional substring that the URL should contain."),
+			"url_exact":    stringProp("Optional exact URL that should match."),
+			"url_matches":  stringProp("Optional JavaScript regular expression pattern that the URL should match."),
+			"timeout_ms":   intProp("Maximum wait time in milliseconds. Default 10000.", defaultBrowserWaitTimeoutMS),
+			"interval_ms":  intProp("Polling interval in milliseconds. Default 200.", defaultBrowserWaitIntervalMS),
+		}),
+	}}
+}
+
+func (t *BrowserWaitForURL) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	contains := strings.TrimSpace(asString(call.Args["url_contains"]))
+	exact := strings.TrimSpace(asString(call.Args["url_exact"]))
+	matches := strings.TrimSpace(asString(call.Args["url_matches"]))
+	if contains == "" && exact == "" && matches == "" {
+		return agent.Outcome{
+			Data: agent.NewToolError(
+				"browser_bad_wait_url",
+				"browser_wait_for_url requires url_contains, url_exact, or url_matches",
+				"请至少提供一种 URL 匹配条件，例如 {\"url_contains\":\"/search\"}。",
+			),
+			NextPrompt: "\n",
+		}, nil
+	}
+	params := map[string]any{
+		"url_contains": contains,
+		"url_exact":    exact,
+		"url_matches":  matches,
+	}
+	result, err := runBrowserWait(ctx, t.client, asString(call.Args["tab_id"]), "url", params, call.Args)
+	if err != nil {
+		return browserToolError(err), nil
+	}
+	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
+}
+
 // BrowserWaitForStable 等待页面进入短时间稳定状态。
 // 它适合页面 load 已完成但前端 JS 仍在持续渲染的场景。
 type BrowserWaitForStable struct {
@@ -683,6 +740,104 @@ func (t *BrowserWaitForStable) Run(ctx context.Context, call agent.ToolCallConte
 		return browserToolError(err), nil
 	}
 	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
+}
+
+// BrowserScreenshot 截取当前浏览器页面，并把图片保存到 workspace。
+// 工具结果只返回路径和尺寸，不把 base64 图片塞进模型上下文。
+type BrowserScreenshot struct {
+	client    browser.Client
+	workspace string
+}
+
+func NewBrowserScreenshot(client browser.Client, workspace string) *BrowserScreenshot {
+	return &BrowserScreenshot{client: client, workspace: workspace}
+}
+
+func (t *BrowserScreenshot) Name() string { return ToolNameBrowserScreenshot }
+
+func (t *BrowserScreenshot) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Capture a browser screenshot and save it under the workspace. Use only when visual evidence is needed or DOM text is unavailable; the tool returns an image path instead of base64.",
+		Parameters: objectSchema(map[string]any{
+			"tab_id":    stringProp("Optional tab ID. If empty, captures the active tab."),
+			"format":    stringProp("Image format: png, jpeg, or webp. Default png."),
+			"full_page": boolProp("Capture the full page instead of current viewport.", false),
+			"quality":   intProp("Quality for jpeg/webp, 1-100. Default 90.", 90),
+		}),
+	}}
+}
+
+func (t *BrowserScreenshot) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	tabID := asString(call.Args["tab_id"])
+	format := strings.ToLower(strings.TrimSpace(asString(call.Args["format"])))
+	if format == "" {
+		format = "png"
+	}
+	if format != "png" && format != "jpeg" && format != "webp" {
+		return agent.Outcome{
+			Data: agent.NewToolError(
+				"browser_bad_screenshot_format",
+				"browser_screenshot format must be png, jpeg, or webp",
+				"请使用 png、jpeg 或 webp。默认 png 即可。",
+			),
+			NextPrompt: "\n",
+		}, nil
+	}
+	quality := asInt(call.Args["quality"], 90)
+	if quality <= 0 {
+		quality = 90
+	}
+	result, err := t.client.Screenshot(ctx, tabID, format, asBool(call.Args["full_page"], false), quality)
+	if err != nil {
+		return browserToolError(err), nil
+	}
+	imagePath, size, err := t.saveScreenshot(result)
+	if err != nil {
+		return agent.Outcome{
+			Data: agent.NewToolError(
+				"browser_screenshot_save_failed",
+				err.Error(),
+				"截图已从浏览器返回，但保存到 workspace 失败；请检查 workspace 权限。",
+			),
+			NextPrompt: "\n",
+		}, nil
+	}
+	return agent.Outcome{
+		Data: map[string]any{
+			"status":     result.Status,
+			"tab_id":     result.TabID,
+			"image_path": imagePath,
+			"format":     result.Format,
+			"width":      result.Width,
+			"height":     result.Height,
+			"bytes":      size,
+		},
+		NextPrompt: "\n",
+	}, nil
+}
+
+func (t *BrowserScreenshot) saveScreenshot(result browser.ScreenshotResult) (string, int, error) {
+	if strings.TrimSpace(result.Data) == "" {
+		return "", 0, errors.New("browser screenshot returned empty image data")
+	}
+	data, err := base64.StdEncoding.DecodeString(result.Data)
+	if err != nil {
+		return "", 0, fmt.Errorf("decode screenshot image: %w", err)
+	}
+	ext := result.Format
+	if ext == "jpeg" {
+		ext = "jpg"
+	}
+	dir := filepath.Join(t.workspace, defaultBrowserScreenshotDir)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", 0, err
+	}
+	path := filepath.Join(dir, fmt.Sprintf("browser_screenshot_%d.%s", time.Now().UnixNano(), ext))
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return "", 0, err
+	}
+	return path, len(data), nil
 }
 
 func browserToolError(err error) agent.Outcome {
@@ -721,50 +876,187 @@ func badSelectorOutcome() agent.Outcome {
 	}
 }
 
-func locateElementRect(ctx context.Context, client browser.Client, tabID string, selector string) (browser.Rect, error) {
+type elementTarget struct {
+	Rect  browser.Rect  `json:"rect"`
+	Point browser.Point `json:"point"`
+	Hit   string        `json:"hit"`
+	Value string        `json:"value"`
+}
+
+type elementTypeVerification struct {
+	Actual   string `json:"actual"`
+	Verified bool   `json:"verified"`
+}
+
+func locateElementTarget(ctx context.Context, client browser.Client, tabID string, selector string, requireEditable bool) (elementTarget, error) {
 	selectorJSON, err := json.Marshal(selector)
 	if err != nil {
-		return browser.Rect{}, err
+		return elementTarget{}, err
 	}
-	// 这里让 JS 只做两件事：滚动目标元素到 viewport 内，并读取真实渲染后的 rect。
-	// 不在 JS 里调用 element.click()，避免产生 isTrusted=false 的合成点击事件。
+	// JS 只负责定位、滚动、重测和判断哪个 viewport 点真正落在目标元素上。
+	// 真正点击仍由 CDP 完成，避免 element.click() 产生 isTrusted=false 的合成事件。
 	script := fmt.Sprintf(`const selector = %s;
+const requireEditable = %v;
 const element = document.querySelector(selector);
 if (!element) {
   throw new Error("element not found: " + selector);
 }
 element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
-await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 const rect = element.getBoundingClientRect();
 const style = getComputedStyle(element);
-if (rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
+const visible = rect.width > 0
+  && rect.height > 0
+  && style.display !== "none"
+  && style.visibility !== "hidden"
+  && Number(style.opacity || "1") > 0;
+if (!visible) {
   throw new Error("element is not visible: " + selector);
 }
-return {
-  x: rect.x,
-  y: rect.y,
-  width: rect.width,
-  height: rect.height,
-  top: rect.top,
-  right: rect.right,
-  bottom: rect.bottom,
-  left: rect.left
-};`, string(selectorJSON))
-	result, err := client.ExecuteJS(ctx, tabID, script, true, 2000)
+if (style.pointerEvents === "none") {
+  throw new Error("element has pointer-events:none: " + selector);
+}
+const tag = element.tagName.toLowerCase();
+const editable = tag === "input"
+  || tag === "textarea"
+  || tag === "select"
+  || element.isContentEditable
+  || element.getAttribute("contenteditable") === "true";
+if (requireEditable && !editable) {
+  throw new Error("element is not editable: " + selector);
+}
+const disabled = !!element.disabled || element.getAttribute("aria-disabled") === "true" || element.closest("[aria-disabled='true']");
+if (disabled) {
+  throw new Error("element is disabled: " + selector);
+}
+const describe = (node) => {
+  if (!node || node.nodeType !== 1) return "";
+  const id = node.id ? "#" + node.id : "";
+  const cls = node.classList && node.classList.length ? "." + Array.from(node.classList).slice(0, 3).join(".") : "";
+  return node.tagName.toLowerCase() + id + cls;
+};
+const readValue = () => {
+  if (tag === "input" || tag === "textarea" || tag === "select") return element.value || "";
+  return element.innerText || element.textContent || "";
+};
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const x1 = clamp(rect.left + Math.min(6, rect.width / 4), 0, window.innerWidth - 1);
+const x2 = clamp(rect.left + rect.width / 2, 0, window.innerWidth - 1);
+const x3 = clamp(rect.right - Math.min(6, rect.width / 4), 0, window.innerWidth - 1);
+const y1 = clamp(rect.top + Math.min(6, rect.height / 4), 0, window.innerHeight - 1);
+const y2 = clamp(rect.top + rect.height / 2, 0, window.innerHeight - 1);
+const y3 = clamp(rect.bottom - Math.min(6, rect.height / 4), 0, window.innerHeight - 1);
+const candidates = [
+  { x: x2, y: y2 },
+  { x: x1, y: y2 },
+  { x: x3, y: y2 },
+  { x: x2, y: y1 },
+  { x: x2, y: y3 },
+  { x: x1, y: y1 },
+  { x: x3, y: y1 },
+  { x: x1, y: y3 },
+  { x: x3, y: y3 }
+];
+let blockedBy = "";
+for (const point of candidates) {
+  const hit = document.elementFromPoint(point.x, point.y);
+  if (!blockedBy && hit) blockedBy = describe(hit);
+  if (hit && (hit === element || element.contains(hit))) {
+    return {
+      rect: {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        left: rect.left
+      },
+      point,
+      hit: describe(hit),
+      value: readValue()
+    };
+  }
+}
+throw new Error("element is covered or not hit-testable: " + selector + (blockedBy ? "; top element: " + blockedBy : ""));
+`, string(selectorJSON), requireEditable)
+	result, err := client.ExecuteJS(ctx, tabID, script, true, 3000)
 	if err != nil {
-		return browser.Rect{}, err
+		return elementTarget{}, err
 	}
 	if result.Status == "error" {
-		return browser.Rect{}, fmt.Errorf("browser element lookup error: %v", result.Error)
+		return elementTarget{}, fmt.Errorf("browser element lookup error: %v", result.Error)
 	}
-	var rect browser.Rect
-	if err := json.Unmarshal([]byte(result.JSReturn), &rect); err != nil {
-		return browser.Rect{}, fmt.Errorf("decode element rect: %w", err)
+	var target elementTarget
+	if err := json.Unmarshal([]byte(result.JSReturn), &target); err != nil {
+		return elementTarget{}, fmt.Errorf("decode element target: %w", err)
 	}
-	if rect.Width <= 0 || rect.Height <= 0 {
-		return browser.Rect{}, fmt.Errorf("element has invalid rect: width=%v height=%v", rect.Width, rect.Height)
+	if target.Rect.Width <= 0 || target.Rect.Height <= 0 {
+		return elementTarget{}, fmt.Errorf("element has invalid rect: width=%v height=%v", target.Rect.Width, target.Rect.Height)
 	}
-	return rect, nil
+	if math.IsNaN(target.Point.X) || math.IsNaN(target.Point.Y) {
+		return elementTarget{}, errors.New("element has invalid click point")
+	}
+	return target, nil
+}
+
+func verifyElementTyped(ctx context.Context, client browser.Client, tabID string, selector string, expected string, clear bool) (string, bool, error) {
+	selectorJSON, err := json.Marshal(selector)
+	if err != nil {
+		return "", false, err
+	}
+	expectedJSON, err := json.Marshal(expected)
+	if err != nil {
+		return "", false, err
+	}
+	script := fmt.Sprintf(`const selector = %s;
+const expected = %s;
+const clear = %v;
+const element = document.querySelector(selector);
+if (!element) {
+  throw new Error("element not found after typing: " + selector);
+}
+const tag = element.tagName.toLowerCase();
+const isValueElement = tag === "input" || tag === "textarea" || tag === "select";
+const actual = isValueElement ? (element.value || "") : (element.innerText || element.textContent || "");
+try {
+  element.dispatchEvent(new Event("input", { bubbles: true }));
+  element.dispatchEvent(new Event("change", { bubbles: true }));
+} catch (_err) {}
+return {
+  actual,
+  verified: clear ? actual === expected : actual.includes(expected)
+};`, string(selectorJSON), string(expectedJSON), clear)
+	result, err := client.ExecuteJS(ctx, tabID, script, true, 2000)
+	if err != nil {
+		return "", false, err
+	}
+	if result.Status == "error" {
+		return "", false, fmt.Errorf("browser input verification error: %v", result.Error)
+	}
+	var verification elementTypeVerification
+	if err := json.Unmarshal([]byte(result.JSReturn), &verification); err != nil {
+		return "", false, fmt.Errorf("decode input verification: %w", err)
+	}
+	return verification.Actual, verification.Verified, nil
+}
+
+func waitAfterBrowserAction(ctx context.Context, client browser.Client, tabID string) (browser.WaitResult, error) {
+	if tabID == "" {
+		return browser.WaitResult{}, nil
+	}
+	return client.Wait(ctx, tabID, "stable", map[string]any{"stable_ms": 500}, 1500, 150)
+}
+
+func appendBrowserDiff(diff string, extra string) string {
+	if extra == "" {
+		return diff
+	}
+	if diff == "" {
+		return extra
+	}
+	return diff + ", " + extra
 }
 
 func centerPoint(rect browser.Rect) browser.Point {

@@ -426,6 +426,64 @@ func TestBridgeSnapshotCommandWithMockExtension(t *testing.T) {
 	<-done
 }
 
+func TestBridgeScreenshotCommandWithMockExtension(t *testing.T) {
+	bridge := NewBridge("127.0.0.1:0", DefaultPath)
+	if err := bridge.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer bridge.Close(context.Background())
+
+	conn, _, err := websocket.DefaultDialer.Dial("ws://"+bridge.Addr()+DefaultPath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		var command map[string]any
+		if readErr := conn.ReadJSON(&command); readErr != nil {
+			t.Errorf("read command: %v", readErr)
+			return
+		}
+		if command["command"] != "screenshot" || command["format"] != "png" || command["full_page"] != true || command["quality"] != float64(90) {
+			t.Errorf("command payload = %+v", command)
+			return
+		}
+		id := command["id"].(string)
+		result := map[string]any{
+			"type": messageTypeResult,
+			"id":   id,
+			"result": map[string]any{
+				"status": "success",
+				"tab_id": "7",
+				"format": "png",
+				"data":   "ZmFrZQ==",
+				"width":  800,
+				"height": 600,
+				"scale":  1,
+			},
+		}
+		if writeErr := conn.WriteJSON(result); writeErr != nil {
+			t.Errorf("write result: %v", writeErr)
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	result, err := bridge.Screenshot(ctx, "7", "png", true, 90)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Data != "ZmFrZQ==" || result.Width != 800 || result.Height != 600 {
+		raw, _ := json.Marshal(result)
+		t.Fatalf("result = %s", raw)
+	}
+
+	<-done
+}
+
 func TestBridgeWaitCommandWithMockExtension(t *testing.T) {
 	bridge := NewBridge("127.0.0.1:0", DefaultPath)
 	if err := bridge.Start(); err != nil {
