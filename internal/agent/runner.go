@@ -32,34 +32,49 @@ type ToolRunner interface {
 // ToolCallContext 是一次工具调用的上下文，由 Runner 传给具体工具。
 type ToolCallContext struct {
 	// Name 是模型想调用的工具名，例如 file_read、code_run。
-	Name      string
-	Args      map[string]any // Args 是模型传给工具的 JSON 参数，已经解析成 map。
-	Response  llm.Response   // Response 是当前轮模型的完整响应，方便工具按需参考上下文。
-	Turn      int            // Turn 是当前第几轮 Agent 循环。
-	Index     int            // Index 是当前工具调用在本轮 tool_calls 里的下标。
+	Name string
+	// Args 是模型传给工具的 JSON 参数，已经解析成 map。
+	Args map[string]any
+	// Response 是当前轮模型的完整响应，方便工具按需参考上下文。
+	Response llm.Response
+	// Turn 是当前第几轮 Agent 循环。
+	Turn int
+	// Index 是当前工具调用在本轮 tool_calls 里的下标。
+	Index int
+	// ToolCount 是当前轮模型一次性返回的工具调用总数。
 	ToolCount int
 }
 
 // WorkingCheckpoint 是当前任务的短期工作记忆。
 // 它只存在于 Runner 内存中，不落盘；用于保存 SOP 关键约束、任务进度和下一步。
 type WorkingCheckpoint struct {
-	KeyInfo       string
-	RelatedSOP    string
+	// KeyInfo 保存当前任务、关键约束、禁止事项、当前进度和下一步。
+	KeyInfo string
+	// RelatedSOP 记录本任务关联的 SOP 路径，便于后续不确定时重读。
+	RelatedSOP string
+	// UpdatedAtTurn 记录 checkpoint 最后一次更新发生在哪个 Agent turn。
 	UpdatedAtTurn int
 }
 
 type pendingSOPRead struct {
-	Path        string
+	// Path 是最近一次通过 file_read 读取到的 SOP 路径。
+	Path string
+	// ReminderSet 表示是否已经为这次 SOP 读取注入过 checkpoint 提醒。
 	ReminderSet bool
 }
 
 // Runner 表示一个 Agent 会话，负责串起模型、工具、历史消息和循环控制。
 type Runner struct {
-	Client       llm.Client // Client 负责和模型服务通信。
-	Tools        ToolRunner // Tools 负责提供工具 schema，并执行模型请求的工具。
-	SystemPrompt string     // SystemPrompt 是每次请求模型时固定携带的系统提示词。
-	MaxTurns     int        // MaxTurns 限制最大循环轮数，避免模型不断调用工具导致死循环。
-	LogDir       string     // LogDir 用来保存模型原始响应日志。
+	// Client 负责和模型服务通信。
+	Client llm.Client
+	// Tools 负责提供工具 schema，并执行模型请求的工具。
+	Tools ToolRunner
+	// SystemPrompt 是每次请求模型时固定携带的系统提示词。
+	SystemPrompt string
+	// MaxTurns 限制最大循环轮数，避免模型不断调用工具导致死循环。
+	MaxTurns int
+	// LogDir 用来保存模型原始响应日志。
+	LogDir string
 	// ContextManager 负责在请求模型前构造可见上下文；完整历史仍保留在 history 和 history.jsonl。
 	ContextManager *contextmgr.Manager
 	// SessionStore 负责把对话消息追加写入 history.jsonl。

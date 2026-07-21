@@ -38,38 +38,58 @@ var ErrNoActiveSession = errors.New("no active session")
 
 // CompactMemoryResult 描述 /compact 生成 session memory 的结果。
 type CompactMemoryResult struct {
-	SessionID  string
-	Path       string
+	// SessionID 是本次 compact 所属的会话标识。
+	SessionID string
+	// Path 是生成后的 memory.md 文件路径。
+	Path string
+	// BackupPath 是旧 memory.md 的备份路径；没有备份时为空。
 	BackupPath string
-	BackedUp   bool
-	Chars      int
+	// BackedUp 表示本次写入前是否成功备份了旧 memory.md。
+	BackedUp bool
+	// Chars 是生成的 session memory 字符数。
+	Chars int
 }
 
 // SessionMemorySnapshot 是当前 session memory.md 的只读快照，用于 /memory 展示。
 type SessionMemorySnapshot struct {
+	// SessionID 是快照所属的会话标识。
 	SessionID string
-	Path      string
-	Content   string
-	Chars     int
-	Exists    bool
+	// Path 是 memory.md 的预期文件路径。
+	Path string
+	// Content 是当前 memory.md 的完整内容；文件不存在时为空。
+	Content string
+	// Chars 是 Content 的字符数。
+	Chars int
+	// Exists 表示 memory.md 当前是否存在。
+	Exists bool
 }
 
 // FullCompactResult 描述 /full-compact 生成 compact.md 的结果。
 type FullCompactResult struct {
-	SessionID  string
-	Path       string
+	// SessionID 是本次 full compact 所属的会话标识。
+	SessionID string
+	// Path 是生成后的 compact.md 文件路径。
+	Path string
+	// BackupPath 是旧 compact.md 的备份路径；没有备份时为空。
 	BackupPath string
-	BackedUp   bool
-	Chars      int
+	// BackedUp 表示本次写入前是否成功备份了旧 compact.md。
+	BackedUp bool
+	// Chars 是生成的 compact summary 字符数。
+	Chars int
 }
 
 // CompactSummarySnapshot 是当前 session compact.md 的只读快照，用于后续查看命令扩展。
 type CompactSummarySnapshot struct {
+	// SessionID 是快照所属的会话标识。
 	SessionID string
-	Path      string
-	Content   string
-	Chars     int
-	Exists    bool
+	// Path 是 compact.md 的预期文件路径。
+	Path string
+	// Content 是当前 compact.md 的完整内容；文件不存在时为空。
+	Content string
+	// Chars 是 Content 的字符数。
+	Chars int
+	// Exists 表示 compact.md 当前是否存在。
+	Exists bool
 }
 
 // CompactSessionMemory 调用模型把当前 Runner.history 压缩成 session memory，并写入 memory.md。

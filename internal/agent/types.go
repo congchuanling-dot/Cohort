@@ -10,8 +10,11 @@ import (
 // Outcome 是工具执行后的统一结果。
 // Data 会回灌给模型，ShouldExit 用于工具主动终止当前 Agent。
 type Outcome struct {
-	Data       any
+	// Data 是最终回灌给模型的工具结果，可以是字符串、结构体或 map。
+	Data any
+	// NextPrompt 是工具希望下一轮临时注入给模型的提示。
 	NextPrompt string
+	// ShouldExit 表示工具请求 Runner 结束当前任务循环。
 	ShouldExit bool
 }
 
@@ -25,10 +28,14 @@ const (
 // ToolErrorData 是工具错误返回给模型的统一格式。
 // Code 给程序和测试判断错误类型，Message 给用户看，Hint 给模型下一步修正建议。
 type ToolErrorData struct {
-	Status  string `json:"status"`
-	Code    string `json:"code"`
+	// Status 固定为 error，方便模型和测试识别工具失败。
+	Status string `json:"status"`
+	// Code 是稳定错误码，供程序和模型判断失败类型。
+	Code string `json:"code"`
+	// Message 是面向用户和模型的具体错误说明。
 	Message string `json:"message"`
-	Hint    string `json:"hint"`
+	// Hint 给模型下一步修正参数或执行路径的建议。
+	Hint string `json:"hint"`
 }
 
 // NewToolError 创建统一的工具错误结果。
@@ -52,7 +59,9 @@ const (
 
 // RunResult 表示一次 Runner.Run 的最终状态。
 type RunResult struct {
-	Status   string
+	// Status 表示 Runner 结束原因，例如 done、exited 或 max_turns_exceeded。
+	Status string
+	// Response 是最后一轮模型响应，便于调用方读取最终文本或工具调用信息。
 	Response *llm.Response
 }
 
@@ -66,6 +75,7 @@ type OutputSink interface {
 
 // ConsoleSink 把 Agent 输出写到终端。
 type ConsoleSink struct {
+	// out 是实际接收终端输出的 writer，通常是 os.Stdout。
 	out io.Writer
 }
 
