@@ -339,6 +339,20 @@ func (b *Bridge) Snapshot(ctx context.Context, tabID string, maxElements int) (I
 	return result, err
 }
 
+// Screenshot 截取当前视口或整页图片。
+// 插件返回 base64 图片数据；上层工具负责落盘并避免把大块 base64 暴露给模型。
+func (b *Bridge) Screenshot(ctx context.Context, tabID string, format string, fullPage bool, quality int) (ScreenshotResult, error) {
+	var result ScreenshotResult
+	err := b.command(ctx, map[string]any{
+		"command":   "screenshot",
+		"tab_id":    tabID,
+		"format":    format,
+		"full_page": fullPage,
+		"quality":   quality,
+	}, &result)
+	return result, err
+}
+
 // Wait 在浏览器侧轮询等待页面达到指定状态。
 // 与 Go 侧循环相比，放在插件侧可以直接读取 tab.status 和页面 DOM，避免多次 WebSocket 往返。
 func (b *Bridge) Wait(ctx context.Context, tabID string, mode string, params map[string]any, timeoutMS int, intervalMS int) (WaitResult, error) {

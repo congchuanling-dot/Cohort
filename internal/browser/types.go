@@ -102,6 +102,7 @@ type ElementClickResult struct {
 	Selector  string `json:"selector"`
 	Rect      Rect   `json:"rect"`
 	ClickedAt Point  `json:"clicked_at"`
+	Hit       string `json:"hit,omitempty"`
 	Diff      string `json:"diff,omitempty"`
 }
 
@@ -123,6 +124,8 @@ type ElementTypeResult struct {
 	TypedAt  Point  `json:"typed_at"`
 	Text     string `json:"text,omitempty"`
 	Clear    bool   `json:"clear,omitempty"`
+	Actual   string `json:"actual,omitempty"`
+	Verified bool   `json:"verified,omitempty"`
 	Diff     string `json:"diff,omitempty"`
 }
 
@@ -168,6 +171,18 @@ type InteractiveSnapshot struct {
 	Truncated bool                 `json:"truncated,omitempty"`
 }
 
+// ScreenshotResult 是浏览器截图的底层返回结构。
+// Data 是插件返回的 base64 图片数据，工具层会落盘后只把路径返回给模型。
+type ScreenshotResult struct {
+	Status string `json:"status"`
+	TabID  string `json:"tab_id"`
+	Format string `json:"format"`
+	Data   string `json:"data,omitempty"`
+	Width  int    `json:"width,omitempty"`
+	Height int    `json:"height,omitempty"`
+	Scale  int    `json:"scale,omitempty"`
+}
+
 // WaitResult 是浏览器等待类工具的稳定返回结构。
 // status 为 success 表示条件满足，timeout 表示页面在限定时间内没有达到目标状态。
 type WaitResult struct {
@@ -180,6 +195,9 @@ type WaitResult struct {
 	TabStatus        string `json:"tab_status,omitempty"`
 	URL              string `json:"url,omitempty"`
 	Title            string `json:"title,omitempty"`
+	URLContains      string `json:"url_contains,omitempty"`
+	URLExact         string `json:"url_exact,omitempty"`
+	URLMatches       string `json:"url_matches,omitempty"`
 	Selector         string `json:"selector,omitempty"`
 	State            string `json:"state,omitempty"`
 	Exists           bool   `json:"exists,omitempty"`
@@ -204,5 +222,6 @@ type Client interface {
 	Type(ctx context.Context, tabID string, text string, clear bool, noMonitor bool) (TypeResult, error)
 	PressKey(ctx context.Context, tabID string, key string, noMonitor bool) (PressKeyResult, error)
 	Snapshot(ctx context.Context, tabID string, maxElements int) (InteractiveSnapshot, error)
+	Screenshot(ctx context.Context, tabID string, format string, fullPage bool, quality int) (ScreenshotResult, error)
 	Wait(ctx context.Context, tabID string, mode string, params map[string]any, timeoutMS int, intervalMS int) (WaitResult, error)
 }
