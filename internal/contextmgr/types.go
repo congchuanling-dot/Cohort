@@ -3,9 +3,10 @@ package contextmgr
 import "cohert/internal/llm"
 
 const (
-	contextNotice        = "[Cohert context notice] Earlier conversation messages were omitted from this request. Full history is preserved in history.jsonl."
-	sessionMemoryNotice  = "[Cohert session memory]"
-	compactSummaryNotice = "[Cohert compact summary]"
+	contextNotice              = "[Cohert context notice] Earlier conversation messages were omitted from this request. Full history is preserved in history.jsonl."
+	longTermMemoryIndexNotice  = "[Cohert long-term memory index]"
+	sessionMemoryNotice        = "[Cohert session memory]"
+	compactSummaryNotice       = "[Cohert compact summary]"
 )
 
 // Config 控制本轮模型请求前的确定性上下文压缩。
@@ -37,6 +38,10 @@ type Config struct {
 	// MaxSessionMemoryChars 限制 memory.md 注入请求前的最大字符数。
 	// memory.md 是稳定事实，不应该无限增长；超过后会截断注入副本，不修改磁盘文件。
 	MaxSessionMemoryChars int
+
+	// MaxMemoryIndexChars 限制长期记忆索引注入请求前的最大字符数。
+	// memory/index.md 只作为指针，不应该承载详细记忆。
+	MaxMemoryIndexChars int
 
 	// MaxCompactSummaryChars 限制 compact.md 注入请求前的最大字符数。
 	// compact.md 承载长历史摘要，默认比 memory.md 更大；超过后只截断请求副本，不修改磁盘文件。
@@ -73,6 +78,7 @@ func DefaultConfig() Config {
 		CompactedToolTailChars: 4000,
 		MaxRequestChars:        100000,
 		MaxSessionMemoryChars:  20000,
+		MaxMemoryIndexChars:    12000,
 		MaxCompactSummaryChars: 60000,
 		MaxOutputTokens:        4096,
 		SafetyTokens:           4000,
@@ -105,6 +111,9 @@ func (c Config) Normalize() Config {
 	if c.MaxSessionMemoryChars <= 0 {
 		c.MaxSessionMemoryChars = defaults.MaxSessionMemoryChars
 	}
+	if c.MaxMemoryIndexChars <= 0 {
+		c.MaxMemoryIndexChars = defaults.MaxMemoryIndexChars
+	}
 	if c.MaxCompactSummaryChars <= 0 {
 		c.MaxCompactSummaryChars = defaults.MaxCompactSummaryChars
 	}
@@ -127,6 +136,9 @@ func (c Config) Normalize() Config {
 type Manager struct {
 	// Config 是本 Manager 使用的上下文预算和压缩策略。
 	Config Config
+	// MemoryRoot 是长期记忆根目录，通常是 workspace/memory。
+	// 为空时不注入长期记忆索引，避免测试或无 workspace 场景产生隐式文件依赖。
+	MemoryRoot string
 }
 
 // BuildInput 是一次请求前上下文构造所需的信息。
@@ -205,6 +217,15 @@ type Stats struct {
 
 	// SessionMemoryTruncated 表示 memory.md 因超过 MaxSessionMemoryChars 而在请求副本中被截断。
 	SessionMemoryTruncated bool
+
+	// InjectedMemoryIndex 表示本轮请求是否注入了 memory/index.md。
+	InjectedMemoryIndex bool
+
+	// MemoryIndexChars 是注入请求的 memory/index.md 字符数。
+	MemoryIndexChars int
+
+	// MemoryIndexTruncated 表示 memory/index.md 因超过 MaxMemoryIndexChars 而在请求副本中被截断。
+	MemoryIndexTruncated bool
 
 	// InjectedCompactSummary 表示本轮请求是否注入了 compact.md。
 	InjectedCompactSummary bool

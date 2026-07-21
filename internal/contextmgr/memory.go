@@ -14,7 +14,48 @@ const (
 	SessionMemoryBackupFileName  = "memory.bak.md"
 	CompactSummaryFileName       = "compact.md"
 	CompactSummaryBackupFileName = "compact.bak.md"
+	LongTermMemoryIndexFileName  = "index.md"
 )
+
+// loadLongTermMemoryIndex 读取长期记忆索引 memory/index.md。
+//
+// 索引只包含“有哪些记忆可以按需读取”的轻量指针，不承载详细项目记忆。
+func loadLongTermMemoryIndex(memoryRoot string) (text string, ok bool, err error) {
+	if strings.TrimSpace(memoryRoot) == "" {
+		return "", false, nil
+	}
+	data, err := os.ReadFile(filepath.Join(memoryRoot, LongTermMemoryIndexFileName))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	text = strings.TrimSpace(string(data))
+	if text == "" {
+		return "", false, nil
+	}
+	return text, true, nil
+}
+
+// buildLongTermMemoryIndexMessage 把 memory/index.md 转成受保护前缀消息。
+func buildLongTermMemoryIndexMessage(indexText string, cfg Config, stats *Stats) (llm.Message, bool) {
+	indexText = strings.TrimSpace(indexText)
+	if indexText == "" {
+		return llm.Message{}, false
+	}
+
+	limited, truncated := limitRunes(indexText, cfg.MaxMemoryIndexChars)
+	content := longTermMemoryIndexNotice + "\n\n" + limited
+	if truncated {
+		content += "\n\n[Cohert long-term memory index truncated]"
+		stats.MemoryIndexTruncated = true
+	}
+
+	stats.InjectedMemoryIndex = true
+	stats.MemoryIndexChars = len([]rune(limited))
+	return llm.Message{Role: llm.RoleAssistant, Content: content}, true
+}
 
 // loadSessionMemory 读取当前 session 目录下的 memory.md。
 //
@@ -106,20 +147,26 @@ func buildCompactSummaryMessage(summaryText string, cfg Config, stats *Stats) (l
 
 // prependProtectedContext 按固定顺序注入受保护上下文前缀。
 //
-// 顺序必须保持为 memory.md -> compact.md -> 最近对话：
+// 顺序必须保持为 memory/index.md -> memory.md -> compact.md -> 最近对话：
+//   - memory/index.md 只存长期记忆指针；
 //   - memory.md 存稳定事实和用户偏好；
 //   - compact.md 存旧历史摘要；
 //   - 最近对话仍保留原始消息形状。
-func prependProtectedContext(messages []llm.Message, memory llm.Message, hasMemory bool, summary llm.Message, hasSummary bool) []llm.Message {
-	if !hasMemory && !hasSummary {
+func prependProtectedContext(messages []llm.Message, protected ...llm.Message) []llm.Message {
+	count := 0
+	for _, message := range protected {
+		if message.Role != "" || message.Content != "" {
+			count++
+		}
+	}
+	if count == 0 {
 		return messages
 	}
-	result := make([]llm.Message, 0, len(messages)+2)
-	if hasMemory {
-		result = append(result, memory)
-	}
-	if hasSummary {
-		result = append(result, summary)
+	result := make([]llm.Message, 0, len(messages)+count)
+	for _, message := range protected {
+		if message.Role != "" || message.Content != "" {
+			result = append(result, message)
+		}
 	}
 	result = append(result, messages...)
 	return result

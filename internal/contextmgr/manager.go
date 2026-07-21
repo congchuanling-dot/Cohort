@@ -41,6 +41,14 @@ func (m Manager) Build(input BuildInput) BuildResult {
 	// 即使当前上下文还没达到 70% 压缩阈值，也不能把这种非法 tool 消息发给模型。
 	messages = dropOrphanToolResults(messages, &stats)
 
+	// 第一层长期记忆索引只做“读取并注入指针”。
+	// 详细项目/全局记忆不在这里全文注入，由模型按需读取。
+	indexText, _, indexErr := loadLongTermMemoryIndex(m.MemoryRoot)
+	if indexErr != nil {
+		stats.Warnings = append(stats.Warnings, "failed to load long-term memory index: "+indexErr.Error())
+	}
+	indexMessage, _ := buildLongTermMemoryIndexMessage(indexText, cfg, &stats)
+
 	// 第二层 Session Memory Compact 的第一版只做“读取并注入”。
 	// 如果 temp/sessions/<session_id>/memory.md 存在，就把它转换成一条 assistant 消息。
 	// 这条消息是受保护前缀：后续 group trim 只裁剪普通历史，不会把 memory 当作最旧消息裁掉。
@@ -58,7 +66,7 @@ func (m Manager) Build(input BuildInput) BuildResult {
 		stats.Warnings = append(stats.Warnings, "failed to load compact summary: "+compactErr.Error())
 	}
 	compactMessage, hasCompact := buildCompactSummaryMessage(compactText, cfg, &stats)
-	messagesWithContext := prependProtectedContext(messages, memoryMessage, hasMemory, compactMessage, hasCompact)
+	messagesWithContext := prependProtectedContext(messages, indexMessage, memoryMessage, compactMessage)
 
 	// newBudget 根据模型上下文窗口计算两个值：
 	//   UsableInputTokens：本轮输入最多可占多少 token。
@@ -89,7 +97,7 @@ func (m Manager) Build(input BuildInput) BuildResult {
 	// Micro Compact 后重新估算。
 	// 如果压缩旧 tool result 后已经放得进模型窗口，就停止，不继续裁剪历史消息。
 	// 这样可以尽量保留完整对话结构，只牺牲旧工具输出的中间部分。
-	messagesWithContext = prependProtectedContext(messages, memoryMessage, hasMemory, compactMessage, hasCompact)
+	messagesWithContext = prependProtectedContext(messages, indexMessage, memoryMessage, compactMessage)
 	compactedChars := messagesChars(messagesWithContext)
 	compactedTokens := estimateTokensFromChars(compactedChars)
 	if compactedTokens <= budget.UsableInputTokens && compactedChars <= cfg.MaxRequestChars {
@@ -103,15 +111,14 @@ func (m Manager) Build(input BuildInput) BuildResult {
 	// 最后才按 group 裁剪旧历史。group 裁剪会保护 tool-call 协议完整性，
 	// 必要时插入一条 context notice，告诉模型早期消息已从本轮请求中省略。
 	var protected []llm.Message
-	if hasMemory {
-		protected = append(protected, memoryMessage)
-	}
-	if hasCompact {
-		protected = append(protected, compactMessage)
+	for _, message := range []llm.Message{indexMessage, memoryMessage, compactMessage} {
+		if message.Role != "" || message.Content != "" {
+			protected = append(protected, message)
+		}
 	}
 	trimCfg := reserveBudgetForProtectedContext(cfg, protected...)
 	messages = trimMessages(messages, trimCfg, &stats)
-	messages = prependProtectedContext(messages, memoryMessage, hasMemory, compactMessage, hasCompact)
+	messages = prependProtectedContext(messages, indexMessage, memoryMessage, compactMessage)
 	stats.FinalMessages = len(messages)
 	stats.FinalChars = messagesChars(messages)
 	stats.FinalTokens = estimateTokensFromChars(stats.FinalChars)
