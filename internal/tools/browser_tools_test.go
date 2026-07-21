@@ -12,39 +12,72 @@ import (
 )
 
 type fakeBrowserClient struct {
-	tabs              []browser.Tab
-	openURL           string
-	openTabID         string
-	scanTabID         string
-	scanMax           int
-	executeTabID      string
-	executeScript     string
-	executeNoMonitor  bool
-	executeMaxReturn  int
-	cdpTabID          string
-	cdpMethod         string
-	cdpParams         map[string]any
-	clickTabID        string
-	clickX            float64
-	clickY            float64
-	typeTabID         string
-	typeText          string
-	typeClear         bool
-	pressKeyTabID     string
-	pressKey          string
-	snapshotTabID     string
-	snapshotMax       int
-	screenshotTabID   string
-	screenshotFormat  string
-	screenshotFull    bool
+	// tabs 是 Tabs 方法返回的预设标签页列表。
+	tabs []browser.Tab
+	// openURL 记录 Open 方法收到的 URL。
+	openURL string
+	// openTabID 记录 Open 方法收到的 tab ID。
+	openTabID string
+	// scanTabID 记录 Scan 方法收到的 tab ID。
+	scanTabID string
+	// scanMax 记录 Scan 方法收到的最大字符数。
+	scanMax int
+	// executeTabID 记录 ExecuteJS 方法收到的 tab ID。
+	executeTabID string
+	// executeScript 记录 ExecuteJS 方法收到的脚本。
+	executeScript string
+	// executeNoMonitor 记录 ExecuteJS 是否关闭页面变化监控。
+	executeNoMonitor bool
+	// executeMaxReturn 记录 ExecuteJS 的最大返回字符数。
+	executeMaxReturn int
+	// cdpTabID 记录 CDP 方法收到的 tab ID。
+	cdpTabID string
+	// cdpMethod 记录 CDP 方法名。
+	cdpMethod string
+	// cdpParams 记录 CDP 参数。
+	cdpParams map[string]any
+	// clickTabID 记录 Click 方法收到的 tab ID。
+	clickTabID string
+	// clickX 记录 Click 方法收到的 viewport 横坐标。
+	clickX float64
+	// clickY 记录 Click 方法收到的 viewport 纵坐标。
+	clickY float64
+	// typeTabID 记录 Type 方法收到的 tab ID。
+	typeTabID string
+	// typeText 记录 Type 方法收到的输入文本。
+	typeText string
+	// typeClear 记录 Type 方法是否要求清空旧文本。
+	typeClear bool
+	// pressKeyTabID 记录 PressKey 方法收到的 tab ID。
+	pressKeyTabID string
+	// pressKey 记录 PressKey 方法收到的按键名称。
+	pressKey string
+	// snapshotTabID 记录 Snapshot 方法收到的 tab ID。
+	snapshotTabID string
+	// snapshotMax 记录 Snapshot 方法收到的最大元素数。
+	snapshotMax int
+	// screenshotTabID 记录 Screenshot 方法收到的 tab ID。
+	screenshotTabID string
+	// screenshotFormat 记录 Screenshot 方法收到的图片格式。
+	screenshotFormat string
+	// screenshotFull 记录 Screenshot 方法是否要求整页截图。
+	screenshotFull bool
+	// screenshotQuality 记录 Screenshot 方法收到的图片质量。
 	screenshotQuality int
-	screenshotData    string
-	waitTabID         string
-	waitMode          string
-	waitParams        map[string]any
-	waitTimeoutMS     int
-	waitIntervalMS    int
-	err               error
+	// screenshotData 是 Screenshot 方法返回的预设 base64 图片数据。
+	screenshotData string
+	// waitTabID 记录 Wait 方法收到的 tab ID。
+	waitTabID string
+	// waitMode 记录 Wait 方法收到的等待模式。
+	waitMode string
+	// waitParams 记录 Wait 方法收到的等待参数。
+	waitParams map[string]any
+	// waitTimeoutMS 记录 Wait 方法收到的超时时间。
+	waitTimeoutMS int
+	// waitIntervalMS 记录 Wait 方法收到的轮询间隔。
+	waitIntervalMS int
+	// err 是 fake client 各方法统一返回的预设错误。
+	err error
 }
 
 func (f *fakeBrowserClient) Tabs(ctx context.Context) ([]browser.Tab, error) {

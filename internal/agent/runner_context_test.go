@@ -13,8 +13,10 @@ import (
 )
 
 type contextRecordingClient struct {
+	// responses 是测试预设的模型响应队列。
 	responses []llm.Response
-	requests  []llm.ChatRequest
+	// requests 记录 Runner 实际发给模型的请求，便于断言上下文内容。
+	requests []llm.ChatRequest
 }
 
 func (c *contextRecordingClient) Chat(ctx context.Context, req llm.ChatRequest) (<-chan llm.Event, error) {
@@ -34,6 +36,7 @@ func (c *contextRecordingClient) Chat(ctx context.Context, req llm.ChatRequest) 
 }
 
 type contextFakeTools struct {
+	// result 是 fake 工具每次执行时返回给 Runner 的数据。
 	result string
 }
 

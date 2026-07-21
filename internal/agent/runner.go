@@ -327,7 +327,9 @@ func (r *Runner) workingCheckpointPrompt() string {
 func routeSOPs(input string) []string {
 	lower := strings.ToLower(input)
 	routes := []struct {
-		path     string
+		// path 是命中关键词后建议模型读取的 SOP 文件路径。
+		path string
+		// keywords 是用于粗略识别任务场景的关键词集合。
 		keywords []string
 	}{
 		{path: "sops/browser_sop.md", keywords: []string{"浏览器", "网页", "页面", "点击", "输入", "selector", "cdp", "ocr", "tab", "iframe", "browser", "chrome"}},

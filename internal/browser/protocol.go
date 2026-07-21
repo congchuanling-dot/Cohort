@@ -50,7 +50,7 @@ type bridgeError struct {
 	// Message 是插件侧返回的错误摘要。
 	Message string `json:"message"`
 	// Stack 是插件侧错误堆栈，存在时用于调试。
-	Stack   string `json:"stack,omitempty"`
+	Stack string `json:"stack,omitempty"`
 }
 
 func newRequestID() string {

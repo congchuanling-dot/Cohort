@@ -909,7 +909,7 @@ type elementTypeVerification struct {
 	// Actual 是输入后从 DOM 读取到的实际值。
 	Actual string `json:"actual"`
 	// Verified 表示 Actual 是否满足本次输入预期。
-	Verified bool   `json:"verified"`
+	Verified bool `json:"verified"`
 }
 
 func locateElementTarget(ctx context.Context, client browser.Client, tabID string, selector string, requireEditable bool) (elementTarget, error) {

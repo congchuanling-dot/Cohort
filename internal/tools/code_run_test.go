@@ -77,8 +77,11 @@ func TestCodeRunTimeoutReturnsStructuredResult(t *testing.T) {
 
 func TestNormalizeCodeRunTimeout(t *testing.T) {
 	tests := []struct {
+		// name 是当前表驱动用例名称。
 		name string
-		in   int
+		// in 是传给 normalizeCodeRunTimeout 的原始超时时间。
+		in int
+		// want 是期望得到的规范化超时时间。
 		want int
 	}{
 		{name: "zero uses default", in: 0, want: defaultCodeRunTimeoutSeconds},

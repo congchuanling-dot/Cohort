@@ -140,7 +140,7 @@ type openAIRequest struct {
 	// Tools 是本次请求暴露给模型的工具定义。
 	Tools []ToolSchema `json:"tools,omitempty"`
 	// ToolChoice 控制模型是否自动选择工具。
-	ToolChoice string       `json:"tool_choice,omitempty"`
+	ToolChoice string `json:"tool_choice,omitempty"`
 }
 
 // buildOpenAIMessages 把 system prompt 合并到消息列表最前面。

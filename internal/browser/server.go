@@ -216,7 +216,7 @@ func (b *Bridge) Tabs(ctx context.Context) ([]Tab, error) {
 		// Status 是插件 tabs 命令的执行状态。
 		Status string `json:"status"`
 		// Tabs 是插件返回的最新标签页列表。
-		Tabs   []Tab  `json:"tabs"`
+		Tabs []Tab `json:"tabs"`
 	}
 	if err := b.command(ctx, map[string]any{"command": "tabs"}, &result); err != nil {
 		cached := b.CachedTabs()

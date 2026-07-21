@@ -133,7 +133,7 @@ type scannerLineReader struct {
 	// scanner 从非交互输入流逐行读取命令。
 	scanner *bufio.Scanner
 	// out 用于在读取前打印提示符。
-	out     io.Writer
+	out io.Writer
 }
 
 func (r *scannerLineReader) ReadLine() (string, error) {
