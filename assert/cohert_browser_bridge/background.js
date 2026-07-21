@@ -326,6 +326,42 @@ async function waitForText(request) {
   });
 }
 
+async function waitForURL(request) {
+  const tabId = await resolveTabId(request.tab_id || request.tabId);
+  const contains = String(request.url_contains || request.urlContains || "").trim();
+  const exact = String(request.url_exact || request.urlExact || "").trim();
+  const matches = String(request.url_matches || request.urlMatches || "").trim();
+  if (!contains && !exact && !matches) {
+    throw new Error("url wait requires url_contains, url_exact, or url_matches");
+  }
+  let regex = null;
+  if (matches) {
+    try {
+      regex = new RegExp(matches);
+    } catch (err) {
+      throw new Error("invalid url_matches regex: " + err.message);
+    }
+  }
+  const timing = normalizeWaitTiming(request);
+  return await waitForCondition(tabId, timing, async () => {
+    const tab = await chrome.tabs.get(tabId);
+    const page = await readPageState(tabId);
+    const currentURL = page.url || tab.url || "";
+    const matched = (contains && currentURL.includes(contains))
+      || (exact && currentURL === exact)
+      || (regex && regex.test(currentURL));
+    return {
+      mode: "url",
+      matched: !!matched,
+      url: currentURL,
+      title: page.title || tab.title || "",
+      url_contains: contains,
+      url_exact: exact,
+      url_matches: matches
+    };
+  });
+}
+
 async function waitForStable(request) {
   const tabId = await resolveTabId(request.tab_id || request.tabId);
   const timing = normalizeWaitTiming(request);
@@ -373,6 +409,7 @@ async function waitInTab(request) {
   if (mode === "load") return await waitForLoad(request);
   if (mode === "selector") return await waitForSelector(request);
   if (mode === "text") return await waitForText(request);
+  if (mode === "url") return await waitForURL(request);
   if (mode === "stable") return await waitForStable(request);
   throw new Error("unknown wait mode: " + mode);
 }
@@ -535,6 +572,9 @@ async function handleRoutedCommand(message) {
   }
   if (command === "snapshot") {
     return await snapshotTab(message);
+  }
+  if (command === "screenshot") {
+    return await screenshotTab(message);
   }
   if (command === "wait") {
     return await waitInTab(message);

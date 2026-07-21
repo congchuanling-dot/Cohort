@@ -51,6 +51,10 @@ func (c *UnavailableClient) Snapshot(ctx context.Context, tabID string, maxEleme
 	return InteractiveSnapshot{}, c.error()
 }
 
+func (c *UnavailableClient) Screenshot(ctx context.Context, tabID string, format string, fullPage bool, quality int) (ScreenshotResult, error) {
+	return ScreenshotResult{}, c.error()
+}
+
 func (c *UnavailableClient) Wait(ctx context.Context, tabID string, mode string, params map[string]any, timeoutMS int, intervalMS int) (WaitResult, error) {
 	return WaitResult{}, c.error()
 }
