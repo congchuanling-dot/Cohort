@@ -157,6 +157,54 @@ func TestManagerBuildInjectsSessionMemory_BitsUT(t *testing.T) {
 	}
 }
 
+func TestManagerBuildInjectsLongTermMemoryIndexBeforeSessionMemory_BitsUT(t *testing.T) {
+	sessionDir := t.TempDir()
+	memoryRoot := t.TempDir()
+	indexText := "# Memory Index\n\n- Project memory: memory/projects/default/project.md"
+	sessionMemoryText := "# Session Memory\n\n- current task facts"
+	if err := os.WriteFile(filepath.Join(memoryRoot, LongTermMemoryIndexFileName), []byte(indexText), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionDir, SessionMemoryFileName), []byte(sessionMemoryText), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := Manager{Config: Config{
+		MaxHistoryMessages:     20,
+		KeepRecentToolResults:  1,
+		MaxToolResultChars:     1000,
+		CompactedToolHeadChars: 100,
+		CompactedToolTailChars: 100,
+		MaxRequestChars:        10000,
+		ContextWindowTokens:    1000000,
+		MaxOutputTokens:        0,
+		SafetyTokens:           0,
+		CompactTriggerRatio:    0.70,
+		EnableMicroCompact:     true,
+		MaxSessionMemoryChars:  20000,
+		MaxMemoryIndexChars:    20000,
+	}, MemoryRoot: memoryRoot}.Build(BuildInput{
+		Messages:   []llm.Message{{Role: llm.RoleUser, Content: "继续"}},
+		SessionDir: sessionDir,
+	})
+
+	if !result.Stats.InjectedMemoryIndex || !result.Stats.InjectedSessionMemory {
+		t.Fatalf("expected memory index and session memory to be injected: %#v", result.Stats)
+	}
+	if len(result.Messages) != 3 {
+		t.Fatalf("messages = %d, want 3: %#v", len(result.Messages), result.Messages)
+	}
+	if !strings.Contains(result.Messages[0].Content, longTermMemoryIndexNotice) {
+		t.Fatalf("first message is not long-term memory index: %#v", result.Messages[0])
+	}
+	if !strings.Contains(result.Messages[1].Content, sessionMemoryNotice) {
+		t.Fatalf("second message is not session memory: %#v", result.Messages[1])
+	}
+	if result.Messages[2].Content != "继续" {
+		t.Fatalf("recent history shifted incorrectly: %#v", result.Messages)
+	}
+}
+
 func TestManagerBuildTruncatesInjectedSessionMemory_BitsUT(t *testing.T) {
 	sessionDir := t.TempDir()
 	memoryText := "1234567890"

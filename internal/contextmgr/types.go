@@ -3,10 +3,10 @@ package contextmgr
 import "cohert/internal/llm"
 
 const (
-	contextNotice              = "[Cohert context notice] Earlier conversation messages were omitted from this request. Full history is preserved in history.jsonl."
-	longTermMemoryIndexNotice  = "[Cohert long-term memory index]"
-	sessionMemoryNotice        = "[Cohert session memory]"
-	compactSummaryNotice       = "[Cohert compact summary]"
+	contextNotice             = "[Cohert context notice] Earlier conversation messages were omitted from this request. Full history is preserved in history.jsonl."
+	longTermMemoryIndexNotice = "[Cohert long-term memory index]"
+	sessionMemoryNotice       = "[Cohert session memory]"
+	compactSummaryNotice      = "[Cohert compact summary]"
 )
 
 // Config 控制本轮模型请求前的确定性上下文压缩。
