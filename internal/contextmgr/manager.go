@@ -56,7 +56,7 @@ func (m Manager) Build(input BuildInput) BuildResult {
 	if memoryErr != nil {
 		stats.Warnings = append(stats.Warnings, "failed to load session memory: "+memoryErr.Error())
 	}
-	memoryMessage, hasMemory := buildSessionMemoryMessage(memoryText, cfg, &stats)
+	memoryMessage, _ := buildSessionMemoryMessage(memoryText, cfg, &stats)
 
 	// 第三层 Full Compact 的第一版同样只在请求前读取 compact.md。
 	// 生成由 /full-compact 手动触发；只要文件存在，后续每轮请求都会自动注入。
@@ -65,7 +65,7 @@ func (m Manager) Build(input BuildInput) BuildResult {
 	if compactErr != nil {
 		stats.Warnings = append(stats.Warnings, "failed to load compact summary: "+compactErr.Error())
 	}
-	compactMessage, hasCompact := buildCompactSummaryMessage(compactText, cfg, &stats)
+	compactMessage, _ := buildCompactSummaryMessage(compactText, cfg, &stats)
 	messagesWithContext := prependProtectedContext(messages, indexMessage, memoryMessage, compactMessage)
 
 	// newBudget 根据模型上下文窗口计算两个值：
