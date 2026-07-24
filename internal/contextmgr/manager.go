@@ -12,10 +12,11 @@ import "cohert/internal/llm"
 // 流程顺序：
 //  1. clone 完整历史，避免误改调用方。
 //  2. 清理协议非法的孤立 tool 消息。
-//  3. 如果 session 目录存在 memory.md 和 compact.md，把它们作为受保护前缀注入请求。
-//  4. 估算 token，占用低于 70% 时直接返回。
-//  5. 超过 70% 时先压缩旧 tool result。
-//  6. 压缩后仍超预算时，才按 message group 裁旧历史。
+//  3. 注入 memory/index.md，并根据用户任务关键词自动注入相关长期记忆。
+//  4. 如果 session 目录存在 memory.md 和 compact.md，把它们作为受保护前缀注入请求。
+//  5. 估算 token，占用低于 70% 时直接返回。
+//  6. 超过 70% 时先压缩旧 tool result。
+//  7. 压缩后仍超预算时，才按 message group 裁旧历史。
 func (m Manager) Build(input BuildInput) BuildResult {
 	// Normalize 兜底配置里的零值或非法值，避免配置缺失时把请求上下文裁剪到不可用。
 	cfg := m.Config.Normalize()
@@ -49,6 +50,12 @@ func (m Manager) Build(input BuildInput) BuildResult {
 	}
 	indexMessage, _ := buildLongTermMemoryIndexMessage(indexText, cfg, &stats)
 
+	relevantMemoryMatches, relevantMemoryErr := loadRelevantLongTermMemory(m.MemoryRoot, indexText, messages, cfg)
+	if relevantMemoryErr != nil {
+		stats.Warnings = append(stats.Warnings, "failed to load relevant long-term memory: "+relevantMemoryErr.Error())
+	}
+	relevantMemoryMessage, _ := buildRelevantLongTermMemoryMessage(relevantMemoryMatches, cfg, &stats)
+
 	// 第二层 Session Memory Compact 的第一版只做“读取并注入”。
 	// 如果 temp/sessions/<session_id>/memory.md 存在，就把它转换成一条 assistant 消息。
 	// 这条消息是受保护前缀：后续 group trim 只裁剪普通历史，不会把 memory 当作最旧消息裁掉。
@@ -66,7 +73,7 @@ func (m Manager) Build(input BuildInput) BuildResult {
 		stats.Warnings = append(stats.Warnings, "failed to load compact summary: "+compactErr.Error())
 	}
 	compactMessage, _ := buildCompactSummaryMessage(compactText, cfg, &stats)
-	messagesWithContext := prependProtectedContext(messages, indexMessage, memoryMessage, compactMessage)
+	messagesWithContext := prependProtectedContext(messages, indexMessage, relevantMemoryMessage, memoryMessage, compactMessage)
 
 	// newBudget 根据模型上下文窗口计算两个值：
 	//   UsableInputTokens：本轮输入最多可占多少 token。
@@ -97,7 +104,7 @@ func (m Manager) Build(input BuildInput) BuildResult {
 	// Micro Compact 后重新估算。
 	// 如果压缩旧 tool result 后已经放得进模型窗口，就停止，不继续裁剪历史消息。
 	// 这样可以尽量保留完整对话结构，只牺牲旧工具输出的中间部分。
-	messagesWithContext = prependProtectedContext(messages, indexMessage, memoryMessage, compactMessage)
+	messagesWithContext = prependProtectedContext(messages, indexMessage, relevantMemoryMessage, memoryMessage, compactMessage)
 	compactedChars := messagesChars(messagesWithContext)
 	compactedTokens := estimateTokensFromChars(compactedChars)
 	if compactedTokens <= budget.UsableInputTokens && compactedChars <= cfg.MaxRequestChars {
@@ -111,14 +118,14 @@ func (m Manager) Build(input BuildInput) BuildResult {
 	// 最后才按 group 裁剪旧历史。group 裁剪会保护 tool-call 协议完整性，
 	// 必要时插入一条 context notice，告诉模型早期消息已从本轮请求中省略。
 	var protected []llm.Message
-	for _, message := range []llm.Message{indexMessage, memoryMessage, compactMessage} {
+	for _, message := range []llm.Message{indexMessage, relevantMemoryMessage, memoryMessage, compactMessage} {
 		if message.Role != "" || message.Content != "" {
 			protected = append(protected, message)
 		}
 	}
 	trimCfg := reserveBudgetForProtectedContext(cfg, protected...)
 	messages = trimMessages(messages, trimCfg, &stats)
-	messages = prependProtectedContext(messages, indexMessage, memoryMessage, compactMessage)
+	messages = prependProtectedContext(messages, indexMessage, relevantMemoryMessage, memoryMessage, compactMessage)
 	stats.FinalMessages = len(messages)
 	stats.FinalChars = messagesChars(messages)
 	stats.FinalTokens = estimateTokensFromChars(stats.FinalChars)

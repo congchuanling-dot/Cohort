@@ -201,6 +201,8 @@ Runner
 
 运行时真实存储位置统一为配置项 `workspace` 下的 `memory/` 目录。工具参数和索引中的 `memory/...` 都是相对 `workspace` 的逻辑路径，例如 `memory/global.md` 实际落盘到 `<workspace>/memory/global.md`。Context Manager 也只从同一个 `<workspace>/memory/index.md` 注入长期记忆索引。
 
+请求模型前，Context Manager 会根据最近用户任务提取关键词，从 `memory/index.md` 指向的 `.md` 文件和 P0 默认文件中匹配相关长期记忆。命中后会把相关文件作为 `[Cohert relevant long-term memory]` 受保护前缀注入；未命中时只注入 `memory/index.md` 指针。
+
 ```text
 memory/
   index.md
@@ -571,14 +573,15 @@ reflect trigger
 修改点：
 
 - 在现有 `memory.md` / `compact.md` 注入前增加 `memory/index.md`。
-- 项目记忆只注入指针，不全文注入。
+- 根据最近用户任务关键词自动匹配 `memory/index.md` 指向的 `.md` 文件，命中时注入相关长期记忆。
+- 未命中时项目记忆只保留索引指针，不全文注入。
 - 对长期记忆设置独立预算。
 
 建议注入顺序：
 
 ```text
-global memory index
-project memory pointer
+memory/index.md
+relevant long-term memory
 session memory.md
 compact.md
 recent history
@@ -630,7 +633,7 @@ recent history
 任务：
 
 1. 增加 `memory/projects/<project_id>/project.md`。
-2. Context Manager 注入项目记忆指针。
+2. Context Manager 支持项目级 memory 匹配和注入。
 3. 收尾时自动判断是否有项目经验值得追加。
 4. 写入审计日志。
 5. 增加 `/memory` 或 `/project memory` 查看命令。

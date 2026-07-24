@@ -205,6 +205,111 @@ func TestManagerBuildInjectsLongTermMemoryIndexBeforeSessionMemory_BitsUT(t *tes
 	}
 }
 
+func TestManagerBuildInjectsRelevantLongTermMemoryForBrowserTask_BitsUT(t *testing.T) {
+	sessionDir := t.TempDir()
+	memoryRoot := t.TempDir()
+	indexText := "# Memory Index\n\n- Project memory: memory/projects/default/project.md"
+	projectMemory := "# Default Project Memory\n\n处理飞书网页自动化时，先 wait_for_stable，再 browser_snapshot 获取元素后点击。"
+	if err := os.WriteFile(filepath.Join(memoryRoot, LongTermMemoryIndexFileName), []byte(indexText), 0644); err != nil {
+		t.Fatal(err)
+	}
+	projectPath := filepath.Join(memoryRoot, "projects", "default", "project.md")
+	if err := os.MkdirAll(filepath.Dir(projectPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(projectPath, []byte(projectMemory), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionDir, SessionMemoryFileName), []byte("# Session Memory\n\n- current task facts"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := Manager{Config: Config{
+		MaxHistoryMessages:     20,
+		KeepRecentToolResults:  1,
+		MaxToolResultChars:     1000,
+		CompactedToolHeadChars: 100,
+		CompactedToolTailChars: 100,
+		MaxRequestChars:        10000,
+		ContextWindowTokens:    1000000,
+		MaxOutputTokens:        0,
+		SafetyTokens:           0,
+		CompactTriggerRatio:    0.70,
+		EnableMicroCompact:     true,
+		MaxSessionMemoryChars:  20000,
+		MaxMemoryIndexChars:    20000,
+		MaxRelevantMemoryChars: 20000,
+		MaxRelevantMemoryFiles: 2,
+		MaxCompactSummaryChars: 60000,
+	}, MemoryRoot: memoryRoot}.Build(BuildInput{
+		Messages:   []llm.Message{{Role: llm.RoleUser, Content: "帮我操纵飞书网页，打开审批页面并点击提交"}},
+		SessionDir: sessionDir,
+	})
+
+	if !result.Stats.InjectedRelevantMemory {
+		t.Fatalf("expected relevant long-term memory to be injected: %#v", result.Stats)
+	}
+	if result.Stats.RelevantMemoryFiles != 1 {
+		t.Fatalf("relevant memory files = %d, want 1", result.Stats.RelevantMemoryFiles)
+	}
+	if len(result.Messages) != 4 {
+		t.Fatalf("messages = %d, want index + relevant + session + user: %#v", len(result.Messages), result.Messages)
+	}
+	if !strings.Contains(result.Messages[0].Content, longTermMemoryIndexNotice) {
+		t.Fatalf("first message is not long-term memory index: %#v", result.Messages[0])
+	}
+	if !strings.Contains(result.Messages[1].Content, relevantLongTermMemoryNotice) ||
+		!strings.Contains(result.Messages[1].Content, "wait_for_stable") ||
+		!strings.Contains(result.Messages[1].Content, "memory/projects/default/project.md") {
+		t.Fatalf("second message is not relevant memory:\n%s", result.Messages[1].Content)
+	}
+	if !strings.Contains(result.Messages[2].Content, sessionMemoryNotice) {
+		t.Fatalf("third message is not session memory: %#v", result.Messages[2])
+	}
+}
+
+func TestManagerBuildSkipsRelevantLongTermMemoryForUnrelatedTask_BitsUT(t *testing.T) {
+	memoryRoot := t.TempDir()
+	indexText := "# Memory Index\n\n- Project memory: memory/projects/default/project.md"
+	if err := os.WriteFile(filepath.Join(memoryRoot, LongTermMemoryIndexFileName), []byte(indexText), 0644); err != nil {
+		t.Fatal(err)
+	}
+	projectPath := filepath.Join(memoryRoot, "projects", "default", "project.md")
+	if err := os.MkdirAll(filepath.Dir(projectPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(projectPath, []byte("处理飞书网页自动化时，先 wait_for_stable。"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := Manager{Config: Config{
+		MaxHistoryMessages:     20,
+		KeepRecentToolResults:  1,
+		MaxToolResultChars:     1000,
+		CompactedToolHeadChars: 100,
+		CompactedToolTailChars: 100,
+		MaxRequestChars:        10000,
+		ContextWindowTokens:    1000000,
+		MaxOutputTokens:        0,
+		SafetyTokens:           0,
+		CompactTriggerRatio:    0.70,
+		EnableMicroCompact:     true,
+		MaxMemoryIndexChars:    20000,
+		MaxRelevantMemoryChars: 20000,
+		MaxRelevantMemoryFiles: 2,
+		MaxCompactSummaryChars: 60000,
+	}, MemoryRoot: memoryRoot}.Build(BuildInput{
+		Messages: []llm.Message{{Role: llm.RoleUser, Content: "帮我解释 Go interface 的用法"}},
+	})
+
+	if result.Stats.InjectedRelevantMemory {
+		t.Fatalf("did not expect relevant memory injection: %#v", result.Stats)
+	}
+	if len(result.Messages) != 2 {
+		t.Fatalf("messages = %d, want index + user: %#v", len(result.Messages), result.Messages)
+	}
+}
+
 func TestManagerBuildTruncatesInjectedSessionMemory_BitsUT(t *testing.T) {
 	sessionDir := t.TempDir()
 	memoryText := "1234567890"

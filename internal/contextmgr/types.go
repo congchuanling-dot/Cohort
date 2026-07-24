@@ -3,10 +3,11 @@ package contextmgr
 import "cohert/internal/llm"
 
 const (
-	contextNotice             = "[Cohert context notice] Earlier conversation messages were omitted from this request. Full history is preserved in history.jsonl."
-	longTermMemoryIndexNotice = "[Cohert long-term memory index]"
-	sessionMemoryNotice       = "[Cohert session memory]"
-	compactSummaryNotice      = "[Cohert compact summary]"
+	contextNotice                = "[Cohert context notice] Earlier conversation messages were omitted from this request. Full history is preserved in history.jsonl."
+	longTermMemoryIndexNotice    = "[Cohert long-term memory index]"
+	relevantLongTermMemoryNotice = "[Cohert relevant long-term memory]"
+	sessionMemoryNotice          = "[Cohert session memory]"
+	compactSummaryNotice         = "[Cohert compact summary]"
 )
 
 // Config 控制本轮模型请求前的确定性上下文压缩。
@@ -42,6 +43,13 @@ type Config struct {
 	// MaxMemoryIndexChars 限制长期记忆索引注入请求前的最大字符数。
 	// memory/index.md 只作为指针，不应该承载详细记忆。
 	MaxMemoryIndexChars int
+
+	// MaxRelevantMemoryChars 限制自动匹配到的长期记忆注入请求前的最大字符数。
+	// 相关长期记忆来自 memory/index.md 指向的文件和默认 P0 memory 文件。
+	MaxRelevantMemoryChars int
+
+	// MaxRelevantMemoryFiles 限制单轮最多自动注入几个长期记忆文件。
+	MaxRelevantMemoryFiles int
 
 	// MaxCompactSummaryChars 限制 compact.md 注入请求前的最大字符数。
 	// compact.md 承载长历史摘要，默认比 memory.md 更大；超过后只截断请求副本，不修改磁盘文件。
@@ -79,6 +87,8 @@ func DefaultConfig() Config {
 		MaxRequestChars:        100000,
 		MaxSessionMemoryChars:  20000,
 		MaxMemoryIndexChars:    12000,
+		MaxRelevantMemoryChars: 16000,
+		MaxRelevantMemoryFiles: 2,
 		MaxCompactSummaryChars: 60000,
 		MaxOutputTokens:        4096,
 		SafetyTokens:           4000,
@@ -113,6 +123,12 @@ func (c Config) Normalize() Config {
 	}
 	if c.MaxMemoryIndexChars <= 0 {
 		c.MaxMemoryIndexChars = defaults.MaxMemoryIndexChars
+	}
+	if c.MaxRelevantMemoryChars <= 0 {
+		c.MaxRelevantMemoryChars = defaults.MaxRelevantMemoryChars
+	}
+	if c.MaxRelevantMemoryFiles <= 0 {
+		c.MaxRelevantMemoryFiles = defaults.MaxRelevantMemoryFiles
 	}
 	if c.MaxCompactSummaryChars <= 0 {
 		c.MaxCompactSummaryChars = defaults.MaxCompactSummaryChars
@@ -226,6 +242,18 @@ type Stats struct {
 
 	// MemoryIndexTruncated 表示 memory/index.md 因超过 MaxMemoryIndexChars 而在请求副本中被截断。
 	MemoryIndexTruncated bool
+
+	// InjectedRelevantMemory 表示本轮是否根据用户任务关键词自动注入相关长期记忆。
+	InjectedRelevantMemory bool
+
+	// RelevantMemoryChars 是注入请求的相关长期记忆字符数。
+	RelevantMemoryChars int
+
+	// RelevantMemoryFiles 是本轮自动注入的长期记忆文件数量。
+	RelevantMemoryFiles int
+
+	// RelevantMemoryTruncated 表示相关长期记忆因超过 MaxRelevantMemoryChars 而在请求副本中被截断。
+	RelevantMemoryTruncated bool
 
 	// InjectedCompactSummary 表示本轮请求是否注入了 compact.md。
 	InjectedCompactSummary bool

@@ -187,10 +187,14 @@ func (m Manager) ValidateCandidate(candidate Candidate, evidence []Evidence) Val
 func (m Manager) ApplyCandidate(candidate Candidate, evidence []Evidence, sourceSession string) (ApplyResult, error) {
 	candidate.Target = normalizeMemoryPath(candidate.Target)
 	candidate.Action = normalizedAction(candidate.Action)
+	validation := m.ValidateCandidate(candidate, evidence)
+	if !validation.Valid {
+		return ApplyResult{}, fmt.Errorf("candidate is not safe to apply: %s", strings.Join(validation.Reasons, "; "))
+	}
 	if _, err := m.EnsureStructure(); err != nil {
 		return ApplyResult{}, err
 	}
-	validation := m.ValidateCandidate(candidate, evidence)
+	validation = m.ValidateCandidate(candidate, evidence)
 	if !validation.Valid {
 		return ApplyResult{}, fmt.Errorf("candidate is not safe to apply: %s", strings.Join(validation.Reasons, "; "))
 	}

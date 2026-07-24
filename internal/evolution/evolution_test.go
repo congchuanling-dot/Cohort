@@ -138,6 +138,26 @@ func TestManagerRejectsUnsafeMemoryCandidate_BitsUT(t *testing.T) {
 	}
 }
 
+func TestManagerApplyRejectsUnsafeCandidateWithoutCreatingMemory_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	manager := NewManager(workspace)
+
+	_, err := manager.ApplyCandidate(Candidate{
+		Type:        "project_lesson",
+		Target:      "../outside.md",
+		Content:     "Unsafe candidates must not initialize memory files.",
+		EvidenceIDs: []string{"tool:1:0"},
+		Action:      "append",
+	}, []Evidence{{ID: "tool:1:0", Verified: true}}, "session-1")
+
+	if err == nil {
+		t.Fatal("expected unsafe candidate to be rejected")
+	}
+	if _, statErr := os.Stat(filepath.Join(workspace, MemoryDirName)); !os.IsNotExist(statErr) {
+		t.Fatalf("memory dir stat err = %v, want not exist", statErr)
+	}
+}
+
 func TestManagerRejectsUnverifiedEvidenceID_BitsUT(t *testing.T) {
 	manager := NewManager(t.TempDir())
 	validation := manager.ValidateCandidate(Candidate{
