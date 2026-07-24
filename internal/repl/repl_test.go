@@ -11,6 +11,7 @@ import (
 	"cohert/internal/agent"
 	"cohert/internal/app"
 	"cohert/internal/contextmgr"
+	"cohert/internal/evolution"
 	"cohert/internal/llm"
 	"cohert/internal/session"
 )
@@ -301,6 +302,84 @@ func TestStartPrintsNoSessionMemory_BitsUT(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "status: no active session") {
 		t.Fatalf("output does not contain no active session:\n%s", out.String())
+	}
+}
+
+func TestStartHandlesSOPPromotionCommandsLocally_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	manager := evolution.NewManager(workspace)
+	if err := os.MkdirAll(filepath.Join(workspace, "sops"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, evolution.SOPIndexPath), []byte("# SOP Index\n\n## Rules\n\n- Read SOPs on demand.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	candidate := evolution.Candidate{
+		Type:             "project_lesson",
+		Target:           manager.ProjectMemoryPath(),
+		Scene:            "Local SOP promotion",
+		TriggerKeywords:  []string{"sop", "promote"},
+		Lesson:           "SOP promotion commands should stay local and require explicit index confirmation.",
+		RecommendedSteps: []string{"list candidates", "promote candidate", "confirm index update"},
+		PromoteToSOP:     true,
+		SOPTitle:         "Local SOP Promotion",
+		SOPPath:          "sops/local_sop_promotion.md",
+		EvidenceIDs:      []string{"tool:1:0"},
+		Action:           "append",
+	}
+	if _, err := manager.ApplyCandidate(candidate, []evolution.Evidence{{ID: "tool:1:0", Verified: true}}, "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := manager.ListSOPCandidates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 {
+		t.Fatalf("candidates = %d, want 1", len(candidates))
+	}
+	client := &fakeClient{}
+	runner := &agent.Runner{
+		Client: client,
+		Tools:  fakeTools{},
+	}
+	cfg := testConfig()
+	cfg.Workspace = workspace
+
+	var out bytes.Buffer
+	startErr := Start(context.Background(), Options{
+		Config:       cfg,
+		Runner:       runner,
+		SessionStore: session.NewStore(t.TempDir()),
+		In:           strings.NewReader("/sop candidates\n/sop promote " + candidates[0].ID + " --confirm-index\n/exit\n"),
+		Out:          &out,
+		Err:          &out,
+	})
+	if startErr != nil {
+		t.Fatal(startErr)
+	}
+	if client.calls != 0 {
+		t.Fatalf("model calls = %d, want 0", client.calls)
+	}
+	output := out.String()
+	for _, want := range []string{"sop candidates:", candidates[0].ID, "sop promote:", "index:     updated"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output does not contain %q:\n%s", want, output)
+		}
+	}
+	sopData, err := os.ReadFile(filepath.Join(workspace, "sops", "local_sop_promotion.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(sopData), "promoted_from: "+candidates[0].ID) {
+		t.Fatalf("promoted SOP missing source id:\n%s", sopData)
+	}
+	indexData, err := os.ReadFile(filepath.Join(workspace, evolution.SOPIndexPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(indexData), "sops/local_sop_promotion.md") ||
+		!strings.Contains(string(indexData), "explicit slash command") {
+		t.Fatalf("index was not updated with confirmation:\n%s", indexData)
 	}
 }
 

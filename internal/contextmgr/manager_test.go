@@ -279,8 +279,18 @@ func TestManagerBuildInjectsRelevantLongTermMemoryForBrowserTask_BitsUT(t *testi
 	}
 	if !strings.Contains(result.Messages[1].Content, relevantLongTermMemoryNotice) ||
 		!strings.Contains(result.Messages[1].Content, "wait_for_stable") ||
-		!strings.Contains(result.Messages[1].Content, "memory/projects/cohort/project.md") {
+		!strings.Contains(result.Messages[1].Content, "memory/projects/cohort/project.md") ||
+		!strings.Contains(result.Messages[1].Content, `why: trigger_keywords matched "飞书"`) {
 		t.Fatalf("second message is not relevant memory:\n%s", result.Messages[1].Content)
+	}
+	if len(result.Stats.RelevantMemoryHitLogs) != 1 {
+		t.Fatalf("hit logs = %#v, want one hit", result.Stats.RelevantMemoryHitLogs)
+	}
+	if hit := result.Stats.RelevantMemoryHitLogs[0]; hit.EntryID != "mem-lark-browser" ||
+		hit.Source != "memory/projects/cohort/project.md" ||
+		hit.Score <= 0 ||
+		len(hit.Reasons) == 0 {
+		t.Fatalf("unexpected relevant memory hit log: %#v", hit)
 	}
 	if strings.Contains(result.Messages[1].Content, "运行 Go 单测") {
 		t.Fatalf("unrelated entry leaked into relevant memory:\n%s", result.Messages[1].Content)

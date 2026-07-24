@@ -105,6 +105,8 @@ Slash commands
   /compact              生成或更新 session memory
   /full-compact         生成或更新 compact summary
   /memory               查看 session memory
+  /sop candidates       列出 SOP 候选
+  /sop promote <id>     升级候选 SOP；--confirm-index 显式更新索引
   /clear                清空当前内存上下文
   /exit                 退出
 ```
@@ -558,6 +560,34 @@ temp/sessions/<session_id>/compact.bak.md
 memory.md -> compact.md -> 最近对话消息
 ```
 
+### 9.3 SOP Candidate Promotion
+
+长期记忆可以把稳定流程追加到：
+
+```text
+memory/reflection/sop_candidates.md
+```
+
+交互模式内先列出候选：
+
+```text
+/sop candidates
+```
+
+升级候选时，默认只生成 `sops/*.md`，不会把它加入 `sops/index.md`：
+
+```text
+/sop promote <candidate_id>
+```
+
+更新索引需要人工确认。真实终端会要求输入候选 ID；脚本或管道输入里使用显式参数：
+
+```text
+/sop promote <candidate_id> --confirm-index
+```
+
+索引更新会写入 `memory/audit.jsonl`，记录确认来源。
+
 查看当前配置：
 
 ```text
@@ -619,6 +649,8 @@ go build -o cohert ./cmd/cohert
 /session resume <session_id>
 /compact
 /full-compact
+/sop candidates
+/sop promote <candidate_id> --confirm-index
 /clear
 /exit
 ```
