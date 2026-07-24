@@ -40,7 +40,8 @@ func (t *FileRead) Schema() llm.ToolSchema {
 
 // Run 执行文件读取。读取失败会作为工具结果返回给模型，避免整个 Agent 直接中断。
 func (t *FileRead) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
-	path := t.resolve(asString(call.Args["path"]))
+	rawPath := asString(call.Args["path"])
+	path := t.resolve(rawPath)
 	start := asInt(call.Args["start"], 1)
 	count := asInt(call.Args["count"], 200)
 	showLineNos := asBool(call.Args["show_linenos"], true)
@@ -53,7 +54,13 @@ func (t *FileRead) Run(ctx context.Context, call agent.ToolCallContext) (agent.O
 
 	file, err := os.Open(path)
 	if err != nil {
-		return agent.Outcome{Data: fmt.Sprintf("Error: %v", err), NextPrompt: "\n"}, nil
+		if fallback, ok := t.resolveSOPReadFallback(rawPath); ok {
+			path = fallback
+			file, err = os.Open(path)
+		}
+		if err != nil {
+			return agent.Outcome{Data: fmt.Sprintf("Error: %v", err), NextPrompt: "\n"}, nil
+		}
 	}
 	defer file.Close()
 
