@@ -209,7 +209,26 @@ func TestManagerBuildInjectsRelevantLongTermMemoryForBrowserTask_BitsUT(t *testi
 	sessionDir := t.TempDir()
 	memoryRoot := t.TempDir()
 	indexText := "# Memory Index\n\n- Project memory: memory/projects/default/project.md"
-	projectMemory := "# Default Project Memory\n\n处理飞书网页自动化时，先 wait_for_stable，再 browser_snapshot 获取元素后点击。"
+	projectMemory := `# Project Memory: default
+
+## Memory Entry: mem-unrelated
+
+- scene: Go tests
+- trigger_keywords: go test, 单测
+
+### Lesson
+
+运行 Go 单测时优先 go test ./...。
+
+## Memory Entry: mem-lark-browser
+
+- scene: 飞书网页自动化
+- trigger_keywords: 飞书, 浏览器, 审批, wait_for_stable
+
+### Lesson
+
+处理飞书网页自动化时，先 wait_for_stable，再 browser_snapshot 获取元素后点击。
+`
 	if err := os.WriteFile(filepath.Join(memoryRoot, LongTermMemoryIndexFileName), []byte(indexText), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -225,22 +244,22 @@ func TestManagerBuildInjectsRelevantLongTermMemoryForBrowserTask_BitsUT(t *testi
 	}
 
 	result := Manager{Config: Config{
-		MaxHistoryMessages:     20,
-		KeepRecentToolResults:  1,
-		MaxToolResultChars:     1000,
-		CompactedToolHeadChars: 100,
-		CompactedToolTailChars: 100,
-		MaxRequestChars:        10000,
-		ContextWindowTokens:    1000000,
-		MaxOutputTokens:        0,
-		SafetyTokens:           0,
-		CompactTriggerRatio:    0.70,
-		EnableMicroCompact:     true,
-		MaxSessionMemoryChars:  20000,
-		MaxMemoryIndexChars:    20000,
-		MaxRelevantMemoryChars: 20000,
-		MaxRelevantMemoryFiles: 2,
-		MaxCompactSummaryChars: 60000,
+		MaxHistoryMessages:       20,
+		KeepRecentToolResults:    1,
+		MaxToolResultChars:       1000,
+		CompactedToolHeadChars:   100,
+		CompactedToolTailChars:   100,
+		MaxRequestChars:          10000,
+		ContextWindowTokens:      1000000,
+		MaxOutputTokens:          0,
+		SafetyTokens:             0,
+		CompactTriggerRatio:      0.70,
+		EnableMicroCompact:       true,
+		MaxSessionMemoryChars:    20000,
+		MaxMemoryIndexChars:      20000,
+		MaxRelevantMemoryChars:   20000,
+		MaxRelevantMemoryEntries: 2,
+		MaxCompactSummaryChars:   60000,
 	}, MemoryRoot: memoryRoot}.Build(BuildInput{
 		Messages:   []llm.Message{{Role: llm.RoleUser, Content: "帮我操纵飞书网页，打开审批页面并点击提交"}},
 		SessionDir: sessionDir,
@@ -249,8 +268,8 @@ func TestManagerBuildInjectsRelevantLongTermMemoryForBrowserTask_BitsUT(t *testi
 	if !result.Stats.InjectedRelevantMemory {
 		t.Fatalf("expected relevant long-term memory to be injected: %#v", result.Stats)
 	}
-	if result.Stats.RelevantMemoryFiles != 1 {
-		t.Fatalf("relevant memory files = %d, want 1", result.Stats.RelevantMemoryFiles)
+	if result.Stats.RelevantMemoryEntries != 1 {
+		t.Fatalf("relevant memory entries = %d, want 1", result.Stats.RelevantMemoryEntries)
 	}
 	if len(result.Messages) != 4 {
 		t.Fatalf("messages = %d, want index + relevant + session + user: %#v", len(result.Messages), result.Messages)
@@ -262,6 +281,9 @@ func TestManagerBuildInjectsRelevantLongTermMemoryForBrowserTask_BitsUT(t *testi
 		!strings.Contains(result.Messages[1].Content, "wait_for_stable") ||
 		!strings.Contains(result.Messages[1].Content, "memory/projects/default/project.md") {
 		t.Fatalf("second message is not relevant memory:\n%s", result.Messages[1].Content)
+	}
+	if strings.Contains(result.Messages[1].Content, "运行 Go 单测") {
+		t.Fatalf("unrelated entry leaked into relevant memory:\n%s", result.Messages[1].Content)
 	}
 	if !strings.Contains(result.Messages[2].Content, sessionMemoryNotice) {
 		t.Fatalf("third message is not session memory: %#v", result.Messages[2])
@@ -283,21 +305,21 @@ func TestManagerBuildSkipsRelevantLongTermMemoryForUnrelatedTask_BitsUT(t *testi
 	}
 
 	result := Manager{Config: Config{
-		MaxHistoryMessages:     20,
-		KeepRecentToolResults:  1,
-		MaxToolResultChars:     1000,
-		CompactedToolHeadChars: 100,
-		CompactedToolTailChars: 100,
-		MaxRequestChars:        10000,
-		ContextWindowTokens:    1000000,
-		MaxOutputTokens:        0,
-		SafetyTokens:           0,
-		CompactTriggerRatio:    0.70,
-		EnableMicroCompact:     true,
-		MaxMemoryIndexChars:    20000,
-		MaxRelevantMemoryChars: 20000,
-		MaxRelevantMemoryFiles: 2,
-		MaxCompactSummaryChars: 60000,
+		MaxHistoryMessages:       20,
+		KeepRecentToolResults:    1,
+		MaxToolResultChars:       1000,
+		CompactedToolHeadChars:   100,
+		CompactedToolTailChars:   100,
+		MaxRequestChars:          10000,
+		ContextWindowTokens:      1000000,
+		MaxOutputTokens:          0,
+		SafetyTokens:             0,
+		CompactTriggerRatio:      0.70,
+		EnableMicroCompact:       true,
+		MaxMemoryIndexChars:      20000,
+		MaxRelevantMemoryChars:   20000,
+		MaxRelevantMemoryEntries: 2,
+		MaxCompactSummaryChars:   60000,
 	}, MemoryRoot: memoryRoot}.Build(BuildInput{
 		Messages: []llm.Message{{Role: llm.RoleUser, Content: "帮我解释 Go interface 的用法"}},
 	})

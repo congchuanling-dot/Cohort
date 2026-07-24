@@ -48,8 +48,8 @@ type Config struct {
 	// 相关长期记忆来自 memory/index.md 指向的文件和默认 P0 memory 文件。
 	MaxRelevantMemoryChars int
 
-	// MaxRelevantMemoryFiles 限制单轮最多自动注入几个长期记忆文件。
-	MaxRelevantMemoryFiles int
+	// MaxRelevantMemoryEntries 限制单轮最多自动注入几个长期记忆条目。
+	MaxRelevantMemoryEntries int
 
 	// MaxCompactSummaryChars 限制 compact.md 注入请求前的最大字符数。
 	// compact.md 承载长历史摘要，默认比 memory.md 更大；超过后只截断请求副本，不修改磁盘文件。
@@ -79,21 +79,21 @@ type Config struct {
 // DefaultConfig 返回第一版 Context Manager 的保守默认值。
 func DefaultConfig() Config {
 	return Config{
-		MaxHistoryMessages:     40,
-		KeepRecentToolResults:  2,
-		MaxToolResultChars:     12000,
-		CompactedToolHeadChars: 4000,
-		CompactedToolTailChars: 4000,
-		MaxRequestChars:        100000,
-		MaxSessionMemoryChars:  20000,
-		MaxMemoryIndexChars:    12000,
-		MaxRelevantMemoryChars: 16000,
-		MaxRelevantMemoryFiles: 2,
-		MaxCompactSummaryChars: 60000,
-		MaxOutputTokens:        4096,
-		SafetyTokens:           4000,
-		CompactTriggerRatio:    0.70,
-		EnableMicroCompact:     true,
+		MaxHistoryMessages:       40,
+		KeepRecentToolResults:    2,
+		MaxToolResultChars:       12000,
+		CompactedToolHeadChars:   4000,
+		CompactedToolTailChars:   4000,
+		MaxRequestChars:          100000,
+		MaxSessionMemoryChars:    20000,
+		MaxMemoryIndexChars:      12000,
+		MaxRelevantMemoryChars:   16000,
+		MaxRelevantMemoryEntries: 3,
+		MaxCompactSummaryChars:   60000,
+		MaxOutputTokens:          4096,
+		SafetyTokens:             4000,
+		CompactTriggerRatio:      0.70,
+		EnableMicroCompact:       true,
 	}
 }
 
@@ -127,8 +127,8 @@ func (c Config) Normalize() Config {
 	if c.MaxRelevantMemoryChars <= 0 {
 		c.MaxRelevantMemoryChars = defaults.MaxRelevantMemoryChars
 	}
-	if c.MaxRelevantMemoryFiles <= 0 {
-		c.MaxRelevantMemoryFiles = defaults.MaxRelevantMemoryFiles
+	if c.MaxRelevantMemoryEntries <= 0 {
+		c.MaxRelevantMemoryEntries = defaults.MaxRelevantMemoryEntries
 	}
 	if c.MaxCompactSummaryChars <= 0 {
 		c.MaxCompactSummaryChars = defaults.MaxCompactSummaryChars
@@ -249,8 +249,8 @@ type Stats struct {
 	// RelevantMemoryChars 是注入请求的相关长期记忆字符数。
 	RelevantMemoryChars int
 
-	// RelevantMemoryFiles 是本轮自动注入的长期记忆文件数量。
-	RelevantMemoryFiles int
+	// RelevantMemoryEntries 是本轮自动注入的长期记忆条目数量。
+	RelevantMemoryEntries int
 
 	// RelevantMemoryTruncated 表示相关长期记忆因超过 MaxRelevantMemoryChars 而在请求副本中被截断。
 	RelevantMemoryTruncated bool

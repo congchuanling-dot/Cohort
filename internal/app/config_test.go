@@ -24,7 +24,7 @@ context:
 	  max_session_memory_chars: 88
   max_memory_index_chars: 99
   max_relevant_memory_chars: 144
-  max_relevant_memory_files: 3
+  max_relevant_memory_entries: 3
   max_compact_summary_chars: 188
   enable_micro_compact: false
 
@@ -69,8 +69,8 @@ llm:
 	if cfg.Context.MaxRelevantMemoryChars != 144 {
 		t.Fatalf("max relevant memory chars = %d, want 144", cfg.Context.MaxRelevantMemoryChars)
 	}
-	if cfg.Context.MaxRelevantMemoryFiles != 3 {
-		t.Fatalf("max relevant memory files = %d, want 3", cfg.Context.MaxRelevantMemoryFiles)
+	if cfg.Context.MaxRelevantMemoryEntries != 3 {
+		t.Fatalf("max relevant memory entries = %d, want 3", cfg.Context.MaxRelevantMemoryEntries)
 	}
 	if cfg.Context.MaxCompactSummaryChars != 188 {
 		t.Fatalf("max compact summary chars = %d, want 188", cfg.Context.MaxCompactSummaryChars)

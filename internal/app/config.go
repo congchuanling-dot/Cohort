@@ -171,8 +171,8 @@ func applyContextValue(cfg *contextmgr.Config, key, val string) {
 		cfg.MaxMemoryIndexChars = atoiDefault(val, cfg.MaxMemoryIndexChars)
 	case "max_relevant_memory_chars":
 		cfg.MaxRelevantMemoryChars = atoiDefault(val, cfg.MaxRelevantMemoryChars)
-	case "max_relevant_memory_files":
-		cfg.MaxRelevantMemoryFiles = atoiDefault(val, cfg.MaxRelevantMemoryFiles)
+	case "max_relevant_memory_entries", "max_relevant_memory_files":
+		cfg.MaxRelevantMemoryEntries = atoiDefault(val, cfg.MaxRelevantMemoryEntries)
 	case "max_compact_summary_chars":
 		cfg.MaxCompactSummaryChars = atoiDefault(val, cfg.MaxCompactSummaryChars)
 	case "enable_micro_compact":

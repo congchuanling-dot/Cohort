@@ -35,7 +35,7 @@ type relevantMemoryMatch struct {
 }
 
 func loadRelevantLongTermMemory(memoryRoot string, indexText string, messages []llm.Message, cfg Config) (matches []relevantMemoryMatch, err error) {
-	if strings.TrimSpace(memoryRoot) == "" || cfg.MaxRelevantMemoryFiles <= 0 || cfg.MaxRelevantMemoryChars <= 0 {
+	if strings.TrimSpace(memoryRoot) == "" || cfg.MaxRelevantMemoryEntries <= 0 || cfg.MaxRelevantMemoryChars <= 0 {
 		return nil, nil
 	}
 	query := recentUserTaskText(messages)
@@ -73,8 +73,8 @@ func loadRelevantLongTermMemory(memoryRoot string, indexText string, messages []
 		}
 		return scored[i].score > scored[j].score
 	})
-	if len(scored) > cfg.MaxRelevantMemoryFiles {
-		scored = scored[:cfg.MaxRelevantMemoryFiles]
+	if len(scored) > cfg.MaxRelevantMemoryEntries {
+		scored = scored[:cfg.MaxRelevantMemoryEntries]
 	}
 	return scored, nil
 }
@@ -105,7 +105,7 @@ func buildRelevantLongTermMemoryMessage(matches []relevantMemoryMatch, cfg Confi
 
 	stats.InjectedRelevantMemory = true
 	stats.RelevantMemoryChars = len([]rune(limited))
-	stats.RelevantMemoryFiles = len(matches)
+	stats.RelevantMemoryEntries = len(matches)
 	return llm.Message{Role: llm.RoleAssistant, Content: content}, true
 }
 
