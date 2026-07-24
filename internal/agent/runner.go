@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cohert/internal/contextmgr"
+	"cohert/internal/evolution"
 	"cohert/internal/llm"
 	"cohert/internal/session"
 )
@@ -55,6 +56,8 @@ type ToolCallContext struct {
 	WorkingCheckpoint WorkingCheckpoint
 	// History 是工具调用前的完整内存历史副本，用于审计和证据校验。
 	History []llm.Message
+	// Evidence 是当前任务已经收集的结构化证据快照。
+	Evidence []evolution.Evidence
 }
 
 // WorkingCheckpoint 是当前任务的短期工作记忆。
@@ -140,6 +143,12 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 		return RunResult{}, err
 	}
 	memorySignals := longTermMemorySignals{userRequested: requestsLongTermMemory(input)}
+	evidenceLedger := []evolution.Evidence{{
+		ID:       "user:input",
+		Source:   "user",
+		Verified: memorySignals.userRequested,
+		Summary:  "user explicitly requested long-term memory",
+	}}
 	r.maybeAddLongTermMemoryHint(&memorySignals, 0)
 	r.addSOPRouteHint(input)
 	messages := r.buildRequestMessages()
@@ -213,6 +222,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 					SessionDir:        r.sessionDir(),
 					WorkingCheckpoint: r.WorkingCheckpoint,
 					History:           append([]llm.Message(nil), r.history...),
+					Evidence:          append([]evolution.Evidence(nil), evidenceLedger...),
 				})
 				if runErr != nil {
 					// 工具失败时不直接中断 Agent，而是把错误作为工具结果交回模型。
@@ -234,6 +244,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 				r.rememberSOPRead(args)
 			}
 			r.recordLongTermMemorySignal(&memorySignals, call.Function.Name, args, outcome)
+			evidenceLedger = append(evidenceLedger, newToolEvidence(call, turn, i, outcome))
 			if outcome.ShouldExit {
 				return RunResult{Status: RunStatusExited, Response: resp}, nil
 			}
@@ -389,6 +400,60 @@ func outcomeSucceeded(outcome Outcome) bool {
 		return !strings.HasPrefix(lower, "error:") && !strings.Contains(lower, `"status":"error"`)
 	default:
 		return true
+	}
+}
+
+// newToolEvidence creates a metadata-only ledger entry for one completed tool call.
+// It intentionally excludes raw tool output, which can be large, volatile, or sensitive.
+func newToolEvidence(call llm.ToolCall, turn, index int, outcome Outcome) evolution.Evidence {
+	name := call.Function.Name
+	verified := toolOutcomeVerified(name, outcome)
+	return evolution.Evidence{
+		ID:       fmt.Sprintf("tool:%d:%d", turn, index),
+		Source:   "tool",
+		ToolName: name,
+		Turn:     turn,
+		CallID:   call.ID,
+		Verified: verified,
+		Summary:  toolEvidenceSummary(name, outcome, verified),
+	}
+}
+
+func toolOutcomeVerified(name string, outcome Outcome) bool {
+	if !outcomeSucceeded(outcome) {
+		return false
+	}
+	if name != "code_run" {
+		return true
+	}
+	data, ok := outcome.Data.(map[string]any)
+	if !ok {
+		return false
+	}
+	exitCode, ok := integerValue(data["exit_code"])
+	return ok && exitCode == 0
+}
+
+func toolEvidenceSummary(name string, outcome Outcome, verified bool) string {
+	if !verified {
+		return name + " did not produce verified evidence"
+	}
+	if name == "code_run" {
+		return "code_run completed with exit_code=0"
+	}
+	return name + " completed successfully"
+}
+
+func integerValue(value any) (int, bool) {
+	switch number := value.(type) {
+	case int:
+		return number, true
+	case int64:
+		return int(number), true
+	case float64:
+		return int(number), true
+	default:
+		return 0, false
 	}
 }
 

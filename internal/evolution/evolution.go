@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"cohert/internal/llm"
 )
 
 const (
@@ -38,10 +37,22 @@ type Candidate struct {
 	Type                     string `json:"type"`
 	Target                   string `json:"target"`
 	Content                  string `json:"content"`
-	Evidence                 string `json:"evidence"`
+	EvidenceIDs              []string `json:"evidence_ids"`
 	Risk                     string `json:"risk"`
 	Action                   string `json:"action"`
 	RequiresUserConfirmation bool   `json:"requires_user_confirmation,omitempty"`
+}
+
+// Evidence records a single source that may support a memory candidate.
+// Summary must be metadata only; raw tool output is deliberately not retained here.
+type Evidence struct {
+	ID       string `json:"id"`
+	Source   string `json:"source"`
+	ToolName string `json:"tool_name,omitempty"`
+	Turn     int    `json:"turn,omitempty"`
+	CallID   string `json:"call_id,omitempty"`
+	Verified bool   `json:"verified"`
+	Summary  string `json:"summary"`
 }
 
 // ValidationResult describes whether a candidate can be applied by the memory tool.
@@ -62,7 +73,7 @@ type AuditRecord struct {
 	Target        string `json:"target"`
 	Action        string `json:"action"`
 	SourceSession string `json:"source_session,omitempty"`
-	Evidence      string `json:"evidence"`
+	EvidenceIDs   []string `json:"evidence_ids"`
 	Summary       string `json:"summary"`
 }
 
@@ -128,7 +139,7 @@ func (m Manager) EnsureStructure() ([]string, error) {
 }
 
 // ValidateCandidate enforces the P0 safety policy before a candidate can be written.
-func (m Manager) ValidateCandidate(candidate Candidate, history []llm.Message) ValidationResult {
+func (m Manager) ValidateCandidate(candidate Candidate, evidence []Evidence) ValidationResult {
 	var reasons []string
 	normalized := normalizeMemoryPath(candidate.Target)
 	if normalized == "" {
@@ -142,12 +153,12 @@ func (m Manager) ValidateCandidate(candidate Candidate, history []llm.Message) V
 	if strings.TrimSpace(candidate.Content) == "" {
 		reasons = append(reasons, "content is required")
 	}
-	if strings.TrimSpace(candidate.Evidence) == "" {
-		reasons = append(reasons, "evidence is required")
-	} else if !evidenceIsSupported(candidate.Evidence, history) {
-		reasons = append(reasons, "evidence is not supported by successful tools, existing memory, or explicit user preference")
+	if len(candidate.EvidenceIDs) == 0 {
+		reasons = append(reasons, "at least one evidence_id is required")
+	} else if unsupported := unsupportedEvidenceIDs(candidate.EvidenceIDs, evidence); len(unsupported) > 0 {
+		reasons = append(reasons, "evidence_ids are missing or unverified: "+strings.Join(unsupported, ", "))
 	}
-	if containsSensitiveMaterial(candidate.Content) || containsSensitiveMaterial(candidate.Evidence) {
+	if containsSensitiveMaterial(candidate.Content) {
 		reasons = append(reasons, "candidate appears to contain sensitive material")
 	}
 	if candidate.RequiresUserConfirmation {
@@ -160,10 +171,10 @@ func (m Manager) ValidateCandidate(candidate Candidate, history []llm.Message) V
 }
 
 // ApplyCandidate appends a validated candidate and records an audit entry.
-func (m Manager) ApplyCandidate(candidate Candidate, history []llm.Message, sourceSession string) (AuditRecord, error) {
+func (m Manager) ApplyCandidate(candidate Candidate, evidence []Evidence, sourceSession string) (AuditRecord, error) {
 	candidate.Target = normalizeMemoryPath(candidate.Target)
 	candidate.Action = normalizedAction(candidate.Action)
-	validation := m.ValidateCandidate(candidate, history)
+	validation := m.ValidateCandidate(candidate, evidence)
 	if !validation.Valid {
 		return AuditRecord{}, fmt.Errorf("candidate is not safe to apply: %s", strings.Join(validation.Reasons, "; "))
 	}
@@ -193,7 +204,7 @@ func (m Manager) ApplyCandidate(candidate Candidate, history []llm.Message, sour
 		Target:        candidate.Target,
 		Action:        candidate.Action,
 		SourceSession: sourceSession,
-		Evidence:      candidate.Evidence,
+		EvidenceIDs:   append([]string(nil), candidate.EvidenceIDs...),
 		Summary:       summarize(candidate.Content),
 	}
 	if err := m.appendAudit(record); err != nil {
@@ -258,54 +269,21 @@ func normalizedAction(action string) string {
 	return action
 }
 
-func evidenceIsSupported(evidence string, history []llm.Message) bool {
-	lower := strings.ToLower(evidence)
-	if strings.Contains(lower, "existing memory") || strings.Contains(lower, "已存在记忆") {
-		return true
-	}
-	if strings.Contains(lower, "user preference") || strings.Contains(lower, "用户偏好") || strings.Contains(lower, "用户明确") {
-		return hasUserMessage(history)
-	}
-	for _, message := range history {
-		if message.Role != llm.RoleTool {
-			continue
-		}
-		name := strings.ToLower(message.Name)
-		callID := strings.ToLower(message.ToolCallID)
-		if name == "" && callID == "" {
-			continue
-		}
-		if (name != "" && strings.Contains(lower, name)) || (callID != "" && strings.Contains(lower, callID)) {
-			if toolResultIsVerified(message) {
-				return true
-			}
+func unsupportedEvidenceIDs(ids []string, evidence []Evidence) []string {
+	verified := make(map[string]bool, len(evidence))
+	for _, item := range evidence {
+		if item.ID != "" && item.Verified {
+			verified[item.ID] = true
 		}
 	}
-	return false
-}
-
-func hasUserMessage(history []llm.Message) bool {
-	for _, message := range history {
-		if message.Role == llm.RoleUser && strings.TrimSpace(message.Content) != "" {
-			return true
+	var unsupported []string
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" || !verified[id] {
+			unsupported = append(unsupported, id)
 		}
 	}
-	return false
-}
-
-func toolResultIsVerified(message llm.Message) bool {
-	content := strings.ToLower(message.Content)
-	if strings.HasPrefix(strings.TrimSpace(content), "error:") || strings.Contains(content, `"status":"error"`) {
-		return false
-	}
-	switch message.Name {
-	case "code_run":
-		return strings.Contains(content, `"status":"success"`) && strings.Contains(content, `"exit_code":0`)
-	case "file_read":
-		return strings.TrimSpace(message.Content) != ""
-	default:
-		return strings.Contains(content, `"status":"success"`) || strings.TrimSpace(message.Content) != ""
-	}
+	return unsupported
 }
 
 func containsSensitiveMaterial(text string) bool {
@@ -333,8 +311,8 @@ func formatMemoryEntry(candidate Candidate, sourceSession string) string {
 	b.WriteString(" - ")
 	b.WriteString(time.Now().Format("2006-01-02"))
 	b.WriteString("\n\n")
-	b.WriteString("- evidence: ")
-	b.WriteString(strings.TrimSpace(candidate.Evidence))
+	b.WriteString("- evidence_ids: ")
+	b.WriteString(strings.Join(candidate.EvidenceIDs, ", "))
 	b.WriteByte('\n')
 	if sourceSession != "" {
 		b.WriteString("- source_session: ")
