@@ -71,6 +71,16 @@ llm:
 	}
 }
 
+func TestNormalizeWorkspaceReturnsAbsolutePath_BitsUT(t *testing.T) {
+	workspace := normalizeWorkspace("./workspace")
+	if !filepath.IsAbs(workspace) {
+		t.Fatalf("workspace = %q, want absolute path", workspace)
+	}
+	if !strings.HasSuffix(workspace, string(filepath.Separator)+"workspace") {
+		t.Fatalf("workspace = %q, want workspace suffix", workspace)
+	}
+}
+
 func TestBuildSystemPromptRequiresToolNarration_BitsUT(t *testing.T) {
 	zhPrompt := buildSystemPrompt(Config{Language: "zh"})
 	for _, want := range []string{"每次调用工具前", "当前已经知道什么", "可能的卡点", "每次工具返回后"} {

@@ -26,8 +26,9 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 	if cfg.LLM.APIKey == "" {
 		return nil, errors.New("missing API key: set DEEPSEEK_API_KEY or configs/config.yaml llm.api_key")
 	}
+	workspace := normalizeWorkspace(cfg.Workspace)
 	// workspace 是文件和命令工具默认工作的目录。
-	if err := os.MkdirAll(cfg.Workspace, 0755); err != nil {
+	if err := os.MkdirAll(workspace, 0755); err != nil {
 		return nil, err
 	}
 	// LogDir 保存模型原始响应，方便排查工具调用和流式解析问题。
@@ -48,11 +49,11 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 	})
 
 	browserClient := newBrowserClient()
-	registry := newRegistry(cfg.Workspace, browserClient)
+	registry := newRegistry(workspace, browserClient)
 	sessionStore := session.NewStore(session.DefaultRootDir)
 	contextManager := &contextmgr.Manager{
 		Config:     cfg.Context.Normalize(),
-		MemoryRoot: filepath.Join(cfg.Workspace, "memory"),
+		MemoryRoot: filepath.Join(workspace, "memory"),
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -75,7 +76,7 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 
 // ToolSchemas 给 CLI 的 tools 命令使用，只列工具 schema，不初始化 LLM。
 func ToolSchemas(cfg Config) []llm.ToolSchema {
-	return newRegistry(cfg.Workspace, browser.NewUnavailableClient(browser.ErrNotConnected)).Schemas()
+	return newRegistry(normalizeWorkspace(cfg.Workspace), browser.NewUnavailableClient(browser.ErrNotConnected)).Schemas()
 }
 
 // newRegistry 集中注册当前 MVP 暴露给模型的本地工具。
@@ -115,6 +116,16 @@ func newBrowserClient() browser.Client {
 		return browser.NewUnavailableClient(err)
 	}
 	return bridge
+}
+
+func normalizeWorkspace(workspace string) string {
+	if strings.TrimSpace(workspace) == "" {
+		workspace = "."
+	}
+	if abs, err := filepath.Abs(workspace); err == nil {
+		workspace = abs
+	}
+	return filepath.Clean(workspace)
 }
 
 // buildSystemPrompt 生成发送给模型的系统提示词。

@@ -66,6 +66,15 @@ type ProposedCandidate struct {
 	Validation ValidationResult `json:"validation"`
 }
 
+// ApplyResult is returned after a candidate is appended and read back from disk.
+type ApplyResult struct {
+	AuditRecord       AuditRecord `json:"audit_record"`
+	MemoryRoot        string      `json:"memory_root"`
+	TargetPath        string      `json:"target_path"`
+	ReadBackConfirmed bool        `json:"read_back_confirmed"`
+	ReadBackBytes     int         `json:"read_back_bytes"`
+}
+
 // AuditRecord is appended to memory/audit.jsonl after every applied update.
 type AuditRecord struct {
 	Time          string   `json:"time"`
@@ -160,6 +169,11 @@ func (m Manager) ValidateCandidate(candidate Candidate, evidence []Evidence) Val
 	if containsSensitiveMaterial(candidate.Content) {
 		reasons = append(reasons, "candidate appears to contain sensitive material")
 	}
+	if duplicate, err := m.hasDuplicateContent(normalized, candidate.Content); err != nil {
+		reasons = append(reasons, "failed to check duplicate memory content: "+err.Error())
+	} else if duplicate {
+		reasons = append(reasons, "duplicate memory content already exists")
+	}
 	if candidate.RequiresUserConfirmation {
 		reasons = append(reasons, "candidate requires user confirmation")
 	}
@@ -170,32 +184,39 @@ func (m Manager) ValidateCandidate(candidate Candidate, evidence []Evidence) Val
 }
 
 // ApplyCandidate appends a validated candidate and records an audit entry.
-func (m Manager) ApplyCandidate(candidate Candidate, evidence []Evidence, sourceSession string) (AuditRecord, error) {
+func (m Manager) ApplyCandidate(candidate Candidate, evidence []Evidence, sourceSession string) (ApplyResult, error) {
 	candidate.Target = normalizeMemoryPath(candidate.Target)
 	candidate.Action = normalizedAction(candidate.Action)
+	if _, err := m.EnsureStructure(); err != nil {
+		return ApplyResult{}, err
+	}
 	validation := m.ValidateCandidate(candidate, evidence)
 	if !validation.Valid {
-		return AuditRecord{}, fmt.Errorf("candidate is not safe to apply: %s", strings.Join(validation.Reasons, "; "))
-	}
-	if _, err := m.EnsureStructure(); err != nil {
-		return AuditRecord{}, err
+		return ApplyResult{}, fmt.Errorf("candidate is not safe to apply: %s", strings.Join(validation.Reasons, "; "))
 	}
 	path, err := m.resolveMemoryPath(candidate.Target)
 	if err != nil {
-		return AuditRecord{}, err
+		return ApplyResult{}, err
 	}
 	entry := formatMemoryEntry(candidate, sourceSession)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, defaultMemoryFilePerm)
 	if err != nil {
-		return AuditRecord{}, err
+		return ApplyResult{}, err
 	}
 	_, writeErr := f.WriteString(entry)
 	closeErr := f.Close()
 	if writeErr != nil {
-		return AuditRecord{}, writeErr
+		return ApplyResult{}, writeErr
 	}
 	if closeErr != nil {
-		return AuditRecord{}, closeErr
+		return ApplyResult{}, closeErr
+	}
+	readBack, err := os.ReadFile(path)
+	if err != nil {
+		return ApplyResult{}, fmt.Errorf("read back memory target: %w", err)
+	}
+	if !strings.Contains(string(readBack), entry) {
+		return ApplyResult{}, fmt.Errorf("read back memory target did not contain applied entry")
 	}
 
 	record := AuditRecord{
@@ -207,9 +228,15 @@ func (m Manager) ApplyCandidate(candidate Candidate, evidence []Evidence, source
 		Summary:       summarize(candidate.Content),
 	}
 	if err := m.appendAudit(record); err != nil {
-		return AuditRecord{}, err
+		return ApplyResult{}, err
 	}
-	return record, nil
+	return ApplyResult{
+		AuditRecord:       record,
+		MemoryRoot:        m.MemoryRoot(),
+		TargetPath:        path,
+		ReadBackConfirmed: true,
+		ReadBackBytes:     len(readBack),
+	}, nil
 }
 
 func (m Manager) appendAudit(record AuditRecord) error {
@@ -250,6 +277,25 @@ func (m Manager) resolveMemoryPath(rel string) (string, error) {
 	return filepath.Join(m.Workspace, filepath.FromSlash(rel)), nil
 }
 
+func (m Manager) hasDuplicateContent(normalizedTarget, content string) (bool, error) {
+	content = normalizeMemoryContent(content)
+	if normalizedTarget == "" || content == "" {
+		return false, nil
+	}
+	path, err := m.resolveMemoryPath(normalizedTarget)
+	if err != nil {
+		return false, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	return strings.Contains(normalizeMemoryContent(string(data)), content), nil
+}
+
 func normalizeMemoryPath(path string) string {
 	path = strings.TrimSpace(path)
 	path = strings.TrimPrefix(path, "./")
@@ -258,6 +304,10 @@ func normalizeMemoryPath(path string) string {
 		return ""
 	}
 	return path
+}
+
+func normalizeMemoryContent(content string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(content)), " ")
 }
 
 func normalizedAction(action string) string {

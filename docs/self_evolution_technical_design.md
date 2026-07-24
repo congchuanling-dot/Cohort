@@ -199,14 +199,15 @@ Runner
 
 建议 Cohert 使用四层记忆结构。
 
+运行时真实存储位置统一为配置项 `workspace` 下的 `memory/` 目录。工具参数和索引中的 `memory/...` 都是相对 `workspace` 的逻辑路径，例如 `memory/global.md` 实际落盘到 `<workspace>/memory/global.md`。Context Manager 也只从同一个 `<workspace>/memory/index.md` 注入长期记忆索引。
+
 ```text
 memory/
   index.md
   global.md
   projects/
-    <project_id>/
+    default/
       project.md
-      lessons.md
   raw_sessions/
     all_histories.md
     archives/
@@ -238,7 +239,7 @@ memory/index.md
 ```text
 # Memory Index
 
-项目约定: memory/projects/current/project.md
+项目约定: memory/projects/default/project.md
 用户偏好: memory/global.md#user-preferences
 浏览器操作: sops/browser_sop.md
 命令执行: sops/code_run_sop.md
@@ -273,8 +274,7 @@ memory/global.md
 路径：
 
 ```text
-memory/projects/<project_id>/project.md
-memory/projects/<project_id>/lessons.md
+memory/projects/default/project.md
 sops/*.md
 ```
 
@@ -360,7 +360,7 @@ start_long_term_update
 ## Candidate
 
 - type: project_lesson
-- target: memory/projects/current/lessons.md
+- target: memory/projects/default/project.md
 - evidence_ids: [tool:8:0]
 - content: ...
 - risk: low
@@ -410,7 +410,7 @@ memory/audit.jsonl
 
 ```json
 {
-  "target": "memory/projects/current/lessons.md",
+  "target": "memory/projects/default/project.md",
   "action": "append",
   "source_session": "...",
   "evidence_ids": ["tool:8:0"],
@@ -467,7 +467,7 @@ Schema：
   "candidates": [
     {
       "type": "project_lesson",
-      "target": "memory/projects/current/lessons.md",
+      "target": "memory/projects/default/project.md",
       "content": "...",
       "evidence_ids": ["tool:8:0"],
       "risk": "low"
@@ -484,9 +484,10 @@ Schema：
 
 约束：
 
-- 只能写 `memory/` 和 `sops/`。
-- 默认只允许 append。
-- 修改 SOP 需要更严格证据。
+- P0 只允许写 `memory/global.md` 和 `memory/projects/default/project.md`。
+- 只允许 append。
+- 写入前必须检测目标文件是否已包含相同内容，重复记忆直接拒绝。
+- 写入后必须重新读取目标文件，确认本次 entry 已落盘后才返回成功并写 audit。
 - 修改核心代码不允许走这个工具。
 
 ### 6.4 reflect_run
@@ -619,7 +620,7 @@ recent history
 3. 新增 `start_long_term_update` 工具。
 4. 新增 memory management prompt。
 5. 实现候选记忆提取。
-6. 只允许写 session memory 和 project memory。
+6. 只允许写 global memory 和默认 project memory。
 7. 增加单元测试：未验证信息不能入库。
 
 ### P1：项目记忆与按需读取

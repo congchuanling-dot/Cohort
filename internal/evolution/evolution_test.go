@@ -50,12 +50,22 @@ func TestManagerApplyCandidateAppendsAndAudits_BitsUT(t *testing.T) {
 		Action:      "append",
 	}
 
-	record, err := manager.ApplyCandidate(candidate, evidence, "session-1")
+	result, err := manager.ApplyCandidate(candidate, evidence, "session-1")
 	if err != nil {
 		t.Fatal(err)
 	}
+	record := result.AuditRecord
 	if record.Target != DefaultProjectMemoryPath || record.SourceSession != "session-1" {
 		t.Fatalf("audit record = %#v", record)
+	}
+	if !result.ReadBackConfirmed {
+		t.Fatal("expected read-back confirmation")
+	}
+	if result.MemoryRoot != filepath.Join(workspace, MemoryDirName) {
+		t.Fatalf("memory root = %q, want %q", result.MemoryRoot, filepath.Join(workspace, MemoryDirName))
+	}
+	if result.TargetPath != filepath.Join(workspace, filepath.FromSlash(DefaultProjectMemoryPath)) {
+		t.Fatalf("target path = %q", result.TargetPath)
 	}
 
 	projectData, err := os.ReadFile(filepath.Join(workspace, filepath.FromSlash(DefaultProjectMemoryPath)))
@@ -76,6 +86,34 @@ func TestManagerApplyCandidateAppendsAndAudits_BitsUT(t *testing.T) {
 	}
 	if decoded.Target != DefaultProjectMemoryPath || decoded.Action != "append" {
 		t.Fatalf("decoded audit = %#v", decoded)
+	}
+}
+
+func TestManagerRejectsDuplicateMemoryCandidate_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	manager := NewManager(workspace)
+	if _, err := manager.EnsureStructure(); err != nil {
+		t.Fatal(err)
+	}
+	existing := "When memory content already exists, reject duplicate long-term memory updates."
+	path := filepath.Join(workspace, filepath.FromSlash(DefaultProjectMemoryPath))
+	if err := os.WriteFile(path, []byte("# Default Project Memory\n\n"+existing+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	validation := manager.ValidateCandidate(Candidate{
+		Type:        "project_lesson",
+		Target:      DefaultProjectMemoryPath,
+		Content:     "When memory content already exists,\nreject duplicate long-term memory updates.",
+		EvidenceIDs: []string{"tool:1:0"},
+		Action:      "append",
+	}, []Evidence{{ID: "tool:1:0", Verified: true}})
+
+	if validation.Valid {
+		t.Fatal("expected duplicate candidate to be rejected")
+	}
+	if got := strings.Join(validation.Reasons, "\n"); !strings.Contains(got, "duplicate") {
+		t.Fatalf("validation reasons = %#v", validation.Reasons)
 	}
 }
 

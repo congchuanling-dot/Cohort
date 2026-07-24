@@ -192,7 +192,7 @@ func (t *MemoryApplyUpdate) Run(ctx context.Context, call agent.ToolCallContext)
 			NextPrompt: "\n",
 		}, nil
 	}
-	record, err := t.manager.ApplyCandidate(candidate, call.Evidence, call.SessionID)
+	result, err := t.manager.ApplyCandidate(candidate, call.Evidence, call.SessionID)
 	if err != nil {
 		return agent.Outcome{
 			Data: agent.NewToolError(
@@ -205,9 +205,13 @@ func (t *MemoryApplyUpdate) Run(ctx context.Context, call agent.ToolCallContext)
 	}
 	return agent.Outcome{
 		Data: map[string]any{
-			"status":       agent.ToolStatusSuccess,
-			"applied":      true,
-			"audit_record": record,
+			"status":              agent.ToolStatusSuccess,
+			"applied":             true,
+			"audit_record":        result.AuditRecord,
+			"memory_root":         result.MemoryRoot,
+			"target_path":         result.TargetPath,
+			"read_back_confirmed": result.ReadBackConfirmed,
+			"read_back_bytes":     result.ReadBackBytes,
 		},
 		NextPrompt: "\n",
 	}, nil
