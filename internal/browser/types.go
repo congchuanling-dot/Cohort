@@ -50,6 +50,87 @@ type PageSnapshot struct {
 	Omitted int `json:"omitted"`
 }
 
+// DOMFieldSummary 是 browser_dom_summary 返回的表单字段摘要。
+// password 字段永远不返回明文 value，只通过 ValuePresent 表示是否已有输入。
+type DOMFieldSummary struct {
+	// Selector 是插件建议的 CSS selector。
+	Selector string `json:"selector,omitempty"`
+	// Tag 是字段标签，例如 input、textarea 或 select。
+	Tag string `json:"tag"`
+	// Type 是输入类型，例如 text、password、checkbox。
+	Type string `json:"type,omitempty"`
+	// Name 是字段 name 属性。
+	Name string `json:"name,omitempty"`
+	// ID 是字段 id 属性。
+	ID string `json:"id,omitempty"`
+	// Placeholder 是字段 placeholder 文案。
+	Placeholder string `json:"placeholder,omitempty"`
+	// Value 是非敏感字段的当前值；password 等敏感字段不返回。
+	Value string `json:"value,omitempty"`
+	// ValuePresent 表示字段当前是否有值。
+	ValuePresent bool `json:"value_present,omitempty"`
+	// Checked 表示 checkbox/radio 是否选中。
+	Checked bool `json:"checked,omitempty"`
+	// Disabled 表示字段是否禁用。
+	Disabled bool `json:"disabled,omitempty"`
+}
+
+// DOMFormSummary 是 browser_dom_summary 返回的表单摘要。
+type DOMFormSummary struct {
+	// Selector 是插件建议的 CSS selector。
+	Selector string `json:"selector,omitempty"`
+	// ID 是表单 id 属性。
+	ID string `json:"id,omitempty"`
+	// Name 是表单 name 属性。
+	Name string `json:"name,omitempty"`
+	// Method 是表单 method。
+	Method string `json:"method,omitempty"`
+	// Action 是表单 action。
+	Action string `json:"action,omitempty"`
+	// Fields 是表单内字段摘要。
+	Fields []DOMFieldSummary `json:"fields,omitempty"`
+}
+
+// DOMFrameSummary 描述页面 iframe 摘要。
+type DOMFrameSummary struct {
+	// Src 是 iframe src。
+	Src string `json:"src,omitempty"`
+	// Title 是 iframe title。
+	Title string `json:"title,omitempty"`
+	// SameOrigin 表示 iframe 是否同源可读。
+	SameOrigin bool `json:"same_origin"`
+	// Included 表示同源 iframe 内容是否已合入 summary。
+	Included bool `json:"included"`
+}
+
+// DOMSummary 是 browser_dom_summary 返回的低噪声 DOM/表单摘要。
+type DOMSummary struct {
+	// Status 是命令执行状态。
+	Status string `json:"status"`
+	// TabID 是生成摘要的标签页 ID。
+	TabID string `json:"tab_id"`
+	// Title 是页面标题。
+	Title string `json:"title"`
+	// URL 是页面当前地址。
+	URL string `json:"url"`
+	// Summary 是裁剪后的低噪声 HTML/文本摘要。
+	Summary string `json:"summary"`
+	// Forms 是页面表单摘要。
+	Forms []DOMFormSummary `json:"forms,omitempty"`
+	// Iframes 是 iframe 摘要。
+	Iframes []DOMFrameSummary `json:"iframes,omitempty"`
+	// ShadowRoots 是读取到的 open shadowRoot 数量。
+	ShadowRoots int `json:"shadow_roots,omitempty"`
+	// FixedOverlays 是识别到的 fixed/sticky 浮层数量。
+	FixedOverlays int `json:"fixed_overlays,omitempty"`
+	// Truncated 表示 Summary 是否因 max_chars 限制被截断。
+	Truncated bool `json:"truncated"`
+	// CharCount 是截断前摘要字符数。
+	CharCount int `json:"char_count"`
+	// Omitted 是因截断省略掉的字符数。
+	Omitted int `json:"omitted"`
+}
+
 // OpenResult 是 browser_open 打开或导航页面后的返回结果。
 type OpenResult struct {
 	// Status 是打开或导航命令的执行状态。
@@ -338,6 +419,7 @@ type Client interface {
 	Tabs(ctx context.Context) ([]Tab, error)
 	Open(ctx context.Context, url string, tabID string, active bool) (OpenResult, error)
 	Scan(ctx context.Context, tabID string, maxChars int) (PageSnapshot, error)
+	DOMSummary(ctx context.Context, tabID string, maxChars int, includeIframes bool, includeShadowDOM bool, includeFormValues bool, includeFixedOverlays bool) (DOMSummary, error)
 	ExecuteJS(ctx context.Context, tabID string, script string, noMonitor bool, maxReturnChars int) (ExecuteJSResult, error)
 	CDP(ctx context.Context, tabID string, method string, params map[string]any, noMonitor bool) (CDPResult, error)
 	Click(ctx context.Context, tabID string, x float64, y float64, noMonitor bool) (ClickResult, error)

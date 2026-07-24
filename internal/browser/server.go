@@ -252,6 +252,21 @@ func (b *Bridge) Scan(ctx context.Context, tabID string, maxChars int) (PageSnap
 	return result, err
 }
 
+// DOMSummary 读取当前页面的低噪声 DOM/表单/iframe/shadowRoot 摘要。
+func (b *Bridge) DOMSummary(ctx context.Context, tabID string, maxChars int, includeIframes bool, includeShadowDOM bool, includeFormValues bool, includeFixedOverlays bool) (DOMSummary, error) {
+	var result DOMSummary
+	err := b.command(ctx, map[string]any{
+		"command":                "dom_summary",
+		"tab_id":                 tabID,
+		"max_chars":              maxChars,
+		"include_iframes":        includeIframes,
+		"include_shadow_dom":     includeShadowDOM,
+		"include_form_values":    includeFormValues,
+		"include_fixed_overlays": includeFixedOverlays,
+	}, &result)
+	return result, err
+}
+
 // ExecuteJS 在指定或当前活动 tab 的页面上下文中执行 JavaScript。
 func (b *Bridge) ExecuteJS(ctx context.Context, tabID string, script string, noMonitor bool, maxReturnChars int) (ExecuteJSResult, error) {
 	var raw struct {

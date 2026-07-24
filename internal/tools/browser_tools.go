@@ -20,6 +20,7 @@ import (
 
 const (
 	defaultBrowserScanChars      = 12000
+	defaultBrowserDOMSummaryChars = 20000
 	defaultBrowserJSReturnChars  = 8000
 	defaultBrowserSnapshotItems  = 80
 	defaultBrowserWaitTimeoutMS  = 10000
@@ -138,6 +139,55 @@ func (t *BrowserScan) Run(ctx context.Context, call agent.ToolCallContext) (agen
 	}
 
 	result, err := t.client.Scan(ctx, tabID, maxChars)
+	if err != nil {
+		return browserToolError(err), nil
+	}
+	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
+}
+
+// BrowserDOMSummary 返回低噪声 DOM/表单/iframe/shadowRoot 摘要。
+// 它比 browser_scan 更结构化，适合 scan/snapshot 不足但 DOM 仍可访问的页面。
+type BrowserDOMSummary struct {
+	// client 是浏览器桥能力接口，用来读取页面 DOM 摘要。
+	client browser.Client
+}
+
+func NewBrowserDOMSummary(client browser.Client) *BrowserDOMSummary {
+	return &BrowserDOMSummary{client: client}
+}
+
+func (t *BrowserDOMSummary) Name() string { return ToolNameBrowserDOMSummary }
+
+func (t *BrowserDOMSummary) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Return a compact low-noise DOM summary for the current or specified Chrome tab, including forms, current non-sensitive field values, same-origin iframes, open shadow roots, and fixed overlays. Use when browser_scan/browser_snapshot is insufficient but DOM is still available; prefer this before screenshot/OCR.",
+		Parameters: objectSchema(map[string]any{
+			"tab_id":                 stringProp("Optional tab ID. If empty, summarizes the active tab."),
+			"max_chars":              intProp("Maximum summary characters to return. Default 20000.", defaultBrowserDOMSummaryChars),
+			"include_iframes":        boolProp("Include same-origin iframe body summaries and iframe metadata. Default true.", true),
+			"include_shadow_dom":     boolProp("Include open shadowRoot summaries when readable. Default true.", true),
+			"include_form_values":    boolProp("Include current non-sensitive form field values. Password values are never returned. Default true.", true),
+			"include_fixed_overlays": boolProp("Include fixed/sticky overlay summaries. Default true.", true),
+		}),
+	}}
+}
+
+func (t *BrowserDOMSummary) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	tabID := asString(call.Args["tab_id"])
+	maxChars := asInt(call.Args["max_chars"], defaultBrowserDOMSummaryChars)
+	if maxChars <= 0 {
+		maxChars = defaultBrowserDOMSummaryChars
+	}
+	result, err := t.client.DOMSummary(
+		ctx,
+		tabID,
+		maxChars,
+		asBool(call.Args["include_iframes"], true),
+		asBool(call.Args["include_shadow_dom"], true),
+		asBool(call.Args["include_form_values"], true),
+		asBool(call.Args["include_fixed_overlays"], true),
+	)
 	if err != nil {
 		return browserToolError(err), nil
 	}

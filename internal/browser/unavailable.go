@@ -28,6 +28,10 @@ func (c *UnavailableClient) Scan(ctx context.Context, tabID string, maxChars int
 	return PageSnapshot{}, c.error()
 }
 
+func (c *UnavailableClient) DOMSummary(ctx context.Context, tabID string, maxChars int, includeIframes bool, includeShadowDOM bool, includeFormValues bool, includeFixedOverlays bool) (DOMSummary, error) {
+	return DOMSummary{}, c.error()
+}
+
 func (c *UnavailableClient) ExecuteJS(ctx context.Context, tabID string, script string, noMonitor bool, maxReturnChars int) (ExecuteJSResult, error) {
 	return ExecuteJSResult{}, c.error()
 }

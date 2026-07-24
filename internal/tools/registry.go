@@ -35,6 +35,8 @@ const (
 	ToolNameBrowserOpen = "browser_open"
 	// ToolNameBrowserScan 读取浏览器页面正文。
 	ToolNameBrowserScan = "browser_scan"
+	// ToolNameBrowserDOMSummary 返回低噪声 DOM/表单/iframe/shadowRoot 摘要。
+	ToolNameBrowserDOMSummary = "browser_dom_summary"
 	// ToolNameBrowserExecuteJS 在浏览器页面中执行 JavaScript。
 	ToolNameBrowserExecuteJS = "browser_execute_js"
 	// ToolNameBrowserCDP 向浏览器发送原始 CDP 命令。
@@ -102,6 +104,7 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameBrowserTabs,
 		ToolNameBrowserOpen,
 		ToolNameBrowserScan,
+		ToolNameBrowserDOMSummary,
 		ToolNameBrowserExecuteJS,
 		ToolNameBrowserClick,
 		ToolNameBrowserClickElement,
