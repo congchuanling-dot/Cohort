@@ -16,6 +16,7 @@ import (
 
 	"cohert/internal/agent"
 	"cohert/internal/app"
+	"cohert/internal/evolution"
 	"cohert/internal/session"
 )
 
@@ -33,11 +34,15 @@ const (
 	commandCompact     = "compact"
 	commandFullCompact = "full-compact"
 	commandMemory      = "memory"
+	commandSOP         = "sop"
 	commandClear       = "clear"
 
 	sessionCommandList   = "list"
 	sessionCommandResume = "resume"
 	sessionCommandMemory = "memory"
+
+	sopCommandCandidates = "candidates"
+	sopCommandPromote    = "promote"
 )
 
 // Options 是启动交互模式需要的依赖。
@@ -203,6 +208,10 @@ func slashCompleter() *readline.PrefixCompleter {
 		readline.PcItem("/resume"),
 		readline.PcItem("/compact"),
 		readline.PcItem("/full-compact"),
+		readline.PcItem("/sop",
+			readline.PcItem("candidates"),
+			readline.PcItem("promote"),
+		),
 		readline.PcItem("/clear"),
 		readline.PcItem("/exit"),
 	)
@@ -301,6 +310,11 @@ func selectSlashCommand(opts Options) (SlashCommand, bool, error) {
 			Usage:       "/full-compact",
 			Description: "生成或更新当前 session 的 compact.md",
 			Command:     SlashCommand{Raw: "/full-compact", Name: commandFullCompact},
+		},
+		{
+			Usage:       "/sop candidates",
+			Description: "列出可人工升级的 SOP 候选",
+			Command:     SlashCommand{Raw: "/sop candidates", Name: commandSOP, Args: []string{sopCommandCandidates}},
 		},
 		{
 			Usage:       "/clear",
@@ -404,6 +418,8 @@ func handleSlashCommand(opts Options, cmd SlashCommand) (bool, error) {
 		return false, fullCompactSession(opts)
 	case commandMemory:
 		return false, printSessionMemory(opts.Out, opts.Runner)
+	case commandSOP:
+		return false, handleSOPCommand(opts, cmd.Args)
 	case commandClear:
 		opts.Runner.Reset()
 		fmt.Fprintln(opts.Out, "current in-memory session cleared; next task will create a new session")
@@ -482,6 +498,8 @@ func printSlashHelp(out io.Writer) {
   /compact                 生成或更新当前 session 的 memory.md
   /full-compact            生成或更新当前 session 的 compact.md
   /memory                  查看当前 session memory.md
+  /sop candidates          列出可升级为正式 SOP 的候选
+  /sop promote <id>        生成 sops/*.md；确认后更新 sops/index.md
   /clear                   清空当前内存上下文，下一次输入会创建新 session
   /exit                    退出 Cohert
 
@@ -503,6 +521,8 @@ func printCommandPalette(out io.Writer) {
   /compact              生成或更新 session memory
   /full-compact         生成或更新 compact summary
   /memory               查看 session memory
+  /sop candidates       列出 SOP 候选
+  /sop promote <id>     升级候选 SOP；--confirm-index 显式更新索引
   /clear                清空当前内存上下文
   /exit                 退出
 
@@ -641,6 +661,134 @@ func printSessionMemory(out io.Writer, runner *agent.Runner) error {
 	fmt.Fprintf(out, "  chars: %d\n\n", snapshot.Chars)
 	fmt.Fprintln(out, snapshot.Content)
 	return nil
+}
+
+func handleSOPCommand(opts Options, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: /sop candidates or /sop promote <id>")
+	}
+	switch strings.ToLower(args[0]) {
+	case sopCommandCandidates:
+		return printSOPCandidates(opts.Out, evolution.NewManager(opts.Config.Workspace))
+	case sopCommandPromote:
+		if len(args) < 2 {
+			return fmt.Errorf("usage: /sop promote <id> [--confirm-index]")
+		}
+		return promoteSOPCandidate(opts, args[1], args[2:])
+	default:
+		return fmt.Errorf("unknown sop command %q, use /sop candidates or /sop promote <id>", args[0])
+	}
+}
+
+func printSOPCandidates(out io.Writer, manager evolution.Manager) error {
+	candidates, err := manager.ListSOPCandidates()
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "sop candidates:")
+	if len(candidates) == 0 {
+		fmt.Fprintln(out, "  status: no candidates")
+		return nil
+	}
+	writer := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(writer, "ID\tTITLE\tSOP_PATH\tSCENE")
+	for _, candidate := range candidates {
+		fmt.Fprintf(
+			writer,
+			"%s\t%s\t%s\t%s\n",
+			candidate.ID,
+			candidate.Title,
+			candidate.ProposedSOPPath,
+			candidate.Scene,
+		)
+	}
+	return writer.Flush()
+}
+
+func promoteSOPCandidate(opts Options, id string, args []string) error {
+	manager := evolution.NewManager(opts.Config.Workspace)
+	if hasFlag(args, "--confirm-index") || hasFlag(args, "--yes") {
+		confirmation := "explicit slash command /sop promote " + id + " --confirm-index"
+		result, err := manager.PromoteSOPCandidate(id, true, confirmation)
+		if err != nil {
+			return err
+		}
+		printSOPPromotionResult(opts.Out, result)
+		return nil
+	}
+
+	result, err := manager.PromoteSOPCandidate(id, false, "")
+	if err != nil {
+		return err
+	}
+	printSOPPromotionResult(opts.Out, result)
+	if confirmed, confirmation := promptSOPIndexConfirmation(opts, result.Candidate.ID); confirmed {
+		result, err = manager.PromoteSOPCandidate(result.Candidate.ID, true, confirmation)
+		if err != nil {
+			return err
+		}
+		printSOPPromotionResult(opts.Out, result)
+		return nil
+	}
+	fmt.Fprintln(opts.Out, "  index: pending human confirmation; rerun with --confirm-index to update sops/index.md")
+	return nil
+}
+
+func hasFlag(args []string, flag string) bool {
+	for _, arg := range args {
+		if strings.EqualFold(arg, flag) {
+			return true
+		}
+	}
+	return false
+}
+
+func promptSOPIndexConfirmation(opts Options, id string) (bool, string) {
+	inFile, inOK := opts.In.(*os.File)
+	outFile, outOK := opts.Out.(*os.File)
+	if !inOK || !outOK || !term.IsTerminal(int(inFile.Fd())) || !term.IsTerminal(int(outFile.Fd())) {
+		return false, ""
+	}
+	prompt := promptui.Prompt{
+		Label: "Type SOP candidate ID to update sops/index.md, or press Enter to skip",
+		Validate: func(input string) error {
+			input = strings.TrimSpace(input)
+			if input == "" || input == id {
+				return nil
+			}
+			return fmt.Errorf("input must be empty or %s", id)
+		},
+		AllowEdit: true,
+		Stdin:     inFile,
+		Stdout:    outFile,
+	}
+	value, err := prompt.Run()
+	if err != nil || strings.TrimSpace(value) != id {
+		return false, ""
+	}
+	return true, "typed SOP candidate id " + id + " in interactive prompt"
+}
+
+func printSOPPromotionResult(out io.Writer, result evolution.SOPPromotionResult) {
+	fmt.Fprintln(out, "sop promote:")
+	fmt.Fprintf(out, "  candidate: %s\n", result.Candidate.ID)
+	fmt.Fprintf(out, "  sop:       %s\n", result.SOPPath)
+	fmt.Fprintf(out, "  path:      %s\n", result.SOPAbsolutePath)
+	if result.SOPCreated {
+		fmt.Fprintln(out, "  file:      created")
+	} else {
+		fmt.Fprintln(out, "  file:      already exists")
+	}
+	if result.IndexUpdated {
+		fmt.Fprintf(out, "  index:     updated %s\n", result.IndexPath)
+	} else if result.RequiresIndexConfirmation {
+		fmt.Fprintln(out, "  index:     not updated")
+	} else {
+		fmt.Fprintln(out, "  index:     already contained SOP path")
+	}
+	if result.Confirmation != "" {
+		fmt.Fprintf(out, "  confirm:   %s\n", result.Confirmation)
+	}
 }
 
 func shorten(value string, max int) string {

@@ -3,6 +3,7 @@ package contextmgr
 import (
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -29,9 +30,11 @@ var (
 
 type relevantMemoryMatch struct {
 	relPath string
+	entryID string
 	title   string
 	content string
 	score   int
+	reasons []string
 }
 
 func loadRelevantLongTermMemory(memoryRoot string, indexText string, messages []llm.Message, cfg Config) (matches []relevantMemoryMatch, err error) {
@@ -56,14 +59,16 @@ func loadRelevantLongTermMemory(memoryRoot string, indexText string, messages []
 		}
 		for _, entry := range splitMemoryEntries(content) {
 			score := scoreRelevantMemory(relPath, entry.title, entry.content, keywords)
-			if score <= 0 {
+			if score.score <= 0 {
 				continue
 			}
 			scored = append(scored, relevantMemoryMatch{
 				relPath: relPath,
+				entryID: stableMemoryEntryID(entry.title, entry.content),
 				title:   entry.title,
 				content: entry.content,
-				score:   score,
+				score:   score.score,
+				reasons: score.reasons,
 			})
 		}
 	}
@@ -88,9 +93,19 @@ func buildRelevantLongTermMemoryMessage(matches []relevantMemoryMatch, cfg Confi
 	for _, match := range matches {
 		b.WriteString("\n\n[source: ")
 		b.WriteString(match.relPath)
+		if match.entryID != "" {
+			b.WriteString(" | id: ")
+			b.WriteString(match.entryID)
+		}
 		if match.title != "" {
 			b.WriteString(" | entry: ")
 			b.WriteString(match.title)
+		}
+		b.WriteString(" | score: ")
+		b.WriteString(fmt.Sprint(match.score))
+		if len(match.reasons) > 0 {
+			b.WriteString(" | why: ")
+			b.WriteString(strings.Join(match.reasons, "; "))
 		}
 		b.WriteString("]\n")
 		b.WriteString(strings.TrimSpace(match.content))
@@ -106,6 +121,7 @@ func buildRelevantLongTermMemoryMessage(matches []relevantMemoryMatch, cfg Confi
 	stats.InjectedRelevantMemory = true
 	stats.RelevantMemoryChars = len([]rune(limited))
 	stats.RelevantMemoryEntries = len(matches)
+	stats.RelevantMemoryHitLogs = relevantMemoryHitLogs(matches)
 	return llm.Message{Role: llm.RoleAssistant, Content: content}, true
 }
 
@@ -285,22 +301,58 @@ func splitMemoryEntries(content string) []memoryEntry {
 	return filtered
 }
 
-func scoreRelevantMemory(relPath, title, content string, keywords []string) int {
-	haystack := strings.ToLower(relPath + "\n" + title + "\n" + content)
-	score := 0
+type relevantMemoryScore struct {
+	score   int
+	reasons []string
+}
+
+func scoreRelevantMemory(relPath, title, content string, keywords []string) relevantMemoryScore {
+	fields := []struct {
+		name   string
+		text   string
+		weight int
+	}{
+		{name: "trigger_keywords", text: extractMemoryField(content, "trigger_keywords"), weight: 50},
+		{name: "scene", text: extractMemoryField(content, "scene"), weight: 35},
+		{name: "lesson", text: extractMemorySection(content, "Lesson") + "\n" + extractMemorySection(content, "Why This Should Become SOP"), weight: 22},
+		{name: "recommended_steps", text: extractMemorySection(content, "Recommended Steps") + "\n" + extractMemorySection(content, "Draft Steps"), weight: 14},
+		{name: "title", text: title, weight: 10},
+		{name: "path", text: relPath, weight: 4},
+	}
+	score := relevantMemoryScore{}
+	seenReasons := map[string]bool{}
 	for _, keyword := range keywords {
-		if strings.Contains(haystack, keyword) {
-			score += 10
-		}
-		if strings.Contains(extractMemoryField(content, "trigger_keywords"), keyword) {
-			score += 20
-		}
-		if strings.Contains(strings.ToLower(extractMemoryField(content, "scene")), keyword) {
-			score += 12
+		for _, field := range fields {
+			if !strings.Contains(strings.ToLower(field.text), keyword) {
+				continue
+			}
+			score.score += field.weight
+			reason := fmt.Sprintf("%s matched %q (+%d)", field.name, keyword, field.weight)
+			if !seenReasons[reason] {
+				score.reasons = append(score.reasons, reason)
+				seenReasons[reason] = true
+			}
 		}
 	}
-	if score > 0 && strings.Contains(relPath, "/projects/") {
-		score += 3
+	if score.score == 0 {
+		contentLower := strings.ToLower(content)
+		for _, keyword := range keywords {
+			if strings.Contains(contentLower, keyword) {
+				score.score += 5
+				reason := fmt.Sprintf("content matched %q (+5)", keyword)
+				if !seenReasons[reason] {
+					score.reasons = append(score.reasons, reason)
+					seenReasons[reason] = true
+				}
+			}
+		}
+	}
+	if score.score > 0 && strings.Contains(relPath, "/projects/") {
+		score.score += 3
+		score.reasons = append(score.reasons, "project memory bonus (+3)")
+	}
+	if len(score.reasons) > 4 {
+		score.reasons = score.reasons[:4]
 	}
 	return score
 }
@@ -314,4 +366,55 @@ func extractMemoryField(content, field string) string {
 		}
 	}
 	return ""
+}
+
+func extractMemorySection(content, heading string) string {
+	prefix := "### " + heading
+	lines := strings.Split(content, "\n")
+	var b strings.Builder
+	inSection := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "### ") {
+			if inSection {
+				break
+			}
+			if trimmed == prefix {
+				inSection = true
+			}
+			continue
+		}
+		if inSection {
+			b.WriteString(line)
+			b.WriteByte('\n')
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func stableMemoryEntryID(title, content string) string {
+	if id := extractMemoryField(content, "id"); id != "" {
+		return id
+	}
+	title = strings.TrimSpace(title)
+	if strings.HasPrefix(title, "mem-") || strings.HasPrefix(title, "sop-") {
+		return title
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(strings.Join(strings.Fields(title+"\n"+content), " ")))
+	return fmt.Sprintf("mem-%08x", h.Sum32())
+}
+
+func relevantMemoryHitLogs(matches []relevantMemoryMatch) []RelevantMemoryHitLog {
+	logs := make([]RelevantMemoryHitLog, 0, len(matches))
+	for _, match := range matches {
+		logs = append(logs, RelevantMemoryHitLog{
+			EntryID: match.entryID,
+			Source:  match.relPath,
+			Title:   match.title,
+			Score:   match.score,
+			Reasons: append([]string(nil), match.reasons...),
+		})
+	}
+	return logs
 }

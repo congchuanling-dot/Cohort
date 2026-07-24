@@ -18,6 +18,7 @@ const (
 	GlobalMemoryPath           = "memory/global.md"
 	SOPCandidateMemoryPath     = "memory/reflection/sop_candidates.md"
 	MemoryAuditPath            = "memory/audit.jsonl"
+	SOPIndexPath               = "sops/index.md"
 	defaultMemoryFilePerm      = 0644
 	defaultMemoryDirectoryPerm = 0755
 )
@@ -81,6 +82,32 @@ type ApplyResult struct {
 	ReadBackBytes     int         `json:"read_back_bytes"`
 }
 
+// SOPCandidate is a reviewed workflow candidate stored under memory/reflection.
+type SOPCandidate struct {
+	ID              string   `json:"id"`
+	Title           string   `json:"title"`
+	Scene           string   `json:"scene,omitempty"`
+	TriggerKeywords []string `json:"trigger_keywords,omitempty"`
+	ProposedSOPPath string   `json:"proposed_sop_path,omitempty"`
+	SourceSession   string   `json:"source_session,omitempty"`
+	EvidenceIDs     []string `json:"evidence_ids,omitempty"`
+	Why             string   `json:"why,omitempty"`
+	DraftSteps      []string `json:"draft_steps,omitempty"`
+}
+
+// SOPPromotionResult describes the controlled SOP promotion side effects.
+type SOPPromotionResult struct {
+	Candidate                 SOPCandidate `json:"candidate"`
+	SOPRoot                   string       `json:"sop_root"`
+	SOPPath                   string       `json:"sop_path"`
+	SOPAbsolutePath           string       `json:"sop_absolute_path"`
+	SOPCreated                bool         `json:"sop_created"`
+	IndexPath                 string       `json:"index_path,omitempty"`
+	IndexUpdated              bool         `json:"index_updated"`
+	RequiresIndexConfirmation bool         `json:"requires_index_confirmation"`
+	Confirmation              string       `json:"confirmation,omitempty"`
+}
+
 // AuditRecord is appended to memory/audit.jsonl after every applied update.
 type AuditRecord struct {
 	Time          string   `json:"time"`
@@ -89,6 +116,7 @@ type AuditRecord struct {
 	SourceSession string   `json:"source_session,omitempty"`
 	EvidenceIDs   []string `json:"evidence_ids"`
 	Summary       string   `json:"summary"`
+	Confirmation  string   `json:"confirmation,omitempty"`
 }
 
 // NewManager creates a Manager rooted at workspace. Relative memory paths are resolved there.
@@ -107,6 +135,14 @@ func NewManager(workspace string) Manager {
 // MemoryRoot returns the absolute memory directory path.
 func (m Manager) MemoryRoot() string {
 	return filepath.Join(m.Workspace, MemoryDirName)
+}
+
+// SOPRoot returns the project root used for reviewed SOP files.
+func (m Manager) SOPRoot() string {
+	if root := findGitRoot(m.Workspace); root != "" {
+		return root
+	}
+	return m.Workspace
 }
 
 // ProjectMemoryPath returns the project-specific long-term memory path.
@@ -268,6 +304,94 @@ func (m Manager) ApplyCandidate(candidate Candidate, evidence []Evidence, source
 	}, nil
 }
 
+// ListSOPCandidates returns structured SOP promotion candidates.
+func (m Manager) ListSOPCandidates() ([]SOPCandidate, error) {
+	if _, err := m.EnsureStructure(); err != nil {
+		return nil, err
+	}
+	path, err := m.resolveMemoryPath(SOPCandidateMemoryPath)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	blocks := splitHeadingBlocks(string(data), "## SOP Candidate:")
+	candidates := make([]SOPCandidate, 0, len(blocks))
+	for _, block := range blocks {
+		candidate := parseSOPCandidateBlock(block)
+		if candidate.ID == "" || candidate.Title == "" {
+			continue
+		}
+		candidates = append(candidates, candidate)
+	}
+	return candidates, nil
+}
+
+// PromoteSOPCandidate writes a reviewed SOP file and, only with explicit
+// confirmation, updates sops/index.md so future tasks can route to it.
+func (m Manager) PromoteSOPCandidate(id string, confirmIndex bool, confirmation string) (SOPPromotionResult, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return SOPPromotionResult{}, fmt.Errorf("sop candidate id is required")
+	}
+	candidates, err := m.ListSOPCandidates()
+	if err != nil {
+		return SOPPromotionResult{}, err
+	}
+	candidate, err := findSOPCandidate(candidates, id)
+	if err != nil {
+		return SOPPromotionResult{}, err
+	}
+	sopPath := normalizeSOPPath(candidate.ProposedSOPPath)
+	if sopPath == "" {
+		sopPath = "sops/" + slugify(candidate.Title) + ".md"
+	}
+	sopAbs, err := m.resolveSOPPath(sopPath)
+	if err != nil {
+		return SOPPromotionResult{}, err
+	}
+	created, err := writePromotedSOPFile(sopAbs, sopPath, candidate)
+	if err != nil {
+		return SOPPromotionResult{}, err
+	}
+	result := SOPPromotionResult{
+		Candidate:                 candidate,
+		SOPRoot:                   m.SOPRoot(),
+		SOPPath:                   sopPath,
+		SOPAbsolutePath:           sopAbs,
+		SOPCreated:                created,
+		RequiresIndexConfirmation: !confirmIndex,
+		Confirmation:              strings.TrimSpace(confirmation),
+	}
+	if !confirmIndex {
+		return result, nil
+	}
+	if result.Confirmation == "" {
+		return SOPPromotionResult{}, fmt.Errorf("human confirmation is required before updating %s", SOPIndexPath)
+	}
+	indexPath, updated, err := m.updateSOPIndex(candidate, sopPath, result.Confirmation)
+	if err != nil {
+		return SOPPromotionResult{}, err
+	}
+	result.IndexPath = indexPath
+	result.IndexUpdated = updated
+	result.RequiresIndexConfirmation = false
+	if err := m.appendAudit(AuditRecord{
+		Time:          time.Now().Format(time.RFC3339),
+		Target:        SOPIndexPath,
+		Action:        "sop_promote",
+		SourceSession: candidate.SourceSession,
+		EvidenceIDs:   append([]string(nil), candidate.EvidenceIDs...),
+		Summary:       fmt.Sprintf("promoted SOP candidate %s to %s; index_updated=%t", candidate.ID, sopPath, updated),
+		Confirmation:  result.Confirmation,
+	}); err != nil {
+		return SOPPromotionResult{}, err
+	}
+	return result, nil
+}
+
 func (m Manager) appendAudit(record AuditRecord) error {
 	auditPath, err := m.resolveMemoryPath(MemoryAuditPath)
 	if err != nil {
@@ -337,6 +461,19 @@ func (m Manager) resolveMemoryPath(rel string) (string, error) {
 		return "", fmt.Errorf("memory path must be under memory/: %q", rel)
 	}
 	return filepath.Join(m.Workspace, filepath.FromSlash(rel)), nil
+}
+
+func (m Manager) resolveSOPPath(rel string) (string, error) {
+	rel = normalizeSOPPath(rel)
+	if rel == "" {
+		return "", fmt.Errorf("invalid SOP path")
+	}
+	root := filepath.Clean(m.SOPRoot())
+	path := filepath.Clean(filepath.Join(root, filepath.FromSlash(rel)))
+	if path != root && !strings.HasPrefix(path, root+string(filepath.Separator)) {
+		return "", fmt.Errorf("unsafe SOP path %q", rel)
+	}
+	return path, nil
 }
 
 func (m Manager) hasDuplicateContent(normalizedTarget, content string) (bool, error) {
@@ -456,6 +593,7 @@ func formatMemoryEntry(candidate Candidate, sourceSession string) string {
 	b.WriteString("\n\n## Memory Entry: ")
 	b.WriteString(entryID)
 	b.WriteString("\n\n")
+	writeMemoryField(&b, "id", entryID)
 	writeMemoryField(&b, "type", defaultString(candidate.Type, "memory"))
 	writeMemoryField(&b, "scene", candidate.Scene)
 	writeMemoryField(&b, "trigger_keywords", strings.Join(cleanStringSlice(candidate.TriggerKeywords), ", "))
@@ -489,10 +627,21 @@ func formatMemoryEntry(candidate Candidate, sourceSession string) string {
 }
 
 func formatSOPCandidateEntry(candidate Candidate, sourceSession string) string {
+	candidateID := sopCandidateID(SOPCandidate{
+		Title:           candidateSOPTitle(candidate),
+		Scene:           candidate.Scene,
+		TriggerKeywords: cleanStringSlice(candidate.TriggerKeywords),
+		ProposedSOPPath: candidateSOPPath(candidate),
+		SourceSession:   sourceSession,
+		EvidenceIDs:     cleanStringSlice(candidate.EvidenceIDs),
+		Why:             candidateMemoryText(candidate),
+		DraftSteps:      cleanStringSlice(candidate.RecommendedSteps),
+	})
 	var b strings.Builder
 	b.WriteString("\n\n## SOP Candidate: ")
 	b.WriteString(candidateSOPTitle(candidate))
 	b.WriteString("\n\n")
+	writeMemoryField(&b, "id", candidateID)
 	writeMemoryField(&b, "scene", candidate.Scene)
 	writeMemoryField(&b, "trigger_keywords", strings.Join(cleanStringSlice(candidate.TriggerKeywords), ", "))
 	writeMemoryField(&b, "proposed_sop_path", candidateSOPPath(candidate))
@@ -525,9 +674,25 @@ func writeMemoryField(b *strings.Builder, key string, value string) {
 }
 
 func memoryEntryID(candidate Candidate) string {
+	return stableHashID("mem", candidateDuplicateText(candidate))
+}
+
+func sopCandidateID(candidate SOPCandidate) string {
+	parts := []string{
+		candidate.Title,
+		candidate.Scene,
+		strings.Join(candidate.TriggerKeywords, " "),
+		candidate.ProposedSOPPath,
+		candidate.Why,
+		strings.Join(candidate.DraftSteps, " "),
+	}
+	return stableHashID("sop", strings.Join(strings.Fields(strings.Join(parts, " ")), " "))
+}
+
+func stableHashID(prefix, value string) string {
 	h := fnv.New32a()
-	_, _ = h.Write([]byte(candidateDuplicateText(candidate)))
-	return fmt.Sprintf("mem-%s-%08x", time.Now().Format("20060102"), h.Sum32())
+	_, _ = h.Write([]byte(strings.Join(strings.Fields(value), " ")))
+	return fmt.Sprintf("%s-%08x", prefix, h.Sum32())
 }
 
 func defaultString(value, fallback string) string {
@@ -694,4 +859,244 @@ func defaultSOPCandidateContent() string {
 
 Reusable flows that may deserve promotion to reviewed SOP files are appended here.
 `
+}
+
+func splitHeadingBlocks(content string, headingPrefix string) []string {
+	lines := strings.Split(content, "\n")
+	var blocks []string
+	var current strings.Builder
+	inBlock := false
+	flush := func() {
+		if !inBlock {
+			return
+		}
+		block := strings.TrimSpace(current.String())
+		if block != "" {
+			blocks = append(blocks, block)
+		}
+		current.Reset()
+	}
+	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), headingPrefix) {
+			flush()
+			inBlock = true
+		}
+		if inBlock {
+			current.WriteString(line)
+			current.WriteByte('\n')
+		}
+	}
+	flush()
+	return blocks
+}
+
+func parseSOPCandidateBlock(block string) SOPCandidate {
+	title := ""
+	for _, line := range strings.Split(block, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "## SOP Candidate:") {
+			title = strings.TrimSpace(strings.TrimPrefix(trimmed, "## SOP Candidate:"))
+			break
+		}
+	}
+	candidate := SOPCandidate{
+		ID:              extractListField(block, "id"),
+		Title:           title,
+		Scene:           extractListField(block, "scene"),
+		TriggerKeywords: splitCommaList(extractListField(block, "trigger_keywords")),
+		ProposedSOPPath: normalizeSOPPath(extractListField(block, "proposed_sop_path")),
+		SourceSession:   extractListField(block, "source_session"),
+		EvidenceIDs:     splitCommaList(extractListField(block, "evidence_ids")),
+		Why:             extractMarkdownSection(block, "Why This Should Become SOP"),
+		DraftSteps:      extractBulletSection(block, "Draft Steps"),
+	}
+	if candidate.ID == "" {
+		candidate.ID = sopCandidateID(candidate)
+	}
+	return candidate
+}
+
+func extractListField(content, field string) string {
+	prefix := "- " + field + ":"
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
+		}
+	}
+	return ""
+}
+
+func splitCommaList(value string) []string {
+	fields := strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == '，'
+	})
+	return cleanStringSlice(fields)
+}
+
+func extractMarkdownSection(content, heading string) string {
+	prefix := "### " + heading
+	lines := strings.Split(content, "\n")
+	var b strings.Builder
+	inSection := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "### ") {
+			if inSection {
+				break
+			}
+			if trimmed == prefix {
+				inSection = true
+			}
+			continue
+		}
+		if inSection {
+			b.WriteString(line)
+			b.WriteByte('\n')
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func extractBulletSection(content, heading string) []string {
+	text := extractMarkdownSection(content, heading)
+	var steps []string
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		line = strings.TrimPrefix(line, "- ")
+		line = strings.TrimSpace(line)
+		if line != "" {
+			steps = append(steps, line)
+		}
+	}
+	return cleanStringSlice(steps)
+}
+
+func findSOPCandidate(candidates []SOPCandidate, id string) (SOPCandidate, error) {
+	var matches []SOPCandidate
+	for _, candidate := range candidates {
+		if candidate.ID == id || strings.HasPrefix(candidate.ID, id) || strings.EqualFold(candidate.Title, id) {
+			matches = append(matches, candidate)
+		}
+	}
+	if len(matches) == 0 {
+		return SOPCandidate{}, fmt.Errorf("SOP candidate %q not found", id)
+	}
+	if len(matches) > 1 {
+		return SOPCandidate{}, fmt.Errorf("SOP candidate %q is ambiguous", id)
+	}
+	return matches[0], nil
+}
+
+func writePromotedSOPFile(path, relPath string, candidate SOPCandidate) (bool, error) {
+	if data, err := os.ReadFile(path); err == nil {
+		if strings.Contains(string(data), "promoted_from: "+candidate.ID) {
+			return false, nil
+		}
+		return false, fmt.Errorf("SOP file already exists and was not generated from candidate %s: %s", candidate.ID, relPath)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), defaultMemoryDirectoryPerm); err != nil {
+		return false, err
+	}
+	return true, os.WriteFile(path, []byte(formatPromotedSOP(candidate, relPath)), defaultMemoryFilePerm)
+}
+
+func formatPromotedSOP(candidate SOPCandidate, relPath string) string {
+	var b strings.Builder
+	b.WriteString("# ")
+	b.WriteString(candidate.Title)
+	b.WriteString("\n\n")
+	b.WriteString("<!-- promoted_from: ")
+	b.WriteString(candidate.ID)
+	b.WriteString(" -->\n\n")
+	writeMemoryField(&b, "sop_path", relPath)
+	writeMemoryField(&b, "source_candidate", candidate.ID)
+	writeMemoryField(&b, "source_session", candidate.SourceSession)
+	writeMemoryField(&b, "created_at", time.Now().Format("2006-01-02"))
+	b.WriteString("\n## Scene\n\n")
+	if strings.TrimSpace(candidate.Scene) != "" {
+		b.WriteString(candidate.Scene)
+	} else {
+		b.WriteString(candidate.Title)
+	}
+	b.WriteString("\n\n## Trigger Keywords\n\n")
+	for _, keyword := range candidate.TriggerKeywords {
+		b.WriteString("- ")
+		b.WriteString(keyword)
+		b.WriteByte('\n')
+	}
+	if len(candidate.TriggerKeywords) == 0 {
+		b.WriteString("- ")
+		b.WriteString(candidate.Title)
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n## Operating Rule\n\n")
+	if strings.TrimSpace(candidate.Why) != "" {
+		b.WriteString(strings.TrimSpace(candidate.Why))
+	} else {
+		b.WriteString("Use this SOP only when the task matches the scene above.")
+	}
+	b.WriteString("\n\n## Steps\n\n")
+	if len(candidate.DraftSteps) == 0 {
+		b.WriteString("1. Confirm the task matches this SOP scene.\n")
+		b.WriteString("2. Execute the workflow with tool-verified checkpoints.\n")
+		b.WriteString("3. Verify the final state before reporting completion.\n")
+	} else {
+		for i, step := range candidate.DraftSteps {
+			b.WriteString(fmt.Sprintf("%d. %s\n", i+1, step))
+		}
+	}
+	b.WriteString("\n## Checkpoint\n\n")
+	b.WriteString("After reading this SOP, call `update_working_checkpoint` with the key constraints and `related_sop: ")
+	b.WriteString(relPath)
+	b.WriteString("` if it applies.\n")
+	return b.String()
+}
+
+func (m Manager) updateSOPIndex(candidate SOPCandidate, sopPath string, confirmation string) (string, bool, error) {
+	indexPath, err := m.resolveSOPPath(SOPIndexPath)
+	if err != nil {
+		return "", false, err
+	}
+	if err := os.MkdirAll(filepath.Dir(indexPath), defaultMemoryDirectoryPerm); err != nil {
+		return "", false, err
+	}
+	data, err := os.ReadFile(indexPath)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", false, err
+		}
+		data = []byte("# SOP Index\n\n## Rules\n\n- SOP 全文按需读取，不要凭印象执行。\n")
+	}
+	text := string(data)
+	if strings.Contains(text, "`"+sopPath+"`") || strings.Contains(text, sopPath) {
+		return indexPath, false, nil
+	}
+	entry := formatSOPIndexEntry(candidate, sopPath, confirmation)
+	insertAt := strings.Index(text, "\n## Rules")
+	if insertAt >= 0 {
+		text = strings.TrimRight(text[:insertAt], "\n") + "\n\n" + entry + "\n" + text[insertAt:]
+	} else {
+		text = strings.TrimRight(text, "\n") + "\n\n" + entry + "\n"
+	}
+	return indexPath, true, os.WriteFile(indexPath, []byte(text), defaultMemoryFilePerm)
+}
+
+func formatSOPIndexEntry(candidate SOPCandidate, sopPath string, confirmation string) string {
+	var b strings.Builder
+	b.WriteString("## ")
+	b.WriteString(candidate.Title)
+	b.WriteString("\n\n")
+	b.WriteString("- SOP: `")
+	b.WriteString(sopPath)
+	b.WriteString("`\n")
+	writeMemoryField(&b, "场景", candidate.Scene)
+	if len(candidate.TriggerKeywords) > 0 {
+		writeMemoryField(&b, "关键词", strings.Join(candidate.TriggerKeywords, ", "))
+	}
+	writeMemoryField(&b, "来源", "SOP candidate `"+candidate.ID+"`")
+	writeMemoryField(&b, "确认", confirmation+"; "+time.Now().Format(time.RFC3339))
+	return strings.TrimSpace(b.String())
 }

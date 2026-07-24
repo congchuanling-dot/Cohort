@@ -180,6 +180,15 @@ type BuildResult struct {
 	Stats Stats
 }
 
+// RelevantMemoryHitLog records why a long-term memory entry was injected.
+type RelevantMemoryHitLog struct {
+	EntryID string   `json:"entry_id,omitempty"`
+	Source  string   `json:"source"`
+	Title   string   `json:"title,omitempty"`
+	Score   int      `json:"score"`
+	Reasons []string `json:"reasons,omitempty"`
+}
+
 // Stats 记录本次请求前上下文压缩做了什么，便于测试和后续日志。
 type Stats struct {
 	// OriginalMessages 是输入 Build 前的原始消息数量。
@@ -254,6 +263,9 @@ type Stats struct {
 
 	// RelevantMemoryTruncated 表示相关长期记忆因超过 MaxRelevantMemoryChars 而在请求副本中被截断。
 	RelevantMemoryTruncated bool
+
+	// RelevantMemoryHitLogs 记录本轮注入长期记忆的命中原因，不包含记忆正文。
+	RelevantMemoryHitLogs []RelevantMemoryHitLog
 
 	// InjectedCompactSummary 表示本轮请求是否注入了 compact.md。
 	InjectedCompactSummary bool

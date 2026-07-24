@@ -178,6 +178,120 @@ func TestManagerApplyCandidateWritesSOPCandidate_BitsUT(t *testing.T) {
 	}
 }
 
+func TestManagerPromoteSOPCandidateRequiresIndexConfirmation_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	manager := NewManager(workspace)
+	if err := os.MkdirAll(filepath.Join(workspace, "sops"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	indexPath := filepath.Join(workspace, SOPIndexPath)
+	if err := os.WriteFile(indexPath, []byte("# SOP Index\n\n## Rules\n\n- Read SOPs on demand.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	candidate := Candidate{
+		Type:             "project_lesson",
+		Target:           manager.ProjectMemoryPath(),
+		Scene:            "Lark approval browser flow",
+		TriggerKeywords:  []string{"lark", "browser", "approval"},
+		Lesson:           "Use the stable browser flow only after the approval page is loaded.",
+		RecommendedSteps: []string{"wait for stable page", "snapshot elements", "verify submission"},
+		PromoteToSOP:     true,
+		SOPTitle:         "Lark Approval Browser Flow",
+		SOPPath:          "sops/lark_approval_browser_flow.md",
+		EvidenceIDs:      []string{"tool:1:0"},
+		Action:           "append",
+	}
+	if _, err := manager.ApplyCandidate(candidate, []Evidence{{ID: "tool:1:0", Verified: true}}, "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := manager.ListSOPCandidates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 {
+		t.Fatalf("candidates = %d, want 1: %#v", len(candidates), candidates)
+	}
+
+	result, err := manager.PromoteSOPCandidate(candidates[0].ID, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.SOPCreated || !result.RequiresIndexConfirmation || result.IndexUpdated {
+		t.Fatalf("promotion result = %#v", result)
+	}
+	sopData, err := os.ReadFile(filepath.Join(workspace, "sops", "lark_approval_browser_flow.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(sopData), "promoted_from: "+candidates[0].ID) ||
+		!strings.Contains(string(sopData), "wait for stable page") {
+		t.Fatalf("promoted SOP content is incomplete:\n%s", sopData)
+	}
+	indexData, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(indexData), "lark_approval_browser_flow.md") {
+		t.Fatalf("index was updated without confirmation:\n%s", indexData)
+	}
+}
+
+func TestManagerPromoteSOPCandidateUpdatesIndexWithConfirmation_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	manager := NewManager(workspace)
+	if err := os.MkdirAll(filepath.Join(workspace, "sops"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	indexPath := filepath.Join(workspace, SOPIndexPath)
+	if err := os.WriteFile(indexPath, []byte("# SOP Index\n\n## Rules\n\n- Read SOPs on demand.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	candidate := Candidate{
+		Type:             "project_lesson",
+		Target:           manager.ProjectMemoryPath(),
+		Scene:            "Repeated release checks",
+		TriggerKeywords:  []string{"release", "test", "verify"},
+		Lesson:           "Release checks should run tests before reporting completion.",
+		RecommendedSteps: []string{"run focused tests", "run full tests", "summarize residual risk"},
+		PromoteToSOP:     true,
+		SOPTitle:         "Release Checks",
+		SOPPath:          "sops/release_checks.md",
+		EvidenceIDs:      []string{"tool:1:0"},
+		Action:           "append",
+	}
+	if _, err := manager.ApplyCandidate(candidate, []Evidence{{ID: "tool:1:0", Verified: true}}, "session-2"); err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := manager.ListSOPCandidates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := manager.PromoteSOPCandidate(candidates[0].ID, true, "test human confirmed index update")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IndexUpdated || result.RequiresIndexConfirmation {
+		t.Fatalf("promotion result = %#v", result)
+	}
+	indexData, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"## Release Checks", "`sops/release_checks.md`", "test human confirmed index update", candidates[0].ID} {
+		if !strings.Contains(string(indexData), want) {
+			t.Fatalf("index missing %q:\n%s", want, indexData)
+		}
+	}
+	auditData, err := os.ReadFile(filepath.Join(workspace, filepath.FromSlash(MemoryAuditPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(auditData), "sop_promote") ||
+		!strings.Contains(string(auditData), "test human confirmed index update") {
+		t.Fatalf("audit missing SOP promotion confirmation:\n%s", auditData)
+	}
+}
+
 func TestManagerRejectsUnsafeMemoryCandidate_BitsUT(t *testing.T) {
 	manager := NewManager(t.TempDir())
 	validation := manager.ValidateCandidate(Candidate{

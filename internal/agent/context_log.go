@@ -55,6 +55,8 @@ type contextStatsLogEntry struct {
 	RelevantMemoryEntries int `json:"relevant_memory_entries"`
 	// RelevantMemoryTruncated 表示相关长期记忆是否被截断。
 	RelevantMemoryTruncated bool `json:"relevant_memory_truncated"`
+	// RelevantMemoryHitLogs 记录相关长期记忆命中原因，不包含记忆正文。
+	RelevantMemoryHitLogs []contextmgr.RelevantMemoryHitLog `json:"relevant_memory_hit_logs,omitempty"`
 	// InjectedCompactSummary 表示是否注入 compact summary。
 	InjectedCompactSummary bool `json:"injected_compact_summary"`
 	// CompactSummaryChars 是注入请求的 compact summary 字符数。
@@ -100,6 +102,7 @@ func (r *Runner) logContextStats(stats contextmgr.Stats) {
 		RelevantMemoryChars:     stats.RelevantMemoryChars,
 		RelevantMemoryEntries:   stats.RelevantMemoryEntries,
 		RelevantMemoryTruncated: stats.RelevantMemoryTruncated,
+		RelevantMemoryHitLogs:   append([]contextmgr.RelevantMemoryHitLog(nil), stats.RelevantMemoryHitLogs...),
 		InjectedCompactSummary:  stats.InjectedCompactSummary,
 		CompactSummaryChars:     stats.CompactSummaryChars,
 		CompactSummaryTruncated: stats.CompactSummaryTruncated,

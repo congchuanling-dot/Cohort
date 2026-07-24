@@ -1,9 +1,9 @@
-<p align="center">
+<div align="center">
   <h1 align="center">Cohert</h1>
   <p align="center">
     A local-first command-line Agent Runtime for tools, browser automation, long-context work, SOPs, and verified memory.
   </p>
-</p>
+</div>
 
 <p align="center">
   <img alt="Go" src="https://img.shields.io/badge/Go-1.24-00ADD8?style=flat-square&logo=go&logoColor=white">
