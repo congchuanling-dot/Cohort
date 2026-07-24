@@ -289,6 +289,51 @@ func TestRunnerPassesVerifiedEvidenceLedgerToMemoryTools_BitsUT(t *testing.T) {
 	}
 }
 
+func TestRunnerForcesLongTermMemoryReviewBeforeFinal_BitsUT(t *testing.T) {
+	client := &contextRecordingClient{
+		responses: []llm.Response{
+			{ToolCalls: []llm.ToolCall{{
+				ID:   "call-scan",
+				Type: "function",
+				Function: llm.ToolFunction{
+					Name:      "browser_scan",
+					Arguments: `{"tab_id":"1"}`,
+				},
+			}}},
+			{Content: "任务已完成"},
+			{ToolCalls: []llm.ToolCall{{
+				ID:   "call-memory",
+				Type: "function",
+				Function: llm.ToolFunction{
+					Name:      "start_long_term_update",
+					Arguments: `{"reason":"browser workflow verified"}`,
+				},
+			}}},
+			{Content: "done"},
+		},
+	}
+	tools := &evidenceRecordingTools{}
+	runner := &Runner{Client: client, Tools: tools, MaxTurns: 4}
+
+	result, err := runner.Run(context.Background(), "在浏览器里操作飞书", NewConsoleSink(&bytes.Buffer{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != RunStatusDone {
+		t.Fatalf("status = %q, want done", result.Status)
+	}
+	if len(client.requests) != 4 {
+		t.Fatalf("requests = %d, want 4", len(client.requests))
+	}
+	reviewPrompt := client.requests[2].Messages[len(client.requests[2].Messages)-1]
+	if !strings.Contains(reviewPrompt.Content, "[LONG-TERM MEMORY FINAL REVIEW]") || !strings.Contains(reviewPrompt.Content, "start_long_term_update") {
+		t.Fatalf("final review prompt = %q", reviewPrompt.Content)
+	}
+	if len(tools.calls) != 2 || tools.calls[1].Name != "start_long_term_update" {
+		t.Fatalf("tool calls = %#v, want browser_scan then start_long_term_update", tools.calls)
+	}
+}
+
 func TestRunnerUsesContextManagerForModelRequest_BitsUT(t *testing.T) {
 	client := &contextRecordingClient{
 		responses: []llm.Response{{Content: "ok"}},

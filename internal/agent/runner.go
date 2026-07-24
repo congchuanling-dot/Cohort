@@ -88,6 +88,7 @@ type longTermMemorySignals struct {
 	recoveredFromFailure  bool
 	consecutiveFailures   int
 	prompted              bool
+	finalReviewPrompted   bool
 	started               bool
 }
 
@@ -181,6 +182,10 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 		if len(resp.ToolCalls) == 0 {
 			if err := r.appendMessage(llm.Message{Role: llm.RoleAssistant, Content: resp.Content}, ""); err != nil {
 				return RunResult{}, err
+			}
+			if r.maybeForceLongTermMemoryReview(&memorySignals, turn) {
+				messages = r.buildRequestMessages()
+				continue
 			}
 			ensureTerminalLineBreak(sink, resp.Content)
 			return RunResult{Status: RunStatusDone, Response: resp}, nil
@@ -365,6 +370,34 @@ func (r *Runner) maybeAddLongTermMemoryHint(signals *longTermMemorySignals, turn
 	if signals == nil || signals.prompted || signals.started {
 		return
 	}
+	reasons := longTermMemoryReasons(signals, turn)
+	if len(reasons) == 0 {
+		return
+	}
+	signals.prompted = true
+	r.addPendingHint("[LONG-TERM MEMORY HINT] 本轮可能产生可复用经验（" + strings.Join(reasons, "；") + "）。在最终答复前，请判断是否调用 start_long_term_update。只有工具验证、已读文件、浏览器确认、用户明确稳定偏好或已有记忆支持的事实才能沉淀；无值得保留内容时请不要调用，或在后续 memory_propose_update 中使用 skip=true。")
+}
+
+func (r *Runner) maybeForceLongTermMemoryReview(signals *longTermMemorySignals, turn int) bool {
+	if signals == nil || signals.started || signals.finalReviewPrompted {
+		return false
+	}
+	if r.MaxTurns > 0 && turn >= r.MaxTurns {
+		return false
+	}
+	reasons := longTermMemoryReasons(signals, turn)
+	if len(reasons) == 0 {
+		return false
+	}
+	signals.finalReviewPrompted = true
+	r.addPendingHint("[LONG-TERM MEMORY FINAL REVIEW] 模型准备结束任务，但本轮存在长期记忆信号（" + strings.Join(reasons, "；") + "），且尚未启动经验沉淀。不要直接重复最终答复。请先调用 start_long_term_update 判断是否有可复用经验；如果没有值得保留的内容，在随后 memory_propose_update 使用 skip=true。只允许沉淀工具验证、已读文件、浏览器确认、用户稳定偏好或已有记忆支持的经验；不要沉淀一次性任务事实、联系人、消息正文、临时页面内容或敏感信息。")
+	return true
+}
+
+func longTermMemoryReasons(signals *longTermMemorySignals, turn int) []string {
+	if signals == nil {
+		return nil
+	}
 	var reasons []string
 	if signals.userRequested {
 		reasons = append(reasons, "用户明确要求保留经验")
@@ -381,11 +414,7 @@ func (r *Runner) maybeAddLongTermMemoryHint(signals *longTermMemorySignals, turn
 	if turn >= longTermMemoryTurnThreshold {
 		reasons = append(reasons, "任务已运行多轮")
 	}
-	if len(reasons) == 0 {
-		return
-	}
-	signals.prompted = true
-	r.addPendingHint("[LONG-TERM MEMORY HINT] 本轮可能产生可复用经验（" + strings.Join(reasons, "；") + "）。在最终答复前，请判断是否调用 start_long_term_update。只有工具验证、已读文件、浏览器确认、用户明确稳定偏好或已有记忆支持的事实才能沉淀；无值得保留内容时请不要调用，或在后续 memory_propose_update 中使用 skip=true。")
+	return reasons
 }
 
 func outcomeSucceeded(outcome Outcome) bool {
