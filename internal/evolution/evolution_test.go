@@ -123,6 +123,41 @@ func TestManagerRejectsDuplicateMemoryCandidate_BitsUT(t *testing.T) {
 	}
 }
 
+func TestManagerApplyCandidateWritesSOPCandidate_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	manager := NewManager(workspace)
+	candidate := Candidate{
+		Type:             "project_lesson",
+		Target:           manager.ProjectMemoryPath(),
+		Scene:            "Lark browser automation",
+		TriggerKeywords:  []string{"飞书", "浏览器", "审批"},
+		Lesson:           "Repeated Lark browser workflows should become a reviewed SOP candidate when the successful steps stabilize.",
+		RecommendedSteps: []string{"wait for stable page", "snapshot elements", "verify after click"},
+		PromoteToSOP:     true,
+		SOPTitle:         "Lark browser automation",
+		SOPPath:          "sops/lark_browser_automation.md",
+		EvidenceIDs:      []string{"tool:1:0"},
+		Action:           "append",
+	}
+
+	result, err := manager.ApplyCandidate(candidate, []Evidence{{ID: "tool:1:0", Verified: true}}, "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SOPCandidatePath == "" {
+		t.Fatal("expected SOP candidate path")
+	}
+	data, err := os.ReadFile(filepath.Join(workspace, filepath.FromSlash(SOPCandidateMemoryPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"## SOP Candidate: Lark browser automation", "sops/lark_browser_automation.md", "wait for stable page"} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("SOP candidate missing %q:\n%s", want, data)
+		}
+	}
+}
+
 func TestManagerRejectsUnsafeMemoryCandidate_BitsUT(t *testing.T) {
 	manager := NewManager(t.TempDir())
 	validation := manager.ValidateCandidate(Candidate{
