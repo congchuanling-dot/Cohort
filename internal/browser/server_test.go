@@ -139,6 +139,80 @@ func TestBridgeExecuteJSCommandWithMockExtension(t *testing.T) {
 	<-done
 }
 
+func TestBridgeDOMSummaryCommandWithMockExtension(t *testing.T) {
+	bridge := NewBridge("127.0.0.1:0", DefaultPath)
+	if err := bridge.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer bridge.Close(context.Background())
+
+	conn, _, err := websocket.DefaultDialer.Dial("ws://"+bridge.Addr()+DefaultPath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		var command map[string]any
+		if readErr := conn.ReadJSON(&command); readErr != nil {
+			t.Errorf("read command: %v", readErr)
+			return
+		}
+		if command["command"] != "dom_summary" || command["tab_id"] != "7" || command["max_chars"] != float64(1234) {
+			t.Errorf("command payload = %+v", command)
+			return
+		}
+		if command["include_iframes"] != true || command["include_shadow_dom"] != false || command["include_form_values"] != true || command["include_fixed_overlays"] != false {
+			t.Errorf("command options = %+v", command)
+			return
+		}
+		id := command["id"].(string)
+		result := map[string]any{
+			"type": messageTypeResult,
+			"id":   id,
+			"result": map[string]any{
+				"status":  "success",
+				"tab_id":  "7",
+				"title":   "Example",
+				"url":     "https://example.com",
+				"summary": "<page><form></form></page>",
+				"forms": []map[string]any{{
+					"selector": "form#login",
+					"fields": []map[string]any{{
+						"tag":           "input",
+						"type":          "password",
+						"value_present": true,
+					}},
+				}},
+				"iframes":        []map[string]any{{"src": "https://example.com/frame", "same_origin": true, "included": true}},
+				"shadow_roots":   1,
+				"fixed_overlays": 2,
+				"truncated":      false,
+				"char_count":     26,
+				"omitted":        0,
+			},
+		}
+		if writeErr := conn.WriteJSON(result); writeErr != nil {
+			t.Errorf("write result: %v", writeErr)
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	result, err := bridge.DOMSummary(ctx, "7", 1234, true, false, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.TabID != "7" || result.Forms[0].Fields[0].Value != "" || !result.Forms[0].Fields[0].ValuePresent || result.ShadowRoots != 1 || result.FixedOverlays != 2 {
+		raw, _ := json.Marshal(result)
+		t.Fatalf("result = %s", raw)
+	}
+
+	<-done
+}
+
 func TestBridgeCDPCommandWithMockExtension(t *testing.T) {
 	bridge := NewBridge("127.0.0.1:0", DefaultPath)
 	if err := bridge.Start(); err != nil {

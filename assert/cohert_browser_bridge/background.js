@@ -555,6 +555,9 @@ async function handleRoutedCommand(message) {
   if (command === "scan") {
     return await scanTab(message);
   }
+  if (command === "dom_summary") {
+    return await domSummaryTab(message);
+  }
   if (command === "open") {
     return await openTab(message);
   }
@@ -1053,6 +1056,319 @@ async function snapshotTab(request) {
     elements: result?.elements || [],
     count: result?.count || 0,
     truncated: !!result?.truncated
+  };
+}
+
+async function domSummaryTab(request) {
+  // 返回低噪声 DOM/表单摘要。它是 browser_scan 和截图/OCR 之间的中间层：
+  // DOM 仍可访问时，优先用它看表单值、同源 iframe、open shadowRoot 和固定浮层。
+  const tabId = await resolveTabId(request.tab_id || request.tabId);
+  const tab = await chrome.tabs.get(tabId);
+  if (!isScriptable(tab.url)) {
+    throw new Error("tab is not scriptable: " + (tab.url || ""));
+  }
+  const maxChars = Math.min(Math.max(Number(request.max_chars || request.maxChars || 20000), 1000), 80000);
+  const options = {
+    includeIframes: request.include_iframes !== false && request.includeIframes !== false,
+    includeShadowDOM: request.include_shadow_dom !== false && request.includeShadowDOM !== false,
+    includeFormValues: request.include_form_values !== false && request.includeFormValues !== false,
+    includeFixedOverlays: request.include_fixed_overlays !== false && request.includeFixedOverlays !== false
+  };
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: "MAIN",
+    args: [maxChars, options],
+    func: (limit, opts) => {
+      const noisyTags = new Set(["script", "style", "meta", "link", "noscript", "template", "svg", "canvas"]);
+      const fieldSelector = "input,textarea,select";
+      const maxRenderedChars = Math.max(limit * 3, limit + 1000);
+      let renderedChars = 0;
+      let shadowRoots = 0;
+
+      const cleanText = (value, max = 300) => String(value || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, max);
+      const escapeAttr = (value) => String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      const pushLine = (lines, depth, text) => {
+        const line = "  ".repeat(Math.min(depth, 6)) + text;
+        if (renderedChars + line.length > maxRenderedChars) return false;
+        lines.push(line);
+        renderedChars += line.length + 1;
+        return true;
+      };
+      const isVisible = (element) => {
+        try {
+          const style = getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity || "1") === 0) return false;
+          if (rect.width <= 0 && rect.height <= 0 && cleanText(element.textContent, 20) === "") return false;
+          return true;
+        } catch (_err) {
+          return true;
+        }
+      };
+      const isSensitiveField = (element) => {
+        const type = String(element.getAttribute("type") || "").toLowerCase();
+        if (["password", "hidden"].includes(type)) return true;
+        const key = [
+          element.getAttribute("name") || "",
+          element.id || "",
+          element.getAttribute("autocomplete") || "",
+          element.getAttribute("aria-label") || ""
+        ].join(" ").toLowerCase();
+        return /(password|passwd|pwd|secret|token|csrf|cookie|authorization|auth|credential)/.test(key);
+      };
+      const cssEscape = (value) => {
+        if (window.CSS && CSS.escape) return CSS.escape(String(value));
+        return String(value).replace(/["\\]/g, "\\$&");
+      };
+      const selectorFor = (element) => {
+        if (!element || element.nodeType !== 1) return "";
+        const tag = element.tagName.toLowerCase();
+        if (element.id) {
+          const selector = "#" + cssEscape(element.id);
+          try {
+            if (document.querySelectorAll(selector).length === 1) return selector;
+          } catch (_err) {}
+        }
+        const name = element.getAttribute("name");
+        if (name) {
+          const selector = `${tag}[name="${cssEscape(name)}"]`;
+          try {
+            if (document.querySelectorAll(selector).length === 1) return selector;
+          } catch (_err) {}
+        }
+        const parts = [];
+        let node = element;
+        while (node && node.nodeType === 1 && node !== document.body && parts.length < 5) {
+          const nodeTag = node.tagName.toLowerCase();
+          let index = 1;
+          let prev = node.previousElementSibling;
+          while (prev) {
+            if (prev.tagName === node.tagName) index++;
+            prev = prev.previousElementSibling;
+          }
+          parts.unshift(`${nodeTag}:nth-of-type(${index})`);
+          node = node.parentElement;
+        }
+        return parts.join(" > ");
+      };
+      const attrPairs = (element) => {
+        const attrs = [];
+        const tag = element.tagName.toLowerCase();
+        for (const name of ["id", "role", "aria-label", "title", "name", "placeholder", "type"]) {
+          const value = element.getAttribute(name);
+          if (value) attrs.push(`${name}="${escapeAttr(cleanText(value, 120))}"`);
+        }
+        if (tag === "a") {
+          const href = element.getAttribute("href");
+          if (href && !href.startsWith("javascript:")) attrs.push(`href="${escapeAttr(cleanText(href, 180))}"`);
+        }
+        if (element.classList && element.classList.length > 0) {
+          attrs.push(`class="${escapeAttr(Array.from(element.classList).slice(0, 4).join(" "))}"`);
+        }
+        return attrs.length ? " " + attrs.join(" ") : "";
+      };
+      const fieldValue = (element) => {
+        if (!opts.includeFormValues || isSensitiveField(element)) return "";
+        const tag = element.tagName.toLowerCase();
+        if (tag === "select") {
+          return cleanText(Array.from(element.selectedOptions || []).map((item) => item.textContent || item.value || "").join(", "), 160);
+        }
+        return cleanText(element.value || "", 160);
+      };
+      const fieldSummary = (element) => {
+        const tag = element.tagName.toLowerCase();
+        const type = String(element.getAttribute("type") || "").toLowerCase();
+        const value = fieldValue(element);
+        return {
+          selector: selectorFor(element),
+          tag,
+          type,
+          name: element.getAttribute("name") || "",
+          id: element.id || "",
+          placeholder: element.getAttribute("placeholder") || "",
+          value,
+          value_present: !!(element.value || value),
+          checked: !!element.checked,
+          disabled: !!element.disabled || element.getAttribute("aria-disabled") === "true"
+        };
+      };
+      const renderField = (element, depth, lines) => {
+        const tag = element.tagName.toLowerCase();
+        const summary = fieldSummary(element);
+        const attrs = attrPairs(element);
+        const sensitive = isSensitiveField(element);
+        const valuePart = summary.value
+          ? ` value="${escapeAttr(summary.value)}"`
+          : (sensitive && summary.value_present ? " value_present=\"true\"" : "");
+        const checkedPart = summary.checked ? " checked=\"true\"" : "";
+        const disabledPart = summary.disabled ? " disabled=\"true\"" : "";
+        pushLine(lines, depth, `<${tag}${attrs}${valuePart}${checkedPart}${disabledPart}>`);
+      };
+      const renderIframe = (element, depth, lines) => {
+        const src = element.getAttribute("src") || "";
+        const title = element.getAttribute("title") || "";
+        try {
+          const doc = element.contentDocument;
+          const sameOrigin = !!doc;
+          if (opts.includeIframes && sameOrigin && doc.body) {
+            pushLine(lines, depth, `<iframe src="${escapeAttr(cleanText(src, 180))}" title="${escapeAttr(cleanText(title, 120))}">`);
+            renderElement(doc.body, depth + 1, lines, true);
+            pushLine(lines, depth, "</iframe>");
+            return;
+          }
+        } catch (_err) {}
+        pushLine(lines, depth, `<iframe src="${escapeAttr(cleanText(src, 180))}" title="${escapeAttr(cleanText(title, 120))}"></iframe>`);
+      };
+      const renderElement = (element, depth, lines, forceVisible = false) => {
+        if (!element || element.nodeType !== 1) return;
+        const tag = element.tagName.toLowerCase();
+        if (noisyTags.has(tag)) return;
+        if (!forceVisible && !isVisible(element) && !element.matches(fieldSelector)) return;
+        if (renderedChars > maxRenderedChars) return;
+        if (element.matches(fieldSelector)) {
+          renderField(element, depth, lines);
+          return;
+        }
+        if (tag === "iframe") {
+          renderIframe(element, depth, lines);
+          return;
+        }
+        const attrs = attrPairs(element);
+        const children = Array.from(element.children || []).filter((child) => !noisyTags.has(child.tagName.toLowerCase()));
+        const directText = cleanText(Array.from(element.childNodes || [])
+          .filter((node) => node.nodeType === Node.TEXT_NODE)
+          .map((node) => node.textContent || "")
+          .join(" "), 300);
+        const important = ["main", "header", "footer", "nav", "section", "article", "form", "dialog", "button", "a", "label", "h1", "h2", "h3", "p", "li"].includes(tag)
+          || element.getAttribute("role")
+          || element.getAttribute("aria-label")
+          || directText;
+        if (important) {
+          pushLine(lines, depth, `<${tag}${attrs}>${directText ? escapeAttr(directText) : ""}`);
+        }
+        const childDepth = important ? depth + 1 : depth;
+        for (const child of children.slice(0, 80)) {
+          renderElement(child, childDepth, lines);
+          if (renderedChars > maxRenderedChars) break;
+        }
+        if (opts.includeShadowDOM && element.shadowRoot) {
+          shadowRoots++;
+          pushLine(lines, childDepth, "<shadow-root>");
+          for (const child of Array.from(element.shadowRoot.children || []).slice(0, 80)) {
+            renderElement(child, childDepth + 1, lines, true);
+          }
+          pushLine(lines, childDepth, "</shadow-root>");
+        }
+        if (important) {
+          pushLine(lines, depth, `</${tag}>`);
+        }
+      };
+      const summarizeForms = () => {
+        const forms = Array.from(document.forms || []).map((form) => ({
+          selector: selectorFor(form),
+          id: form.id || "",
+          name: form.getAttribute("name") || "",
+          method: form.getAttribute("method") || "",
+          action: form.getAttribute("action") || "",
+          fields: Array.from(form.querySelectorAll(fieldSelector)).slice(0, 80).map(fieldSummary)
+        }));
+        const formFields = new Set(forms.flatMap((form) => form.fields.map((field) => field.selector)));
+        const standalone = Array.from(document.querySelectorAll(fieldSelector))
+          .filter((field) => !formFields.has(selectorFor(field)))
+          .slice(0, 80)
+          .map(fieldSummary);
+        if (standalone.length > 0) {
+          forms.push({ selector: "document", fields: standalone });
+        }
+        return forms;
+      };
+      const summarizeIframes = () => Array.from(document.querySelectorAll("iframe")).slice(0, 50).map((frame) => {
+        let sameOrigin = false;
+        try {
+          sameOrigin = !!frame.contentDocument;
+        } catch (_err) {
+          sameOrigin = false;
+        }
+        return {
+          src: frame.getAttribute("src") || "",
+          title: frame.getAttribute("title") || "",
+          same_origin: sameOrigin,
+          included: !!(opts.includeIframes && sameOrigin)
+        };
+      });
+      const summarizeOverlays = () => {
+        if (!opts.includeFixedOverlays) return { count: 0, lines: [] };
+        const overlays = Array.from(document.body ? document.body.querySelectorAll("*") : [])
+          .filter((element) => {
+            try {
+              const style = getComputedStyle(element);
+              const rect = element.getBoundingClientRect();
+              return (style.position === "fixed" || style.position === "sticky")
+                && rect.width > 0
+                && rect.height > 0
+                && style.display !== "none"
+                && style.visibility !== "hidden";
+            } catch (_err) {
+              return false;
+            }
+          })
+          .slice(0, 20);
+        return {
+          count: overlays.length,
+          lines: overlays.map((element) => {
+            const tag = element.tagName.toLowerCase();
+            return `<overlay tag="${tag}" selector="${escapeAttr(selectorFor(element))}">${escapeAttr(cleanText(element.innerText || element.textContent || "", 200))}</overlay>`;
+          })
+        };
+      };
+
+      const lines = [];
+      pushLine(lines, 0, `<page title="${escapeAttr(document.title || "")}" url="${escapeAttr(location.href)}">`);
+      if (document.body) {
+        renderElement(document.body, 1, lines, true);
+      }
+      const overlays = summarizeOverlays();
+      for (const overlayLine of overlays.lines) {
+        pushLine(lines, 1, overlayLine);
+      }
+      pushLine(lines, 0, "</page>");
+
+      const rawSummary = lines.join("\n").trim();
+      const truncated = rawSummary.length > limit;
+      return {
+        title: document.title || "",
+        url: location.href,
+        summary: truncated ? rawSummary.slice(0, limit) : rawSummary,
+        forms: summarizeForms(),
+        iframes: summarizeIframes(),
+        shadow_roots: shadowRoots,
+        fixed_overlays: overlays.count,
+        truncated,
+        char_count: rawSummary.length,
+        omitted: truncated ? rawSummary.length - limit : 0
+      };
+    }
+  });
+  return {
+    status: "success",
+    tab_id: String(tabId),
+    title: result?.title || tab.title || "",
+    url: result?.url || tab.url || "",
+    summary: result?.summary || "",
+    forms: result?.forms || [],
+    iframes: result?.iframes || [],
+    shadow_roots: result?.shadow_roots || 0,
+    fixed_overlays: result?.fixed_overlays || 0,
+    truncated: !!result?.truncated,
+    char_count: result?.char_count || 0,
+    omitted: result?.omitted || 0
   };
 }
 

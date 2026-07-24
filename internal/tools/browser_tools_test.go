@@ -22,6 +22,18 @@ type fakeBrowserClient struct {
 	scanTabID string
 	// scanMax 记录 Scan 方法收到的最大字符数。
 	scanMax int
+	// domSummaryTabID 记录 DOMSummary 方法收到的 tab ID。
+	domSummaryTabID string
+	// domSummaryMax 记录 DOMSummary 方法收到的最大字符数。
+	domSummaryMax int
+	// domSummaryIncludeIframes 记录 DOMSummary 是否包含 iframe。
+	domSummaryIncludeIframes bool
+	// domSummaryIncludeShadowDOM 记录 DOMSummary 是否包含 shadow DOM。
+	domSummaryIncludeShadowDOM bool
+	// domSummaryIncludeFormValues 记录 DOMSummary 是否包含表单值。
+	domSummaryIncludeFormValues bool
+	// domSummaryIncludeFixedOverlays 记录 DOMSummary 是否包含固定浮层。
+	domSummaryIncludeFixedOverlays bool
 	// executeTabID 记录 ExecuteJS 方法收到的 tab ID。
 	executeTabID string
 	// executeScript 记录 ExecuteJS 方法收到的脚本。
@@ -103,6 +115,35 @@ func (f *fakeBrowserClient) Scan(ctx context.Context, tabID string, maxChars int
 	f.scanTabID = tabID
 	f.scanMax = maxChars
 	return browser.PageSnapshot{Status: agent.ToolStatusSuccess, TabID: tabID, Text: "重庆明日天气"}, nil
+}
+
+func (f *fakeBrowserClient) DOMSummary(ctx context.Context, tabID string, maxChars int, includeIframes bool, includeShadowDOM bool, includeFormValues bool, includeFixedOverlays bool) (browser.DOMSummary, error) {
+	if f.err != nil {
+		return browser.DOMSummary{}, f.err
+	}
+	f.domSummaryTabID = tabID
+	f.domSummaryMax = maxChars
+	f.domSummaryIncludeIframes = includeIframes
+	f.domSummaryIncludeShadowDOM = includeShadowDOM
+	f.domSummaryIncludeFormValues = includeFormValues
+	f.domSummaryIncludeFixedOverlays = includeFixedOverlays
+	return browser.DOMSummary{
+		Status:  agent.ToolStatusSuccess,
+		TabID:   tabID,
+		Title:   "Example",
+		URL:     "https://example.com",
+		Summary: "<page><form><input name=\"q\" value=\"hello\"></form></page>",
+		Forms: []browser.DOMFormSummary{{
+			Selector: "form#login",
+			Fields: []browser.DOMFieldSummary{{
+				Selector:     "input[name=\"password\"]",
+				Tag:          "input",
+				Type:         "password",
+				ValuePresent: true,
+			}},
+		}},
+		CharCount: 60,
+	}, nil
 }
 
 func (f *fakeBrowserClient) ExecuteJS(ctx context.Context, tabID string, script string, noMonitor bool, maxReturnChars int) (browser.ExecuteJSResult, error) {
@@ -448,6 +489,64 @@ func TestBrowserScanUsesDefaultMaxChars(t *testing.T) {
 	}
 	if client.scanMax != defaultBrowserScanChars {
 		t.Fatalf("scanMax = %d, want %d", client.scanMax, defaultBrowserScanChars)
+	}
+}
+
+func TestBrowserDOMSummaryUsesDefaults(t *testing.T) {
+	client := &fakeBrowserClient{}
+	tool := NewBrowserDOMSummary(client)
+	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"tab_id": "3"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.domSummaryTabID != "3" {
+		t.Fatalf("domSummaryTabID = %q, want 3", client.domSummaryTabID)
+	}
+	if client.domSummaryMax != defaultBrowserDOMSummaryChars {
+		t.Fatalf("domSummaryMax = %d, want %d", client.domSummaryMax, defaultBrowserDOMSummaryChars)
+	}
+	if !client.domSummaryIncludeIframes || !client.domSummaryIncludeShadowDOM || !client.domSummaryIncludeFormValues || !client.domSummaryIncludeFixedOverlays {
+		t.Fatalf("dom summary default includes = iframe %v shadow %v forms %v overlays %v",
+			client.domSummaryIncludeIframes,
+			client.domSummaryIncludeShadowDOM,
+			client.domSummaryIncludeFormValues,
+			client.domSummaryIncludeFixedOverlays,
+		)
+	}
+	data := outcome.Data.(browser.DOMSummary)
+	if data.Forms[0].Fields[0].Value != "" || !data.Forms[0].Fields[0].ValuePresent {
+		t.Fatalf("password field summary = %+v", data.Forms[0].Fields[0])
+	}
+}
+
+func TestBrowserDOMSummaryPassesOptions(t *testing.T) {
+	client := &fakeBrowserClient{}
+	tool := NewBrowserDOMSummary(client)
+	_, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{
+			"tab_id":                 "7",
+			"max_chars":              1234,
+			"include_iframes":        false,
+			"include_shadow_dom":     false,
+			"include_form_values":    false,
+			"include_fixed_overlays": false,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.domSummaryTabID != "7" || client.domSummaryMax != 1234 {
+		t.Fatalf("dom summary call = tab %q max %d", client.domSummaryTabID, client.domSummaryMax)
+	}
+	if client.domSummaryIncludeIframes || client.domSummaryIncludeShadowDOM || client.domSummaryIncludeFormValues || client.domSummaryIncludeFixedOverlays {
+		t.Fatalf("dom summary options = iframe %v shadow %v forms %v overlays %v",
+			client.domSummaryIncludeIframes,
+			client.domSummaryIncludeShadowDOM,
+			client.domSummaryIncludeFormValues,
+			client.domSummaryIncludeFixedOverlays,
+		)
 	}
 }
 

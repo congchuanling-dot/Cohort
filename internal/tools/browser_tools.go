@@ -19,13 +19,13 @@ import (
 )
 
 const (
-	defaultBrowserScanChars      = 12000
+	defaultBrowserScanChars       = 12000
 	defaultBrowserDOMSummaryChars = 20000
-	defaultBrowserJSReturnChars  = 8000
-	defaultBrowserSnapshotItems  = 80
-	defaultBrowserWaitTimeoutMS  = 10000
-	defaultBrowserWaitIntervalMS = 200
-	defaultBrowserScreenshotDir  = ".cohert/screenshots"
+	defaultBrowserJSReturnChars   = 8000
+	defaultBrowserSnapshotItems   = 80
+	defaultBrowserWaitTimeoutMS   = 10000
+	defaultBrowserWaitIntervalMS  = 200
+	defaultBrowserScreenshotDir   = ".cohert/screenshots"
 )
 
 // BrowserTabs 把浏览器标签页列表暴露给模型。
