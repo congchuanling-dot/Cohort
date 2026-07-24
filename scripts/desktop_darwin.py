@@ -1,0 +1,525 @@
+#!/usr/bin/env python3
+"""macOS desktop sensing helper for Cohert.
+
+The script exposes a small JSON protocol for M1. It deliberately has no mouse
+or keyboard commands: real input is deferred to the separately reviewed M2.
+"""
+
+import argparse
+import json
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+
+def emit_success(data):
+    print(json.dumps({"status": "success", "data": data}, ensure_ascii=False))
+
+
+def emit_error(code, message, hint):
+    print(
+        json.dumps(
+            {
+                "status": "error",
+                "code": code,
+                "message": message,
+                "hint": hint,
+            },
+            ensure_ascii=False,
+        )
+    )
+
+
+def require_macos_modules():
+    try:
+        import Quartz
+        from AppKit import NSRunningApplication, NSWorkspace
+
+        return Quartz, NSRunningApplication, NSWorkspace
+    except ModuleNotFoundError as exc:
+        raise DesktopError(
+            "desktop_dependency_missing",
+            f"Python desktop dependency is missing: {exc.name}",
+            "请手动安装依赖：python3 -m pip install pyobjc-framework-Quartz pyobjc-framework-Cocoa pyobjc-framework-ApplicationServices。",
+        ) from exc
+
+
+class DesktopError(Exception):
+    def __init__(self, code, message, hint):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.hint = hint
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Cohert macOS desktop sensing helper")
+    parser.add_argument("--command", required=True)
+    parser.add_argument("--json", required=True, dest="payload")
+    return parser.parse_args()
+
+
+def parse_payload(raw):
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise DesktopError(
+            "desktop_bad_request",
+            f"desktop helper received invalid JSON: {exc}",
+            "请检查 desktop 工具参数。",
+        ) from exc
+    if not isinstance(payload, dict):
+        raise DesktopError(
+            "desktop_bad_request",
+            "desktop helper request must be a JSON object",
+            "请检查 desktop 工具参数。",
+        )
+    return payload
+
+
+def display_scale(quartz):
+    display_id = quartz.CGMainDisplayID()
+    logical = quartz.CGDisplayBounds(display_id)
+    mode = quartz.CGDisplayCopyDisplayMode(display_id)
+    physical_width = int(quartz.CGDisplayModeGetPixelWidth(mode))
+    if physical_width <= 0:
+        return 1.0
+    return float(logical.size.width) / physical_width
+
+
+def logical_to_physical(value, scale):
+    if not scale:
+        return int(round(value))
+    return int(round(float(value) / scale))
+
+
+def physical_bounds(raw, scale):
+    return {
+        "x": logical_to_physical(raw.get("X", 0), scale),
+        "y": logical_to_physical(raw.get("Y", 0), scale),
+        "width": logical_to_physical(raw.get("Width", 0), scale),
+        "height": logical_to_physical(raw.get("Height", 0), scale),
+    }
+
+
+def ax_permission():
+    try:
+        from ApplicationServices import AXIsProcessTrusted
+
+        return bool(AXIsProcessTrusted())
+    except ModuleNotFoundError:
+        return None
+    except Exception:
+        return None
+
+
+def permissions(_payload):
+    quartz, _, _ = require_macos_modules()
+    accessibility = ax_permission()
+    screen_recording = None
+    if hasattr(quartz, "CGPreflightScreenCaptureAccess"):
+        screen_recording = bool(quartz.CGPreflightScreenCaptureAccess())
+
+    missing = []
+    hints = []
+    if accessibility is False:
+        missing.append("accessibility")
+        hints.append("系统设置 -> 隐私与安全性 -> 辅助功能：允许运行 Cohert 的终端或 IDE。")
+    if screen_recording is False:
+        missing.append("screen_recording")
+        hints.append("系统设置 -> 隐私与安全性 -> 屏幕录制：允许运行 Cohert 的终端或 IDE。")
+    return {
+        "platform": "darwin",
+        "accessibility": accessibility,
+        "screen_recording": screen_recording,
+        "input_monitoring": None,
+        "missing": missing,
+        "hints": hints,
+    }
+
+
+def active_pid(workspace):
+    app = workspace.sharedWorkspace().frontmostApplication()
+    if app is None:
+        return 0
+    return int(app.processIdentifier())
+
+
+def collect_windows(payload):
+    quartz, _, workspace = require_macos_modules()
+    app_name = str(payload.get("app_name") or "").strip().lower()
+    title = str(payload.get("title") or "").strip().lower()
+    limit = int(payload.get("limit") or 50)
+    scale = display_scale(quartz)
+    front_pid = active_pid(workspace)
+    options = quartz.kCGWindowListOptionOnScreenOnly | quartz.kCGWindowListExcludeDesktopElements
+    records = quartz.CGWindowListCopyWindowInfo(options, quartz.kCGNullWindowID) or []
+    windows = []
+
+    for record in records:
+        if int(record.get("kCGWindowLayer", 0)) != 0:
+            continue
+        bounds = record.get("kCGWindowBounds") or {}
+        width = int(bounds.get("Width", 0))
+        height = int(bounds.get("Height", 0))
+        if width <= 0 or height <= 0:
+            continue
+        owner = str(record.get("kCGWindowOwnerName") or "")
+        window_title = str(record.get("kCGWindowName") or "")
+        if app_name and app_name not in owner.lower():
+            continue
+        if title and title not in window_title.lower():
+            continue
+        pid = int(record.get("kCGWindowOwnerPID", 0))
+        windows.append(
+            {
+                "window_id": str(record.get("kCGWindowNumber", "")),
+                "pid": pid,
+                "app_name": owner,
+                "title": window_title,
+                "bounds": physical_bounds(bounds, scale),
+                "is_visible": float(record.get("kCGWindowAlpha", 1)) > 0,
+                "is_active": pid == front_pid,
+            }
+        )
+        if len(windows) >= limit:
+            break
+    return windows
+
+
+def list_windows(payload):
+    return {"windows": collect_windows(payload)}
+
+
+def activate(payload):
+    _, running_application, workspace = require_macos_modules()
+    pid = int(payload.get("pid") or 0)
+    if pid <= 0:
+        raise DesktopError(
+            "desktop_bad_pid",
+            "desktop_activate requires a positive pid",
+            "请先通过 desktop_windows 获取目标窗口对应的 pid。",
+        )
+    app = running_application.runningApplicationWithProcessIdentifier_(pid)
+    if app is None:
+        raise DesktopError(
+            "desktop_target_not_found",
+            f"no running application found for pid {pid}",
+            "请重新调用 desktop_windows；目标应用可能已退出或 PID 已变化。",
+        )
+    app.activateWithOptions_(1 << 1)  # NSApplicationActivateAllWindows
+    time.sleep(0.25)
+    is_active = active_pid(workspace) == pid
+    if not is_active:
+        raise DesktopError(
+            "desktop_activate_failed",
+            f"application pid {pid} did not become frontmost",
+            "请确认目标应用没有系统模态弹窗、全屏限制或权限限制，再重新枚举窗口。",
+        )
+    return {"pid": pid, "active": True, "verified": True}
+
+
+def find_window(payload):
+    pid = int(payload.get("pid") or 0)
+    requested_id = str(payload.get("window_id") or "").strip()
+    windows = collect_windows({"limit": 100})
+    for window in windows:
+        if requested_id and window["window_id"] != requested_id:
+            continue
+        if pid and window["pid"] != pid:
+            continue
+        return window
+    raise DesktopError(
+        "desktop_window_not_found",
+        "target window is no longer visible",
+        "请重新调用 desktop_windows 获取当前窗口和 PID。",
+    )
+
+
+def require_active_pid(pid):
+    _, _, workspace = require_macos_modules()
+    if active_pid(workspace) == pid:
+        return
+    raise DesktopError(
+        "desktop_target_not_active",
+        f"application pid {pid} is not frontmost",
+        "请先调用 desktop_activate 并确认 verified=true，再读取 AX 控件树或截取窗口。",
+    )
+
+
+def image_dimensions(path, fallback_bounds):
+    completed = subprocess.run(
+        ["/usr/bin/sips", "-g", "pixelWidth", "-g", "pixelHeight", str(path)],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    result = {}
+    for line in completed.stdout.splitlines():
+        line = line.strip()
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip()
+        if key in {"pixelWidth", "pixelHeight"}:
+            result[key] = int(value.strip())
+    return (
+        result.get("pixelWidth", fallback_bounds["width"]),
+        result.get("pixelHeight", fallback_bounds["height"]),
+    )
+
+
+def screenshot(payload):
+    _, _, _ = require_macos_modules()
+    output_path = str(payload.get("output_path") or "").strip()
+    if not output_path:
+        raise DesktopError(
+            "desktop_bad_output_path",
+            "desktop_screenshot requires an output_path",
+            "请通过 Cohert 的 desktop_screenshot 工具调用，不能直接调用 helper。",
+        )
+    window = find_window(payload)
+    require_active_pid(window["pid"])
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        subprocess.run(
+            ["/usr/sbin/screencapture", "-x", "-o", "-l", window["window_id"], str(path)],
+            check=True,
+            capture_output=True,
+        )
+        if not path.is_file() or path.stat().st_size == 0:
+            raise RuntimeError("screencapture did not create an image")
+        width, height = image_dimensions(path, window["bounds"])
+    except Exception as exc:
+        raise DesktopError(
+            "desktop_screenshot_failed",
+            f"unable to capture target window: {exc}",
+            "请确认已授权屏幕录制权限，并重新调用 desktop_permissions 检查。",
+        ) from exc
+    return {
+        "width": width,
+        "height": height,
+        "window_id": window["window_id"],
+        "pid": window["pid"],
+        "bounds": window["bounds"],
+    }
+
+
+def load_ax():
+    try:
+        from ApplicationServices import (
+            AXIsProcessTrusted,
+            AXUIElementCopyActionNames,
+            AXUIElementCopyAttributeValue,
+            AXUIElementCreateApplication,
+            AXValueGetValue,
+            kAXChildrenAttribute,
+            kAXDescriptionAttribute,
+            kAXEnabledAttribute,
+            kAXPositionAttribute,
+            kAXRoleAttribute,
+            kAXSizeAttribute,
+            kAXTitleAttribute,
+            kAXValueCGPointType,
+            kAXValueCGSizeType,
+            kAXValueAttribute,
+            kAXWindowsAttribute,
+        )
+    except ModuleNotFoundError as exc:
+        raise DesktopError(
+            "desktop_dependency_missing",
+            f"Accessibility dependency is missing: {exc.name}",
+            "请手动安装依赖：python3 -m pip install pyobjc-framework-ApplicationServices。",
+        ) from exc
+    return {
+        "trusted": AXIsProcessTrusted,
+        "application": AXUIElementCreateApplication,
+        "attribute": AXUIElementCopyAttributeValue,
+        "actions": AXUIElementCopyActionNames,
+        "value": AXValueGetValue,
+        "children": kAXChildrenAttribute,
+        "windows": kAXWindowsAttribute,
+        "role": kAXRoleAttribute,
+        "title": kAXTitleAttribute,
+        "description": kAXDescriptionAttribute,
+        "value_attribute": kAXValueAttribute,
+        "enabled": kAXEnabledAttribute,
+        "position": kAXPositionAttribute,
+        "size": kAXSizeAttribute,
+        "point_type": kAXValueCGPointType,
+        "size_type": kAXValueCGSizeType,
+    }
+
+
+def ax_attr(api, element, attribute):
+    try:
+        error, value = api["attribute"](element, attribute, None)
+        return value if int(error) == 0 else None
+    except Exception:
+        return None
+
+
+def ax_actions(api, element):
+    try:
+        error, actions = api["actions"](element, None)
+        if int(error) != 0 or not actions:
+            return []
+        return [str(action) for action in actions]
+    except Exception:
+        return []
+
+
+def ax_bounds(api, element, scale):
+    x = y = width = height = 0.0
+    position = ax_attr(api, element, api["position"])
+    size = ax_attr(api, element, api["size"])
+    if position is not None:
+        try:
+            ok, point = api["value"](position, api["point_type"], None)
+            if ok:
+                x, y = point.x, point.y
+        except Exception:
+            pass
+    if size is not None:
+        try:
+            ok, rect_size = api["value"](size, api["size_type"], None)
+            if ok:
+                width, height = rect_size.width, rect_size.height
+        except Exception:
+            pass
+    return {
+        "x": logical_to_physical(x, scale),
+        "y": logical_to_physical(y, scale),
+        "width": logical_to_physical(width, scale),
+        "height": logical_to_physical(height, scale),
+    }
+
+
+def ax_snapshot(payload):
+    quartz, _, _ = require_macos_modules()
+    api = load_ax()
+    if not bool(api["trusted"]()):
+        raise DesktopError(
+            "desktop_permission_denied",
+            "Accessibility permission is not granted",
+            "系统设置 -> 隐私与安全性 -> 辅助功能：允许运行 Cohert 的终端或 IDE。",
+        )
+    pid = int(payload.get("pid") or 0)
+    if pid <= 0:
+        raise DesktopError(
+            "desktop_bad_pid",
+            "desktop_ax_snapshot requires a positive pid",
+            "请先通过 desktop_windows 获取目标窗口对应的 pid。",
+        )
+    require_active_pid(pid)
+    max_depth = max(1, min(int(payload.get("max_depth") or 8), 12))
+    max_nodes = max(1, min(int(payload.get("max_nodes") or 300), 500))
+    include_zero_size = bool(payload.get("include_zero_size", False))
+    scale = display_scale(quartz)
+    state = {"count": 0, "truncated": False}
+
+    def walk(element, node_id, depth, force_include=False):
+        if depth > max_depth:
+            state["truncated"] = True
+            return []
+        if state["count"] >= max_nodes:
+            state["truncated"] = True
+            return []
+        role = str(ax_attr(api, element, api["role"]) or "")
+        title = str(ax_attr(api, element, api["title"]) or "")
+        description = str(ax_attr(api, element, api["description"]) or "")
+        value = ax_attr(api, element, api["value_attribute"])
+        bounds = ax_bounds(api, element, scale)
+        children = ax_attr(api, element, api["children"]) or []
+        if force_include and not children:
+            children = ax_attr(api, element, api["windows"]) or []
+
+        visible = bounds["width"] > 0 and bounds["height"] > 0
+        include = force_include or include_zero_size or visible
+        if not include:
+            child_nodes = []
+            for index, child in enumerate(children):
+                child_nodes.extend(walk(child, f"{node_id}/{index}", depth + 1))
+            return child_nodes
+
+        # Reserve this node before descending so max_nodes bounds the entire
+        # returned tree, not just sibling subtrees completed earlier.
+        state["count"] += 1
+        child_nodes = []
+        for index, child in enumerate(children):
+            child_nodes.extend(walk(child, f"{node_id}/{index}", depth + 1))
+
+        safe_value = ""
+        if "secure" not in role.lower() and isinstance(value, (str, int, float, bool)):
+            safe_value = str(value)
+        enabled = ax_attr(api, element, api["enabled"])
+        enabled_value = bool(enabled) if isinstance(enabled, (bool, int)) else None
+        return [
+            {
+                "id": node_id,
+                "role": role,
+                "title": title,
+                "value": safe_value,
+                "description": description,
+                "enabled": enabled_value,
+                "bounds": bounds,
+                "actions": ax_actions(api, element),
+                "children": child_nodes,
+            }
+        ]
+
+    roots = walk(api["application"](pid), "ax:0", 0, force_include=True)
+    if not roots:
+        raise DesktopError(
+            "desktop_ax_unavailable",
+            f"Accessibility did not return an application tree for pid {pid}",
+            "请确认目标应用仍在运行，并重新调用 desktop_windows。",
+        )
+    return {
+        "pid": pid,
+        "root": roots[0],
+        "node_count": state["count"],
+        "truncated": state["truncated"],
+    }
+
+
+def dispatch(command, payload):
+    commands = {
+        "permissions": permissions,
+        "list_windows": list_windows,
+        "activate": activate,
+        "screenshot": screenshot,
+        "ax_snapshot": ax_snapshot,
+    }
+    handler = commands.get(command)
+    if handler is None:
+        raise DesktopError(
+            "desktop_unknown_command",
+            f"unsupported desktop helper command: {command}",
+            "请使用 Cohert 已注册的 desktop 工具，不要直接调用未实现的 helper command。",
+        )
+    return handler(payload)
+
+
+def main():
+    args = parse_args()
+    payload = parse_payload(args.payload)
+    emit_success(dispatch(args.command, payload))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except DesktopError as exc:
+        emit_error(exc.code, exc.message, exc.hint)
+        sys.exit(0)
+    except Exception as exc:
+        emit_error(
+            "desktop_helper_failed",
+            f"desktop helper failed: {exc}",
+            "请检查 macOS 权限、PyObjC 依赖和目标应用状态。",
+        )
+        sys.exit(0)

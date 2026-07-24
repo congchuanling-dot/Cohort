@@ -68,6 +68,18 @@ const (
 	ToolNameBrowserScreenshot = "browser_screenshot"
 	// ToolNameBrowserOCR 对浏览器截图或 workspace 内图片执行只读 OCR。
 	ToolNameBrowserOCR = "browser_ocr"
+	// ToolNameDesktopPermissions 检查桌面感知所需系统权限。
+	ToolNameDesktopPermissions = "desktop_permissions"
+	// ToolNameDesktopWindows 枚举可见桌面窗口。
+	ToolNameDesktopWindows = "desktop_windows"
+	// ToolNameDesktopActivate 激活目标 PID 对应的桌面应用。
+	ToolNameDesktopActivate = "desktop_activate"
+	// ToolNameDesktopScreenshot 截取目标桌面窗口。
+	ToolNameDesktopScreenshot = "desktop_screenshot"
+	// ToolNameDesktopAXSnapshot 返回目标应用的 AX 控件树。
+	ToolNameDesktopAXSnapshot = "desktop_ax_snapshot"
+	// ToolNameDesktopOCR 对桌面截图执行只读 OCR。
+	ToolNameDesktopOCR = "desktop_ocr"
 )
 
 // Tool 是所有本地工具必须实现的接口。
@@ -121,6 +133,12 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameBrowserWaitForStable,
 		ToolNameBrowserScreenshot,
 		ToolNameBrowserOCR,
+		ToolNameDesktopPermissions,
+		ToolNameDesktopWindows,
+		ToolNameDesktopActivate,
+		ToolNameDesktopScreenshot,
+		ToolNameDesktopAXSnapshot,
+		ToolNameDesktopOCR,
 		ToolNameUpdateWorkingCheckpoint,
 		ToolNameStartLongTermUpdate,
 		ToolNameMemoryProposeUpdate,

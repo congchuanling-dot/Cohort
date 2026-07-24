@@ -196,6 +196,12 @@ browser_wait_for_url
 browser_wait_for_stable
 browser_screenshot
 browser_ocr
+desktop_permissions
+desktop_windows
+desktop_activate
+desktop_screenshot
+desktop_ax_snapshot
+desktop_ocr
 ```
 
 </details>
@@ -231,6 +237,29 @@ If browser tools return `browser_not_connected`, load the Chrome extension from:
 ```text
 assert/cohert_browser_bridge
 ```
+
+## Desktop Computer Use (M1)
+
+Cohert now provides a macOS-only, read-only desktop sensing foundation. It is intentionally generic rather than application-specific:
+
+```text
+desktop_permissions
+  -> desktop_windows
+  -> desktop_activate
+  -> desktop_ax_snapshot
+  -> desktop_screenshot
+  -> desktop_ocr
+```
+
+Accessibility/AX controls are preferred over OCR. Desktop screenshots and OCR bounding boxes use `screenshot-local` coordinates and cannot be treated as system mouse coordinates. M1 has no desktop click, keyboard, or text-input tool.
+
+Install macOS helper dependencies manually:
+
+```bash
+python3 -m pip install pyobjc-framework-Quartz pyobjc-framework-Cocoa pyobjc-framework-ApplicationServices
+```
+
+Grant the terminal or IDE running Cohert both Accessibility and Screen Recording permissions in macOS System Settings before using desktop sensing.
 
 ## Context Management
 

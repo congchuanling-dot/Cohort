@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -137,6 +138,13 @@ func TestRunnerRoutesMemorySOP_BitsUT(t *testing.T) {
 	matches := routeSOPs("请优化长期记忆和 skill 能力等级，处理 SOP candidate 晋级")
 	if len(matches) == 0 || matches[0] != "sops/memory_sop.md" {
 		t.Fatalf("matches = %#v, want memory_sop first", matches)
+	}
+}
+
+func TestRunnerRoutesDesktopSOP_BitsUT(t *testing.T) {
+	matches := routeSOPs("请查看 macOS 桌面原生应用窗口，并读取 Accessibility AX 控件树")
+	if !slices.Contains(matches, "sops/desktop_sop.md") {
+		t.Fatalf("matches = %#v, want desktop_sop", matches)
 	}
 }
 

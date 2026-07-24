@@ -85,6 +85,7 @@ Config
 - SOP 工作记忆：`update_working_checkpoint`
 - 长期记忆：`start_long_term_update`、`memory_propose_update`、`memory_apply_update`
 - 浏览器：`browser_open`、`browser_scan`、`browser_dom_summary`、`browser_snapshot`、点击/输入/按键、wait 和 screenshot 系列工具
+- 桌面端 M1：`desktop_permissions`、`desktop_windows`、`desktop_activate`、`desktop_screenshot`、`desktop_ax_snapshot`、`desktop_ocr`
 
 ### 3.3 再看配置加载
 
@@ -244,6 +245,12 @@ start_long_term_update -> memory_propose_update -> memory_apply_update
 文件：[internal/tools/browser_tools.go](../internal/tools/browser_tools.go)
 
 浏览器工具通过本地 Chrome bridge 工作。普通网页读取优先 `browser_scan`，结构化 DOM 不足时用 `browser_dom_summary`，交互前用 `browser_snapshot` 找元素，动作后用 wait 系列工具验证页面状态。只有 DOM 文本不可读时才使用 `browser_ocr`；它调用隔离的 Python RapidOCR helper，返回截图内 bbox，不执行点击。
+
+### desktop tools
+
+文件：[internal/desktop](../internal/desktop) 和 [internal/tools/desktop_tools.go](../internal/tools/desktop_tools.go)
+
+桌面端 M1 只支持 macOS 的通用只读感知：先检查权限和枚举窗口，再按 PID 激活目标应用，优先读取 `desktop_ax_snapshot` 的 Accessibility 控件树；AX 不可用时才截取窗口并使用 `desktop_ocr`。截图和 OCR bbox 都是 `screenshot-local`，M1 不提供鼠标点击、键盘输入或文本输入，不能借助 `code_run` 绕过该边界。
 
 ## 5. 数据流
 

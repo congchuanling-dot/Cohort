@@ -30,6 +30,11 @@
 - SOP: `sops/browser_sop.md`
 - 场景：浏览器打开网页、等待加载、读取页面、点击、输入、CDP JSON 路由、页面变化判断、截图/OCR 兜底。
 
+## Desktop Computer Use
+
+- SOP: `sops/desktop_sop.md`
+- 场景：macOS 桌面窗口、原生应用、系统弹窗、窗口激活、Accessibility/AX 控件树、窗口截图、桌面 OCR。
+
 ## Code Run
 
 - SOP: `sops/code_run_sop.md`

@@ -10,6 +10,7 @@ import (
 	"cohert/internal/agent"
 	"cohert/internal/browser"
 	"cohert/internal/contextmgr"
+	"cohert/internal/desktop"
 	"cohert/internal/llm"
 	"cohert/internal/session"
 	"cohert/internal/tools"
@@ -82,6 +83,7 @@ func ToolSchemas(cfg Config) []llm.ToolSchema {
 // newRegistry 集中注册当前 MVP 暴露给模型的本地工具。
 func newRegistry(workspace string, browserClient browser.Client) *tools.Registry {
 	registry := tools.NewRegistry()
+	desktopDriver := newDesktopDriver(workspace)
 	registry.Register(tools.NewFileRead(workspace))
 	registry.Register(tools.NewFileWrite(workspace))
 	registry.Register(tools.NewFilePatch(workspace))
@@ -104,6 +106,12 @@ func newRegistry(workspace string, browserClient browser.Client) *tools.Registry
 	registry.Register(tools.NewBrowserWaitForStable(browserClient))
 	registry.Register(tools.NewBrowserScreenshot(browserClient, workspace))
 	registry.Register(tools.NewBrowserOCR(browserClient, workspace))
+	registry.Register(tools.NewDesktopPermissions(desktopDriver))
+	registry.Register(tools.NewDesktopWindows(desktopDriver))
+	registry.Register(tools.NewDesktopActivate(desktopDriver))
+	registry.Register(tools.NewDesktopScreenshot(desktopDriver, workspace))
+	registry.Register(tools.NewDesktopAXSnapshot(desktopDriver))
+	registry.Register(tools.NewDesktopOCR(workspace))
 	registry.Register(tools.NewUpdateWorkingCheckpoint())
 	registry.Register(tools.NewStartLongTermUpdate(workspace))
 	registry.Register(tools.NewMemoryProposeUpdate(workspace))
@@ -120,6 +128,30 @@ func newBrowserClient() browser.Client {
 	return bridge
 }
 
+func newDesktopDriver(workspace string) desktop.Driver {
+	scriptPath := filepath.Join("scripts", "desktop_darwin.py")
+	if root := findProjectRoot(workspace); root != "" {
+		scriptPath = filepath.Join(root, scriptPath)
+	} else if absolutePath, err := filepath.Abs(scriptPath); err == nil {
+		scriptPath = absolutePath
+	}
+	return desktop.NewPythonDriver("python3", scriptPath, desktop.DefaultTimeout)
+}
+
+func findProjectRoot(path string) string {
+	path = filepath.Clean(path)
+	for {
+		if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
+			return path
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			return ""
+		}
+		path = parent
+	}
+}
+
 func normalizeWorkspace(workspace string) string {
 	if strings.TrimSpace(workspace) == "" {
 		workspace = "."
@@ -134,9 +166,9 @@ func normalizeWorkspace(workspace string) string {
 func buildSystemPrompt(cfg Config) string {
 	sopIndex := readSOPIndex()
 	if cfg.Language == "en" {
-		return "You are Cohert, a command-line local agent. Use tools when needed, keep responses concise, and stop when the user task is complete. When multiple tool calls are independent and do not depend on each other's results, issue them in the same assistant response instead of splitting them across turns; keep dependent actions sequential." + toolNarrationInstructionEN + " Use the SOP Index as navigation only: when a task matches an SOP scene, read the referenced SOP file before acting, then call update_working_checkpoint to store the key constraints and related_sop. For web lookup tasks, prefer browser_open, then browser_wait_for_load and browser_wait_for_stable, then browser_scan. For browser interaction, use browser_snapshot to discover clickable/input elements; use browser_dom_summary when scan/snapshot is insufficient but DOM is still available, especially for forms, same-origin iframes, open shadow roots, or fixed overlays; use browser_execute_js only for specific DOM reads, then browser_click_element, browser_type_element, or browser_press_key for real CDP input. After navigation or async actions, wait for load, url, selector, text, or stable before judging failure. When visual text remains unavailable after DOM summary, use browser_ocr with a workspace image or let it capture the viewport; its bounding boxes are screenshot-local and must not be treated as screen coordinates. Advanced browser internals may be routed through browser_execute_js JSON commands, but prefer high-level browser tools for normal actions. Do not use OCR for normal web pages unless DOM text is unavailable. After meaningful or long tasks, consider start_long_term_update; only persist verified reusable memory, and skip routine one-off facts." + sopIndex
+		return "You are Cohert, a command-line local agent. Use tools when needed, keep responses concise, and stop when the user task is complete. When multiple tool calls are independent and do not depend on each other's results, issue them in the same assistant response instead of splitting them across turns; keep dependent actions sequential." + toolNarrationInstructionEN + " Use the SOP Index as navigation only: when a task matches an SOP scene, read the referenced SOP file before acting, then call update_working_checkpoint to store the key constraints and related_sop. For web lookup tasks, prefer browser_open, then browser_wait_for_load and browser_wait_for_stable, then browser_scan. For browser interaction, use browser_snapshot to discover clickable/input elements; use browser_dom_summary when scan/snapshot is insufficient but DOM is still available, especially for forms, same-origin iframes, open shadow roots, or fixed overlays; use browser_execute_js only for specific DOM reads, then browser_click_element, browser_type_element, or browser_press_key for real CDP input. After navigation or async actions, wait for load, url, selector, text, or stable before judging failure. When visual text remains unavailable after DOM summary, use browser_ocr with a workspace image or let it capture the viewport; its bounding boxes are screenshot-local and must not be treated as screen coordinates. For native desktop applications, read the desktop SOP and use desktop_permissions -> desktop_windows -> desktop_activate -> desktop_ax_snapshot; use desktop_screenshot and desktop_ocr only when AX is insufficient. Desktop OCR bounding boxes are screenshot-local. M1 is read-only, so do not use code_run or scripts to bypass the lack of desktop mouse or keyboard input. Advanced browser internals may be routed through browser_execute_js JSON commands, but prefer high-level browser tools for normal actions. Do not use OCR for normal web pages unless DOM text is unavailable. After meaningful or long tasks, consider start_long_term_update; only persist verified reusable memory, and skip routine one-off facts." + sopIndex
 	}
-	return "你是 Cohert，一个命令行本地 Agent。需要读取文件、写文件、执行命令或查询网页时必须调用工具；当多个工具调用彼此独立、后一个不依赖前一个结果时，应在同一轮 assistant 响应中一次性发出多个 tool_calls，不要拆成多轮；有前后依赖的动作必须保持顺序执行。" + toolNarrationInstructionZH + " SOP Index 只作为导航：任务命中 SOP 场景时，先读取索引指向的 SOP 文件再行动，并调用 update_working_checkpoint 保存关键约束和 related_sop。网页查询优先使用 browser_open 打开页面，再用 browser_wait_for_load 和 browser_wait_for_stable 等页面稳定，然后用 browser_scan 读取 DOM 文本。浏览器交互优先用 browser_snapshot 发现可点击/可输入元素；当 scan/snapshot 不够但 DOM 仍可访问时，用 browser_dom_summary 查看表单、同源 iframe、open shadowRoot 和固定浮层；只在需要精确 DOM 信息时用 browser_execute_js，再用 browser_click_element、browser_type_element 或 browser_press_key 执行真实 CDP 输入。点击、输入、按键、跳转或异步操作后，必须先等待 load、url、selector、text 或 stable，再判断失败。DOM 文本和 DOM 摘要都无法读取页面文字时，使用 browser_ocr 读取 workspace 图片或让它自动截取浏览器视口；它返回的 bbox 是 screenshot-local 坐标，不能直接当作系统屏幕坐标。高级浏览器内部能力可通过 browser_execute_js 的 JSON 命令路由使用，但普通动作优先用高层浏览器工具。普通网页不要默认使用 OCR，只有 DOM 文本不可用时才考虑截图/OCR。完成有复用价值或耗时较长的任务后，可调用 start_long_term_update；只沉淀经过验证、未来可复用的记忆，普通一次性事实应 skip。任务完成后直接给用户简洁结论。" + sopIndex
+	return "你是 Cohert，一个命令行本地 Agent。需要读取文件、写文件、执行命令或查询网页时必须调用工具；当多个工具调用彼此独立、后一个不依赖前一个结果时，应在同一轮 assistant 响应中一次性发出多个 tool_calls，不要拆成多轮；有前后依赖的动作必须保持顺序执行。" + toolNarrationInstructionZH + " SOP Index 只作为导航：任务命中 SOP 场景时，先读取索引指向的 SOP 文件再行动，并调用 update_working_checkpoint 保存关键约束和 related_sop。网页查询优先使用 browser_open 打开页面，再用 browser_wait_for_load 和 browser_wait_for_stable 等页面稳定，然后用 browser_scan 读取 DOM 文本。浏览器交互优先用 browser_snapshot 发现可点击/可输入元素；当 scan/snapshot 不够但 DOM 仍可访问时，用 browser_dom_summary 查看表单、同源 iframe、open shadowRoot 和固定浮层；只在需要精确 DOM 信息时用 browser_execute_js，再用 browser_click_element、browser_type_element 或 browser_press_key 执行真实 CDP 输入。点击、输入、按键、跳转或异步操作后，必须先等待 load、url、selector、text 或 stable，再判断失败。DOM 文本和 DOM 摘要都无法读取页面文字时，使用 browser_ocr 读取 workspace 图片或让它自动截取浏览器视口；它返回的 bbox 是 screenshot-local 坐标，不能直接当作系统屏幕坐标。处理桌面原生应用时，先读取 desktop SOP 并遵循 desktop_permissions -> desktop_windows -> desktop_activate -> desktop_ax_snapshot 的顺序；AX 不可用时才用 desktop_screenshot 和 desktop_ocr。桌面 OCR bbox 只在 screenshot-local 坐标系有效，M1 只读桌面能力不允许借助 code_run 或脚本绕过限制来模拟真实键鼠输入。高级浏览器内部能力可通过 browser_execute_js 的 JSON 命令路由使用，但普通动作优先用高层浏览器工具。普通网页不要默认使用 OCR，只有 DOM 文本不可用时才考虑截图/OCR。完成有复用价值或耗时较长的任务后，可调用 start_long_term_update；只沉淀经过验证、未来可复用的记忆，普通一次性事实应 skip。任务完成后直接给用户简洁结论。" + sopIndex
 }
 
 func readSOPIndex() string {

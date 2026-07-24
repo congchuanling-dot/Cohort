@@ -199,6 +199,12 @@ browser_wait_for_url
 browser_wait_for_stable
 browser_screenshot
 browser_ocr
+desktop_permissions
+desktop_windows
+desktop_activate
+desktop_screenshot
+desktop_ax_snapshot
+desktop_ocr
 ```
 
 这个命令不需要 API Key。
