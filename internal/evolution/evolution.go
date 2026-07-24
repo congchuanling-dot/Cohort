@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
 )
 
 const (
@@ -34,13 +33,13 @@ type Manager struct {
 // Candidate is a proposed long-term memory update. It is intentionally small:
 // the model proposes it, this package validates boundaries and writes only safe appends.
 type Candidate struct {
-	Type                     string `json:"type"`
-	Target                   string `json:"target"`
-	Content                  string `json:"content"`
+	Type                     string   `json:"type"`
+	Target                   string   `json:"target"`
+	Content                  string   `json:"content"`
 	EvidenceIDs              []string `json:"evidence_ids"`
-	Risk                     string `json:"risk"`
-	Action                   string `json:"action"`
-	RequiresUserConfirmation bool   `json:"requires_user_confirmation,omitempty"`
+	Risk                     string   `json:"risk"`
+	Action                   string   `json:"action"`
+	RequiresUserConfirmation bool     `json:"requires_user_confirmation,omitempty"`
 }
 
 // Evidence records a single source that may support a memory candidate.
@@ -69,12 +68,12 @@ type ProposedCandidate struct {
 
 // AuditRecord is appended to memory/audit.jsonl after every applied update.
 type AuditRecord struct {
-	Time          string `json:"time"`
-	Target        string `json:"target"`
-	Action        string `json:"action"`
-	SourceSession string `json:"source_session,omitempty"`
+	Time          string   `json:"time"`
+	Target        string   `json:"target"`
+	Action        string   `json:"action"`
+	SourceSession string   `json:"source_session,omitempty"`
 	EvidenceIDs   []string `json:"evidence_ids"`
-	Summary       string `json:"summary"`
+	Summary       string   `json:"summary"`
 }
 
 // NewManager creates a Manager rooted at workspace. Relative memory paths are resolved there.

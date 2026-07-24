@@ -415,7 +415,7 @@ func newToolEvidence(call llm.ToolCall, turn, index int, outcome Outcome) evolut
 		Turn:     turn,
 		CallID:   call.ID,
 		Verified: verified,
-		Summary:  toolEvidenceSummary(name, outcome, verified),
+		Summary:  toolEvidenceSummary(name, verified),
 	}
 }
 
@@ -434,7 +434,7 @@ func toolOutcomeVerified(name string, outcome Outcome) bool {
 	return ok && exitCode == 0
 }
 
-func toolEvidenceSummary(name string, outcome Outcome, verified bool) string {
+func toolEvidenceSummary(name string, verified bool) string {
 	if !verified {
 		return name + " did not produce verified evidence"
 	}

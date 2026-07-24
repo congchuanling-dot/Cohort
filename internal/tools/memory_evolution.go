@@ -39,15 +39,16 @@ func (t *StartLongTermUpdate) Run(ctx context.Context, call agent.ToolCallContex
 	}
 	return agent.Outcome{
 		Data: map[string]any{
-			"status":          agent.ToolStatusSuccess,
-			"created_files":   created,
-			"memory_root":     t.manager.MemoryRoot(),
-			"session_id":      call.SessionID,
-			"checkpoint":      call.WorkingCheckpoint.KeyInfo,
-			"related_sop":     call.WorkingCheckpoint.RelatedSOP,
-			"policy":          "No Execution, No Memory. Propose only verified, reusable facts. Do not store secrets, volatile state, guesses, failed hypotheses, raw logs, or one-off task progress.",
-			"allowed_targets": []string{evolution.GlobalMemoryPath, evolution.DefaultProjectMemoryPath},
-			"next_step":       "Call memory_propose_update with skip=true if nothing is worth keeping, otherwise provide candidates with type, target, content, evidence, risk, and action=append.",
+			"status":             agent.ToolStatusSuccess,
+			"created_files":      created,
+			"memory_root":        t.manager.MemoryRoot(),
+			"session_id":         call.SessionID,
+			"checkpoint":         call.WorkingCheckpoint.KeyInfo,
+			"related_sop":        call.WorkingCheckpoint.RelatedSOP,
+			"available_evidence": call.Evidence,
+			"policy":             "No Execution, No Memory. Propose only verified, reusable facts. Do not store secrets, volatile state, guesses, failed hypotheses, raw logs, or one-off task progress.",
+			"allowed_targets":    []string{evolution.GlobalMemoryPath, evolution.DefaultProjectMemoryPath},
+			"next_step":          "Call memory_propose_update with skip=true if nothing is worth keeping, otherwise provide candidates with type, target, content, evidence_ids, risk, and action=append. Each evidence_id must be listed in available_evidence and verified=true.",
 		},
 		NextPrompt: "\n[SYSTEM HINT] 长期记忆更新已启动。只有工具验证、已读文件、成功测试、浏览器确认、用户明确稳定偏好或已存在记忆支持的信息才能进入 memory_propose_update；普通过程日志请 skip。\n",
 	}, nil
@@ -73,14 +74,18 @@ func (t *MemoryProposeUpdate) Schema() llm.ToolSchema {
 			"reason": stringProp("Reason for skipping or proposing memory."),
 			"candidates": map[string]any{
 				"type":        "array",
-				"description": "Candidate memory updates. Each item needs type, target, content, evidence, risk, and action=append.",
+				"description": "Candidate memory updates. Each item needs type, target, content, evidence_ids, risk, and action=append.",
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
-						"type":                       stringProp("Memory type, for example project_lesson or user_preference."),
-						"target":                     stringProp("Allowed target: memory/global.md or memory/projects/default/project.md."),
-						"content":                    stringProp("Concise reusable memory content."),
-						"evidence":                   stringProp("Verified evidence source, for example code_run exit_code=0, file_read path, browser tool state, explicit user preference, or existing memory."),
+						"type":    stringProp("Memory type, for example project_lesson or user_preference."),
+						"target":  stringProp("Allowed target: memory/global.md or memory/projects/default/project.md."),
+						"content": stringProp("Concise reusable memory content."),
+						"evidence_ids": map[string]any{
+							"type":        "array",
+							"description": "Verified EvidenceLedger IDs from start_long_term_update, for example [\"tool:1:0\"]. Free-form evidence claims are not accepted.",
+							"items":       map[string]any{"type": "string"},
+						},
 						"risk":                       stringProp("Risk level: low, medium, or high."),
 						"action":                     stringProp("Only append is allowed in P0."),
 						"requires_user_confirmation": boolProp("True if this should not be applied automatically.", false),
@@ -117,7 +122,7 @@ func (t *MemoryProposeUpdate) Run(ctx context.Context, call agent.ToolCallContex
 	proposed := make([]evolution.ProposedCandidate, 0, len(candidates))
 	validCount := 0
 	for _, candidate := range candidates {
-		validation := t.manager.ValidateCandidate(candidate, call.History)
+		validation := t.manager.ValidateCandidate(candidate, call.Evidence)
 		if validation.Valid {
 			validCount++
 		}
@@ -157,10 +162,14 @@ func (t *MemoryApplyUpdate) Schema() llm.ToolSchema {
 				"type":        "object",
 				"description": "A candidate previously validated by memory_propose_update.",
 				"properties": map[string]any{
-					"type":                       stringProp("Memory type, for example project_lesson or user_preference."),
-					"target":                     stringProp("Allowed target: memory/global.md or memory/projects/default/project.md."),
-					"content":                    stringProp("Concise reusable memory content."),
-					"evidence":                   stringProp("Verified evidence source."),
+					"type":    stringProp("Memory type, for example project_lesson or user_preference."),
+					"target":  stringProp("Allowed target: memory/global.md or memory/projects/default/project.md."),
+					"content": stringProp("Concise reusable memory content."),
+					"evidence_ids": map[string]any{
+						"type":        "array",
+						"description": "Verified EvidenceLedger IDs returned by start_long_term_update.",
+						"items":       map[string]any{"type": "string"},
+					},
 					"risk":                       stringProp("Risk level: low, medium, or high."),
 					"action":                     stringProp("Only append is allowed in P0."),
 					"requires_user_confirmation": boolProp("True if this should not be applied automatically.", false),
@@ -183,7 +192,7 @@ func (t *MemoryApplyUpdate) Run(ctx context.Context, call agent.ToolCallContext)
 			NextPrompt: "\n",
 		}, nil
 	}
-	record, err := t.manager.ApplyCandidate(candidate, call.History, call.SessionID)
+	record, err := t.manager.ApplyCandidate(candidate, call.Evidence, call.SessionID)
 	if err != nil {
 		return agent.Outcome{
 			Data: agent.NewToolError(
@@ -228,11 +237,25 @@ func parseMemoryCandidate(value any) (evolution.Candidate, bool) {
 		Type:                     strings.TrimSpace(asString(object["type"])),
 		Target:                   strings.TrimSpace(asString(object["target"])),
 		Content:                  strings.TrimSpace(asString(object["content"])),
-		Evidence:                 strings.TrimSpace(asString(object["evidence"])),
+		EvidenceIDs:              parseStringSlice(object["evidence_ids"]),
 		Risk:                     strings.TrimSpace(asString(object["risk"])),
 		Action:                   strings.TrimSpace(asString(object["action"])),
 		RequiresUserConfirmation: asBool(object["requires_user_confirmation"], false),
 	}, true
+}
+
+func parseStringSlice(value any) []string {
+	values, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if item := strings.TrimSpace(asString(value)); item != "" {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 func formatMemoryToolError(code string, err error, hint string) agent.ToolErrorData {

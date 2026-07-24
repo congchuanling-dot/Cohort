@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"cohert/internal/llm"
 )
 
 func TestManagerEnsureStructureCreatesP0Files_BitsUT(t *testing.T) {
@@ -32,20 +30,27 @@ func TestManagerEnsureStructureCreatesP0Files_BitsUT(t *testing.T) {
 func TestManagerApplyCandidateAppendsAndAudits_BitsUT(t *testing.T) {
 	workspace := t.TempDir()
 	manager := NewManager(workspace)
-	history := []llm.Message{
-		{Role: llm.RoleUser, Content: "实现并测试长期记忆"},
-		{Role: llm.RoleTool, Name: "code_run", ToolCallID: "call-test", Content: `{"status":"success","stdout":"ok","exit_code":0,"timeout":false}`},
+	evidence := []Evidence{
+		{
+			ID:       "tool:1:0",
+			Source:   "tool",
+			ToolName: "code_run",
+			Turn:     1,
+			CallID:   "call-test",
+			Verified: true,
+			Summary:  "code_run completed with exit_code=0",
+		},
 	}
 	candidate := Candidate{
-		Type:     "project_lesson",
-		Target:   DefaultProjectMemoryPath,
-		Content:  "When adding controlled memory updates, keep writes append-only and record memory/audit.jsonl.",
-		Evidence: "code_run call-test exit_code=0",
-		Risk:     "low",
-		Action:   "append",
+		Type:        "project_lesson",
+		Target:      DefaultProjectMemoryPath,
+		Content:     "When adding controlled memory updates, keep writes append-only and record memory/audit.jsonl.",
+		EvidenceIDs: []string{"tool:1:0"},
+		Risk:        "low",
+		Action:      "append",
 	}
 
-	record, err := manager.ApplyCandidate(candidate, history, "session-1")
+	record, err := manager.ApplyCandidate(candidate, evidence, "session-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +62,7 @@ func TestManagerApplyCandidateAppendsAndAudits_BitsUT(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(projectData), candidate.Content) || !strings.Contains(string(projectData), candidate.Evidence) {
+	if !strings.Contains(string(projectData), candidate.Content) || !strings.Contains(string(projectData), "tool:1:0") {
 		t.Fatalf("project memory missing applied entry:\n%s", projectData)
 	}
 
@@ -77,11 +82,11 @@ func TestManagerApplyCandidateAppendsAndAudits_BitsUT(t *testing.T) {
 func TestManagerRejectsUnsafeMemoryCandidate_BitsUT(t *testing.T) {
 	manager := NewManager(t.TempDir())
 	validation := manager.ValidateCandidate(Candidate{
-		Type:     "project_lesson",
-		Target:   "internal/agent/runner.go",
-		Content:  "token=abc123",
-		Evidence: "model guessed this",
-		Action:   "overwrite",
+		Type:        "project_lesson",
+		Target:      "internal/agent/runner.go",
+		Content:     "token=abc123",
+		EvidenceIDs: []string{"tool:99:99"},
+		Action:      "overwrite",
 	}, nil)
 
 	if validation.Valid {
@@ -92,5 +97,29 @@ func TestManagerRejectsUnsafeMemoryCandidate_BitsUT(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("validation reasons missing %q: %#v", want, validation.Reasons)
 		}
+	}
+}
+
+func TestManagerRejectsUnverifiedEvidenceID_BitsUT(t *testing.T) {
+	manager := NewManager(t.TempDir())
+	validation := manager.ValidateCandidate(Candidate{
+		Type:        "project_lesson",
+		Target:      DefaultProjectMemoryPath,
+		Content:     "A failed command must not be retained as a verified project lesson.",
+		EvidenceIDs: []string{"tool:1:0"},
+		Action:      "append",
+	}, []Evidence{{
+		ID:       "tool:1:0",
+		Source:   "tool",
+		ToolName: "code_run",
+		Verified: false,
+		Summary:  "code_run did not produce verified evidence",
+	}})
+
+	if validation.Valid {
+		t.Fatal("expected unverified evidence to be rejected")
+	}
+	if got := strings.Join(validation.Reasons, "\n"); !strings.Contains(got, "missing or unverified") {
+		t.Fatalf("validation reasons = %#v", validation.Reasons)
 	}
 }

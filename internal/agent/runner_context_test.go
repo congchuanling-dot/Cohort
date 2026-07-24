@@ -48,6 +48,25 @@ func (t contextFakeTools) Run(ctx context.Context, call ToolCallContext) (Outcom
 	return Outcome{Data: t.result, NextPrompt: "\n"}, nil
 }
 
+type evidenceRecordingTools struct {
+	calls []ToolCallContext
+}
+
+func (t *evidenceRecordingTools) Schemas() []llm.ToolSchema {
+	return nil
+}
+
+func (t *evidenceRecordingTools) Run(ctx context.Context, call ToolCallContext) (Outcome, error) {
+	t.calls = append(t.calls, call)
+	if call.Name == "code_run" {
+		return Outcome{Data: map[string]any{
+			"status":    ToolStatusSuccess,
+			"exit_code": 0,
+		}}, nil
+	}
+	return Outcome{Data: map[string]any{"status": ToolStatusSuccess}}, nil
+}
+
 func TestRunnerInjectsWorkingCheckpoint_BitsUT(t *testing.T) {
 	client := &contextRecordingClient{
 		responses: []llm.Response{
@@ -219,6 +238,54 @@ func TestRunnerPromptsLongTermMemoryWhenUserRequestsIt_BitsUT(t *testing.T) {
 	last := client.requests[0].Messages[len(client.requests[0].Messages)-1]
 	if !strings.Contains(last.Content, "[LONG-TERM MEMORY HINT]") || !strings.Contains(last.Content, "用户明确要求保留经验") {
 		t.Fatalf("long-term memory hint = %q", last.Content)
+	}
+}
+
+func TestRunnerPassesVerifiedEvidenceLedgerToMemoryTools_BitsUT(t *testing.T) {
+	client := &contextRecordingClient{
+		responses: []llm.Response{
+			{ToolCalls: []llm.ToolCall{{
+				ID:   "call-run",
+				Type: "function",
+				Function: llm.ToolFunction{
+					Name:      "code_run",
+					Arguments: `{"script":"go test ./..."}`,
+				},
+			}}},
+			{ToolCalls: []llm.ToolCall{{
+				ID:   "call-memory",
+				Type: "function",
+				Function: llm.ToolFunction{
+					Name:      "start_long_term_update",
+					Arguments: `{"reason":"tests passed"}`,
+				},
+			}}},
+			{Content: "done"},
+		},
+	}
+	tools := &evidenceRecordingTools{}
+	runner := &Runner{Client: client, Tools: tools, MaxTurns: 3}
+
+	result, err := runner.Run(context.Background(), "运行测试", NewConsoleSink(&bytes.Buffer{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != RunStatusDone {
+		t.Fatalf("status = %q, want done", result.Status)
+	}
+	if len(tools.calls) != 2 {
+		t.Fatalf("tool calls = %d, want 2", len(tools.calls))
+	}
+	evidence := tools.calls[1].Evidence
+	if len(evidence) != 2 {
+		t.Fatalf("evidence entries = %d, want user + code_run: %#v", len(evidence), evidence)
+	}
+	codeRunEvidence := evidence[1]
+	if codeRunEvidence.ID != "tool:1:0" || codeRunEvidence.ToolName != "code_run" || !codeRunEvidence.Verified {
+		t.Fatalf("code_run evidence = %#v", codeRunEvidence)
+	}
+	if codeRunEvidence.Summary != "code_run completed with exit_code=0" {
+		t.Fatalf("code_run evidence summary = %q", codeRunEvidence.Summary)
 	}
 }
 

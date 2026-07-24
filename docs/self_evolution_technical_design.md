@@ -349,7 +349,7 @@ start_long_term_update
 3. 每条候选必须包含：
    - 内容
    - 类型
-   - 来源证据
+   - 来源证据 ID
    - 建议落点
    - 是否需要用户确认
 4. 没有值得沉淀的信息时明确返回 skip。
@@ -361,7 +361,7 @@ start_long_term_update
 
 - type: project_lesson
 - target: memory/projects/current/lessons.md
-- evidence: history.jsonl turn 8, tool code_run exit_code=0
+- evidence_ids: [tool:8:0]
 - content: ...
 - risk: low
 - action: append
@@ -370,6 +370,8 @@ start_long_term_update
 ### 5.3 验证：Evidence Validator
 
 写入前必须检查来源。
+
+Runner 在工具调用完成后维护当前任务的 `EvidenceLedger`。每条记录包含稳定 ID、工具名、turn、tool call ID、是否已验证和安全摘要；不保存原始命令输出、文件全文或浏览器正文。候选只能引用 ledger 中 `verified=true` 的 `evidence_ids`，不能用自由文本声称“已经验证”。
 
 允许来源：
 
@@ -411,7 +413,7 @@ memory/audit.jsonl
   "target": "memory/projects/current/lessons.md",
   "action": "append",
   "source_session": "...",
-  "evidence": "...",
+  "evidence_ids": ["tool:8:0"],
   "summary": "..."
 }
 ```
@@ -467,7 +469,7 @@ Schema：
       "type": "project_lesson",
       "target": "memory/projects/current/lessons.md",
       "content": "...",
-      "evidence": "...",
+      "evidence_ids": ["tool:8:0"],
       "risk": "low"
     }
   ]
