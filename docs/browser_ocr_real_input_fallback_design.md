@@ -678,6 +678,6 @@ internal/app/config.go
 
 ## 最终建议
 
-先做 `browser_dom_summary + browser_ocr`，不急着直接做系统级鼠标键盘。Cohert 当前已有 DOM、CDP、等待、截图闭环，DOM 摘要能减少过早截图，OCR 能补上“看不见文字”的缺口，风险最低。
+`browser_dom_summary` 已作为前置增强落地。下一步先补只读 `browser_ocr`，不急着直接做系统级鼠标键盘。Cohert 当前已有 DOM、CDP、等待、截图闭环，DOM 摘要能减少过早截图，OCR 能补上“看不见文字”的缺口，风险最低。
 
 系统级真实输入应作为第二阶段，并且默认关闭。它的价值在 Chrome 原生 UI、文件选择器、扩展弹窗和少数 CDP 被拒绝的页面，但一旦误用会破坏普通网页自动化的可控性。

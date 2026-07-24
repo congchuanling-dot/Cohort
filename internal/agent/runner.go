@@ -573,6 +573,7 @@ func routeSOPs(input string) []string {
 		{path: "sops/code_run_sop.md", keywords: []string{"code_run", "命令", "脚本", "后台", "服务", "端口", "进程", "timeout", "server", "python", "shell"}},
 		{path: "sops/file_edit_sop.md", keywords: []string{"修改", "编辑", "写文件", "补丁", "patch", "实现", "开发", "代码", "文档", "删除文件"}},
 		{path: "sops/context_sop.md", keywords: []string{"context", "上下文", "compact", "token", "tool_calls", "tool result", "历史", "压缩"}},
+		{path: "sops/memory_sop.md", keywords: []string{"memory", "记忆", "长期记忆", "项目记忆", "经验", "沉淀", "sop candidate", "skill", "技能", "能力等级", "start_long_term_update", "memory_propose_update", "memory_apply_update"}},
 		{path: "sops/testing_sop.md", keywords: []string{"测试", "验证", "go test", "node --check", "检查", "验收"}},
 	}
 	var matches []string

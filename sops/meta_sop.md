@@ -12,10 +12,11 @@
 ```text
 1. 先看 sops/index.md 判断相关 SOP
 2. 命中场景后 file_read 对应 SOP
-3. 提取和当前任务直接相关的关键约束
+3. 只提取和当前任务直接相关的关键约束
 4. 调用 update_working_checkpoint
-5. 按 checkpoint 执行
-6. 多次失败或策略变化时重读 related_sop
+5. 按 checkpoint 执行，并在关键步骤后验证
+6. 多次失败、策略变化或上下文变长时重读 related_sop
+7. 任务结束前按 memory_sop 判断是否需要长期记忆沉淀
 ```
 
 ## Checkpoint 固定格式
@@ -32,11 +33,31 @@
 
 `related_sop` 写相关 SOP 路径，可以多个，用逗号分隔。
 
+写法要求：
+
+- 每行只写决策必需信息，不复制 SOP 原文。
+- `[当前进度]` 只写已验证事实，不写计划或猜测。
+- `[下一步]` 必须是一个可执行动作，不写“继续处理”这类空话。
+- 如果任务涉及长期记忆、SOP candidate 或 Skill 晋级，`related_sop` 必须包含 `sops/memory_sop.md`。
+
 ## 多个 SOP 同时命中
 
 - 先读最直接决定行动顺序的 SOP。
 - 如果涉及文件修改和测试，通常还要读 `file_edit_sop` 和 `testing_sop`。
+- 如果涉及经验沉淀、项目记忆、SOP candidate 或能力等级，还要读 `memory_sop`。
 - 不要把多个 SOP 全文复制进回答；只把关键约束压缩进 checkpoint。
+
+推荐顺序：
+
+```text
+行动类 SOP -> file_edit/context/code_run/browser -> testing -> memory
+```
+
+说明：
+
+- 行动前先解决“怎么做”。
+- 改动后再解决“怎么验”。
+- 收尾时最后判断“什么值得沉淀”。
 
 ## 什么时候不要读 SOP
 
@@ -49,3 +70,10 @@
 - 第一次失败：读错误，检查参数。
 - 第二次失败：补环境探测。
 - 第三次失败：重读 `related_sop`，更新 checkpoint，换策略或问用户。
+
+## 收尾标准
+
+- 用户请求的产物已经交付或明确阻塞。
+- 必要验证已执行，或已说明不能验证的原因和剩余风险。
+- 如果有长期记忆信号，已经按 `memory_sop` 调用长期记忆流程或明确 skip。
+- 最终答复只总结结果、关键改动和验证结论，不复述 SOP。

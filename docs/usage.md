@@ -177,6 +177,27 @@ file_write
 file_patch
 code_run
 ask_user
+update_working_checkpoint
+start_long_term_update
+memory_propose_update
+memory_apply_update
+browser_tabs
+browser_open
+browser_scan
+browser_dom_summary
+browser_execute_js
+browser_click
+browser_click_element
+browser_type
+browser_type_element
+browser_press_key
+browser_snapshot
+browser_wait_for_load
+browser_wait_for_selector
+browser_wait_for_text
+browser_wait_for_url
+browser_wait_for_stable
+browser_screenshot
 ```
 
 这个命令不需要 API Key。
@@ -554,10 +575,10 @@ temp/model_responses/context.log
 temp/sessions/<session_id>/compact.bak.md
 ```
 
-只要当前 session 目录下存在 `compact.md`，Cohert 会在每次请求模型前自动读取并注入。注入顺序固定为：
+只要当前 session 目录下存在 `compact.md`，Cohert 会在每次请求模型前自动读取并注入。长期记忆开启后，Context Manager 会先注入 `memory/index.md` 指针和命中的相关 entry。整体顺序固定为：
 
 ```text
-memory.md -> compact.md -> 最近对话消息
+memory/index.md -> relevant long-term memory -> memory.md -> compact.md -> 最近对话消息
 ```
 
 ### 9.3 SOP Candidate Promotion
@@ -567,6 +588,14 @@ memory.md -> compact.md -> 最近对话消息
 ```text
 memory/reflection/sop_candidates.md
 ```
+
+能力晋级链路：
+
+```text
+工具能力 -> SOP 约束 -> 工作记忆 -> 长期记忆 entry -> SOP candidate -> 正式 SOP / Skill
+```
+
+只有经过工具验证、触发词清晰、推荐步骤可复跑的稳定流程，才应该进入 SOP candidate。一次性事实或本轮业务内容应该在 `memory_propose_update` 中 `skip=true`。
 
 交互模式内先列出候选：
 

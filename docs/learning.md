@@ -1,6 +1,6 @@
 # Cohert 学习文档
 
-这份文档用于快速理解当前 Cohert 项目。Cohert 是一个用 Go 编写的命令行智能体运行时，当前目标是先跑通本地命令行 Agent 闭环，后续再加 UI、浏览器控制、记忆系统和插件。
+这份文档用于快速理解当前 Cohert 项目。Cohert 是一个用 Go 编写的命令行智能体运行时，当前已经具备命令行 Agent 闭环、浏览器基础自动化、上下文压缩、SOP 路由和受控长期记忆；UI、全局安装、插件和调度类能力仍然后置。
 
 ## 1. 项目定位
 
@@ -79,13 +79,12 @@ Config
   -> Agent Runner
 ```
 
-当前注册了 5 个工具：
+当前工具按能力分组：
 
-- `file_read`
-- `file_write`
-- `file_patch`
-- `code_run`
-- `ask_user`
+- 文件与命令：`file_read`、`file_write`、`file_patch`、`code_run`、`ask_user`
+- SOP 工作记忆：`update_working_checkpoint`
+- 长期记忆：`start_long_term_update`、`memory_propose_update`、`memory_apply_update`
+- 浏览器：`browser_open`、`browser_scan`、`browser_dom_summary`、`browser_snapshot`、点击/输入/按键、wait 和 screenshot 系列工具
 
 ### 3.3 再看配置加载
 
@@ -222,6 +221,30 @@ type Tool interface {
 
 当模型需要用户补充信息时，在命令行阻塞询问。
 
+### update_working_checkpoint
+
+文件：[internal/tools/working_checkpoint.go](../internal/tools/working_checkpoint.go)
+
+保存当前任务的短期约束、进度、下一步和 `related_sop`。读完 SOP、切换子任务或多次失败后使用。
+
+### memory evolution
+
+文件：[internal/tools/memory_evolution.go](../internal/tools/memory_evolution.go)
+
+长期记忆采用三步受控流程：
+
+```text
+start_long_term_update -> memory_propose_update -> memory_apply_update
+```
+
+只允许写入经过证据验证、未来可复用的经验。稳定流程先进入 `memory/reflection/sop_candidates.md`，再经人工确认升级为正式 SOP。
+
+### browser tools
+
+文件：[internal/tools/browser_tools.go](../internal/tools/browser_tools.go)
+
+浏览器工具通过本地 Chrome bridge 工作。普通网页读取优先 `browser_scan`，结构化 DOM 不足时用 `browser_dom_summary`，交互前用 `browser_snapshot` 找元素，动作后用 wait 系列工具验证页面状态。
+
 ## 5. 数据流
 
 一次典型工具调用的数据流：
@@ -239,14 +262,12 @@ type Tool interface {
 
 ## 6. 当前边界
 
-当前 MVP 故意没做这些能力：
+当前仍然后置的能力：
 
 - UI / TUI / Web / Tauri。
-- 浏览器控制。
 - 全局安装和任意路径启动。
 - Claude 原生协议。
 - 多模型 fallback。
-- 长期记忆系统。
 - scheduler / goal mode。
 - 插件系统。
 

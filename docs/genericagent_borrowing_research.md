@@ -56,12 +56,43 @@ file_read / file_write / file_patch / code_run / ask_user
 update_working_checkpoint
 start_long_term_update / memory_propose_update / memory_apply_update
 browser_tabs / browser_open / browser_scan / browser_execute_js
+browser_dom_summary
 browser_click / browser_click_element / browser_type / browser_type_element
 browser_press_key / browser_snapshot
 browser_wait_for_* / browser_screenshot
 ```
 
 因此 Cohert 不需要照搬 GA 的工具数量，而应借鉴 GA 的“最小稳定面 + 用 SOP/helper 扩展复杂能力”的方法。
+
+## SOP / Skill 体系对齐结论
+
+GA 的 Skill 不是独立插件市场式对象，而是由几层资产共同形成：
+
+```text
+原子工具
+  -> 工作 checkpoint
+  -> memory L1/L2/L3/L4
+  -> 专项 SOP / helper 脚本
+  -> 反射和历史挖掘继续生成新候选
+```
+
+Cohert 当前更适合把这套体系显式化为能力等级：
+
+| 等级 | Cohert 资产 | 对齐 GA 能力 | 说明 |
+| --- | --- | --- | --- |
+| C0 | Tool Registry | 9 个原子工具 | 文件、命令、浏览器、记忆等执行基座 |
+| C1 | `sops/*.md` | L3 SOP | 场景化约束，全文按需读 |
+| C2 | `update_working_checkpoint` | working checkpoint | 当前任务约束和进度 |
+| C3 | `memory/global.md` / project memory | L2/L3 经验库 | 经过证据验证的长期 entry |
+| C4 | `memory/reflection/sop_candidates.md` | 反射生成 Skill 候选 | 稳定流程先作为候选沉淀 |
+| C5 | reviewed `sops/*.md` + `sops/index.md` | 可主动路由 Skill | 人工确认后进入主动索引 |
+
+关键取舍：
+
+- Cohert 不让每次任务自动生成正式 Skill，而是先生成 SOP candidate。
+- `sops/index.md` 更新需要确认，避免错误经验变成每轮路由规则。
+- SOP 文档强调触发场景、禁止事项和验收标准，避免变成长教程。
+- `memory_sop.md` 作为长期记忆和 Skill 晋级的统一入口。
 
 ## 1. Agent Loop
 
@@ -711,7 +742,7 @@ Cohert 暂无后台反射或定时任务。
 3. Runner 事件接口 + JSONL `run.log`。
 4. `doctor` 命令：API key、模型连通、workspace、browser bridge、Python helper 依赖。
 5. `file_read` 候选路径建议。
-6. `browser_dom_summary + browser_ocr`：先增强 DOM 读法，再补只读 OCR，不做 OS 输入。
+6. `browser_ocr`：`browser_dom_summary` 已落地，下一步只补只读 OCR，不做 OS 输入。
 
 ### P1：工程能力增强
 
@@ -764,4 +795,4 @@ Cohert 的路线不应是“把 GA 翻译成 Go”，而是：
 
 1. 补 `NoToolPolicy + 文本工具兜底 + run.log`，提升 Agent Loop 韧性。
 2. 做 `Project Mode + 轻量 Plan Mode`，提升长任务和跨会话连续性。
-3. 按独立方案实现 `browser_dom_summary + browser_ocr`，再谨慎推进 OS 真实输入 fallback。
+3. 在已落地 `browser_dom_summary` 的基础上实现 `browser_ocr`，再谨慎推进 OS 真实输入 fallback。

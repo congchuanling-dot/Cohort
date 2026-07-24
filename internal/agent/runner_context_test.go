@@ -133,6 +133,13 @@ func TestRunnerAddsSOPRouteHint_BitsUT(t *testing.T) {
 	}
 }
 
+func TestRunnerRoutesMemorySOP_BitsUT(t *testing.T) {
+	matches := routeSOPs("请优化长期记忆和 skill 能力等级，处理 SOP candidate 晋级")
+	if len(matches) == 0 || matches[0] != "sops/memory_sop.md" {
+		t.Fatalf("matches = %#v, want memory_sop first", matches)
+	}
+}
+
 func TestRunnerRemindsCheckpointAfterSOPRead_BitsUT(t *testing.T) {
 	client := &contextRecordingClient{
 		responses: []llm.Response{

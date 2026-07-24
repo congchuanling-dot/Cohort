@@ -181,6 +181,7 @@ memory_apply_update
 browser_tabs
 browser_open
 browser_scan
+browser_dom_summary
 browser_execute_js
 browser_click
 browser_click_element
@@ -312,8 +313,22 @@ sops/browser_sop.md
 sops/code_run_sop.md
 sops/file_edit_sop.md
 sops/context_sop.md
+sops/memory_sop.md
 sops/testing_sop.md
 ```
+
+SOP and skill assets follow a small capability ladder:
+
+```text
+C0 atomic tools
+  -> C1 SOP constraints
+  -> C2 working checkpoint
+  -> C3 verified long-term memory entry
+  -> C4 SOP candidate
+  -> C5 reviewed SOP / Skill in sops/index.md
+```
+
+This keeps reusable workflows discoverable without promoting every one-off task into an active rule.
 
 ## Memory
 
@@ -367,7 +382,15 @@ Stable workflows can be proposed as SOP candidates:
 memory/reflection/sop_candidates.md
 ```
 
-They are not automatically promoted into active SOP files. Promotion remains a reviewed step.
+They are not automatically promoted into active SOP files. Promotion remains a reviewed step:
+
+```text
+/sop candidates
+/sop promote <candidate_id>
+/sop promote <candidate_id> --confirm-index
+```
+
+The default promotion writes the reviewed SOP file only. Updating [`sops/index.md`](sops/index.md) requires explicit confirmation so new skills do not enter active routing accidentally.
 
 ## Configuration
 

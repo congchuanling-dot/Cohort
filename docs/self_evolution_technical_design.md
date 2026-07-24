@@ -195,6 +195,26 @@ Runner
 | `MemoryWriter` | 执行最小化写入，优先 append 或小 patch |
 | `ReflectScheduler` | 后台定时触发归档、整理和建议生成 |
 
+### 3.1 能力等级
+
+Cohert 不把所有经验都直接升级为 Skill，而是分级晋级：
+
+| 等级 | 资产 | 说明 | 自动化边界 |
+| --- | --- | --- | --- |
+| C0 | 原子工具 | Tool Registry 中的文件、命令、浏览器、记忆工具 | 代码注册和测试控制 |
+| C1 | SOP 约束 | `sops/*.md` 中的场景流程和禁区 | 系统只路由，不全文常驻 |
+| C2 | 工作记忆 | `update_working_checkpoint` 保存当前任务状态 | 任务内有效，不进入长期记忆 |
+| C3 | 长期记忆 entry | `memory/global.md` 和项目记忆中的结构化经验 | 允许低风险 verified append |
+| C4 | SOP candidate | `memory/reflection/sop_candidates.md` 中的候选流程 | 可自动追加，不主动路由 |
+| C5 | 正式 SOP / Skill | 经审查写入 `sops/*.md` 并可进入索引 | 需要人工确认，尤其是索引更新 |
+
+晋级规则：
+
+- C2 -> C3：必须有 verified evidence，且未来能减少重复摸索。
+- C3 -> C4：必须是可重复执行的稳定流程，而不是单条事实。
+- C4 -> C5：必须有清晰触发词、推荐步骤、禁止事项和验收标准；更新 `sops/index.md` 需要显式确认。
+- 任一级都不能保存 secret、易变状态、失败猜测或本轮业务正文。
+
 ## 4. 记忆分层设计
 
 建议 Cohert 使用四层记忆结构。

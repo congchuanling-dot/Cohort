@@ -530,7 +530,7 @@ go run . config
 
 - `go test ./...` 通过。
 - `go build -o cohert ./cmd/cohert` 通过。
-- `go run . tools` 输出 5 个工具。
+- `go run . tools` 输出文件、命令、浏览器、工作记忆和长期记忆工具。
 - `go run . config` 能识别 API Key。
 - `go run . ask "用一句话介绍你自己"` 能得到模型回答。
 - `go run . ask "读取 README.md 前 40 行并总结"` 能触发 `file_read`。
