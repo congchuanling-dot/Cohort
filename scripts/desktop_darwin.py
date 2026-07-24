@@ -314,11 +314,13 @@ def load_ax():
             AXUIElementCopyActionNames,
             AXUIElementCopyAttributeValue,
             AXUIElementCreateApplication,
+            AXUIElementPerformAction,
             AXValueGetValue,
             kAXChildrenAttribute,
             kAXDescriptionAttribute,
             kAXEnabledAttribute,
             kAXPositionAttribute,
+            kAXPressAction,
             kAXRoleAttribute,
             kAXSizeAttribute,
             kAXTitleAttribute,
@@ -338,6 +340,7 @@ def load_ax():
         "application": AXUIElementCreateApplication,
         "attribute": AXUIElementCopyAttributeValue,
         "actions": AXUIElementCopyActionNames,
+        "perform_action": AXUIElementPerformAction,
         "value": AXValueGetValue,
         "children": kAXChildrenAttribute,
         "windows": kAXWindowsAttribute,
@@ -347,6 +350,7 @@ def load_ax():
         "value_attribute": kAXValueAttribute,
         "enabled": kAXEnabledAttribute,
         "position": kAXPositionAttribute,
+        "press_action": kAXPressAction,
         "size": kAXSizeAttribute,
         "point_type": kAXValueCGPointType,
         "size_type": kAXValueCGSizeType,
@@ -395,6 +399,103 @@ def ax_bounds(api, element, scale):
         "width": logical_to_physical(width, scale),
         "height": logical_to_physical(height, scale),
     }
+
+
+def resolve_ax_node(api, pid, node_id):
+    parts = str(node_id or "").split("/")
+    if not parts or parts[0] != "ax:0":
+        raise DesktopError(
+            "desktop_ax_node_invalid",
+            f"invalid AX node_id: {node_id!r}",
+            "请使用当前 desktop_ax_snapshot 返回的 ax:0/... 节点 ID。",
+        )
+    element = api["application"](pid)
+    for depth, part in enumerate(parts[1:]):
+        if not part.isdigit():
+            raise DesktopError(
+                "desktop_ax_node_invalid",
+                f"invalid AX node path segment: {part!r}",
+                "请使用当前 desktop_ax_snapshot 返回的 ax:0/... 节点 ID。",
+            )
+        children = ax_attr(api, element, api["children"]) or []
+        if depth == 0 and not children:
+            children = ax_attr(api, element, api["windows"]) or []
+        index = int(part)
+        if index >= len(children):
+            raise DesktopError(
+                "desktop_ax_node_stale",
+                f"AX node {node_id!r} no longer exists",
+                "界面可能已变化；请重新调用 desktop_ax_snapshot 后再决定是否操作。",
+            )
+        element = children[index]
+    return element
+
+
+def ax_node_metadata(api, element, scale):
+    enabled = ax_attr(api, element, api["enabled"])
+    return {
+        "role": str(ax_attr(api, element, api["role"]) or ""),
+        "title": str(ax_attr(api, element, api["title"]) or ""),
+        "description": str(ax_attr(api, element, api["description"]) or ""),
+        "enabled": bool(enabled) if isinstance(enabled, (bool, int)) else None,
+        "bounds": ax_bounds(api, element, scale),
+        "actions": ax_actions(api, element),
+    }
+
+
+def ax_press(payload):
+    quartz, _, _ = require_macos_modules()
+    api = load_ax()
+    if not bool(api["trusted"]()):
+        raise DesktopError(
+            "desktop_permission_denied",
+            "Accessibility permission is not granted",
+            "系统设置 -> 隐私与安全性 -> 辅助功能：允许运行 Cohert 的终端或 IDE。",
+        )
+    pid = int(payload.get("pid") or 0)
+    if pid <= 0:
+        raise DesktopError(
+            "desktop_bad_pid",
+            "desktop_ax_press requires a positive pid",
+            "请先通过 desktop_windows 获取目标窗口对应的 pid。",
+        )
+    require_active_pid(pid)
+    node_id = str(payload.get("node_id") or "").strip()
+    element = resolve_ax_node(api, pid, node_id)
+    metadata = ax_node_metadata(api, element, display_scale(quartz))
+    expected = {
+        "role": str(payload.get("expected_role") or ""),
+        "title": str(payload.get("expected_title") or ""),
+        "description": str(payload.get("expected_description") or ""),
+    }
+    for field, expected_value in expected.items():
+        if metadata[field] != expected_value:
+            raise DesktopError(
+                "desktop_ax_node_stale",
+                f"AX node {node_id!r} no longer matches expected {field}",
+                "界面可能已变化；请重新调用 desktop_ax_snapshot，确认节点语义后再操作。",
+            )
+    if metadata["enabled"] is False:
+        raise DesktopError(
+            "desktop_ax_node_disabled",
+            f"AX node {node_id!r} is disabled",
+            "请重新读取 AX 快照，选择 enabled=true 的可操作节点。",
+        )
+    if "AXPress" not in metadata["actions"]:
+        raise DesktopError(
+            "desktop_ax_press_unsupported",
+            f"AX node {node_id!r} does not support AXPress",
+            "当前 M2.1 不会降级为坐标点击；请选择支持 AXPress 的节点或等待 desktop_click。",
+        )
+    error = api["perform_action"](element, api["press_action"])
+    if int(error) != 0:
+        raise DesktopError(
+            "desktop_ax_press_failed",
+            f"AXPress failed for node {node_id!r}: AXError={int(error)}",
+            "请重新读取 AX 快照确认目标状态；不要盲目重复同一动作。",
+        )
+    time.sleep(0.25)
+    return {"pid": pid, "node_id": node_id, "action": "AXPress", "performed": True}
 
 
 def ax_snapshot(payload):
@@ -492,6 +593,7 @@ def dispatch(command, payload):
         "activate": activate,
         "screenshot": screenshot,
         "ax_snapshot": ax_snapshot,
+        "ax_press": ax_press,
     }
     handler = commands.get(command)
     if handler is None:

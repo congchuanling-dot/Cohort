@@ -205,6 +205,7 @@ desktop_activate
 desktop_screenshot
 desktop_ax_snapshot
 desktop_ocr
+desktop_ax_press
 ```
 
 这个命令不需要 API Key。

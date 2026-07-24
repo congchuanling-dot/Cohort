@@ -102,11 +102,29 @@ type AXSnapshotResult struct {
 	Truncated bool   `json:"truncated"`
 }
 
-// Driver 抽象平台相关的桌面感知能力。M1 只包含只读感知和前台激活。
+// AXPressRequest 是一次受控 AXPress 动作。Expected 字段用于 helper
+// 在执行前再次确认同一路径仍指向模型刚刚检查过的语义控件。
+type AXPressRequest struct {
+	PID                 int    `json:"pid"`
+	NodeID              string `json:"node_id"`
+	ExpectedRole        string `json:"expected_role"`
+	ExpectedTitle       string `json:"expected_title"`
+	ExpectedDescription string `json:"expected_description"`
+}
+
+type AXPressResult struct {
+	PID       int    `json:"pid"`
+	NodeID    string `json:"node_id"`
+	Action    string `json:"action"`
+	Performed bool   `json:"performed"`
+}
+
+// Driver 抽象平台相关的桌面感知和受限 AX 语义动作能力。
 type Driver interface {
 	Permissions(ctx context.Context) (PermissionsResult, error)
 	ListWindows(ctx context.Context, req ListWindowsRequest) (ListWindowsResult, error)
 	Activate(ctx context.Context, req ActivateRequest) (ActivateResult, error)
 	Screenshot(ctx context.Context, req ScreenshotRequest) (ScreenshotResult, error)
 	AXSnapshot(ctx context.Context, req AXSnapshotRequest) (AXSnapshotResult, error)
+	AXPress(ctx context.Context, req AXPressRequest) (AXPressResult, error)
 }

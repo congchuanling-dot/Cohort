@@ -458,7 +458,7 @@ go run . ask "读取 README.md 前 20 行并总结"
 - 改 `code_run`：跑 4.5，并执行 `go test ./internal/tools -run 'TestCodeRun|TestNormalize' -count=1`。
 - 改 `ask_user`：跑 4.6。
 - 改 `browser_ocr`：执行 `python3 -m py_compile scripts/browser_ocr.py`，再执行 `go test ./internal/vision ./internal/tools -run 'Test.*OCR' -count=1`。
-- 改桌面 M1：执行 `python3 -m py_compile scripts/desktop_darwin.py`，再执行 `go test ./internal/desktop ./internal/tools -run 'Test.*Desktop' -count=1`。macOS 手工验收先调用 `desktop_permissions`，确认权限后再枚举窗口、激活、截图和 AX 快照。
+- 改桌面 M1/M2.1：执行 `python3 -m py_compile scripts/desktop_darwin.py`，再执行 `go test ./internal/desktop ./internal/tools -run 'Test.*Desktop|TestConfirmation' -count=1`。macOS 手工验收先调用 `desktop_permissions`，确认权限后再枚举窗口、激活和 AX 快照；`desktop_ax_press` 只能选取无副作用的 R1 节点，确认动作前后 AX 快照存在可观察变化。
 - 改 session：跑 6.1、6.2，并执行 `go test ./internal/session ./internal/agent -run 'TestStoreListAndLoadHistory|TestRunnerResumeSessionContinuesExistingHistory' -count=1`。
 
 ## 9. 常见问题

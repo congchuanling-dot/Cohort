@@ -465,24 +465,29 @@ Python helper 需要支持：
 
 ### desktop_ax_press
 
-M2 阶段工具。用途：对 AX 节点执行语义点击。
+M2.1 已实现。用途：对当前 AX 节点执行受控语义点击。
 
 参数：
 
 ```json
 {
   "pid": 888,
-  "node_id": "ax:42",
-  "confirm": true
+  "node_id": "ax:0/3/2",
+  "expected_role": "AXButton",
+  "expected_title": "展开",
+  "expected_description": "",
+  "reason": "展开左侧导航栏",
+  "confirmation_token": "R2 时由 ask_user 返回"
 }
 ```
 
 要求：
 
 - 执行前验证 PID 仍为前台应用。
-- 优先 `AXPress`。
-- 如果 AXPress 不可用，需要显式降级到物理点击，并返回降级原因。
-- 对外部副作用动作必须先 `ask_user`。
+- 先在 Go 层重新读取 AX 快照，验证节点路径、role、title、description、enabled 和 `AXPress` action；helper 在执行前再做一次相同验证。
+- R1 可恢复动作直接执行；R2 外部副作用必须消费 `ask_user` 为同一 `pid + node_id + reason` 签发的一次性 `confirmation_token`；R3 高风险动作拒绝自动执行。
+- 动作后强制重新读取 AX 快照。树或目标节点状态没有可观察变化时返回 `desktop_ax_press_unverified`，不能盲目重试。
+- AXPress 不可用时不降级为物理点击；`desktop_click` 仍等待独立坐标验证方案。
 
 ### desktop_click
 
@@ -625,12 +630,12 @@ M1 验收：
 - 能对窗口截图执行 OCR，并返回截图局部 bbox。
 - 权限缺失时返回可执行的人类指引。
 
-M2 验收：
+M2.1 验收：
 
-- 能对 AX 节点执行 `AXPress`。
-- 能在用户确认后执行一次受控物理点击。
-- 点击前验证目标 PID，点击后验证截图或状态变化。
-- 对发送、提交、删除等动作必须阻塞确认。
+- 能对当前语义匹配、enabled 且支持 `AXPress` 的节点执行 `AXPress`。
+- R2 操作只能使用 `ask_user` 为同一动作签发的一次性确认令牌。
+- R3 操作拒绝自动执行。
+- AXPress 前后有 AX 快照对比；无可观察变化时必须停止。
 
 ## 里程碑
 
@@ -654,14 +659,16 @@ M2 验收：
 
 ### M2：受限真实输入
 
+状态：M2.1 已完成 `desktop_ax_press`、风险确认和 AX 结果验证；坐标点击与键盘输入尚未开始。
+
 交付：
 
-- `desktop_ax_press`
+- `desktop_ax_press`（已完成）
 - `desktop_click`
 - `desktop_press_key`
 - `desktop_type_text`
-- 风险分类和 `ask_user` 确认策略。
-- 动作后验证机制。
+- 风险分类和 `ask_user` 确认策略。（AXPress 已完成）
+- 动作后验证机制。（AXPress 已完成）
 
 ### M3：视觉控件候选
 

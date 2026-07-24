@@ -76,6 +76,11 @@ func (d *PythonDriver) AXSnapshot(ctx context.Context, req AXSnapshotRequest) (A
 	return result, d.call(ctx, "ax_snapshot", req, &result)
 }
 
+func (d *PythonDriver) AXPress(ctx context.Context, req AXPressRequest) (AXPressResult, error) {
+	var result AXPressResult
+	return result, d.call(ctx, "ax_press", req, &result)
+}
+
 type helperEnvelope struct {
 	Status  string          `json:"status"`
 	Code    string          `json:"code"`

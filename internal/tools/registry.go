@@ -80,6 +80,8 @@ const (
 	ToolNameDesktopAXSnapshot = "desktop_ax_snapshot"
 	// ToolNameDesktopOCR 对桌面截图执行只读 OCR。
 	ToolNameDesktopOCR = "desktop_ocr"
+	// ToolNameDesktopAXPress 对已验证的 AX 节点执行受控语义点击。
+	ToolNameDesktopAXPress = "desktop_ax_press"
 )
 
 // Tool 是所有本地工具必须实现的接口。
@@ -139,6 +141,7 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameDesktopScreenshot,
 		ToolNameDesktopAXSnapshot,
 		ToolNameDesktopOCR,
+		ToolNameDesktopAXPress,
 		ToolNameUpdateWorkingCheckpoint,
 		ToolNameStartLongTermUpdate,
 		ToolNameMemoryProposeUpdate,

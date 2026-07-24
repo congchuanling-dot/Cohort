@@ -202,6 +202,7 @@ desktop_activate
 desktop_screenshot
 desktop_ax_snapshot
 desktop_ocr
+desktop_ax_press
 ```
 
 </details>
@@ -238,7 +239,7 @@ If browser tools return `browser_not_connected`, load the Chrome extension from:
 assert/cohert_browser_bridge
 ```
 
-## Desktop Computer Use (M1)
+## Desktop Computer Use (M1 + M2.1)
 
 Cohert now provides a macOS-only, read-only desktop sensing foundation. It is intentionally generic rather than application-specific:
 
@@ -249,9 +250,10 @@ desktop_permissions
   -> desktop_ax_snapshot
   -> desktop_screenshot
   -> desktop_ocr
+  -> desktop_ax_press
 ```
 
-Accessibility/AX controls are preferred over OCR. Desktop screenshots and OCR bounding boxes use `screenshot-local` coordinates and cannot be treated as system mouse coordinates. M1 has no desktop click, keyboard, or text-input tool.
+Accessibility/AX controls are preferred over OCR. `desktop_ax_press` is the only desktop input action: it requires an active PID and exact fresh AX node metadata, checks the node again before action, then verifies an AX state change. R2 external actions require a one-time `ask_user` confirmation token; R3 high-risk actions are refused. Desktop screenshots and OCR bounding boxes use `screenshot-local` coordinates and cannot be treated as system mouse coordinates. There is still no desktop coordinate click, keyboard, or text-input tool.
 
 Install macOS helper dependencies manually:
 

@@ -17,12 +17,16 @@ type fakeDesktopDriver struct {
 	activate    desktop.ActivateResult
 	screenshot  desktop.ScreenshotResult
 	axSnapshot  desktop.AXSnapshotResult
+	axSnapshots []desktop.AXSnapshotResult
+	axPress     desktop.AXPressResult
 	err         error
 
 	listRequest       desktop.ListWindowsRequest
 	activateRequest   desktop.ActivateRequest
 	screenshotRequest desktop.ScreenshotRequest
 	axRequest         desktop.AXSnapshotRequest
+	axPressRequest    desktop.AXPressRequest
+	axSnapshotCalls   int
 }
 
 func (d *fakeDesktopDriver) Permissions(ctx context.Context) (desktop.PermissionsResult, error) {
@@ -64,7 +68,23 @@ func (d *fakeDesktopDriver) AXSnapshot(ctx context.Context, req desktop.AXSnapsh
 	if d.err != nil {
 		return desktop.AXSnapshotResult{}, d.err
 	}
+	if len(d.axSnapshots) > 0 {
+		index := d.axSnapshotCalls
+		if index >= len(d.axSnapshots) {
+			index = len(d.axSnapshots) - 1
+		}
+		d.axSnapshotCalls++
+		return d.axSnapshots[index], nil
+	}
 	return d.axSnapshot, nil
+}
+
+func (d *fakeDesktopDriver) AXPress(ctx context.Context, req desktop.AXPressRequest) (desktop.AXPressResult, error) {
+	d.axPressRequest = req
+	if d.err != nil {
+		return desktop.AXPressResult{}, d.err
+	}
+	return d.axPress, nil
 }
 
 func TestDesktopWindowsClampsLimitAndReportsPhysicalCoordinates_BitsUT(t *testing.T) {
@@ -207,5 +227,225 @@ func TestDesktopOCRRejectsOutsideWorkspacePath_BitsUT(t *testing.T) {
 	toolErr := outcome.Data.(agent.ToolErrorData)
 	if toolErr.Code != "desktop_ocr_path_outside_workspace" {
 		t.Fatalf("code = %q, want desktop_ocr_path_outside_workspace", toolErr.Code)
+	}
+}
+
+func TestDesktopAXPressExecutesReversibleActionAndVerifiesTreeChange_BitsUT(t *testing.T) {
+	enabled := true
+	before := desktop.AXSnapshotResult{
+		PID: 123,
+		Root: desktop.AXNode{
+			ID:   "ax:0",
+			Role: "AXApplication",
+			Children: []desktop.AXNode{{
+				ID:          "ax:0/0",
+				Role:        "AXButton",
+				Title:       "展开侧边栏",
+				Description: "显示导航",
+				Enabled:     &enabled,
+				Actions:     []string{"AXPress"},
+			}},
+		},
+	}
+	after := desktop.AXSnapshotResult{
+		PID: 123,
+		Root: desktop.AXNode{
+			ID:   "ax:0",
+			Role: "AXApplication",
+			Children: []desktop.AXNode{{
+				ID:          "ax:0/0",
+				Role:        "AXButton",
+				Title:       "收起侧边栏",
+				Description: "显示导航",
+				Enabled:     &enabled,
+				Actions:     []string{"AXPress"},
+			}},
+		},
+	}
+	driver := &fakeDesktopDriver{
+		axSnapshots: []desktop.AXSnapshotResult{before, after},
+		axPress:     desktop.AXPressResult{PID: 123, NodeID: "ax:0/0", Action: "AXPress", Performed: true},
+	}
+	tool := NewDesktopAXPress(driver, NewConfirmationStore())
+	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: desktopAXPressArgs(123, "ax:0/0", "AXButton", "展开侧边栏", "显示导航", "展开导航栏"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["verified"] != true {
+		t.Fatalf("outcome = %#v", data)
+	}
+	if driver.axPressRequest.NodeID != "ax:0/0" || driver.axPressRequest.ExpectedTitle != "展开侧边栏" {
+		t.Fatalf("press request = %#v", driver.axPressRequest)
+	}
+}
+
+func TestDesktopAXPressRequiresBoundOneTimeConfirmation_BitsUT(t *testing.T) {
+	enabled := true
+	before := desktop.AXSnapshotResult{
+		PID: 123,
+		Root: desktop.AXNode{
+			ID:   "ax:0",
+			Role: "AXApplication",
+			Children: []desktop.AXNode{{
+				ID:          "ax:0/0",
+				Role:        "AXButton",
+				Title:       "发送",
+				Description: "发送消息",
+				Enabled:     &enabled,
+				Actions:     []string{"AXPress"},
+			}},
+		},
+	}
+	after := desktop.AXSnapshotResult{
+		PID: 123,
+		Root: desktop.AXNode{
+			ID:   "ax:0",
+			Role: "AXApplication",
+			Children: []desktop.AXNode{
+				before.Root.Children[0],
+				{ID: "ax:0/1", Role: "AXStaticText", Title: "已发送"},
+			},
+		},
+	}
+	driver := &fakeDesktopDriver{
+		axSnapshots: []desktop.AXSnapshotResult{before, before, after},
+		axPress:     desktop.AXPressResult{PID: 123, NodeID: "ax:0/0", Action: "AXPress", Performed: true},
+	}
+	store := NewConfirmationStore()
+	tool := NewDesktopAXPress(driver, store)
+	args := desktopAXPressArgs(123, "ax:0/0", "AXButton", "发送", "发送消息", "向项目群发送已确认的更新")
+
+	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	required := outcome.Data.(map[string]any)
+	if required["code"] != "desktop_action_confirmation_required" || driver.axPressRequest.NodeID != "" {
+		t.Fatalf("outcome = %#v, press request = %#v", required, driver.axPressRequest)
+	}
+
+	token, err := store.Issue(ActionApproval{
+		Operation: desktopAXPressOperation,
+		PID:       123,
+		NodeID:    "ax:0/0",
+		Reason:    "向项目群发送已确认的更新",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args["confirmation_token"] = token
+	outcome, err = tool.Run(context.Background(), agent.ToolCallContext{Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["risk"] != desktopRiskExternal {
+		t.Fatalf("outcome = %#v", data)
+	}
+
+	outcome, err = tool.Run(context.Background(), agent.ToolCallContext{Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reused := outcome.Data.(map[string]any)
+	if reused["code"] != "desktop_action_confirmation_required" {
+		t.Fatalf("reused token outcome = %#v", reused)
+	}
+}
+
+func TestDesktopAXPressRefusesHighRiskAction_BitsUT(t *testing.T) {
+	enabled := true
+	snapshot := desktop.AXSnapshotResult{
+		PID: 123,
+		Root: desktop.AXNode{
+			ID:   "ax:0",
+			Role: "AXApplication",
+			Children: []desktop.AXNode{{
+				ID:      "ax:0/0",
+				Role:    "AXButton",
+				Title:   "删除项目",
+				Enabled: &enabled,
+				Actions: []string{"AXPress"},
+			}},
+		},
+	}
+	driver := &fakeDesktopDriver{axSnapshots: []desktop.AXSnapshotResult{snapshot}}
+	outcome, err := NewDesktopAXPress(driver, NewConfirmationStore()).Run(context.Background(), agent.ToolCallContext{
+		Args: desktopAXPressArgs(123, "ax:0/0", "AXButton", "删除项目", "", "删除项目"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolErr := outcome.Data.(agent.ToolErrorData)
+	if toolErr.Code != "desktop_action_high_risk_refused" || driver.axPressRequest.NodeID != "" {
+		t.Fatalf("error = %#v, press request = %#v", toolErr, driver.axPressRequest)
+	}
+}
+
+func TestDesktopAXPressRejectsStaleNode_BitsUT(t *testing.T) {
+	enabled := true
+	snapshot := desktop.AXSnapshotResult{
+		PID: 123,
+		Root: desktop.AXNode{
+			ID:   "ax:0",
+			Role: "AXApplication",
+			Children: []desktop.AXNode{{
+				ID:      "ax:0/0",
+				Role:    "AXButton",
+				Title:   "展开",
+				Enabled: &enabled,
+				Actions: []string{"AXPress"},
+			}},
+		},
+	}
+	driver := &fakeDesktopDriver{axSnapshots: []desktop.AXSnapshotResult{snapshot}}
+	outcome, err := NewDesktopAXPress(driver, NewConfirmationStore()).Run(context.Background(), agent.ToolCallContext{
+		Args: desktopAXPressArgs(123, "ax:0/0", "AXButton", "旧标题", "", "展开面板"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolErr := outcome.Data.(agent.ToolErrorData)
+	if toolErr.Code != "desktop_ax_node_stale" {
+		t.Fatalf("code = %q, want desktop_ax_node_stale", toolErr.Code)
+	}
+}
+
+func TestConfirmationStoreConsumesOnlyExactActionOnce_BitsUT(t *testing.T) {
+	store := NewConfirmationStore()
+	approval := ActionApproval{Operation: desktopAXPressOperation, PID: 123, NodeID: "ax:0/0", Reason: "发送更新"}
+	token, err := store.Issue(approval)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.Consume(token, ActionApproval{Operation: desktopAXPressOperation, PID: 123, NodeID: "ax:0/1", Reason: "发送更新"}) {
+		t.Fatal("mismatched approval unexpectedly consumed")
+	}
+	if store.Consume(token, approval) {
+		t.Fatal("mismatched consume must invalidate token")
+	}
+	token, err = store.Issue(approval)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !store.Consume(token, approval) {
+		t.Fatal("matching approval did not consume")
+	}
+	if store.Consume(token, approval) {
+		t.Fatal("token was reusable")
+	}
+}
+
+func desktopAXPressArgs(pid int, nodeID string, role string, title string, description string, reason string) map[string]any {
+	return map[string]any{
+		"pid":                  pid,
+		"node_id":              nodeID,
+		"expected_role":        role,
+		"expected_title":       title,
+		"expected_description": description,
+		"reason":               reason,
 	}
 }
