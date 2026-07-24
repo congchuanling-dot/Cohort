@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	defaultGlobalMemoryPath  = "memory/global.md"
-	defaultProjectMemoryPath = "memory/projects/default/project.md"
+	defaultGlobalMemoryPath = "memory/global.md"
+	sopCandidateMemoryPath  = "memory/reflection/sop_candidates.md"
 )
 
 var (
@@ -29,6 +29,7 @@ var (
 
 type relevantMemoryMatch struct {
 	relPath string
+	title   string
 	content string
 	score   int
 }
@@ -43,7 +44,7 @@ func loadRelevantLongTermMemory(memoryRoot string, indexText string, messages []
 		return nil, nil
 	}
 
-	paths := candidateMemoryPaths(indexText)
+	paths := candidateMemoryPaths(memoryRoot, indexText)
 	scored := make([]relevantMemoryMatch, 0, len(paths))
 	for _, relPath := range paths {
 		content, ok, err := loadMemoryMarkdown(memoryRoot, relPath)
@@ -53,11 +54,18 @@ func loadRelevantLongTermMemory(memoryRoot string, indexText string, messages []
 		if !ok {
 			continue
 		}
-		score := scoreRelevantMemory(relPath, content, keywords)
-		if score <= 0 {
-			continue
+		for _, entry := range splitMemoryEntries(content) {
+			score := scoreRelevantMemory(relPath, entry.title, entry.content, keywords)
+			if score <= 0 {
+				continue
+			}
+			scored = append(scored, relevantMemoryMatch{
+				relPath: relPath,
+				title:   entry.title,
+				content: entry.content,
+				score:   score,
+			})
 		}
-		scored = append(scored, relevantMemoryMatch{relPath: relPath, content: content, score: score})
 	}
 	sort.SliceStable(scored, func(i, j int) bool {
 		if scored[i].score == scored[j].score {
@@ -80,6 +88,10 @@ func buildRelevantLongTermMemoryMessage(matches []relevantMemoryMatch, cfg Confi
 	for _, match := range matches {
 		b.WriteString("\n\n[source: ")
 		b.WriteString(match.relPath)
+		if match.title != "" {
+			b.WriteString(" | entry: ")
+			b.WriteString(match.title)
+		}
 		b.WriteString("]\n")
 		b.WriteString(strings.TrimSpace(match.content))
 	}
@@ -136,7 +148,7 @@ func splitKeywordWords(text string) []string {
 	})
 }
 
-func candidateMemoryPaths(indexText string) []string {
+func candidateMemoryPaths(memoryRoot string, indexText string) []string {
 	seen := map[string]bool{}
 	var paths []string
 	add := func(path string) {
@@ -147,11 +159,32 @@ func candidateMemoryPaths(indexText string) []string {
 		seen[path] = true
 		paths = append(paths, path)
 	}
-	add(defaultProjectMemoryPath)
 	add(defaultGlobalMemoryPath)
+	add(sopCandidateMemoryPath)
 	for _, match := range memoryPathPattern.FindAllString(indexText, -1) {
 		add(match)
 	}
+	for _, path := range discoverProjectMemoryPaths(memoryRoot) {
+		add(path)
+	}
+	return paths
+}
+
+func discoverProjectMemoryPaths(memoryRoot string) []string {
+	pattern := filepath.Join(memoryRoot, "projects", "*", "project.md")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil
+	}
+	paths := make([]string, 0, len(matches))
+	for _, match := range matches {
+		rel, err := filepath.Rel(memoryRoot, match)
+		if err != nil {
+			continue
+		}
+		paths = append(paths, "memory/"+filepath.ToSlash(rel))
+	}
+	sort.Strings(paths)
 	return paths
 }
 
@@ -201,16 +234,84 @@ func loadMemoryMarkdown(memoryRoot, relPath string) (text string, ok bool, err e
 	return text, true, nil
 }
 
-func scoreRelevantMemory(relPath, content string, keywords []string) int {
-	haystack := strings.ToLower(relPath + "\n" + content)
+type memoryEntry struct {
+	title   string
+	content string
+}
+
+func splitMemoryEntries(content string) []memoryEntry {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil
+	}
+	lines := strings.Split(content, "\n")
+	var entries []memoryEntry
+	var current strings.Builder
+	currentTitle := ""
+	flush := func() {
+		text := strings.TrimSpace(current.String())
+		if text == "" {
+			return
+		}
+		entries = append(entries, memoryEntry{title: currentTitle, content: text})
+		current.Reset()
+	}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "## Memory Entry:") || strings.HasPrefix(trimmed, "## SOP Candidate:") {
+			flush()
+			currentTitle = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(trimmed, "## Memory Entry:"), "## SOP Candidate:"))
+		}
+		current.WriteString(line)
+		current.WriteByte('\n')
+	}
+	flush()
+	if len(entries) == 0 {
+		return []memoryEntry{{content: content}}
+	}
+	if len(entries) == 1 && entries[0].title == "" {
+		return entries
+	}
+	filtered := make([]memoryEntry, 0, len(entries))
+	for _, entry := range entries {
+		if strings.HasPrefix(strings.TrimSpace(entry.content), "# ") && entry.title == "" {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	if len(filtered) == 0 {
+		return []memoryEntry{{content: content}}
+	}
+	return filtered
+}
+
+func scoreRelevantMemory(relPath, title, content string, keywords []string) int {
+	haystack := strings.ToLower(relPath + "\n" + title + "\n" + content)
 	score := 0
 	for _, keyword := range keywords {
 		if strings.Contains(haystack, keyword) {
 			score += 10
+		}
+		if strings.Contains(extractMemoryField(content, "trigger_keywords"), keyword) {
+			score += 20
+		}
+		if strings.Contains(strings.ToLower(extractMemoryField(content, "scene")), keyword) {
+			score += 12
 		}
 	}
 	if score > 0 && strings.Contains(relPath, "/projects/") {
 		score += 3
 	}
 	return score
+}
+
+func extractMemoryField(content, field string) string {
+	prefix := "- " + field + ":"
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			return strings.ToLower(strings.TrimSpace(strings.TrimPrefix(line, prefix)))
+		}
+	}
+	return ""
 }

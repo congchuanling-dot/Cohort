@@ -46,9 +46,10 @@ func (t *StartLongTermUpdate) Run(ctx context.Context, call agent.ToolCallContex
 			"checkpoint":         call.WorkingCheckpoint.KeyInfo,
 			"related_sop":        call.WorkingCheckpoint.RelatedSOP,
 			"available_evidence": call.Evidence,
-			"policy":             "No Execution, No Memory. Propose only verified, reusable facts. Do not store secrets, volatile state, guesses, failed hypotheses, raw logs, or one-off task progress.",
-			"allowed_targets":    []string{evolution.GlobalMemoryPath, evolution.DefaultProjectMemoryPath},
-			"next_step":          "Call memory_propose_update with skip=true if nothing is worth keeping, otherwise provide candidates with type, target, content, evidence_ids, risk, and action=append. Each evidence_id must be listed in available_evidence and verified=true.",
+			"policy":             "No Execution, No Memory. Propose only verified, reusable facts. Use structured fields: scene, trigger_keywords, lesson, recommended_steps, evidence_ids. Do not store secrets, volatile state, guesses, failed hypotheses, raw logs, or one-off task progress.",
+			"project_id":         t.manager.ProjectID,
+			"allowed_targets":    []string{evolution.GlobalMemoryPath, t.manager.ProjectMemoryPath(), evolution.SOPCandidateMemoryPath},
+			"next_step":          "Call memory_propose_update with skip=true if nothing is worth keeping, otherwise provide structured candidates with type, target, scene, trigger_keywords, lesson, recommended_steps, evidence_ids, risk, and action=append. Use promote_to_sop=true only for repeated stable workflows worth a reviewed SOP candidate. Each evidence_id must be listed in available_evidence and verified=true.",
 		},
 		NextPrompt: "\n[SYSTEM HINT] 长期记忆更新已启动。只有工具验证、已读文件、成功测试、浏览器确认、用户明确稳定偏好或已存在记忆支持的信息才能进入 memory_propose_update；普通过程日志请 skip。\n",
 	}, nil
@@ -74,13 +75,21 @@ func (t *MemoryProposeUpdate) Schema() llm.ToolSchema {
 			"reason": stringProp("Reason for skipping or proposing memory."),
 			"candidates": map[string]any{
 				"type":        "array",
-				"description": "Candidate memory updates. Each item needs type, target, content, evidence_ids, risk, and action=append.",
+				"description": "Candidate memory updates. Prefer structured fields: scene, trigger_keywords, lesson, recommended_steps, evidence_ids, risk, and action=append.",
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
-						"type":    stringProp("Memory type, for example project_lesson or user_preference."),
-						"target":  stringProp("Allowed target: memory/global.md or memory/projects/default/project.md."),
-						"content": stringProp("Concise reusable memory content."),
+						"type":             stringProp("Memory type, for example project_lesson, user_preference, or sop_candidate."),
+						"target":           stringProp("Allowed target: memory/global.md, the project memory path returned by start_long_term_update, or memory/reflection/sop_candidates.md."),
+						"scene":            stringProp("Short reusable scene, for example Lark browser automation."),
+						"trigger_keywords": stringArrayProp("Keywords that should retrieve this memory later."),
+						"lesson":           stringProp("The durable lesson to remember. Prefer this over free-form content."),
+						"recommended_steps": map[string]any{
+							"type":        "array",
+							"description": "Concrete repeatable steps for this lesson.",
+							"items":       map[string]any{"type": "string"},
+						},
+						"content": stringProp("Optional additional notes for compatibility."),
 						"evidence_ids": map[string]any{
 							"type":        "array",
 							"description": "Verified EvidenceLedger IDs from start_long_term_update, for example [\"tool:1:0\"]. Free-form evidence claims are not accepted.",
@@ -88,6 +97,9 @@ func (t *MemoryProposeUpdate) Schema() llm.ToolSchema {
 						},
 						"risk":                       stringProp("Risk level: low, medium, or high."),
 						"action":                     stringProp("Only append is allowed in P0."),
+						"promote_to_sop":             boolProp("True when this repeated stable workflow should be recorded as a reviewed SOP candidate.", false),
+						"sop_title":                  stringProp("Optional SOP candidate title when promote_to_sop is true."),
+						"sop_path":                   stringProp("Optional proposed SOP path under sops/, for example sops/lark_browser_automation.md."),
 						"requires_user_confirmation": boolProp("True if this should not be applied automatically.", false),
 					},
 				},
@@ -156,15 +168,23 @@ func (t *MemoryApplyUpdate) Name() string { return ToolNameMemoryApplyUpdate }
 func (t *MemoryApplyUpdate) Schema() llm.ToolSchema {
 	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
 		Name:        t.Name(),
-		Description: "Apply one validated low-risk memory update. P0 only allows append to memory/global.md or memory/projects/default/project.md and records memory/audit.jsonl.",
+		Description: "Apply one validated low-risk memory update. P0 allows append to memory/global.md, project-specific memory, or memory/reflection/sop_candidates.md and records memory/audit.jsonl.",
 		Parameters: objectSchema(map[string]any{
 			"candidate": map[string]any{
 				"type":        "object",
 				"description": "A candidate previously validated by memory_propose_update.",
 				"properties": map[string]any{
-					"type":    stringProp("Memory type, for example project_lesson or user_preference."),
-					"target":  stringProp("Allowed target: memory/global.md or memory/projects/default/project.md."),
-					"content": stringProp("Concise reusable memory content."),
+					"type":             stringProp("Memory type, for example project_lesson, user_preference, or sop_candidate."),
+					"target":           stringProp("Allowed target: memory/global.md, the project memory path returned by start_long_term_update, or memory/reflection/sop_candidates.md."),
+					"scene":            stringProp("Short reusable scene."),
+					"trigger_keywords": stringArrayProp("Keywords that should retrieve this memory later."),
+					"lesson":           stringProp("The durable lesson to remember. Prefer this over free-form content."),
+					"recommended_steps": map[string]any{
+						"type":        "array",
+						"description": "Concrete repeatable steps for this lesson.",
+						"items":       map[string]any{"type": "string"},
+					},
+					"content": stringProp("Optional additional notes for compatibility."),
 					"evidence_ids": map[string]any{
 						"type":        "array",
 						"description": "Verified EvidenceLedger IDs returned by start_long_term_update.",
@@ -172,6 +192,9 @@ func (t *MemoryApplyUpdate) Schema() llm.ToolSchema {
 					},
 					"risk":                       stringProp("Risk level: low, medium, or high."),
 					"action":                     stringProp("Only append is allowed in P0."),
+					"promote_to_sop":             boolProp("True when this repeated stable workflow should be recorded as a reviewed SOP candidate.", false),
+					"sop_title":                  stringProp("Optional SOP candidate title when promote_to_sop is true."),
+					"sop_path":                   stringProp("Optional proposed SOP path under sops/, for example sops/lark_browser_automation.md."),
 					"requires_user_confirmation": boolProp("True if this should not be applied automatically.", false),
 				},
 			},
@@ -210,6 +233,7 @@ func (t *MemoryApplyUpdate) Run(ctx context.Context, call agent.ToolCallContext)
 			"audit_record":        result.AuditRecord,
 			"memory_root":         result.MemoryRoot,
 			"target_path":         result.TargetPath,
+			"sop_candidate_path":  result.SOPCandidatePath,
 			"read_back_confirmed": result.ReadBackConfirmed,
 			"read_back_bytes":     result.ReadBackBytes,
 		},
@@ -241,6 +265,13 @@ func parseMemoryCandidate(value any) (evolution.Candidate, bool) {
 		Type:                     strings.TrimSpace(asString(object["type"])),
 		Target:                   strings.TrimSpace(asString(object["target"])),
 		Content:                  strings.TrimSpace(asString(object["content"])),
+		Scene:                    strings.TrimSpace(asString(object["scene"])),
+		TriggerKeywords:          parseStringSlice(object["trigger_keywords"]),
+		Lesson:                   strings.TrimSpace(asString(object["lesson"])),
+		RecommendedSteps:         parseStringSlice(object["recommended_steps"]),
+		PromoteToSOP:             asBool(object["promote_to_sop"], false),
+		SOPTitle:                 strings.TrimSpace(asString(object["sop_title"])),
+		SOPPath:                  strings.TrimSpace(asString(object["sop_path"])),
 		EvidenceIDs:              parseStringSlice(object["evidence_ids"]),
 		Risk:                     strings.TrimSpace(asString(object["risk"])),
 		Action:                   strings.TrimSpace(asString(object["action"])),
@@ -260,6 +291,14 @@ func parseStringSlice(value any) []string {
 		}
 	}
 	return result
+}
+
+func stringArrayProp(desc string) map[string]any {
+	return map[string]any{
+		"type":        "array",
+		"description": desc,
+		"items":       map[string]any{"type": "string"},
+	}
 }
 
 func formatMemoryToolError(code string, err error, hint string) agent.ToolErrorData {

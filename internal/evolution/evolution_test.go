@@ -16,10 +16,10 @@ func TestManagerEnsureStructureCreatesP0Files_BitsUT(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(created) != 4 {
-		t.Fatalf("created files = %d, want 4: %#v", len(created), created)
+	if len(created) != 5 {
+		t.Fatalf("created files = %d, want 5: %#v", len(created), created)
 	}
-	for _, rel := range []string{MemoryIndexPath, GlobalMemoryPath, DefaultProjectMemoryPath, MemoryAuditPath} {
+	for _, rel := range []string{MemoryIndexPath, GlobalMemoryPath, manager.ProjectMemoryPath(), SOPCandidateMemoryPath, MemoryAuditPath} {
 		path := filepath.Join(workspace, filepath.FromSlash(rel))
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("expected %s to exist: %v", rel, err)
@@ -42,12 +42,15 @@ func TestManagerApplyCandidateAppendsAndAudits_BitsUT(t *testing.T) {
 		},
 	}
 	candidate := Candidate{
-		Type:        "project_lesson",
-		Target:      DefaultProjectMemoryPath,
-		Content:     "When adding controlled memory updates, keep writes append-only and record memory/audit.jsonl.",
-		EvidenceIDs: []string{"tool:1:0"},
-		Risk:        "low",
-		Action:      "append",
+		Type:             "project_lesson",
+		Target:           manager.ProjectMemoryPath(),
+		Scene:            "controlled memory updates",
+		TriggerKeywords:  []string{"memory", "audit", "append"},
+		Lesson:           "When adding controlled memory updates, keep writes append-only and record memory/audit.jsonl.",
+		RecommendedSteps: []string{"validate evidence", "append entry", "read back target"},
+		EvidenceIDs:      []string{"tool:1:0"},
+		Risk:             "low",
+		Action:           "append",
 	}
 
 	result, err := manager.ApplyCandidate(candidate, evidence, "session-1")
@@ -55,7 +58,7 @@ func TestManagerApplyCandidateAppendsAndAudits_BitsUT(t *testing.T) {
 		t.Fatal(err)
 	}
 	record := result.AuditRecord
-	if record.Target != DefaultProjectMemoryPath || record.SourceSession != "session-1" {
+	if record.Target != manager.ProjectMemoryPath() || record.SourceSession != "session-1" {
 		t.Fatalf("audit record = %#v", record)
 	}
 	if !result.ReadBackConfirmed {
@@ -64,15 +67,18 @@ func TestManagerApplyCandidateAppendsAndAudits_BitsUT(t *testing.T) {
 	if result.MemoryRoot != filepath.Join(workspace, MemoryDirName) {
 		t.Fatalf("memory root = %q, want %q", result.MemoryRoot, filepath.Join(workspace, MemoryDirName))
 	}
-	if result.TargetPath != filepath.Join(workspace, filepath.FromSlash(DefaultProjectMemoryPath)) {
+	if result.TargetPath != filepath.Join(workspace, filepath.FromSlash(manager.ProjectMemoryPath())) {
 		t.Fatalf("target path = %q", result.TargetPath)
 	}
 
-	projectData, err := os.ReadFile(filepath.Join(workspace, filepath.FromSlash(DefaultProjectMemoryPath)))
+	projectData, err := os.ReadFile(filepath.Join(workspace, filepath.FromSlash(manager.ProjectMemoryPath())))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(projectData), candidate.Content) || !strings.Contains(string(projectData), "tool:1:0") {
+	if !strings.Contains(string(projectData), "## Memory Entry:") ||
+		!strings.Contains(string(projectData), "trigger_keywords: memory, audit, append") ||
+		!strings.Contains(string(projectData), candidate.Lesson) ||
+		!strings.Contains(string(projectData), "tool:1:0") {
 		t.Fatalf("project memory missing applied entry:\n%s", projectData)
 	}
 
@@ -84,7 +90,7 @@ func TestManagerApplyCandidateAppendsAndAudits_BitsUT(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(string(auditData))), &decoded); err != nil {
 		t.Fatalf("audit json is invalid: %v\n%s", err, auditData)
 	}
-	if decoded.Target != DefaultProjectMemoryPath || decoded.Action != "append" {
+	if decoded.Target != manager.ProjectMemoryPath() || decoded.Action != "append" {
 		t.Fatalf("decoded audit = %#v", decoded)
 	}
 }
@@ -96,14 +102,14 @@ func TestManagerRejectsDuplicateMemoryCandidate_BitsUT(t *testing.T) {
 		t.Fatal(err)
 	}
 	existing := "When memory content already exists, reject duplicate long-term memory updates."
-	path := filepath.Join(workspace, filepath.FromSlash(DefaultProjectMemoryPath))
+	path := filepath.Join(workspace, filepath.FromSlash(manager.ProjectMemoryPath()))
 	if err := os.WriteFile(path, []byte("# Default Project Memory\n\n"+existing+"\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
 	validation := manager.ValidateCandidate(Candidate{
 		Type:        "project_lesson",
-		Target:      DefaultProjectMemoryPath,
+		Target:      manager.ProjectMemoryPath(),
 		Content:     "When memory content already exists,\nreject duplicate long-term memory updates.",
 		EvidenceIDs: []string{"tool:1:0"},
 		Action:      "append",
@@ -162,7 +168,7 @@ func TestManagerRejectsUnverifiedEvidenceID_BitsUT(t *testing.T) {
 	manager := NewManager(t.TempDir())
 	validation := manager.ValidateCandidate(Candidate{
 		Type:        "project_lesson",
-		Target:      DefaultProjectMemoryPath,
+		Target:      manager.ProjectMemoryPath(),
 		Content:     "A failed command must not be retained as a verified project lesson.",
 		EvidenceIDs: []string{"tool:1:0"},
 		Action:      "append",
