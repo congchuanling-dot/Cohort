@@ -1,7 +1,7 @@
 <div align="center">
   <h1 align="center">Cohert</h1>
   <p align="center">
-    A local-first command-line Agent Runtime for tools, browser automation, long-context work, SOPs, and verified memory.
+    本地优先的命令行 Agent Runtime，支持工具调用、浏览器自动化、桌面感知、长上下文、SOP 和可验证记忆。
   </p>
 </div>
 
@@ -14,38 +14,54 @@
 </p>
 
 <p align="center">
-  <a href="#quick-start">Quick Start</a>
+  <b>简体中文</b>
   ·
-  <a href="#features">Features</a>
+  <a href="docs/readme/README.en.md">English</a>
   ·
-  <a href="#architecture">Architecture</a>
+  <a href="docs/readme/README.ja.md">日本語</a>
   ·
-  <a href="#memory">Memory</a>
+  <a href="docs/readme/README.ko.md">한국어</a>
   ·
-  <a href="docs/usage.md">Usage Guide</a>
+  <a href="docs/readme/README.es.md">Español</a>
+  ·
+  <a href="docs/readme/README.fr.md">Français</a>
+  ·
+  <a href="docs/readme/README.hi.md">हिन्दी</a>
+</p>
+
+<p align="center">
+  <a href="#快速开始">快速开始</a>
+  ·
+  <a href="#核心能力">核心能力</a>
+  ·
+  <a href="#架构">架构</a>
+  ·
+  <a href="#工具">工具</a>
+  ·
+  <a href="docs/usage.md">使用教程</a>
 </p>
 
 ---
 
-## What Is Cohert
+## Cohert 是什么
 
-Cohert is a Go-based local Agent Runtime. It connects an OpenAI-compatible LLM with a controlled tool layer, persistent sessions, browser automation, context compaction, SOP routing, and verified long-term memory.
+Cohert 是一个用 Go 编写的本地 Agent Runtime。它把 OpenAI-compatible LLM、受控工具层、持久会话、浏览器自动化、桌面 Computer Use、上下文压缩、SOP 路由和可验证长期记忆接在一起。
 
-It is designed for real local work rather than pure chat:
+它不是纯聊天壳，而是面向真实本地工作的执行运行时：
 
 ```text
-User intent
-  -> Agent loop
+用户意图
+  -> Agent Loop
   -> Context Manager
-  -> LLM tool calling
-  -> Local tools / browser / shell
-  -> Evidence ledger
-  -> Session history and verified memory
+  -> LLM Tool Calling
+  -> 本地工具 / 浏览器 / 桌面 / Shell
+  -> 证据记录
+  -> 会话历史与可验证记忆
 ```
 
-The core idea is simple: let the model reason, but make execution explicit, auditable, recoverable, and memory-aware.
+核心原则：模型负责推理，执行必须显式、可审计、可恢复，并且长期记忆必须有工具证据支撑。
 
-## Quick Start
+## 快速开始
 
 ```bash
 git clone <repo-url>
@@ -54,13 +70,13 @@ export DEEPSEEK_API_KEY="sk-xxx"
 go run .
 ```
 
-Run a one-shot task:
+执行一次性任务：
 
 ```bash
-go run . ask "read README.md and summarize the current runtime capabilities"
+go run . ask "读取 README.md 并总结当前运行时能力"
 ```
 
-Inspect the runtime:
+查看运行状态：
 
 ```bash
 go run . config
@@ -68,42 +84,43 @@ go run . tools
 go run . session list
 ```
 
-Build:
+构建二进制：
 
 ```bash
 go build -o cohert ./cmd/cohert
 ./cohert
 ```
 
-Default configuration lives in [`configs/config.yaml`](configs/config.yaml). Full usage is documented in [`docs/usage.md`](docs/usage.md).
+默认配置在 [`configs/config.yaml`](configs/config.yaml)，完整使用说明见 [`docs/usage.md`](docs/usage.md)。
 
-## Features
+## 核心能力
 
-| Area | Capability |
+| 领域 | 能力 |
 | --- | --- |
-| Agent Loop | Streaming OpenAI-compatible chat, tool calling, max-turn control, visible action notes |
-| Local Tools | File read/write/patch, shell execution, user questions, structured tool errors |
-| Browser Automation | Chrome bridge, page open/scan, JS execution, element snapshot, click/type/key/wait/screenshot |
-| Session System | `history.jsonl`, metadata, session list, resume, local audit trail |
-| Context Manager | Tool-result compaction, group-safe trimming, session memory, full compact summaries |
-| SOP Runtime | SOP index injection, task-based SOP hints, working checkpoints after SOP reads |
-| Evolution Memory | Verified evidence, structured memory entries, project memory, duplicate checks, read-back confirmation |
-| Observability | Model response logs, context stats logs, memory audit records |
+| Agent Loop | 流式 OpenAI-compatible 对话、工具调用、最大轮次控制、可见行动说明 |
+| 本地工具 | 文件读写、patch、shell 执行、向用户提问、结构化工具错误 |
+| 浏览器自动化 | Chrome bridge、打开/扫描页面、JS 执行、元素快照、点击、输入、按键、等待、截图、OCR |
+| 桌面 Computer Use | macOS 权限检查、窗口枚举、PID 激活、窗口截图、AX 控件树、桌面 OCR、受控 `AXPress` |
+| 会话系统 | `history.jsonl`、元数据、session 列表、恢复、本地审计轨迹 |
+| 上下文管理 | 工具结果压缩、消息组安全裁剪、session memory、full compact 摘要 |
+| SOP Runtime | SOP 索引注入、任务场景路由、读取 SOP 后写入工作 checkpoint |
+| Evolution Memory | 工具证据、结构化记忆、项目记忆、去重、回读确认、写入审计 |
+| 可观测性 | 模型响应日志、上下文统计日志、memory audit 记录 |
 
-## Command Surface
+## 命令
 
-External CLI:
+外部 CLI：
 
 ```bash
-cohert                         # start interactive mode
-cohert ask "task"              # run one task and exit
-cohert tools                   # list mounted tools
-cohert config                  # show effective config
-cohert session list            # list local sessions
-cohert session resume <id>     # resume a session
+cohert                         # 进入交互模式
+cohert ask "task"              # 执行一次任务后退出
+cohert tools                   # 查看已挂载工具
+cohert config                  # 查看有效配置
+cohert session list            # 查看本地会话
+cohert session resume <id>     # 恢复会话
 ```
 
-Development entrypoints:
+开发入口：
 
 ```bash
 go run .
@@ -112,7 +129,7 @@ go run . tools
 go run . config
 ```
 
-Interactive slash commands:
+交互模式 slash 命令：
 
 ```text
 /help
@@ -130,7 +147,7 @@ Interactive slash commands:
 /exit
 ```
 
-## Architecture
+## 架构
 
 ```mermaid
 flowchart TD
@@ -143,30 +160,30 @@ flowchart TD
     T --> FS[File Tools]
     T --> SH[Shell]
     T --> BR[Chrome Browser Bridge]
+    T --> DT[Desktop Driver]
     T --> MEM[Evolution Memory Tools]
     A --> S[Session Store]
-    C --> SM[Session memory.md]
+    C --> SM[session memory.md]
     C --> FC[compact.md]
     C --> LM[Long-Term Memory Index + Relevant Entries]
     MEM --> AUD[memory/audit.jsonl]
 ```
 
-### Runtime Layers
-
-| Layer | Package | Role |
+| 层 | 包 | 职责 |
 | --- | --- | --- |
-| App assembly | `internal/app` | Config, LLM client, tool registry, system prompt |
-| Agent loop | `internal/agent` | Tool-call loop, history, compact generation, evidence collection |
-| Context manager | `internal/contextmgr` | Request construction, compaction, memory injection |
-| Tool runtime | `internal/tools` | Local file, shell, browser, memory, checkpoint tools |
-| Browser bridge | `internal/browser` | WebSocket bridge between Cohert and Chrome extension |
-| Session store | `internal/session` | `meta.json`, `history.jsonl`, list/resume |
-| Evolution memory | `internal/evolution` | Safe memory structure, validation, write audit |
+| 应用装配 | `internal/app` | 配置、LLM client、工具注册、系统提示 |
+| Agent Loop | `internal/agent` | 工具调用循环、历史、compact、证据收集 |
+| Context Manager | `internal/contextmgr` | 请求构造、上下文压缩、记忆注入 |
+| 工具运行时 | `internal/tools` | 文件、命令、浏览器、桌面、记忆、checkpoint 工具 |
+| 浏览器桥 | `internal/browser` | Cohert 与 Chrome 扩展的 WebSocket 协议 |
+| 桌面驱动 | `internal/desktop` | macOS desktop helper 的 Go 接口与 JSON runner |
+| 会话存储 | `internal/session` | `meta.json`、`history.jsonl`、列表和恢复 |
+| 进化记忆 | `internal/evolution` | 记忆校验、写入、审计 |
 
-## Tools
+## 工具
 
 <details>
-<summary>Registered tools</summary>
+<summary>当前注册工具</summary>
 
 ```text
 file_read
@@ -207,15 +224,15 @@ desktop_ax_press
 
 </details>
 
-## Browser Automation
+## 浏览器自动化
 
-Cohert can control Chrome through a local Browser Bridge:
+Cohert 通过本地 Browser Bridge 控制真实 Chrome：
 
 ```text
 ws://127.0.0.1:18777/browser
 ```
 
-Browser tasks follow a conservative interaction lifecycle:
+推荐流程：
 
 ```text
 open
@@ -227,21 +244,23 @@ open
   -> verify result
 ```
 
-When DOM text and `browser_dom_summary` cannot read rendered text, `browser_ocr` can process a workspace image or capture the current browser viewport. It returns text with `screenshot-local` bounding boxes and never performs clicks. Install its optional local dependencies manually:
+当 DOM 文本和 `browser_dom_summary` 都无法读取渲染文字时，`browser_ocr` 可以读取 workspace 图片，或自动截取当前浏览器视口。OCR 返回 `screenshot-local` bbox，不执行点击。
+
+OCR 可选依赖：
 
 ```bash
 python3 -m pip install rapidocr-onnxruntime pillow numpy
 ```
 
-If browser tools return `browser_not_connected`, load the Chrome extension from:
+如果浏览器工具返回 `browser_not_connected`，请加载 Chrome 扩展：
 
 ```text
 assert/cohert_browser_bridge
 ```
 
-## Desktop Computer Use (M1 + M2.1)
+## 桌面 Computer Use
 
-Cohert now provides a macOS-only, read-only desktop sensing foundation. It is intentionally generic rather than application-specific:
+Cohert 已具备 macOS 通用桌面感知与受控 AX 语义动作，不绑定具体应用：
 
 ```text
 desktop_permissions
@@ -253,58 +272,38 @@ desktop_permissions
   -> desktop_ax_press
 ```
 
-Accessibility/AX controls are preferred over OCR. `desktop_ax_press` is the only desktop input action: it requires an active PID and exact fresh AX node metadata, checks the node again before action, then verifies an AX state change. R2 external actions require a one-time `ask_user` confirmation token; R3 high-risk actions are refused. Desktop screenshots and OCR bounding boxes use `screenshot-local` coordinates and cannot be treated as system mouse coordinates. There is still no desktop coordinate click, keyboard, or text-input tool.
+优先使用 Accessibility / AX 控件树；AX 不可用时才使用截图和 OCR。`desktop_ax_press` 是当前唯一桌面输入动作：它要求目标 PID 已在前台，并使用刚刚读取的 AX 节点 metadata 重新校验节点，动作后再读取 AX 快照验证状态变化。
 
-Install macOS helper dependencies manually:
+风险策略：
+
+- R1 可恢复操作：可直接执行，例如展开、收起、菜单、tab。
+- R2 外部副作用：必须由 `ask_user` 签发一次性确认令牌，例如发送、提交、上传、保存、发布。
+- R3 高风险：自动拒绝，要求用户手动完成，例如支付、审批、授权、登录验证、删除。
+
+当前仍没有桌面坐标点击、键盘输入或文本输入工具。截图和 OCR bbox 是 `screenshot-local`，不能当作系统鼠标坐标。
+
+macOS helper 依赖：
 
 ```bash
 python3 -m pip install pyobjc-framework-Quartz pyobjc-framework-Cocoa pyobjc-framework-ApplicationServices
 ```
 
-Grant the terminal or IDE running Cohert both Accessibility and Screen Recording permissions in macOS System Settings before using desktop sensing.
+使用桌面能力前，请在 macOS 系统设置中给运行 Cohert 的终端或 IDE 授权 Accessibility 和 Screen Recording。
 
-## Context Management
+## 上下文与会话
 
-Cohert keeps full history on disk, but constructs a controlled request window before each model call.
+Cohert 会完整保存历史，但每次请求模型前会构造受控上下文窗口。
 
-It can:
+它可以：
 
-- Drop protocol-invalid orphan tool results.
-- Inject long-term memory index and matched memory entries.
-- Inject session `memory.md`.
-- Inject session `compact.md`.
-- Compact old tool outputs into head/tail summaries.
-- Trim old history by message group without splitting tool-call protocol pairs.
+- 丢弃协议非法的 orphan tool result。
+- 注入长期记忆索引与命中的相关 entry。
+- 注入 session `memory.md`。
+- 注入 session `compact.md`。
+- 压缩旧工具结果，只保留头尾摘要。
+- 按消息组裁剪旧历史，避免拆散 tool-call 协议对。
 
-Default context settings:
-
-```yaml
-context:
-  max_history_messages: 40
-  keep_recent_tool_results: 2
-  max_tool_result_chars: 12000
-  compacted_tool_head_chars: 4000
-  compacted_tool_tail_chars: 4000
-  max_request_chars: 100000
-  max_session_memory_chars: 20000
-  max_memory_index_chars: 12000
-  max_relevant_memory_chars: 16000
-  max_relevant_memory_entries: 3
-  max_compact_summary_chars: 60000
-  enable_micro_compact: true
-```
-
-Context decisions are logged to:
-
-```text
-temp/model_responses/context.log
-```
-
-The log records stats only, not raw message content.
-
-## Sessions
-
-Sessions are stored locally:
+会话保存在：
 
 ```text
 temp/sessions/<session_id>/
@@ -314,63 +313,34 @@ temp/sessions/<session_id>/
   compact.md
 ```
 
-`history.jsonl` is the source of truth. Context compaction never mutates it; it only affects the request copy sent to the model.
-
-Useful commands:
-
-```bash
-go run . session list
-go run . session resume <session_id>
-```
-
-Inside REPL:
-
-```text
-/compact        # generate or update session memory.md
-/full-compact   # generate or update compact.md
-/memory         # inspect current session memory
-```
+`history.jsonl` 是事实来源。上下文压缩只影响发给模型的请求副本，不会改写完整历史。
 
 ## SOP Runtime
 
-Cohert uses SOPs as lightweight operational constraints. The system prompt injects [`sops/index.md`](sops/index.md) as navigation, not as full SOP content.
+Cohert 把 SOP 当作轻量执行约束。系统提示只注入 [`sops/index.md`](sops/index.md) 作为导航，不把所有 SOP 全量塞进上下文。
 
-When a task matches an SOP scene, the Runner hints the model to read the relevant SOP first. If the SOP is adopted, the model should call:
+任务命中某个 SOP 场景时，Runner 会提示模型先读取对应 SOP。如果采用该 SOP，应调用：
 
 ```text
 update_working_checkpoint
 ```
 
-The checkpoint stores concise task constraints and `related_sop`, so long-running tasks can recover the operating rules without rereading the whole conversation.
-
-Current SOPs:
+能力分层：
 
 ```text
-sops/meta_sop.md
-sops/browser_sop.md
-sops/code_run_sop.md
-sops/file_edit_sop.md
-sops/context_sop.md
-sops/memory_sop.md
-sops/testing_sop.md
-```
-
-SOP and skill assets follow a small capability ladder:
-
-```text
-C0 atomic tools
-  -> C1 SOP constraints
-  -> C2 working checkpoint
-  -> C3 verified long-term memory entry
+C0 原子工具
+  -> C1 SOP 约束
+  -> C2 工作 checkpoint
+  -> C3 已验证长期记忆 entry
   -> C4 SOP candidate
-  -> C5 reviewed SOP / Skill in sops/index.md
+  -> C5 已审查 SOP / Skill in sops/index.md
 ```
 
-This keeps reusable workflows discoverable without promoting every one-off task into an active rule.
+这样可以把可复用流程沉淀下来，同时避免把一次性任务直接升级成主动规则。
 
-## Memory
+## 记忆
 
-Cohert has a controlled long-term memory pipeline:
+Cohert 的长期记忆流程是受控三步：
 
 ```text
 start_long_term_update
@@ -378,7 +348,7 @@ start_long_term_update
   -> memory_apply_update
 ```
 
-Memory lives under the configured workspace:
+记忆存储在 workspace 下：
 
 ```text
 workspace/
@@ -393,34 +363,22 @@ workspace/
     audit.jsonl
 ```
 
-Memory writes are intentionally strict:
+写入规则：
 
-- Candidates must reference verified evidence collected during tool execution.
-- Only append actions are allowed.
-- Sensitive content is rejected.
-- Duplicate memory content is rejected.
-- Writes are read back before success is returned.
-- Every apply writes an audit record.
+- 必须引用工具执行过程中收集到的已验证证据。
+- 只允许 append。
+- 拒绝敏感内容。
+- 拒绝重复记忆。
+- 写入成功前必须回读确认。
+- 每次 apply 都写审计记录。
 
-Structured memory entries use:
-
-```text
-scene
-trigger_keywords
-lesson
-recommended_steps
-evidence_ids
-```
-
-On later tasks, Cohert performs entry-level matching against `scene`, `trigger_keywords`, and task text, then injects only the most relevant entries. It does not blindly load entire memory files.
-
-Stable workflows can be proposed as SOP candidates:
+稳定流程可以进入：
 
 ```text
 memory/reflection/sop_candidates.md
 ```
 
-They are not automatically promoted into active SOP files. Promotion remains a reviewed step:
+它不会自动变成正式 SOP。晋级仍然需要显式审查：
 
 ```text
 /sop candidates
@@ -428,11 +386,9 @@ They are not automatically promoted into active SOP files. Promotion remains a r
 /sop promote <candidate_id> --confirm-index
 ```
 
-The default promotion writes the reviewed SOP file only. Updating [`sops/index.md`](sops/index.md) requires explicit confirmation so new skills do not enter active routing accidentally.
+## 配置
 
-## Configuration
-
-Minimal configuration:
+最小配置：
 
 ```yaml
 language: zh
@@ -449,31 +405,32 @@ llm:
   stream: true
 ```
 
-The current client uses OpenAI-compatible Chat Completions. `deepseek-v4-pro` / `dsv4pro` are resolved as large-context models by the app layer.
+当前客户端使用 OpenAI-compatible Chat Completions。`deepseek-v4-pro` / `dsv4pro` 会按大上下文模型处理。
 
-## Project Layout
+## 项目结构
 
 ```text
-cmd/cohert/             CLI entrypoint
-configs/                local configuration
-docs/                   usage guides, design notes, development records
-internal/app/           application assembly and system prompt
-internal/agent/         agent loop, compact generation, evidence flow
-internal/browser/       Chrome bridge server and protocol
-internal/cli/           external CLI commands
-internal/contextmgr/    request construction, compaction, memory injection
-internal/evolution/     verified memory validation, write, audit
+cmd/cohert/             CLI 入口
+configs/                本地配置
+docs/                   使用教程、设计文档、开发记录
+internal/app/           应用装配与系统提示
+internal/agent/         Agent loop、compact、证据流
+internal/browser/       Chrome bridge server 和协议
+internal/cli/           外部 CLI 命令
+internal/contextmgr/    请求构造、压缩、记忆注入
+internal/desktop/       桌面驱动接口与 Python helper runner
+internal/evolution/     记忆校验、写入、审计
 internal/llm/           OpenAI-compatible LLM client
-internal/repl/          interactive shell and slash commands
-internal/session/       session metadata and history storage
-internal/tools/         file, shell, browser, memory, checkpoint tools
-sops/                   SOP index and operational playbooks
-workspace/              default local workspace
-temp/                   sessions and runtime logs
-assert/                 browser bridge extension assets
+internal/repl/          交互 shell 和 slash 命令
+internal/session/       session 元数据和历史存储
+internal/tools/         文件、命令、浏览器、桌面、记忆工具
+sops/                   SOP 索引和执行手册
+workspace/              默认本地 workspace
+temp/                   session 和运行日志
+assert/                 浏览器 bridge 扩展资源
 ```
 
-## Development
+## 开发
 
 ```bash
 go test ./...
@@ -482,11 +439,11 @@ go run . tools
 go run . config
 ```
 
-## Design Principles
+## 设计原则
 
-- Local first: execution, browser control, sessions, logs, and memory are local by default.
-- Auditable tools: actions flow through schemas, structured outputs, and explicit errors.
-- Immutable history: `history.jsonl` is preserved even when request context is compacted.
-- Layered context: SOPs, session memory, full compact, and long-term memory have separate roles.
-- Verified memory: durable memory requires evidence; model guesses do not become facts.
-- Progressive evolution: keep the runtime stable before adding UI, plugins, multi-agent orchestration, or heavier retrieval.
+- 本地优先：执行、浏览器控制、桌面感知、会话、日志和记忆默认都在本地。
+- 工具可审计：动作通过 schema、结构化输出和明确错误流转。
+- 历史不可变：即使请求上下文被压缩，`history.jsonl` 也保留完整记录。
+- 上下文分层：SOP、session memory、full compact 和长期记忆各司其职。
+- 记忆可验证：长期记忆需要证据，模型猜测不能变成事实。
+- 渐进演化：先稳定运行时，再扩展 UI、插件、多 Agent 编排或更重的检索。
