@@ -22,6 +22,10 @@ const (
 	// maxSessionTitleLength 限制自动生成的 session 标题长度。
 	// 标题只用于 session list 展示，过长会让列表很难读，所以这里做轻量截断。
 	maxSessionTitleLength = 40
+
+	// longTermMemoryTurnThreshold 表示连续执行到这个 turn 后，可以提示模型评估是否需要沉淀长期记忆。
+	// 阈值保持较低，是为了覆盖包含多步排查和验证的任务；提示本身不强制写入。
+	longTermMemoryTurnThreshold = 3
 )
 
 type ToolRunner interface {
@@ -69,6 +73,19 @@ type pendingSOPRead struct {
 	Path string
 	// ReminderSet 表示是否已经为这次 SOP 读取注入过 checkpoint 提醒。
 	ReminderSet bool
+}
+
+// longTermMemorySignals 记录单次 Run 中产生的可复用经验信号。
+//
+// 它只用于决定是否给模型追加一次临时提示，不替代 evolution 包对写入证据的最终校验。
+type longTermMemorySignals struct {
+	userRequested         bool
+	successfulCodeRun     bool
+	readReusableReference bool
+	recoveredFromFailure  bool
+	consecutiveFailures   int
+	prompted              bool
+	started               bool
 }
 
 // Runner 表示一个 Agent 会话，负责串起模型、工具、历史消息和循环控制。
@@ -122,6 +139,8 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 	if err := r.appendMessage(llm.Message{Role: llm.RoleUser, Content: input}, input); err != nil {
 		return RunResult{}, err
 	}
+	memorySignals := longTermMemorySignals{userRequested: requestsLongTermMemory(input)}
+	r.maybeAddLongTermMemoryHint(&memorySignals, 0)
 	r.addSOPRouteHint(input)
 	messages := r.buildRequestMessages()
 
@@ -214,6 +233,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			if err == nil && call.Function.Name == "file_read" {
 				r.rememberSOPRead(args)
 			}
+			r.recordLongTermMemorySignal(&memorySignals, call.Function.Name, args, outcome)
 			if outcome.ShouldExit {
 				return RunResult{Status: RunStatusExited, Response: resp}, nil
 			}
@@ -233,6 +253,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 		if turn > 0 && turn%10 == 0 {
 			r.addPendingHint("[SYSTEM HINT] 任务已运行多轮。如果已经多次失败、策略不清或涉及 SOP 约束，请重读 related_sop 并更新 update_working_checkpoint。")
 		}
+		r.maybeAddLongTermMemoryHint(&memorySignals, turn)
 		// 工具结果已经进入完整 history；下一轮模型请求前重新构造可见上下文。
 		// Context Manager 应根据预算决定是否压缩，而不是每轮固定裁剪。
 		messages = r.buildRequestMessages()
@@ -289,6 +310,116 @@ func (r *Runner) addPendingHint(hint string) {
 		return
 	}
 	r.pendingHints = append(r.pendingHints, hint)
+}
+
+// recordLongTermMemorySignal 根据已执行工具的实际结果记录长期记忆触发信号。
+//
+// 这里不直接写记忆，也不把结果当作最终证据；最终写入仍必须经过 evolution 的 evidence 校验。
+func (r *Runner) recordLongTermMemorySignal(signals *longTermMemorySignals, name string, args map[string]any, outcome Outcome) {
+	if signals == nil {
+		return
+	}
+	if name == "start_long_term_update" && outcomeSucceeded(outcome) {
+		signals.started = true
+		return
+	}
+	if name == "memory_propose_update" || name == "memory_apply_update" {
+		return
+	}
+
+	if !outcomeSucceeded(outcome) {
+		signals.consecutiveFailures++
+		return
+	}
+	if signals.consecutiveFailures >= 2 {
+		signals.recoveredFromFailure = true
+	}
+	signals.consecutiveFailures = 0
+
+	switch {
+	case name == "code_run":
+		signals.successfulCodeRun = true
+	case strings.HasPrefix(name, "browser_"):
+		// 浏览器工具返回的成功状态可以作为页面状态已验证的候选信号。
+		signals.readReusableReference = true
+	case name == "file_read" && isReusableReferencePath(fmt.Sprint(args["path"])):
+		signals.readReusableReference = true
+	}
+}
+
+// maybeAddLongTermMemoryHint 在下一轮模型请求前仅注入一次长期记忆提示。
+//
+// 提示不强制写入。模型仍需先调用 start_long_term_update，并在没有可复用、已验证经验时使用 skip。
+func (r *Runner) maybeAddLongTermMemoryHint(signals *longTermMemorySignals, turn int) {
+	if signals == nil || signals.prompted || signals.started {
+		return
+	}
+	var reasons []string
+	if signals.userRequested {
+		reasons = append(reasons, "用户明确要求保留经验")
+	}
+	if signals.successfulCodeRun {
+		reasons = append(reasons, "已获得成功的命令/测试验证")
+	}
+	if signals.readReusableReference {
+		reasons = append(reasons, "已读取可复用规则或确认页面状态")
+	}
+	if signals.recoveredFromFailure {
+		reasons = append(reasons, "经历重复失败后已恢复")
+	}
+	if turn >= longTermMemoryTurnThreshold {
+		reasons = append(reasons, "任务已运行多轮")
+	}
+	if len(reasons) == 0 {
+		return
+	}
+	signals.prompted = true
+	r.addPendingHint("[LONG-TERM MEMORY HINT] 本轮可能产生可复用经验（" + strings.Join(reasons, "；") + "）。在最终答复前，请判断是否调用 start_long_term_update。只有工具验证、已读文件、浏览器确认、用户明确稳定偏好或已有记忆支持的事实才能沉淀；无值得保留内容时请不要调用，或在后续 memory_propose_update 中使用 skip=true。")
+}
+
+func outcomeSucceeded(outcome Outcome) bool {
+	switch data := outcome.Data.(type) {
+	case ToolErrorData:
+		return false
+	case map[string]any:
+		status, _ := data["status"].(string)
+		return status == "" || status == ToolStatusSuccess
+	case string:
+		lower := strings.ToLower(strings.TrimSpace(data))
+		return !strings.HasPrefix(lower, "error:") && !strings.Contains(lower, `"status":"error"`)
+	default:
+		return true
+	}
+}
+
+func requestsLongTermMemory(input string) bool {
+	lower := strings.ToLower(input)
+	keywords := []string{
+		"记住", "记下来", "沉淀", "长期记忆", "以后沿用",
+		"remember", "long-term memory", "save this preference",
+	}
+	for _, keyword := range keywords {
+		if strings.Contains(lower, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func isReusableReferencePath(path string) bool {
+	path = strings.ToLower(filepath.ToSlash(filepath.Clean(strings.TrimSpace(path))))
+	if path == "." || path == "" {
+		return false
+	}
+	if strings.HasPrefix(path, "sops/") || strings.Contains(path, "/sops/") {
+		return true
+	}
+	if strings.HasPrefix(path, "memory/") || strings.Contains(path, "/memory/") {
+		return true
+	}
+	base := filepath.Base(path)
+	return base == "go.mod" || base == "go.sum" || base == "readme.md" ||
+		strings.HasPrefix(path, "configs/") || strings.Contains(path, "/configs/")
 }
 
 func (r *Runner) appendEphemeralGuidance(messages []llm.Message) []llm.Message {

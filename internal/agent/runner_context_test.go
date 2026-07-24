@@ -160,6 +160,68 @@ func TestRunnerRemindsCheckpointAfterSOPRead_BitsUT(t *testing.T) {
 	}
 }
 
+func TestRunnerPromptsLongTermMemoryAfterSuccessfulCodeRun_BitsUT(t *testing.T) {
+	client := &contextRecordingClient{
+		responses: []llm.Response{
+			{ToolCalls: []llm.ToolCall{{
+				ID:   "call-1",
+				Type: "function",
+				Function: llm.ToolFunction{
+					Name:      "code_run",
+					Arguments: `{"script":"go test ./..."}`,
+				},
+			}}},
+			{Content: "tests passed"},
+		},
+	}
+	runner := &Runner{
+		Client:   client,
+		Tools:    contextFakeTools{result: `{"status":"success","exit_code":0}`},
+		MaxTurns: 2,
+	}
+
+	result, err := runner.Run(context.Background(), "运行测试", NewConsoleSink(&bytes.Buffer{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != RunStatusDone {
+		t.Fatalf("status = %q, want done", result.Status)
+	}
+	if len(client.requests) != 2 {
+		t.Fatalf("requests = %d, want 2", len(client.requests))
+	}
+	last := client.requests[1].Messages[len(client.requests[1].Messages)-1]
+	if !strings.Contains(last.Content, "[LONG-TERM MEMORY HINT]") || !strings.Contains(last.Content, "成功的命令/测试验证") {
+		t.Fatalf("long-term memory hint = %q", last.Content)
+	}
+}
+
+func TestRunnerPromptsLongTermMemoryWhenUserRequestsIt_BitsUT(t *testing.T) {
+	client := &contextRecordingClient{
+		responses: []llm.Response{{Content: "收到"}},
+	}
+	runner := &Runner{
+		Client:   client,
+		Tools:    contextFakeTools{},
+		MaxTurns: 1,
+	}
+
+	result, err := runner.Run(context.Background(), "请记住我偏好简洁的中文回复", NewConsoleSink(&bytes.Buffer{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != RunStatusDone {
+		t.Fatalf("status = %q, want done", result.Status)
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("requests = %d, want 1", len(client.requests))
+	}
+	last := client.requests[0].Messages[len(client.requests[0].Messages)-1]
+	if !strings.Contains(last.Content, "[LONG-TERM MEMORY HINT]") || !strings.Contains(last.Content, "用户明确要求保留经验") {
+		t.Fatalf("long-term memory hint = %q", last.Content)
+	}
+}
+
 func TestRunnerUsesContextManagerForModelRequest_BitsUT(t *testing.T) {
 	client := &contextRecordingClient{
 		responses: []llm.Response{{Content: "ok"}},
