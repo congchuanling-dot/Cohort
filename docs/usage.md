@@ -477,7 +477,7 @@ context:
   max_session_memory_chars: 20000
   max_memory_index_chars: 12000
   max_relevant_memory_chars: 16000
-  max_relevant_memory_files: 2
+  max_relevant_memory_entries: 3
   max_compact_summary_chars: 60000
   enable_micro_compact: true
 ```
@@ -489,7 +489,7 @@ context:
 - `max_history_messages`：本轮请求最多保留的历史消息数。
 - `max_memory_index_chars`：`memory/index.md` 注入请求前允许携带的最大字符数。
 - `max_relevant_memory_chars`：根据当前任务关键词自动匹配到的长期记忆注入上限。
-- `max_relevant_memory_files`：单轮最多自动注入几个长期记忆文件。
+- `max_relevant_memory_entries`：单轮最多自动注入几个长期记忆条目。兼容旧配置键 `max_relevant_memory_files`。
 - `keep_recent_tool_results`：最近多少条工具结果保持完整。
 - `max_tool_result_chars`：单条工具结果超过该字符数后会被压缩。
 - `compacted_tool_head_chars`：压缩后保留头部字符数。

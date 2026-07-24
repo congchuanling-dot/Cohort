@@ -160,7 +160,7 @@ func TestManagerBuildInjectsSessionMemory_BitsUT(t *testing.T) {
 func TestManagerBuildInjectsLongTermMemoryIndexBeforeSessionMemory_BitsUT(t *testing.T) {
 	sessionDir := t.TempDir()
 	memoryRoot := t.TempDir()
-	indexText := "# Memory Index\n\n- Project memory: memory/projects/default/project.md"
+	indexText := "# Memory Index\n\n- Project memory: memory/projects/cohort/project.md"
 	sessionMemoryText := "# Session Memory\n\n- current task facts"
 	if err := os.WriteFile(filepath.Join(memoryRoot, LongTermMemoryIndexFileName), []byte(indexText), 0644); err != nil {
 		t.Fatal(err)
@@ -208,7 +208,7 @@ func TestManagerBuildInjectsLongTermMemoryIndexBeforeSessionMemory_BitsUT(t *tes
 func TestManagerBuildInjectsRelevantLongTermMemoryForBrowserTask_BitsUT(t *testing.T) {
 	sessionDir := t.TempDir()
 	memoryRoot := t.TempDir()
-	indexText := "# Memory Index\n\n- Project memory: memory/projects/default/project.md"
+	indexText := "# Memory Index\n\n- Project memory: memory/projects/cohort/project.md"
 	projectMemory := `# Project Memory: default
 
 ## Memory Entry: mem-unrelated
@@ -232,7 +232,7 @@ func TestManagerBuildInjectsRelevantLongTermMemoryForBrowserTask_BitsUT(t *testi
 	if err := os.WriteFile(filepath.Join(memoryRoot, LongTermMemoryIndexFileName), []byte(indexText), 0644); err != nil {
 		t.Fatal(err)
 	}
-	projectPath := filepath.Join(memoryRoot, "projects", "default", "project.md")
+	projectPath := filepath.Join(memoryRoot, "projects", "cohort", "project.md")
 	if err := os.MkdirAll(filepath.Dir(projectPath), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func TestManagerBuildInjectsRelevantLongTermMemoryForBrowserTask_BitsUT(t *testi
 	}
 	if !strings.Contains(result.Messages[1].Content, relevantLongTermMemoryNotice) ||
 		!strings.Contains(result.Messages[1].Content, "wait_for_stable") ||
-		!strings.Contains(result.Messages[1].Content, "memory/projects/default/project.md") {
+		!strings.Contains(result.Messages[1].Content, "memory/projects/cohort/project.md") {
 		t.Fatalf("second message is not relevant memory:\n%s", result.Messages[1].Content)
 	}
 	if strings.Contains(result.Messages[1].Content, "运行 Go 单测") {
@@ -292,11 +292,11 @@ func TestManagerBuildInjectsRelevantLongTermMemoryForBrowserTask_BitsUT(t *testi
 
 func TestManagerBuildSkipsRelevantLongTermMemoryForUnrelatedTask_BitsUT(t *testing.T) {
 	memoryRoot := t.TempDir()
-	indexText := "# Memory Index\n\n- Project memory: memory/projects/default/project.md"
+	indexText := "# Memory Index\n\n- Project memory: memory/projects/cohort/project.md"
 	if err := os.WriteFile(filepath.Join(memoryRoot, LongTermMemoryIndexFileName), []byte(indexText), 0644); err != nil {
 		t.Fatal(err)
 	}
-	projectPath := filepath.Join(memoryRoot, "projects", "default", "project.md")
+	projectPath := filepath.Join(memoryRoot, "projects", "cohort", "project.md")
 	if err := os.MkdirAll(filepath.Dir(projectPath), 0755); err != nil {
 		t.Fatal(err)
 	}

@@ -201,15 +201,17 @@ Runner
 
 运行时真实存储位置统一为配置项 `workspace` 下的 `memory/` 目录。工具参数和索引中的 `memory/...` 都是相对 `workspace` 的逻辑路径，例如 `memory/global.md` 实际落盘到 `<workspace>/memory/global.md`。Context Manager 也只从同一个 `<workspace>/memory/index.md` 注入长期记忆索引。
 
-请求模型前，Context Manager 会根据最近用户任务提取关键词，从 `memory/index.md` 指向的 `.md` 文件和 P0 默认文件中匹配相关长期记忆。命中后会把相关文件作为 `[Cohert relevant long-term memory]` 受保护前缀注入；未命中时只注入 `memory/index.md` 指针。
+请求模型前，Context Manager 会根据最近用户任务提取关键词，从 `memory/index.md` 指向的 `.md` 文件和项目 memory 中按 entry 匹配相关长期记忆。命中后只把最相关的若干条 entry 作为 `[Cohert relevant long-term memory]` 受保护前缀注入；未命中时只注入 `memory/index.md` 指针。
 
 ```text
 memory/
   index.md
   global.md
   projects/
-    default/
+    <project_id>/
       project.md
+  reflection/
+    sop_candidates.md
   raw_sessions/
     all_histories.md
     archives/
@@ -241,8 +243,9 @@ memory/index.md
 ```text
 # Memory Index
 
-项目约定: memory/projects/default/project.md
+项目约定: memory/projects/<project_id>/project.md
 用户偏好: memory/global.md#user-preferences
+SOP 候选: memory/reflection/sop_candidates.md
 浏览器操作: sops/browser_sop.md
 命令执行: sops/code_run_sop.md
 历史会话: memory/raw_sessions/all_histories.md
@@ -276,7 +279,7 @@ memory/global.md
 路径：
 
 ```text
-memory/projects/default/project.md
+memory/projects/<project_id>/project.md
 sops/*.md
 ```
 
@@ -287,6 +290,8 @@ sops/*.md
 - 难以快速重建的坑点。
 - 特定任务的 SOP。
 - 可复用脚本或操作流程。
+
+`<project_id>` 优先从 git root 目录名生成；如果 workspace 不在 git 仓库内，则从 workspace 目录名生成。名称会规范化为小写短横线格式，例如 `My Repo` -> `my-repo`。
 
 写入原则：
 
@@ -362,11 +367,16 @@ start_long_term_update
 ## Candidate
 
 - type: project_lesson
-- target: memory/projects/default/project.md
+- target: memory/projects/<project_id>/project.md
+- scene: 飞书网页自动化
+- trigger_keywords: [飞书, 浏览器, 审批, wait_for_stable]
+- lesson: 处理飞书网页自动化时，先等待页面稳定，再 snapshot 获取元素后点击。
+- recommended_steps: [browser_wait_for_stable, browser_snapshot, browser_click_element, browser_wait_for_text]
 - evidence_ids: [tool:8:0]
-- content: ...
 - risk: low
 - action: append
+- promote_to_sop: true
+- sop_path: sops/lark_browser_automation.md
 ```
 
 ### 5.3 验证：Evidence Validator
@@ -412,7 +422,7 @@ memory/audit.jsonl
 
 ```json
 {
-  "target": "memory/projects/default/project.md",
+  "target": "memory/projects/<project_id>/project.md",
   "action": "append",
   "source_session": "...",
   "evidence_ids": ["tool:8:0"],
@@ -469,8 +479,11 @@ Schema：
   "candidates": [
     {
       "type": "project_lesson",
-      "target": "memory/projects/default/project.md",
-      "content": "...",
+      "target": "memory/projects/<project_id>/project.md",
+      "scene": "飞书网页自动化",
+      "trigger_keywords": ["飞书", "浏览器", "审批", "wait_for_stable"],
+      "lesson": "...",
+      "recommended_steps": ["browser_wait_for_stable", "browser_snapshot"],
       "evidence_ids": ["tool:8:0"],
       "risk": "low"
     }
@@ -486,11 +499,12 @@ Schema：
 
 约束：
 
-- P0 只允许写 `memory/global.md` 和 `memory/projects/default/project.md`。
+- P0 只允许写 `memory/global.md`、`memory/projects/<project_id>/project.md` 和 `memory/reflection/sop_candidates.md`。
 - 只允许 append。
-- 写入前必须检测目标文件是否已包含相同内容，重复记忆直接拒绝。
+- 写入前必须检测目标文件是否已包含相同 lesson / trigger_keywords / recommended_steps，重复记忆直接拒绝。
 - 写入后必须重新读取目标文件，确认本次 entry 已落盘后才返回成功并写 audit。
 - 修改核心代码不允许走这个工具。
+- `promote_to_sop=true` 时，额外把候选流程追加到 `memory/reflection/sop_candidates.md`，作为后续人工审核或专门工具升级到正式 `sops/*.md` 的输入。
 
 ### 6.4 reflect_run
 

@@ -27,6 +27,26 @@ func TestManagerEnsureStructureCreatesP0Files_BitsUT(t *testing.T) {
 	}
 }
 
+func TestManagerUsesGitRootNameForProjectMemoryPath_BitsUT(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "My Repo")
+	workspace := filepath.Join(root, "workspace")
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(workspace, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := NewManager(workspace)
+
+	if manager.ProjectID != "my-repo" {
+		t.Fatalf("project id = %q, want my-repo", manager.ProjectID)
+	}
+	if manager.ProjectMemoryPath() != "memory/projects/my-repo/project.md" {
+		t.Fatalf("project memory path = %q", manager.ProjectMemoryPath())
+	}
+}
+
 func TestManagerApplyCandidateAppendsAndAudits_BitsUT(t *testing.T) {
 	workspace := t.TempDir()
 	manager := NewManager(workspace)
