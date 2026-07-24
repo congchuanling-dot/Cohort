@@ -135,6 +135,11 @@ browser_wait_for_stable
 
 - 截图优先用 `browser_screenshot`，图片会保存到 workspace，只返回路径和尺寸。
 - OCR 只在 DOM 文本不可用、canvas/image 渲染、验证码旁说明等场景兜底。
+- 优先顺序：`browser_scan` -> `browser_dom_summary` -> `browser_screenshot` / `browser_ocr`。
+- `browser_ocr` 可以读取 workspace 内的 `image_path`；不传时会先截取当前浏览器视口。
+- OCR 返回 `coordinate_space=screenshot-local` 和 bbox。它们只表示图片内坐标，不能直接作为系统屏幕坐标点击。
+- 默认 `enhance=false`；清晰页面文字不应先做放大/高对比度处理。
+- 缺少 `rapidocr-onnxruntime`、`pillow` 或 `numpy` 时，按工具提示由用户手动安装依赖，不在任务中隐式安装。
 - 普通网页不要默认 OCR。
 
 ## 验收标准

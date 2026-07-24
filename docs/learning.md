@@ -243,7 +243,7 @@ start_long_term_update -> memory_propose_update -> memory_apply_update
 
 文件：[internal/tools/browser_tools.go](../internal/tools/browser_tools.go)
 
-浏览器工具通过本地 Chrome bridge 工作。普通网页读取优先 `browser_scan`，结构化 DOM 不足时用 `browser_dom_summary`，交互前用 `browser_snapshot` 找元素，动作后用 wait 系列工具验证页面状态。
+浏览器工具通过本地 Chrome bridge 工作。普通网页读取优先 `browser_scan`，结构化 DOM 不足时用 `browser_dom_summary`，交互前用 `browser_snapshot` 找元素，动作后用 wait 系列工具验证页面状态。只有 DOM 文本不可读时才使用 `browser_ocr`；它调用隔离的 Python RapidOCR helper，返回截图内 bbox，不执行点击。
 
 ## 5. 数据流
 

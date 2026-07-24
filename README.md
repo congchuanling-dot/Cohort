@@ -195,6 +195,7 @@ browser_wait_for_text
 browser_wait_for_url
 browser_wait_for_stable
 browser_screenshot
+browser_ocr
 ```
 
 </details>
@@ -217,6 +218,12 @@ open
   -> click / type / press key
   -> wait for selector / text / URL / stable state
   -> verify result
+```
+
+When DOM text and `browser_dom_summary` cannot read rendered text, `browser_ocr` can process a workspace image or capture the current browser viewport. It returns text with `screenshot-local` bounding boxes and never performs clicks. Install its optional local dependencies manually:
+
+```bash
+python3 -m pip install rapidocr-onnxruntime pillow numpy
 ```
 
 If browser tools return `browser_not_connected`, load the Chrome extension from:

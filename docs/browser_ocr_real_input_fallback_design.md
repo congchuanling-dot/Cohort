@@ -609,14 +609,14 @@ os_input:
 
 ## 需要修改的文件
 
-P0/P1：
+已完成的 P0/P1 OCR 文件：
 
 ```text
 internal/tools/registry.go
-internal/tools/browser_dom_summary.go
-internal/tools/browser_dom_summary_test.go
-internal/tools/browser_ocr.go
-internal/tools/browser_ocr_test.go
+internal/tools/browser_tools.go
+internal/tools/browser_tools_test.go
+internal/vision/ocr_runner.go
+internal/vision/ocr_runner_test.go
 scripts/browser_ocr.py
 docs/testing.md
 sops/browser_sop.md

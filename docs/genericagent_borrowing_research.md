@@ -333,7 +333,13 @@ GA 的设计顺序：
 
 ### Cohert 当前状态
 
-Cohert 有 `browser_screenshot`，但没有 OCR、UI detector、OS window/input helper。
+Cohert 已有 `browser_screenshot` 和 `browser_ocr`：
+
+- `browser_ocr` 使用隔离的 Python RapidOCR helper，支持 workspace 图片或自动浏览器截图。
+- 返回低噪声文字和 `screenshot-local` bbox，不会执行点击。
+- `rapidocr-onnxruntime`、`pillow`、`numpy` 缺失时返回结构化错误，不会隐式安装依赖。
+
+仍未实现 UI detector、OS window/input helper。
 
 ### 建议借鉴
 
@@ -341,7 +347,6 @@ Cohert 有 `browser_screenshot`，但没有 OCR、UI detector、OS window/input 
 
 补充建议：
 
-- P0 先做 `browser_ocr`，不要直接开放 OS 鼠标键盘。
 - P1 做 macOS `osinput` helper，但默认关闭。
 - P2 再做 `browser_visual_snapshot` 和 Windows helper。
 - VLM 只能做语义判断，不可信坐标。

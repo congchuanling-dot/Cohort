@@ -16,16 +16,22 @@ import (
 	"cohert/internal/agent"
 	"cohert/internal/browser"
 	"cohert/internal/llm"
+	"cohert/internal/vision"
 )
 
 const (
-	defaultBrowserScanChars       = 12000
-	defaultBrowserDOMSummaryChars = 20000
-	defaultBrowserJSReturnChars   = 8000
-	defaultBrowserSnapshotItems   = 80
-	defaultBrowserWaitTimeoutMS   = 10000
-	defaultBrowserWaitIntervalMS  = 200
-	defaultBrowserScreenshotDir   = ".cohert/screenshots"
+	defaultBrowserScanChars        = 12000
+	defaultBrowserDOMSummaryChars  = 20000
+	defaultBrowserJSReturnChars    = 8000
+	defaultBrowserSnapshotItems    = 80
+	defaultBrowserWaitTimeoutMS    = 10000
+	defaultBrowserWaitIntervalMS   = 200
+	defaultBrowserScreenshotDir    = ".cohert/screenshots"
+	defaultBrowserOCRMinConfidence = 0.5
+	defaultBrowserOCRMaxLines      = 80
+	defaultBrowserOCRMaxChars      = 8000
+	maxBrowserOCRLines             = 200
+	maxBrowserOCRChars             = 12000
 )
 
 // BrowserTabs 把浏览器标签页列表暴露给模型。
@@ -906,6 +912,225 @@ func (t *BrowserScreenshot) saveScreenshot(result browser.ScreenshotResult) (str
 		return "", 0, err
 	}
 	return path, len(data), nil
+}
+
+// BrowserOCR 对浏览器截图或 workspace 内图片执行只读 OCR。
+// OCR bbox 始终以截图左上角为原点，不能直接用于系统级鼠标点击。
+type BrowserOCR struct {
+	client browser.Client
+	workspaceTool
+	runner vision.OCRRunner
+}
+
+func NewBrowserOCR(client browser.Client, workspace string) *BrowserOCR {
+	workspaceRoot := newWorkspaceTool(workspace).workspace
+	scriptPath := filepath.Join("scripts", "browser_ocr.py")
+	if root := findGitRoot(workspaceRoot); root != "" {
+		scriptPath = filepath.Join(root, "scripts", "browser_ocr.py")
+	} else if absolutePath, err := filepath.Abs(scriptPath); err == nil {
+		scriptPath = absolutePath
+	}
+	return NewBrowserOCRWithRunner(
+		client,
+		workspace,
+		vision.NewPythonOCRRunner("python3", scriptPath, vision.DefaultOCRTimeout),
+	)
+}
+
+// NewBrowserOCRWithRunner 允许测试或未来 OCR 引擎注入受控 runner。
+func NewBrowserOCRWithRunner(client browser.Client, workspace string, runner vision.OCRRunner) *BrowserOCR {
+	return &BrowserOCR{
+		client:        client,
+		workspaceTool: newWorkspaceTool(workspace),
+		runner:        runner,
+	}
+}
+
+func (t *BrowserOCR) Name() string { return ToolNameBrowserOCR }
+
+func (t *BrowserOCR) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Run read-only OCR on an image under the workspace, or capture the current browser viewport first when image_path is empty. Return text and screenshot-local bounding boxes. Use only after browser_scan and browser_dom_summary cannot read the needed text; OCR bounding boxes are not system-screen coordinates.",
+		Parameters: objectSchema(map[string]any{
+			"image_path":     stringProp("Optional image path under the workspace. If empty, capture the current browser viewport first."),
+			"tab_id":         stringProp("Optional tab ID used only when image_path is empty."),
+			"full_page":      boolProp("Capture the full page when image_path is empty. Default false.", false),
+			"min_confidence": floatProp("Minimum OCR confidence from 0 to 1. Default 0.5.", defaultBrowserOCRMinConfidence),
+			"max_lines":      intProp("Maximum OCR lines to return. Default 80, max 200.", defaultBrowserOCRMaxLines),
+			"max_chars":      intProp("Maximum OCR text characters to return. Default 8000, max 12000.", defaultBrowserOCRMaxChars),
+			"enhance":        boolProp("Apply contrast and scale preprocessing. Default false because it can harm clear text.", false),
+		}),
+	}}
+}
+
+func (t *BrowserOCR) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	if t.runner == nil {
+		return agent.Outcome{
+			Data: agent.NewToolError(
+				"browser_ocr_unavailable",
+				"OCR runner is not configured",
+				"请确认 Cohert 随附的 scripts/browser_ocr.py 可用，并已配置 Python 运行环境。",
+			),
+			NextPrompt: "\n",
+		}, nil
+	}
+
+	imagePath := strings.TrimSpace(asString(call.Args["image_path"]))
+	var screenshot browser.ScreenshotResult
+	capturedScreenshot := imagePath == ""
+	if capturedScreenshot {
+		var err error
+		screenshot, err = t.client.Screenshot(ctx, asString(call.Args["tab_id"]), "png", asBool(call.Args["full_page"], false), 90)
+		if err != nil {
+			return browserToolError(err), nil
+		}
+		var saveErr error
+		imagePath, _, saveErr = (&BrowserScreenshot{workspace: t.workspace}).saveScreenshot(screenshot)
+		if saveErr != nil {
+			return agent.Outcome{
+				Data: agent.NewToolError(
+					"browser_ocr_screenshot_save_failed",
+					saveErr.Error(),
+					"浏览器截图已返回但无法保存到 workspace；请检查 workspace 权限。",
+				),
+				NextPrompt: "\n",
+			}, nil
+		}
+	}
+
+	resolvedPath, pathErr := t.resolveOCRImagePath(imagePath)
+	if pathErr != nil {
+		return agent.Outcome{
+			Data:       *pathErr,
+			NextPrompt: "\n",
+		}, nil
+	}
+
+	minConfidence := asFloat(call.Args["min_confidence"], defaultBrowserOCRMinConfidence)
+	if minConfidence < 0 || minConfidence > 1 {
+		return agent.Outcome{
+			Data: agent.NewToolError(
+				"browser_ocr_bad_min_confidence",
+				"min_confidence must be between 0 and 1",
+				"请传入 0 到 1 之间的数值，默认 0.5。",
+			),
+			NextPrompt: "\n",
+		}, nil
+	}
+
+	result, err := t.runner.Run(ctx, vision.OCRRequest{
+		ImagePath:     resolvedPath,
+		MinConfidence: minConfidence,
+		Enhance:       asBool(call.Args["enhance"], false),
+	})
+	if err != nil {
+		var ocrErr *vision.ToolError
+		if errors.As(err, &ocrErr) {
+			return agent.Outcome{
+				Data:       agent.NewToolError(ocrErr.Code, ocrErr.Message, ocrErr.Hint),
+				NextPrompt: "\n",
+			}, nil
+		}
+		return agent.Outcome{
+			Data: agent.NewToolError(
+				"browser_ocr_failed",
+				err.Error(),
+				"请检查图片是否可读、Python OCR helper 是否可用，并根据错误决定是否重试。",
+			),
+			NextPrompt: "\n",
+		}, nil
+	}
+
+	maxLines := clampBrowserOCRLimit(asInt(call.Args["max_lines"], defaultBrowserOCRMaxLines), defaultBrowserOCRMaxLines, maxBrowserOCRLines)
+	maxChars := clampBrowserOCRLimit(asInt(call.Args["max_chars"], defaultBrowserOCRMaxChars), defaultBrowserOCRMaxChars, maxBrowserOCRChars)
+	lines := result.Lines
+	truncated := false
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
+		truncated = true
+	}
+	text, textTruncated := truncateBrowserOCRText(joinOCRLines(lines), maxChars)
+	truncated = truncated || textTruncated
+
+	data := map[string]any{
+		"status":           agent.ToolStatusSuccess,
+		"image_path":       resolvedPath,
+		"coordinate_space": "screenshot-local",
+		"width":            result.Width,
+		"height":           result.Height,
+		"text":             text,
+		"lines":            lines,
+		"line_count":       len(lines),
+		"total_lines":      len(result.Lines),
+		"truncated":        truncated,
+	}
+	if capturedScreenshot {
+		data["tab_id"] = screenshot.TabID
+	}
+	return agent.Outcome{Data: data, NextPrompt: "\n"}, nil
+}
+
+func (t *BrowserOCR) resolveOCRImagePath(rawPath string) (string, *agent.ToolErrorData) {
+	path := t.resolve(rawPath)
+	rel, err := filepath.Rel(t.workspace, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		err := agent.NewToolError(
+			"browser_ocr_path_outside_workspace",
+			"OCR image_path must stay inside the configured workspace",
+			"请提供 workspace 内图片的相对路径，或省略 image_path 让 browser_ocr 自动截图。",
+		)
+		return "", &err
+	}
+	if _, err := os.Stat(path); err != nil {
+		toolErr := agent.NewToolError(
+			"browser_ocr_image_not_found",
+			fmt.Sprintf("OCR image is unavailable: %v", err),
+			"请确认图片已保存到 workspace，或省略 image_path 让 browser_ocr 自动截图。",
+		)
+		return "", &toolErr
+	}
+
+	realWorkspace, workspaceErr := filepath.EvalSymlinks(t.workspace)
+	realPath, pathErr := filepath.EvalSymlinks(path)
+	if workspaceErr == nil && pathErr == nil {
+		realRel, err := filepath.Rel(realWorkspace, realPath)
+		if err != nil || realRel == ".." || strings.HasPrefix(realRel, ".."+string(filepath.Separator)) {
+			toolErr := agent.NewToolError(
+				"browser_ocr_path_outside_workspace",
+				"OCR image_path resolves outside the configured workspace",
+				"图片路径不能通过符号链接逃出 workspace；请复制图片到 workspace 后重试。",
+			)
+			return "", &toolErr
+		}
+	}
+	return path, nil
+}
+
+func clampBrowserOCRLimit(value int, fallback int, max int) int {
+	if value <= 0 {
+		return fallback
+	}
+	if value > max {
+		return max
+	}
+	return value
+}
+
+func joinOCRLines(lines []vision.OCRLine) string {
+	texts := make([]string, 0, len(lines))
+	for _, line := range lines {
+		texts = append(texts, line.Text)
+	}
+	return strings.Join(texts, "\n")
+}
+
+func truncateBrowserOCRText(text string, maxChars int) (string, bool) {
+	runes := []rune(text)
+	if len(runes) <= maxChars {
+		return text, false
+	}
+	return string(runes[:maxChars]) + "\n...[truncated]...", true
 }
 
 func browserToolError(err error) agent.Outcome {

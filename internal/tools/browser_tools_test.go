@@ -5,10 +5,12 @@ import (
 	"encoding/base64"
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"cohert/internal/agent"
 	"cohert/internal/browser"
+	"cohert/internal/vision"
 )
 
 type fakeBrowserClient struct {
@@ -90,6 +92,20 @@ type fakeBrowserClient struct {
 	waitIntervalMS int
 	// err 是 fake client 各方法统一返回的预设错误。
 	err error
+}
+
+type fakeOCRRunner struct {
+	request vision.OCRRequest
+	result  vision.OCRResult
+	err     error
+}
+
+func (r *fakeOCRRunner) Run(ctx context.Context, request vision.OCRRequest) (vision.OCRResult, error) {
+	r.request = request
+	if r.err != nil {
+		return vision.OCRResult{}, r.err
+	}
+	return r.result, nil
 }
 
 func (f *fakeBrowserClient) Tabs(ctx context.Context) ([]browser.Tab, error) {
@@ -369,6 +385,143 @@ func TestBrowserScreenshotSavesImage(t *testing.T) {
 	}
 	if string(content) != "png bytes" {
 		t.Fatalf("saved screenshot = %q", string(content))
+	}
+}
+
+func TestBrowserOCRReadsWorkspaceImageAndLimitsResult_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	imagePath := filepath.Join(workspace, "fixture.png")
+	if err := os.WriteFile(imagePath, []byte("fixture"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeOCRRunner{result: vision.OCRResult{
+		Status: "success",
+		Width:  800,
+		Height: 600,
+		Lines: []vision.OCRLine{
+			{Index: 1, Text: "登录", Confidence: 0.98, BBox: []int{100, 200, 160, 230}, Center: vision.Point{X: 130, Y: 215}},
+			{Index: 2, Text: "继续", Confidence: 0.97, BBox: []int{100, 240, 160, 270}, Center: vision.Point{X: 130, Y: 255}},
+		},
+	}}
+	tool := NewBrowserOCRWithRunner(&fakeBrowserClient{}, workspace, runner)
+	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{
+			"image_path":     "fixture.png",
+			"min_confidence": 0.8,
+			"max_lines":      1,
+			"max_chars":      2,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runner.request.ImagePath != imagePath || runner.request.MinConfidence != 0.8 {
+		t.Fatalf("request = %#v", runner.request)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["coordinate_space"] != "screenshot-local" || data["truncated"] != true || data["total_lines"] != 2 || data["line_count"] != 1 {
+		t.Fatalf("data = %#v", data)
+	}
+	if data["text"] != "登录" {
+		t.Fatalf("text = %q, want 登录", data["text"])
+	}
+}
+
+func TestBrowserOCRCapturesScreenshotWhenImagePathEmpty_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	client := &fakeBrowserClient{
+		screenshotData: base64.StdEncoding.EncodeToString([]byte("png bytes")),
+	}
+	runner := &fakeOCRRunner{result: vision.OCRResult{
+		Status: "success",
+		Width:  800,
+		Height: 600,
+		Lines:  []vision.OCRLine{},
+	}}
+	tool := NewBrowserOCRWithRunner(client, workspace, runner)
+	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"tab_id": "5", "full_page": true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.screenshotTabID != "5" || !client.screenshotFull || client.screenshotFormat != "png" {
+		t.Fatalf("screenshot call = tab %q full %v format %q", client.screenshotTabID, client.screenshotFull, client.screenshotFormat)
+	}
+	if !filepath.IsAbs(runner.request.ImagePath) {
+		t.Fatalf("captured image path = %q, want absolute workspace path", runner.request.ImagePath)
+	}
+	if _, err := os.Stat(runner.request.ImagePath); err != nil {
+		t.Fatalf("captured image missing: %v", err)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["tab_id"] != "5" || data["image_path"] != runner.request.ImagePath {
+		t.Fatalf("data = %#v", data)
+	}
+}
+
+func TestBrowserOCRRejectsOutsideWorkspacePath_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.png")
+	if err := os.WriteFile(outside, []byte("fixture"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	tool := NewBrowserOCRWithRunner(&fakeBrowserClient{}, workspace, &fakeOCRRunner{})
+	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"image_path": outside},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolErr := outcome.Data.(agent.ToolErrorData)
+	if toolErr.Code != "browser_ocr_path_outside_workspace" {
+		t.Fatalf("error = %#v", toolErr)
+	}
+}
+
+func TestBrowserOCRRejectsSymlinkOutsideWorkspace_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.png")
+	if err := os.WriteFile(outside, []byte("fixture"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	linkPath := filepath.Join(workspace, "outside-link.png")
+	if err := os.Symlink(outside, linkPath); err != nil {
+		t.Skipf("symlink is unavailable in this environment: %v", err)
+	}
+	tool := NewBrowserOCRWithRunner(&fakeBrowserClient{}, workspace, &fakeOCRRunner{})
+	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"image_path": "outside-link.png"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolErr := outcome.Data.(agent.ToolErrorData)
+	if toolErr.Code != "browser_ocr_path_outside_workspace" {
+		t.Fatalf("error = %#v", toolErr)
+	}
+}
+
+func TestBrowserOCRMapsStructuredRunnerError_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "fixture.png"), []byte("fixture"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeOCRRunner{err: &vision.ToolError{
+		Code:    "browser_ocr_dependency_missing",
+		Message: "missing rapidocr",
+		Hint:    "install dependencies",
+	}}
+	tool := NewBrowserOCRWithRunner(&fakeBrowserClient{}, workspace, runner)
+	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"image_path": "fixture.png"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolErr := outcome.Data.(agent.ToolErrorData)
+	if toolErr.Code != "browser_ocr_dependency_missing" || toolErr.Hint != "install dependencies" {
+		t.Fatalf("error = %#v", toolErr)
 	}
 }
 

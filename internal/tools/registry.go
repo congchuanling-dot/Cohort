@@ -66,6 +66,8 @@ const (
 	ToolNameBrowserWaitForStable = "browser_wait_for_stable"
 	// ToolNameBrowserScreenshot 截取浏览器页面并保存图片。
 	ToolNameBrowserScreenshot = "browser_screenshot"
+	// ToolNameBrowserOCR 对浏览器截图或 workspace 内图片执行只读 OCR。
+	ToolNameBrowserOCR = "browser_ocr"
 )
 
 // Tool 是所有本地工具必须实现的接口。
@@ -118,6 +120,7 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameBrowserWaitForURL,
 		ToolNameBrowserWaitForStable,
 		ToolNameBrowserScreenshot,
+		ToolNameBrowserOCR,
 		ToolNameUpdateWorkingCheckpoint,
 		ToolNameStartLongTermUpdate,
 		ToolNameMemoryProposeUpdate,
@@ -177,13 +180,17 @@ func objectSchema(props map[string]any, required ...string) map[string]any {
 	return schema
 }
 
-// stringProp/intProp/boolProp 是工具 schema 的小工具函数，减少重复 map 写法。
+// stringProp/intProp/floatProp/boolProp 是工具 schema 的小工具函数，减少重复 map 写法。
 func stringProp(desc string) map[string]any {
 	return map[string]any{"type": "string", "description": desc}
 }
 
 func intProp(desc string, def int) map[string]any {
 	return map[string]any{"type": "integer", "description": desc, "default": def}
+}
+
+func floatProp(desc string, def float64) map[string]any {
+	return map[string]any{"type": "number", "description": desc, "default": def}
 }
 
 func numberProp(desc string) map[string]any {

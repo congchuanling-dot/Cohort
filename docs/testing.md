@@ -457,6 +457,7 @@ go run . ask "读取 README.md 前 20 行并总结"
 - 改 `file_patch`：跑 4.4。
 - 改 `code_run`：跑 4.5，并执行 `go test ./internal/tools -run 'TestCodeRun|TestNormalize' -count=1`。
 - 改 `ask_user`：跑 4.6。
+- 改 `browser_ocr`：执行 `python3 -m py_compile scripts/browser_ocr.py`，再执行 `go test ./internal/vision ./internal/tools -run 'Test.*OCR' -count=1`。
 - 改 session：跑 6.1、6.2，并执行 `go test ./internal/session ./internal/agent -run 'TestStoreListAndLoadHistory|TestRunnerResumeSessionContinuesExistingHistory' -count=1`。
 
 ## 9. 常见问题

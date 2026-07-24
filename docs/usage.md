@@ -198,6 +198,7 @@ browser_wait_for_text
 browser_wait_for_url
 browser_wait_for_stable
 browser_screenshot
+browser_ocr
 ```
 
 这个命令不需要 API Key。
