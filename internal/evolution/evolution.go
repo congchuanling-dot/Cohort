@@ -16,7 +16,6 @@ const (
 	MemoryDirName              = "memory"
 	MemoryIndexPath            = "memory/index.md"
 	GlobalMemoryPath           = "memory/global.md"
-	DefaultProjectMemoryPath   = "memory/projects/default/project.md"
 	SOPCandidateMemoryPath     = "memory/reflection/sop_candidates.md"
 	MemoryAuditPath            = "memory/audit.jsonl"
 	defaultMemoryFilePerm      = 0644
