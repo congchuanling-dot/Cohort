@@ -34,7 +34,7 @@ func (t *AskUser) Schema() llm.ToolSchema {
 		Description: "Ask the user for missing information or a decision.",
 		Parameters: objectSchema(map[string]any{
 			"question": stringProp("Question for the user"),
-			"approval": objectProp("Optional confirmation binding for a high-risk action. Supported operations: desktop_ax_press/desktop_click with operation, pid, node_id, reason; desktop_press_key with operation, pid, key, reason. A positive user answer returns a one-time confirmation_token."),
+			"approval": objectProp("Optional confirmation binding for a high-risk action. Supported operations: desktop_ax_press/desktop_click with operation, pid, node_id, reason; desktop_visual_click with operation, pid, image_path, bbox, reason; desktop_press_key with operation, pid, key, reason. A positive user answer returns a one-time confirmation_token."),
 		}, "question"),
 	}}
 }
@@ -118,13 +118,15 @@ func parseAskUserApproval(args map[string]any) (*ActionApproval, *agent.ToolErro
 		Operation: strings.TrimSpace(asString(approval["operation"])),
 		PID:       asInt(approval["pid"], 0),
 		NodeID:    strings.TrimSpace(asString(approval["node_id"])),
+		ImagePath: strings.TrimSpace(asString(approval["image_path"])),
+		BBox:      strings.TrimSpace(asString(approval["bbox"])),
 		Key:       strings.TrimSpace(asString(approval["key"])),
 		Reason:    strings.TrimSpace(asString(approval["reason"])),
 	}
 	if !validActionApproval(value) {
 		err := agent.NewToolError(
 			"confirmation_bad_request",
-			"ask_user approval only supports desktop_ax_press/desktop_click with pid/node_id/reason or desktop_press_key with pid/key/reason",
+			"ask_user approval only supports desktop_ax_press/desktop_click with pid/node_id/reason, desktop_visual_click with pid/image_path/bbox/reason, or desktop_press_key with pid/key/reason",
 			"请使用工具返回的 approval_request 原样请求用户确认，不要手写或复用旧确认。",
 		)
 		return nil, &err
@@ -138,9 +140,11 @@ func validActionApproval(value ActionApproval) bool {
 	}
 	switch value.Operation {
 	case desktopAXPressOperation, desktopClickOperation:
-		return value.NodeID != "" && value.Key == ""
+		return value.NodeID != "" && value.Key == "" && value.ImagePath == "" && value.BBox == ""
+	case desktopVisualClickOperation:
+		return value.NodeID == "" && value.Key == "" && value.ImagePath != "" && value.BBox != ""
 	case desktopPressKeyOperation:
-		return value.Key != "" && value.NodeID == ""
+		return value.Key != "" && value.NodeID == "" && value.ImagePath == "" && value.BBox == ""
 	default:
 		return false
 	}
@@ -160,6 +164,14 @@ func approvalPrompt(value ActionApproval) string {
 			"该回答将只授权一次桌面物理点击操作：pid=%d，node_id=%s，原因=%s。",
 			value.PID,
 			value.NodeID,
+			value.Reason,
+		)
+	case desktopVisualClickOperation:
+		return fmt.Sprintf(
+			"该回答将只授权一次桌面视觉点击操作：pid=%d，image_path=%s，bbox=%s，原因=%s。",
+			value.PID,
+			value.ImagePath,
+			value.BBox,
 			value.Reason,
 		)
 	case desktopPressKeyOperation:

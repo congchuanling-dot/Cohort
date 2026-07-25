@@ -255,6 +255,14 @@ def require_active_pid(pid):
     )
 
 
+def ensure_active_pid(pid):
+    _, _, workspace = require_macos_modules()
+    if active_pid(workspace) == pid:
+        return True
+    activate({"pid": pid})
+    return active_pid(workspace) == pid
+
+
 def image_dimensions(path, fallback_bounds):
     completed = subprocess.run(
         ["/usr/bin/sips", "-g", "pixelWidth", "-g", "pixelHeight", str(path)],
@@ -620,6 +628,64 @@ def click(payload):
     }
 
 
+def visual_click(payload):
+    quartz, _, workspace = require_macos_modules()
+    pid = int(payload.get("pid") or 0)
+    if pid <= 0:
+        raise DesktopError(
+            "desktop_bad_pid",
+            "desktop_visual_click requires a positive pid",
+            "请先通过 desktop_windows 获取目标窗口对应的 pid。",
+        )
+    coordinate_space = str(payload.get("coordinate_space") or "").strip()
+    if coordinate_space != "screen-physical":
+        raise DesktopError(
+            "desktop_visual_click_bad_coordinate_space",
+            f"desktop_visual_click requires screen-physical coordinates, got {coordinate_space!r}",
+            "请通过 Cohert desktop_visual_click 工具调用，不能直接传入截图坐标或任意坐标。",
+        )
+    x = int(payload.get("x") or 0)
+    y = int(payload.get("y") or 0)
+    if x < 0 or y < 0:
+        raise DesktopError(
+            "desktop_visual_click_bad_point",
+            "desktop_visual_click requires a non-negative screen point",
+            "请重新读取 screenshot manifest 和 OCR bbox 后再点击。",
+        )
+    active_ok = ensure_active_pid(pid)
+    if not active_ok:
+        raise DesktopError(
+            "desktop_activate_failed",
+            f"application pid {pid} did not become frontmost",
+            "请重新调用 desktop_windows；目标应用可能已退出、被系统弹窗遮挡或 PID 已变化。",
+        )
+    try:
+        logical_point = (
+            physical_to_logical(x, display_scale(quartz)),
+            physical_to_logical(y, display_scale(quartz)),
+        )
+        post_mouse_click(quartz, logical_point)
+        time.sleep(0.15)
+    except DesktopError:
+        raise
+    except Exception as exc:
+        raise DesktopError(
+            "desktop_visual_click_failed",
+            f"desktop visual click failed: {exc}",
+            "请重新确认目标截图和 bbox，不要连续重试同一视觉点。",
+        ) from exc
+    return {
+        "pid": pid,
+        "action": "VisualClick",
+        "performed": True,
+        "active_before": True,
+        "active_after": active_pid(workspace) == pid,
+        "x": x,
+        "y": y,
+        "coordinate_space": "screen-physical",
+    }
+
+
 def post_mouse_click(quartz, point):
     down = quartz.CGEventCreateMouseEvent(
         None,
@@ -930,6 +996,7 @@ def dispatch(command, payload):
         "ax_press": ax_press,
         "ax_focus": ax_focus,
         "click": click,
+        "visual_click": visual_click,
         "press_key": press_key,
         "type_text": type_text,
     }

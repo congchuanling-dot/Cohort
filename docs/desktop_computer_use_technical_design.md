@@ -487,29 +487,54 @@ M2.1 已实现。用途：对当前 AX 节点执行受控语义点击。
 - 先在 Go 层重新读取 AX 快照，验证节点路径、role、title、description、enabled 和 `AXPress` action；helper 在执行前再做一次相同验证。
 - R1 可恢复动作直接执行；R2 外部副作用必须消费 `ask_user` 为同一 `pid + node_id + reason` 签发的一次性 `confirmation_token`；R3 高风险动作拒绝自动执行。
 - 动作后强制重新读取 AX 快照。树或目标节点状态没有可观察变化时返回 `desktop_ax_press_unverified`，不能盲目重试。
-- AXPress 不可用时不降级为物理点击；`desktop_click` 仍等待独立坐标验证方案。
+- AXPress 不可用时不隐式降级为任意物理点击；AX 节点中心点击走 `desktop_click`，OCR/UI bbox 点击走 `desktop_visual_click`。
 
 ### desktop_click
 
-M2 阶段工具。用途：受控物理点击。
+M2 阶段工具。用途：点击当前 AX 节点中心点。
 
 参数：
 
 ```json
 {
   "pid": 888,
-  "point": {"x": 640, "y": 420},
-  "coordinate_space": "screen-physical",
-  "reason": "点击已识别的确认按钮",
-  "confirm": true
+  "node_id": "ax:0/0/3",
+  "expected_role": "AXButton",
+  "expected_title": "发送",
+  "expected_description": "发送消息",
+  "reason": "点击已确认的发送按钮"
 }
 ```
 
 要求：
 
-- 不接受 `screenshot-local` 坐标直接点击。
-- 必须绑定 PID。
-- 执行前激活并验证前台窗口。
+- 不接受模型传入 x/y。
+- 只能使用刚刚读取并重新校验的 AX node metadata。
+- R2 点击必须消费同一 `pid + node_id + reason` 的一次性确认令牌。
+
+### desktop_visual_click
+
+M2.5 阶段工具。用途：基于截图 manifest 和 OCR/UI bbox 执行受控视觉点击。
+
+参数：
+
+```json
+{
+  "pid": 888,
+  "image_path": "workspace/.cohert/desktop/screenshots/desktop_screenshot.png",
+  "manifest_path": "workspace/.cohert/desktop/screenshots/desktop_screenshot.json",
+  "bbox": [510, 1790, 730, 1845],
+  "expected_text": "发消息...",
+  "reason": "聚焦 WebView 消息输入框"
+}
+```
+
+要求：
+
+- 只接受 `desktop_screenshot` 生成的 workspace 图片和 sidecar manifest。
+- bbox 必须是同一张截图内的 `screenshot-local` 坐标。
+- 工具读取 manifest 后转换到 `screen-physical`，模型不能传裸屏幕坐标。
+- R2 点击必须消费同一 `pid + image_path + bbox + reason` 的一次性确认令牌。
 - 执行后截图或状态验证。
 - 同一坐标失败后不允许盲目重试。
 
@@ -602,9 +627,9 @@ desktop_windows
   -> desktop_activate(pid)
   -> desktop_screenshot(pid)
   -> desktop_ocr(image_path)
-  -> convert screenshot-local bbox to screen-physical point
+  -> select screenshot-local bbox
   -> ask_user if needed
-  -> desktop_click(pid, screen-physical point)
+  -> desktop_visual_click(pid, image_path, bbox, expected_text, reason)
   -> desktop_screenshot verify
 ```
 
@@ -692,13 +717,14 @@ M2.1 验收：
 
 ### M2：受限真实输入
 
-状态：M2.1 已完成 `desktop_ax_press`、风险确认和 AX 结果验证；M2.2 已完成受限 `desktop_press_key`；M2.3 已完成 `desktop_type_text` 文本起草；M2.4 已完成 `desktop_ax_focus` 和受控 `desktop_click`。`desktop_click` 只点击当前 AX 节点中心点，不开放任意坐标点击。
+状态：M2.1 已完成 `desktop_ax_press`、风险确认和 AX 结果验证；M2.2 已完成受限 `desktop_press_key`；M2.3 已完成 `desktop_type_text` 文本起草；M2.4 已完成 `desktop_ax_focus` 和受控 `desktop_click`；M2.5 已完成 `desktop_visual_click` 和截图 sidecar manifest。`desktop_click` 只点击当前 AX 节点中心点，`desktop_visual_click` 只点击 manifest 校验后的 OCR/UI bbox，不开放任意坐标点击。
 
 交付：
 
 - `desktop_ax_press`（已完成）
 - `desktop_ax_focus`（已完成）
 - `desktop_click`（已完成，限定为 AX 节点中心点点击）
+- `desktop_visual_click`（已完成，限定为截图 manifest + OCR/UI bbox）
 - `desktop_press_key`（已完成）
 - `desktop_type_text`（已完成）
 - 风险分类和 `ask_user` 确认策略。（AXPress / PressKey 已完成）

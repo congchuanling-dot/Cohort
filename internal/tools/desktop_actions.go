@@ -2,6 +2,10 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -81,6 +85,9 @@ func (t *DesktopAXPress) Run(ctx context.Context, call agent.ToolCallContext) (a
 		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
 	}
 
+	if err := activateDesktopTarget(ctx, t.driver, pid); err != nil {
+		return desktopToolError(err), nil
+	}
 	snapshotRequest := desktop.AXSnapshotRequest{
 		PID:             pid,
 		MaxDepth:        desktopActionSnapshotDepth,
@@ -369,6 +376,9 @@ func (t *DesktopAXFocus) Run(ctx context.Context, call agent.ToolCallContext) (a
 		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
 	}
 
+	if err := activateDesktopTarget(ctx, t.driver, pid); err != nil {
+		return desktopToolError(err), nil
+	}
 	snapshotRequest := desktop.AXSnapshotRequest{
 		PID:             pid,
 		MaxDepth:        desktopActionSnapshotDepth,
@@ -497,6 +507,9 @@ func (t *DesktopClick) Run(ctx context.Context, call agent.ToolCallContext) (age
 		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
 	}
 
+	if err := activateDesktopTarget(ctx, t.driver, pid); err != nil {
+		return desktopToolError(err), nil
+	}
 	before, err := t.driver.AXSnapshot(ctx, desktop.AXSnapshotRequest{
 		PID:             pid,
 		MaxDepth:        desktopActionSnapshotDepth,
@@ -637,6 +650,330 @@ func desktopClickApprovalRequiredOutcome(approval ActionApproval, node desktop.A
 	}
 }
 
+type DesktopVisualClick struct {
+	driver        desktop.Driver
+	confirmations *ConfirmationStore
+	workspaceTool
+}
+
+func NewDesktopVisualClick(driver desktop.Driver, confirmations *ConfirmationStore, workspace string) *DesktopVisualClick {
+	return &DesktopVisualClick{
+		driver:        driver,
+		confirmations: confirmations,
+		workspaceTool: newWorkspaceTool(workspace),
+	}
+}
+
+func (t *DesktopVisualClick) Name() string { return ToolNameDesktopVisualClick }
+
+func (t *DesktopVisualClick) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Click a target described by OCR/UI-detection bbox from a desktop_screenshot image. This tool reads the screenshot manifest, converts screenshot-local bbox to a screen-physical point, automatically activates the PID, then performs one controlled mouse click. Never pass arbitrary screen coordinates. R2 visual clicks require a one-time confirmation_token; R3 clicks are refused.",
+		Parameters: objectSchema(map[string]any{
+			"pid":                intProp("Target application PID from desktop_windows and matching the screenshot manifest.", 0),
+			"image_path":         stringProp("Screenshot path returned by desktop_screenshot and then used by desktop_ocr."),
+			"manifest_path":      stringProp("Optional manifest path returned by desktop_screenshot. If empty, the sidecar JSON next to image_path is used."),
+			"bbox":               map[string]any{"type": "array", "description": "OCR/UI bbox in screenshot-local coordinates: [x1, y1, x2, y2].", "items": map[string]any{"type": "integer"}, "minItems": 4, "maxItems": 4},
+			"expected_text":      stringProp("Text or semantic label observed at this bbox, used for risk classification and audit."),
+			"reason":             stringProp("Concrete user-facing reason for this visual click."),
+			"confirmation_token": stringProp("Required only for R2 visual clicks. Obtain it from ask_user with the returned approval_request."),
+		}, "pid", "image_path", "bbox", "expected_text", "reason"),
+	}}
+}
+
+func (t *DesktopVisualClick) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	pid := asInt(call.Args["pid"], 0)
+	if pid <= 0 {
+		return desktopBadPIDOutcome(t.Name()), nil
+	}
+	imagePath, pathErr := t.resolveDesktopVisualFile(strings.TrimSpace(asString(call.Args["image_path"])), "desktop_visual_click_image_required", "desktop_visual_click_path_outside_workspace", "desktop_visual_click_image_not_found")
+	if pathErr != nil {
+		return agent.Outcome{Data: *pathErr, NextPrompt: "\n"}, nil
+	}
+	manifestPathRaw := strings.TrimSpace(asString(call.Args["manifest_path"]))
+	if manifestPathRaw == "" {
+		manifestPathRaw = strings.TrimSuffix(imagePath, filepath.Ext(imagePath)) + ".json"
+	}
+	manifestPath, manifestPathErr := t.resolveDesktopVisualFile(manifestPathRaw, "desktop_visual_click_manifest_required", "desktop_visual_click_path_outside_workspace", "desktop_visual_click_manifest_not_found")
+	if manifestPathErr != nil {
+		return agent.Outcome{Data: *manifestPathErr, NextPrompt: "\n"}, nil
+	}
+	bbox, bboxErr := requiredDesktopVisualBBox(call.Args["bbox"])
+	if bboxErr != nil {
+		return agent.Outcome{Data: *bboxErr, NextPrompt: "\n"}, nil
+	}
+	expectedText, expectedTextErr := requiredDesktopActionString(call.Args, "expected_text")
+	if expectedTextErr != nil {
+		return agent.Outcome{Data: *expectedTextErr, NextPrompt: "\n"}, nil
+	}
+	reason, reasonErr := requiredDesktopActionString(call.Args, "reason")
+	if reasonErr != nil {
+		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
+	}
+	manifest, manifestErr := readDesktopVisualManifest(manifestPath)
+	if manifestErr != nil {
+		return agent.Outcome{Data: *manifestErr, NextPrompt: "\n"}, nil
+	}
+	if validationErr := validateDesktopVisualManifest(manifest, pid, imagePath, bbox); validationErr != nil {
+		return agent.Outcome{Data: *validationErr, NextPrompt: "\n"}, nil
+	}
+	screenX, screenY := mapScreenshotBBoxCenterToScreen(manifest, bbox)
+	risk := classifyDesktopVisualClickRisk(expectedText, reason)
+	if risk == desktopRiskHigh {
+		return desktopActionError(
+			"desktop_action_high_risk_refused",
+			"this visual click is classified as high risk and must be completed manually",
+			"支付、审批、授权、登录验证、删除等操作不能由 desktop_visual_click 自动执行。",
+		), nil
+	}
+	bboxKey := canonicalDesktopBBox(bbox)
+	if risk == desktopRiskExternal {
+		approval := ActionApproval{
+			Operation: desktopVisualClickOperation,
+			PID:       pid,
+			ImagePath: imagePath,
+			BBox:      bboxKey,
+			Reason:    reason,
+		}
+		token := strings.TrimSpace(asString(call.Args["confirmation_token"]))
+		if !t.confirmations.Consume(token, approval) {
+			return desktopVisualClickApprovalRequiredOutcome(approval, expectedText, risk), nil
+		}
+	}
+	if err := activateDesktopTarget(ctx, t.driver, pid); err != nil {
+		return desktopToolError(err), nil
+	}
+	result, err := t.driver.VisualClick(ctx, desktop.VisualClickRequest{
+		PID:             pid,
+		X:               screenX,
+		Y:               screenY,
+		CoordinateSpace: desktop.CoordinateSpaceScreenPhysical,
+	})
+	if err != nil {
+		return desktopToolError(err), nil
+	}
+	verified := result.Performed && result.ActiveAfter
+	data := map[string]any{
+		"status":                  agent.ToolStatusSuccess,
+		"pid":                     result.PID,
+		"action":                  result.Action,
+		"risk":                    risk,
+		"image_path":              imagePath,
+		"manifest_path":           manifestPath,
+		"bbox":                    bbox,
+		"bbox_key":                bboxKey,
+		"expected_text":           expectedText,
+		"window_bounds":           manifest.WindowBounds,
+		"x":                       result.X,
+		"y":                       result.Y,
+		"coordinate_space":        result.CoordinateSpace,
+		"source_coordinate_space": desktop.CoordinateSpaceScreenshotLocal,
+		"performed":               result.Performed,
+		"active_before":           result.ActiveBefore,
+		"active_after":            result.ActiveAfter,
+		"verified":                verified,
+	}
+	if !verified {
+		data["status"] = agent.ToolStatusError
+		data["code"] = "desktop_visual_click_unverified"
+		data["message"] = "desktop visual click was sent but target foreground state was not verified"
+		data["hint"] = "请停止连续点击，重新截图和 OCR，确认目标应用仍在前台且视觉目标未变化。"
+	}
+	return agent.Outcome{Data: data, NextPrompt: "\n"}, nil
+}
+
+func (t *DesktopVisualClick) resolveDesktopVisualFile(rawPath string, requiredCode string, outsideCode string, notFoundCode string) (string, *agent.ToolErrorData) {
+	if rawPath == "" {
+		err := agent.NewToolError(
+			requiredCode,
+			"desktop_visual_click requires paths returned by desktop_screenshot",
+			"请先调用 desktop_screenshot，并使用其 image_path/manifest_path。",
+		)
+		return "", &err
+	}
+	path := t.resolve(rawPath)
+	rel, err := filepath.Rel(t.workspace, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		toolErr := agent.NewToolError(
+			outsideCode,
+			"desktop visual click paths must stay inside the configured workspace",
+			"请提供 desktop_screenshot 返回的 workspace 内路径。",
+		)
+		return "", &toolErr
+	}
+	if _, err := os.Stat(path); err != nil {
+		toolErr := agent.NewToolError(
+			notFoundCode,
+			fmt.Sprintf("desktop visual click file is unavailable: %v", err),
+			"请确认截图和 manifest 仍存在，或重新调用 desktop_screenshot。",
+		)
+		return "", &toolErr
+	}
+	realWorkspace, workspaceErr := filepath.EvalSymlinks(t.workspace)
+	realPath, pathErr := filepath.EvalSymlinks(path)
+	if workspaceErr == nil && pathErr == nil {
+		realRel, err := filepath.Rel(realWorkspace, realPath)
+		if err != nil || realRel == ".." || strings.HasPrefix(realRel, ".."+string(filepath.Separator)) {
+			toolErr := agent.NewToolError(
+				outsideCode,
+				"desktop visual click path resolves outside the configured workspace",
+				"路径不能通过符号链接逃出 workspace；请重新截图后再操作。",
+			)
+			return "", &toolErr
+		}
+	}
+	return path, nil
+}
+
+func requiredDesktopVisualBBox(raw any) ([4]int, *agent.ToolErrorData) {
+	var bbox [4]int
+	values, ok := raw.([]any)
+	if !ok || len(values) != 4 {
+		err := agent.NewToolError(
+			"desktop_visual_click_bad_bbox",
+			"bbox must be an array of four numbers: [x1, y1, x2, y2]",
+			"请使用 desktop_ocr 返回的 bbox 原样传入，不要传入中心点或屏幕坐标。",
+		)
+		return bbox, &err
+	}
+	for index, value := range values {
+		bbox[index] = asInt(value, -1)
+	}
+	if bbox[0] < 0 || bbox[1] < 0 || bbox[2] <= bbox[0] || bbox[3] <= bbox[1] {
+		err := agent.NewToolError(
+			"desktop_visual_click_bad_bbox",
+			"bbox must be a positive screenshot-local rectangle [x1, y1, x2, y2]",
+			"请使用 desktop_ocr 返回的 bbox 原样传入，不要传入中心点或屏幕坐标。",
+		)
+		return bbox, &err
+	}
+	return bbox, nil
+}
+
+func readDesktopVisualManifest(path string) (desktopScreenshotManifest, *agent.ToolErrorData) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		toolErr := agent.NewToolError(
+			"desktop_visual_click_manifest_unreadable",
+			fmt.Sprintf("cannot read desktop screenshot manifest: %v", err),
+			"请重新调用 desktop_screenshot，确保 manifest 存在且可读。",
+		)
+		return desktopScreenshotManifest{}, &toolErr
+	}
+	var manifest desktopScreenshotManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		toolErr := agent.NewToolError(
+			"desktop_visual_click_manifest_invalid",
+			fmt.Sprintf("desktop screenshot manifest is invalid JSON: %v", err),
+			"请重新调用 desktop_screenshot；不要手写或修改 manifest。",
+		)
+		return desktopScreenshotManifest{}, &toolErr
+	}
+	return manifest, nil
+}
+
+func validateDesktopVisualManifest(manifest desktopScreenshotManifest, pid int, imagePath string, bbox [4]int) *agent.ToolErrorData {
+	if manifest.Version != 1 || manifest.CoordinateSpace != desktop.CoordinateSpaceScreenshotLocal || manifest.ScreenCoordinateSpace != desktop.CoordinateSpaceScreenPhysical {
+		err := agent.NewToolError(
+			"desktop_visual_click_manifest_invalid",
+			"desktop screenshot manifest has an unsupported version or coordinate space",
+			"请重新调用 desktop_screenshot，使用工具生成的最新 manifest。",
+		)
+		return &err
+	}
+	if manifest.PID != pid {
+		err := agent.NewToolError(
+			"desktop_visual_click_pid_mismatch",
+			"desktop screenshot manifest PID does not match the requested PID",
+			"请重新枚举窗口并截图，不要把其他应用或旧 PID 的截图用于点击。",
+		)
+		return &err
+	}
+	if filepath.Clean(manifest.ImagePath) != filepath.Clean(imagePath) {
+		err := agent.NewToolError(
+			"desktop_visual_click_image_mismatch",
+			"desktop screenshot manifest does not belong to the requested image_path",
+			"请使用 desktop_screenshot 同一次返回的 image_path 和 manifest_path。",
+		)
+		return &err
+	}
+	if manifest.Width <= 0 || manifest.Height <= 0 || manifest.WindowBounds.Width <= 0 || manifest.WindowBounds.Height <= 0 {
+		err := agent.NewToolError(
+			"desktop_visual_click_manifest_invalid",
+			"desktop screenshot manifest has invalid dimensions",
+			"请重新调用 desktop_screenshot，确认目标窗口可见且尺寸有效。",
+		)
+		return &err
+	}
+	if bbox[2] > manifest.Width || bbox[3] > manifest.Height {
+		err := agent.NewToolError(
+			"desktop_visual_click_bbox_outside_image",
+			"bbox is outside the screenshot dimensions recorded in the manifest",
+			"请使用同一张截图的 OCR bbox；不要复用旧截图或其他窗口的 bbox。",
+		)
+		return &err
+	}
+	return nil
+}
+
+func mapScreenshotBBoxCenterToScreen(manifest desktopScreenshotManifest, bbox [4]int) (int, int) {
+	centerX := (bbox[0] + bbox[2]) / 2
+	centerY := (bbox[1] + bbox[3]) / 2
+	screenX := manifest.WindowBounds.X + centerX*manifest.WindowBounds.Width/manifest.Width
+	screenY := manifest.WindowBounds.Y + centerY*manifest.WindowBounds.Height/manifest.Height
+	return screenX, screenY
+}
+
+func canonicalDesktopBBox(bbox [4]int) string {
+	return fmt.Sprintf("%d,%d,%d,%d", bbox[0], bbox[1], bbox[2], bbox[3])
+}
+
+func classifyDesktopVisualClickRisk(expectedText string, reason string) desktopActionRisk {
+	text := strings.ToLower(strings.Join([]string{expectedText, reason}, " "))
+	if containsAny(text, []string{
+		"支付", "付款", "转账", "审批", "授权", "允许", "登录", "验证码", "人机验证", "删除", "移除", "清空", "退出登录",
+		"pay", "payment", "transfer", "approve", "authorize", "allow", "sign in", "log in", "captcha", "verification", "delete", "remove", "erase", "revoke", "logout",
+	}) {
+		return desktopRiskHigh
+	}
+	if containsAny(text, []string{
+		"发送", "提交", "上传", "保存", "发布", "分享", "转发", "邀请", "创建", "关闭",
+		"send", "submit", "upload", "save", "publish", "share", "forward", "invite", "create", "close", "commit",
+	}) {
+		return desktopRiskExternal
+	}
+	if containsAny(text, []string{
+		"输入", "发消息", "搜索", "编辑", "聚焦", "光标", "文本框", "输入框", "message", "input", "search", "edit", "focus", "cursor", "textbox", "text field",
+		"显示", "打开", "展开", "收起", "菜单", "标签", "下一", "上一", "切换",
+		"show", "open", "expand", "collapse", "menu", "tab", "next", "previous", "toggle",
+	}) {
+		return desktopRiskReversible
+	}
+	return desktopRiskExternal
+}
+
+func desktopVisualClickApprovalRequiredOutcome(approval ActionApproval, expectedText string, risk desktopActionRisk) agent.Outcome {
+	return agent.Outcome{
+		Data: map[string]any{
+			"status":        agent.ToolStatusError,
+			"code":          "desktop_action_confirmation_required",
+			"message":       "this desktop visual click requires one-time user confirmation",
+			"hint":          "请调用 ask_user，并在 approval 中原样传入 approval_request；用户明确确认后，将返回 confirmation_token。然后用同一 pid、image_path、bbox、reason 和该 token 重试一次 desktop_visual_click。",
+			"risk":          risk,
+			"expected_text": expectedText,
+			"approval_request": map[string]any{
+				"operation":  approval.Operation,
+				"pid":        approval.PID,
+				"image_path": approval.ImagePath,
+				"bbox":       approval.BBox,
+				"reason":     approval.Reason,
+			},
+		},
+		NextPrompt: "\n",
+	}
+}
+
 type DesktopPressKey struct {
 	driver        desktop.Driver
 	confirmations *ConfirmationStore
@@ -695,6 +1032,9 @@ func (t *DesktopPressKey) Run(ctx context.Context, call agent.ToolCallContext) (
 		}
 	}
 
+	if err := activateDesktopTarget(ctx, t.driver, pid); err != nil {
+		return desktopToolError(err), nil
+	}
 	result, err := t.driver.PressKey(ctx, desktop.PressKeyRequest{PID: pid, Key: normalizedKey})
 	if err != nil {
 		return desktopToolError(err), nil
@@ -820,6 +1160,11 @@ func desktopActionError(code string, message string, hint string) agent.Outcome 
 	}
 }
 
+func activateDesktopTarget(ctx context.Context, driver desktop.Driver, pid int) error {
+	_, err := driver.Activate(ctx, desktop.ActivateRequest{PID: pid})
+	return err
+}
+
 type DesktopTypeText struct {
 	driver desktop.Driver
 }
@@ -856,6 +1201,9 @@ func (t *DesktopTypeText) Run(ctx context.Context, call agent.ToolCallContext) (
 		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
 	}
 
+	if err := activateDesktopTarget(ctx, t.driver, pid); err != nil {
+		return desktopToolError(err), nil
+	}
 	result, err := t.driver.TypeText(ctx, desktop.TypeTextRequest{PID: pid, Text: text})
 	if err != nil {
 		return desktopToolError(err), nil

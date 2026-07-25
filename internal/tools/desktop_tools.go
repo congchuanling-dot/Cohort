@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -30,6 +31,19 @@ const (
 	maxDesktopOCRLines             = 200
 	maxDesktopOCRChars             = 12000
 )
+
+type desktopScreenshotManifest struct {
+	Version               int            `json:"version"`
+	ImagePath             string         `json:"image_path"`
+	PID                   int            `json:"pid"`
+	WindowID              string         `json:"window_id"`
+	Width                 int            `json:"width"`
+	Height                int            `json:"height"`
+	WindowBounds          desktop.Bounds `json:"window_bounds"`
+	CoordinateSpace       string         `json:"coordinate_space"`
+	ScreenCoordinateSpace string         `json:"screen_coordinate_space"`
+	CreatedAt             string         `json:"created_at"`
+}
 
 // DesktopPermissions 检查桌面感知所需的 macOS 权限。
 type DesktopPermissions struct {
@@ -217,10 +231,34 @@ func (t *DesktopScreenshot) Run(ctx context.Context, call agent.ToolCallContext)
 			NextPrompt: "\n",
 		}, nil
 	}
+	manifestPath := strings.TrimSuffix(outputPath, filepath.Ext(outputPath)) + ".json"
+	manifest := desktopScreenshotManifest{
+		Version:               1,
+		ImagePath:             outputPath,
+		PID:                   result.PID,
+		WindowID:              result.WindowID,
+		Width:                 result.Width,
+		Height:                result.Height,
+		WindowBounds:          result.Bounds,
+		CoordinateSpace:       desktop.CoordinateSpaceScreenshotLocal,
+		ScreenCoordinateSpace: desktop.CoordinateSpaceScreenPhysical,
+		CreatedAt:             time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	if err := writeDesktopScreenshotManifest(manifestPath, manifest); err != nil {
+		return agent.Outcome{
+			Data: agent.NewToolError(
+				"desktop_screenshot_manifest_failed",
+				fmt.Sprintf("write desktop screenshot manifest: %v", err),
+				"请检查 workspace 是否可写；没有 manifest 的截图不能用于 desktop_visual_click。",
+			),
+			NextPrompt: "\n",
+		}, nil
+	}
 	return agent.Outcome{
 		Data: map[string]any{
 			"status":                  agent.ToolStatusSuccess,
 			"image_path":              outputPath,
+			"manifest_path":           manifestPath,
 			"width":                   result.Width,
 			"height":                  result.Height,
 			"window_id":               result.WindowID,
@@ -232,6 +270,14 @@ func (t *DesktopScreenshot) Run(ctx context.Context, call agent.ToolCallContext)
 		},
 		NextPrompt: "\n",
 	}, nil
+}
+
+func writeDesktopScreenshotManifest(path string, manifest desktopScreenshotManifest) error {
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0644)
 }
 
 // DesktopAXSnapshot 返回目标应用的受限 AX 控件树。

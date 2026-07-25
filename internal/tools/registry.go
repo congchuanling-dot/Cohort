@@ -86,6 +86,8 @@ const (
 	ToolNameDesktopAXFocus = "desktop_ax_focus"
 	// ToolNameDesktopClick 对已验证 AX 节点的中心点执行受控物理点击。
 	ToolNameDesktopClick = "desktop_click"
+	// ToolNameDesktopVisualClick 对截图/OCR bbox 执行受控视觉物理点击。
+	ToolNameDesktopVisualClick = "desktop_visual_click"
 	// ToolNameDesktopPressKey 对前台目标 PID 执行受限桌面按键。
 	ToolNameDesktopPressKey = "desktop_press_key"
 	// ToolNameDesktopTypeText 对前台目标 PID 的当前输入焦点起草文本。
@@ -152,6 +154,7 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameDesktopAXPress,
 		ToolNameDesktopAXFocus,
 		ToolNameDesktopClick,
+		ToolNameDesktopVisualClick,
 		ToolNameDesktopPressKey,
 		ToolNameDesktopTypeText,
 		ToolNameUpdateWorkingCheckpoint,

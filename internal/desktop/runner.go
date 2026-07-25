@@ -91,6 +91,11 @@ func (d *PythonDriver) Click(ctx context.Context, req ClickRequest) (ClickResult
 	return result, d.call(ctx, "click", req, &result)
 }
 
+func (d *PythonDriver) VisualClick(ctx context.Context, req VisualClickRequest) (VisualClickResult, error) {
+	var result VisualClickResult
+	return result, d.call(ctx, "visual_click", req, &result)
+}
+
 func (d *PythonDriver) PressKey(ctx context.Context, req PressKeyRequest) (PressKeyResult, error) {
 	var result PressKeyResult
 	return result, d.call(ctx, "press_key", req, &result)

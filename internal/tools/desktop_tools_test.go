@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,20 +23,22 @@ type fakeDesktopDriver struct {
 	axPress     desktop.AXPressResult
 	axFocus     desktop.AXFocusResult
 	click       desktop.ClickResult
+	visualClick desktop.VisualClickResult
 	pressKey    desktop.PressKeyResult
 	typeText    desktop.TypeTextResult
 	err         error
 
-	listRequest       desktop.ListWindowsRequest
-	activateRequest   desktop.ActivateRequest
-	screenshotRequest desktop.ScreenshotRequest
-	axRequest         desktop.AXSnapshotRequest
-	axPressRequest    desktop.AXPressRequest
-	axFocusRequest    desktop.AXFocusRequest
-	clickRequest      desktop.ClickRequest
-	pressKeyRequest   desktop.PressKeyRequest
-	typeTextRequest   desktop.TypeTextRequest
-	axSnapshotCalls   int
+	listRequest        desktop.ListWindowsRequest
+	activateRequest    desktop.ActivateRequest
+	screenshotRequest  desktop.ScreenshotRequest
+	axRequest          desktop.AXSnapshotRequest
+	axPressRequest     desktop.AXPressRequest
+	axFocusRequest     desktop.AXFocusRequest
+	clickRequest       desktop.ClickRequest
+	visualClickRequest desktop.VisualClickRequest
+	pressKeyRequest    desktop.PressKeyRequest
+	typeTextRequest    desktop.TypeTextRequest
+	axSnapshotCalls    int
 }
 
 func (d *fakeDesktopDriver) Permissions(ctx context.Context) (desktop.PermissionsResult, error) {
@@ -110,6 +113,14 @@ func (d *fakeDesktopDriver) Click(ctx context.Context, req desktop.ClickRequest)
 		return desktop.ClickResult{}, d.err
 	}
 	return d.click, nil
+}
+
+func (d *fakeDesktopDriver) VisualClick(ctx context.Context, req desktop.VisualClickRequest) (desktop.VisualClickResult, error) {
+	d.visualClickRequest = req
+	if d.err != nil {
+		return desktop.VisualClickResult{}, d.err
+	}
+	return d.visualClick, nil
 }
 
 func (d *fakeDesktopDriver) PressKey(ctx context.Context, req desktop.PressKeyRequest) (desktop.PressKeyResult, error) {
@@ -192,8 +203,23 @@ func TestDesktopScreenshotUsesWorkspaceOwnedPath_BitsUT(t *testing.T) {
 	if data["coordinate_space"] != desktop.CoordinateSpaceScreenshotLocal {
 		t.Fatalf("coordinate space = %#v", data["coordinate_space"])
 	}
-	if _, err := os.Stat(driver.screenshotRequest.OutputPath); err != nil {
-		t.Fatalf("expected screenshot: %v", err)
+	if _, statErr := os.Stat(driver.screenshotRequest.OutputPath); statErr != nil {
+		t.Fatalf("expected screenshot: %v", statErr)
+	}
+	manifestPath, ok := data["manifest_path"].(string)
+	if !ok || manifestPath == "" {
+		t.Fatalf("missing manifest path in outcome: %#v", data)
+	}
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("expected screenshot manifest: %v", err)
+	}
+	var manifest desktopScreenshotManifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		t.Fatalf("decode manifest: %v", err)
+	}
+	if manifest.ImagePath != driver.screenshotRequest.OutputPath || manifest.PID != 123 || manifest.WindowBounds.Width != 800 {
+		t.Fatalf("manifest = %#v", manifest)
 	}
 }
 
@@ -668,6 +694,154 @@ func TestDesktopClickRefusesHighRiskNode_BitsUT(t *testing.T) {
 	}
 }
 
+func TestDesktopVisualClickMapsScreenshotBBoxAndActivates_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	imagePath, manifestPath := writeDesktopVisualFixture(t, workspace, desktopScreenshotManifest{
+		Version:               1,
+		PID:                   123,
+		WindowID:              "12",
+		Width:                 200,
+		Height:                100,
+		WindowBounds:          desktop.Bounds{X: 100, Y: 200, Width: 400, Height: 200},
+		CoordinateSpace:       desktop.CoordinateSpaceScreenshotLocal,
+		ScreenCoordinateSpace: desktop.CoordinateSpaceScreenPhysical,
+	})
+	driver := &fakeDesktopDriver{
+		visualClick: desktop.VisualClickResult{
+			PID:             123,
+			Action:          "VisualClick",
+			Performed:       true,
+			ActiveBefore:    true,
+			ActiveAfter:     true,
+			X:               200,
+			Y:               260,
+			CoordinateSpace: desktop.CoordinateSpaceScreenPhysical,
+		},
+	}
+	outcome, err := NewDesktopVisualClick(driver, NewConfirmationStore(), workspace).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{
+			"pid":           123,
+			"image_path":    imagePath,
+			"manifest_path": manifestPath,
+			"bbox":          []any{40, 20, 60, 40},
+			"expected_text": "发消息...",
+			"reason":        "聚焦消息输入框",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if driver.activateRequest.PID != 123 {
+		t.Fatalf("activate request = %#v", driver.activateRequest)
+	}
+	if driver.visualClickRequest.X != 200 || driver.visualClickRequest.Y != 260 || driver.visualClickRequest.CoordinateSpace != desktop.CoordinateSpaceScreenPhysical {
+		t.Fatalf("visual click request = %#v", driver.visualClickRequest)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["risk"] != desktopRiskReversible || data["verified"] != true {
+		t.Fatalf("outcome = %#v", data)
+	}
+}
+
+func TestDesktopVisualClickRequiresConfirmationForSendText_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	imagePath, manifestPath := writeDesktopVisualFixture(t, workspace, desktopScreenshotManifest{
+		Version:               1,
+		PID:                   123,
+		WindowID:              "12",
+		Width:                 100,
+		Height:                100,
+		WindowBounds:          desktop.Bounds{X: 0, Y: 0, Width: 100, Height: 100},
+		CoordinateSpace:       desktop.CoordinateSpaceScreenshotLocal,
+		ScreenCoordinateSpace: desktop.CoordinateSpaceScreenPhysical,
+	})
+	driver := &fakeDesktopDriver{
+		visualClick: desktop.VisualClickResult{
+			PID:             123,
+			Action:          "VisualClick",
+			Performed:       true,
+			ActiveBefore:    true,
+			ActiveAfter:     true,
+			X:               20,
+			Y:               20,
+			CoordinateSpace: desktop.CoordinateSpaceScreenPhysical,
+		},
+	}
+	store := NewConfirmationStore()
+	tool := NewDesktopVisualClick(driver, store, workspace)
+	args := map[string]any{
+		"pid":           123,
+		"image_path":    imagePath,
+		"manifest_path": manifestPath,
+		"bbox":          []any{10, 10, 30, 30},
+		"expected_text": "发送",
+		"reason":        "点击发送已确认消息",
+	}
+	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	required := outcome.Data.(map[string]any)
+	if required["code"] != "desktop_action_confirmation_required" || driver.visualClickRequest.PID != 0 {
+		t.Fatalf("outcome = %#v, request = %#v", required, driver.visualClickRequest)
+	}
+	approval := required["approval_request"].(map[string]any)
+	if approval["bbox"] != "10,10,30,30" || approval["image_path"] != imagePath {
+		t.Fatalf("approval = %#v", approval)
+	}
+	token, err := store.Issue(ActionApproval{
+		Operation: desktopVisualClickOperation,
+		PID:       123,
+		ImagePath: imagePath,
+		BBox:      "10,10,30,30",
+		Reason:    "点击发送已确认消息",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args["confirmation_token"] = token
+	outcome, err = tool.Run(context.Background(), agent.ToolCallContext{Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["risk"] != desktopRiskExternal {
+		t.Fatalf("outcome = %#v", data)
+	}
+}
+
+func TestDesktopVisualClickRejectsBBoxOutsideManifest_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	imagePath, manifestPath := writeDesktopVisualFixture(t, workspace, desktopScreenshotManifest{
+		Version:               1,
+		PID:                   123,
+		WindowID:              "12",
+		Width:                 100,
+		Height:                100,
+		WindowBounds:          desktop.Bounds{X: 0, Y: 0, Width: 100, Height: 100},
+		CoordinateSpace:       desktop.CoordinateSpaceScreenshotLocal,
+		ScreenCoordinateSpace: desktop.CoordinateSpaceScreenPhysical,
+	})
+	driver := &fakeDesktopDriver{}
+	outcome, err := NewDesktopVisualClick(driver, NewConfirmationStore(), workspace).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{
+			"pid":           123,
+			"image_path":    imagePath,
+			"manifest_path": manifestPath,
+			"bbox":          []any{90, 90, 120, 120},
+			"expected_text": "发消息...",
+			"reason":        "聚焦输入框",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolErr := outcome.Data.(agent.ToolErrorData)
+	if toolErr.Code != "desktop_visual_click_bbox_outside_image" || driver.visualClickRequest.PID != 0 {
+		t.Fatalf("error = %#v, request = %#v", toolErr, driver.visualClickRequest)
+	}
+}
+
 func TestConfirmationStoreConsumesOnlyExactActionOnce_BitsUT(t *testing.T) {
 	store := NewConfirmationStore()
 	approval := ActionApproval{Operation: desktopAXPressOperation, PID: 123, NodeID: "ax:0/0", Reason: "发送更新"}
@@ -857,4 +1031,18 @@ func desktopAXPressArgs(pid int, nodeID string, role string, title string, descr
 		"expected_description": description,
 		"reason":               reason,
 	}
+}
+
+func writeDesktopVisualFixture(t *testing.T, workspace string, manifest desktopScreenshotManifest) (string, string) {
+	t.Helper()
+	imagePath := filepath.Join(workspace, "visual.png")
+	manifestPath := filepath.Join(workspace, "visual.json")
+	if err := os.WriteFile(imagePath, []byte("fake desktop image"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	manifest.ImagePath = imagePath
+	if err := writeDesktopScreenshotManifest(manifestPath, manifest); err != nil {
+		t.Fatal(err)
+	}
+	return imagePath, manifestPath
 }

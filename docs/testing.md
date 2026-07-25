@@ -457,7 +457,7 @@ go run . ask "读取 README.md 前 20 行并总结"
 - 改 `code_run`：跑 4.5，并执行 `go test ./internal/tools -run 'TestCodeRun|TestNormalize' -count=1`。
 - 改 `ask_user`：跑 4.6。
 - 改 `browser_ocr`：执行 `python3 -m py_compile scripts/browser_ocr.py`，再执行 `go test ./internal/vision ./internal/tools -run 'Test.*OCR' -count=1`。
-- 改桌面 M1/M2：执行 `python3 -m py_compile scripts/desktop_darwin.py`，再执行 `go test ./internal/desktop ./internal/tools -run 'Test.*Desktop|TestConfirmation' -count=1`。macOS 手工验收先调用 `desktop_permissions`，确认权限后再枚举窗口、激活和 AX 快照；`desktop_ax_press` 只能选取无副作用的 R1 节点，确认动作前后 AX 快照存在可观察变化；`desktop_ax_focus` 只测临时输入框聚焦；`desktop_click` 只测 AX 节点中心点击，不得使用 OCR bbox 或任意坐标；`desktop_press_key` 实机只测 `Escape`、`Tab` 等低风险键；`desktop_type_text` 只在已聚焦的临时输入框中输入无敏感测试文本。
+- 改桌面 M1/M2：执行 `python3 -m py_compile scripts/desktop_darwin.py`，再执行 `go test ./internal/desktop ./internal/tools -run 'Test.*Desktop|TestConfirmation' -count=1`。macOS 手工验收先调用 `desktop_permissions`，确认权限后再枚举窗口、激活和 AX 快照；`desktop_screenshot` 必须生成 sidecar manifest；`desktop_ax_press` 只能选取无副作用的 R1 节点，确认动作前后 AX 快照存在可观察变化；`desktop_ax_focus` 只测临时输入框聚焦；`desktop_click` 只测 AX 节点中心点击，不得使用 OCR bbox 或任意坐标；`desktop_visual_click` 只测截图 manifest + OCR bbox 的受控转换，不得输入裸屏幕坐标；`desktop_press_key` 实机只测 `Escape`、`Tab` 等低风险键；`desktop_type_text` 只在已聚焦的临时输入框中输入无敏感测试文本。
 - 改 session：跑 6.1、6.2，并执行 `go test ./internal/session ./internal/agent -run 'TestStoreListAndLoadHistory|TestRunnerResumeSessionContinuesExistingHistory' -count=1`。
 
 ## 9. 常见问题

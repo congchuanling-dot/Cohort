@@ -160,6 +160,24 @@ type ClickResult struct {
 	CoordinateSpace string `json:"coordinate_space"`
 }
 
+type VisualClickRequest struct {
+	PID             int    `json:"pid"`
+	X               int    `json:"x"`
+	Y               int    `json:"y"`
+	CoordinateSpace string `json:"coordinate_space"`
+}
+
+type VisualClickResult struct {
+	PID             int    `json:"pid"`
+	Action          string `json:"action"`
+	Performed       bool   `json:"performed"`
+	ActiveBefore    bool   `json:"active_before"`
+	ActiveAfter     bool   `json:"active_after"`
+	X               int    `json:"x"`
+	Y               int    `json:"y"`
+	CoordinateSpace string `json:"coordinate_space"`
+}
+
 type PressKeyRequest struct {
 	PID int    `json:"pid"`
 	Key string `json:"key"`
@@ -202,6 +220,7 @@ type Driver interface {
 	AXPress(ctx context.Context, req AXPressRequest) (AXPressResult, error)
 	AXFocus(ctx context.Context, req AXFocusRequest) (AXFocusResult, error)
 	Click(ctx context.Context, req ClickRequest) (ClickResult, error)
+	VisualClick(ctx context.Context, req VisualClickRequest) (VisualClickResult, error)
 	PressKey(ctx context.Context, req PressKeyRequest) (PressKeyResult, error)
 	TypeText(ctx context.Context, req TypeTextRequest) (TypeTextResult, error)
 }

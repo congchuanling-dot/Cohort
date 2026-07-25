@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	desktopAXPressOperation  = "desktop_ax_press"
-	desktopClickOperation    = "desktop_click"
-	desktopPressKeyOperation = "desktop_press_key"
+	desktopAXPressOperation     = "desktop_ax_press"
+	desktopClickOperation       = "desktop_click"
+	desktopVisualClickOperation = "desktop_visual_click"
+	desktopPressKeyOperation    = "desktop_press_key"
 )
 
 // ActionApproval 绑定用户确认到一个具体的高风险桌面动作。
@@ -21,6 +22,8 @@ type ActionApproval struct {
 	Operation string
 	PID       int
 	NodeID    string
+	ImagePath string
+	BBox      string
 	Key       string
 	Reason    string
 }
