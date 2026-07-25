@@ -11,6 +11,7 @@ import (
 
 const (
 	desktopAXPressOperation  = "desktop_ax_press"
+	desktopClickOperation    = "desktop_click"
 	desktopPressKeyOperation = "desktop_press_key"
 )
 

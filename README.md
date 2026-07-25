@@ -220,6 +220,8 @@ desktop_screenshot
 desktop_ax_snapshot
 desktop_ocr
 desktop_ax_press
+desktop_ax_focus
+desktop_click
 desktop_press_key
 desktop_type_text
 ```
@@ -272,11 +274,13 @@ desktop_permissions
   -> desktop_screenshot
   -> desktop_ocr
   -> desktop_ax_press
+  -> desktop_ax_focus
+  -> desktop_click
   -> desktop_press_key
   -> desktop_type_text
 ```
 
-优先使用 Accessibility / AX 控件树；AX 不可用时才使用截图和 OCR。`desktop_ax_press` 要求目标 PID 已在前台，并使用刚刚读取的 AX 节点 metadata 重新校验节点，动作后再读取 AX 快照验证状态变化。`desktop_press_key` 只支持受限按键集合：`Escape`、`Tab`、`Shift+Tab`、方向键、`PageUp/PageDown`、`Home/End` 可直接执行；`Enter`、`Cmd+Enter`、`Ctrl+Enter`、`Delete`、`Backspace` 等必须确认。`desktop_type_text` 只向当前焦点可编辑输入框起草文本，结果不回显完整内容；发送动作必须单独走 `desktop_press_key`。
+优先使用 Accessibility / AX 控件树；AX 不可用时才使用截图和 OCR。`desktop_ax_press` 要求目标 PID 已在前台，并使用刚刚读取的 AX 节点 metadata 重新校验节点，动作后再读取 AX 快照验证状态变化。`desktop_ax_focus` 只聚焦当前可编辑 AX 节点。`desktop_click` 只点击当前 AX 节点中心点，不接受任意坐标或 OCR bbox；发送类点击必须确认。`desktop_press_key` 只支持受限按键集合：`Escape`、`Tab`、`Shift+Tab`、方向键、`PageUp/PageDown`、`Home/End` 可直接执行；`Enter`、`Cmd+Enter`、`Ctrl+Enter`、`Delete`、`Backspace` 等必须确认。`desktop_type_text` 只向当前焦点可编辑输入框起草文本，结果不回显完整内容；发送动作必须单独走 `desktop_press_key` 或经确认的 `desktop_click`。
 
 风险策略：
 

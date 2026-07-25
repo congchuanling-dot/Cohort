@@ -2,8 +2,8 @@
 """macOS desktop sensing helper for Cohert.
 
 The script exposes a small JSON protocol for desktop sensing and narrowly
-reviewed semantic input. Mouse coordinates and free-form text input are still
-intentionally unsupported.
+reviewed semantic input. Mouse click input is only exposed through current AX
+nodes and never through free-form model-provided coordinates.
 """
 
 import argparse
@@ -93,6 +93,12 @@ def logical_to_physical(value, scale):
     if not scale:
         return int(round(value))
     return int(round(float(value) / scale))
+
+
+def physical_to_logical(value, scale):
+    if not scale:
+        return float(value)
+    return float(value) * scale
 
 
 def physical_bounds(raw, scale):
@@ -316,10 +322,12 @@ def load_ax():
             AXUIElementCopyAttributeValue,
             AXUIElementCreateApplication,
             AXUIElementPerformAction,
+            AXUIElementSetAttributeValue,
             AXValueGetValue,
             kAXChildrenAttribute,
             kAXDescriptionAttribute,
             kAXEnabledAttribute,
+            kAXFocusedAttribute,
             kAXFocusedUIElementAttribute,
             kAXPositionAttribute,
             kAXPressAction,
@@ -341,6 +349,7 @@ def load_ax():
         "trusted": AXIsProcessTrusted,
         "application": AXUIElementCreateApplication,
         "attribute": AXUIElementCopyAttributeValue,
+        "set_attribute": AXUIElementSetAttributeValue,
         "actions": AXUIElementCopyActionNames,
         "perform_action": AXUIElementPerformAction,
         "value": AXValueGetValue,
@@ -352,6 +361,7 @@ def load_ax():
         "description": kAXDescriptionAttribute,
         "value_attribute": kAXValueAttribute,
         "enabled": kAXEnabledAttribute,
+        "focused_attr": kAXFocusedAttribute,
         "position": kAXPositionAttribute,
         "press_action": kAXPressAction,
         "size": kAXSizeAttribute,
@@ -446,7 +456,7 @@ def ax_node_metadata(api, element, scale):
     }
 
 
-def ax_press(payload):
+def require_ax_target(payload, operation_name, require_action=None, require_bounds=False, require_editable=False):
     quartz, _, _ = require_macos_modules()
     api = load_ax()
     if not bool(api["trusted"]()):
@@ -459,7 +469,7 @@ def ax_press(payload):
     if pid <= 0:
         raise DesktopError(
             "desktop_bad_pid",
-            "desktop_ax_press requires a positive pid",
+            f"{operation_name} requires a positive pid",
             "请先通过 desktop_windows 获取目标窗口对应的 pid。",
         )
     require_active_pid(pid)
@@ -484,12 +494,33 @@ def ax_press(payload):
             f"AX node {node_id!r} is disabled",
             "请重新读取 AX 快照，选择 enabled=true 的可操作节点。",
         )
-    if "AXPress" not in metadata["actions"]:
+    if require_action and require_action not in metadata["actions"]:
         raise DesktopError(
-            "desktop_ax_press_unsupported",
-            f"AX node {node_id!r} does not support AXPress",
-            "当前 M2.1 不会降级为坐标点击；请选择支持 AXPress 的节点或等待 desktop_click。",
+            f"{operation_name}_unsupported",
+            f"AX node {node_id!r} does not support {require_action}",
+            "请重新读取 AX 快照，选择支持目标动作的节点。",
         )
+    if require_bounds and (metadata["bounds"]["width"] <= 0 or metadata["bounds"]["height"] <= 0):
+        raise DesktopError(
+            "desktop_click_bad_bounds",
+            f"AX node {node_id!r} has no clickable bounds",
+            "请选择当前可见且带有有效 bounds 的 AX 节点。",
+        )
+    if require_editable and not editable_metadata(metadata):
+        raise DesktopError(
+            "desktop_ax_focus_not_editable",
+            f"AX node {node_id!r} is not editable: role={metadata['role']!r}",
+            "请选择 AXTextField、AXTextArea、AXSearchField 或其他可编辑文本节点。",
+        )
+    return quartz, api, pid, node_id, element, metadata
+
+
+def ax_press(payload):
+    _, api, pid, node_id, element, _metadata = require_ax_target(
+        payload,
+        "desktop_ax_press",
+        require_action="AXPress",
+    )
     error = api["perform_action"](element, api["press_action"])
     if int(error) != 0:
         raise DesktopError(
@@ -499,6 +530,118 @@ def ax_press(payload):
         )
     time.sleep(0.25)
     return {"pid": pid, "node_id": node_id, "action": "AXPress", "performed": True}
+
+
+def editable_metadata(metadata):
+    role = str(metadata.get("role") or "")
+    role_lower = role.lower()
+    if role in {"AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"}:
+        return True
+    return "text" in role_lower and "static" not in role_lower
+
+
+def same_focus_target(expected, focused):
+    if focused is None:
+        return False
+    for field in ("role", "title", "description", "bounds"):
+        if focused.get(field) != expected.get(field):
+            return False
+    return True
+
+
+def ax_focus(payload):
+    _quartz, api, pid, node_id, element, metadata = require_ax_target(
+        payload,
+        "desktop_ax_focus",
+        require_editable=True,
+    )
+    error = api["set_attribute"](element, api["focused_attr"], True)
+    if int(error) != 0:
+        raise DesktopError(
+            "desktop_ax_focus_failed",
+            f"AX focus failed for node {node_id!r}: AXError={int(error)}",
+            "请重新读取 AX 快照，确认目标是可编辑输入节点；必要时改用受控 desktop_click 聚焦。",
+        )
+    time.sleep(0.15)
+    app = api["application"](pid)
+    focused = ax_attr(api, app, api["focused"])
+    focused_metadata_value = None
+    if focused is not None:
+        focused_metadata_value = ax_node_metadata(api, focused, display_scale(require_macos_modules()[0]))
+    focused_ok = same_focus_target(metadata, focused_metadata_value)
+    return {
+        "pid": pid,
+        "node_id": node_id,
+        "action": "AXFocus",
+        "performed": True,
+        "active_before": True,
+        "active_after": active_pid(require_macos_modules()[2]) == pid,
+        "focused": focused_ok,
+        "focus_role": (focused_metadata_value or {}).get("role", ""),
+        "focus_title": (focused_metadata_value or {}).get("title", ""),
+        "focus_description": (focused_metadata_value or {}).get("description", ""),
+    }
+
+
+def click(payload):
+    quartz, _api, pid, node_id, _element, metadata = require_ax_target(
+        payload,
+        "desktop_click",
+        require_bounds=True,
+    )
+    bounds = metadata["bounds"]
+    x = bounds["x"] + int(round(bounds["width"] / 2))
+    y = bounds["y"] + int(round(bounds["height"] / 2))
+    logical_point = (
+        physical_to_logical(x, display_scale(quartz)),
+        physical_to_logical(y, display_scale(quartz)),
+    )
+    try:
+        post_mouse_click(quartz, logical_point)
+        time.sleep(0.15)
+    except DesktopError:
+        raise
+    except Exception as exc:
+        raise DesktopError(
+            "desktop_click_failed",
+            f"desktop click failed: {exc}",
+            "请重新确认目标应用前台状态和节点 bounds，不要连续重试。",
+        ) from exc
+    return {
+        "pid": pid,
+        "node_id": node_id,
+        "action": "Click",
+        "performed": True,
+        "active_before": True,
+        "active_after": active_pid(require_macos_modules()[2]) == pid,
+        "x": x,
+        "y": y,
+        "coordinate_space": "screen-physical",
+    }
+
+
+def post_mouse_click(quartz, point):
+    down = quartz.CGEventCreateMouseEvent(
+        None,
+        quartz.kCGEventLeftMouseDown,
+        point,
+        quartz.kCGMouseButtonLeft,
+    )
+    up = quartz.CGEventCreateMouseEvent(
+        None,
+        quartz.kCGEventLeftMouseUp,
+        point,
+        quartz.kCGMouseButtonLeft,
+    )
+    if down is None or up is None:
+        raise DesktopError(
+            "desktop_click_failed",
+            "unable to create Quartz mouse click event",
+            "请确认 Cohert 运行进程具备必要的系统权限。",
+        )
+    quartz.CGEventPost(quartz.kCGHIDEventTap, down)
+    time.sleep(0.03)
+    quartz.CGEventPost(quartz.kCGHIDEventTap, up)
 
 
 def parse_key(quartz, raw_key):
@@ -785,6 +928,8 @@ def dispatch(command, payload):
         "screenshot": screenshot,
         "ax_snapshot": ax_snapshot,
         "ax_press": ax_press,
+        "ax_focus": ax_focus,
+        "click": click,
         "press_key": press_key,
         "type_text": type_text,
     }

@@ -34,7 +34,7 @@ func (t *AskUser) Schema() llm.ToolSchema {
 		Description: "Ask the user for missing information or a decision.",
 		Parameters: objectSchema(map[string]any{
 			"question": stringProp("Question for the user"),
-			"approval": objectProp("Optional confirmation binding for a high-risk action. Supported operations: desktop_ax_press with operation, pid, node_id, reason; desktop_press_key with operation, pid, key, reason. A positive user answer returns a one-time confirmation_token."),
+			"approval": objectProp("Optional confirmation binding for a high-risk action. Supported operations: desktop_ax_press/desktop_click with operation, pid, node_id, reason; desktop_press_key with operation, pid, key, reason. A positive user answer returns a one-time confirmation_token."),
 		}, "question"),
 	}}
 }
@@ -124,7 +124,7 @@ func parseAskUserApproval(args map[string]any) (*ActionApproval, *agent.ToolErro
 	if !validActionApproval(value) {
 		err := agent.NewToolError(
 			"confirmation_bad_request",
-			"ask_user approval only supports desktop_ax_press with pid/node_id/reason or desktop_press_key with pid/key/reason",
+			"ask_user approval only supports desktop_ax_press/desktop_click with pid/node_id/reason or desktop_press_key with pid/key/reason",
 			"请使用工具返回的 approval_request 原样请求用户确认，不要手写或复用旧确认。",
 		)
 		return nil, &err
@@ -137,7 +137,7 @@ func validActionApproval(value ActionApproval) bool {
 		return false
 	}
 	switch value.Operation {
-	case desktopAXPressOperation:
+	case desktopAXPressOperation, desktopClickOperation:
 		return value.NodeID != "" && value.Key == ""
 	case desktopPressKeyOperation:
 		return value.Key != "" && value.NodeID == ""
@@ -151,6 +151,13 @@ func approvalPrompt(value ActionApproval) string {
 	case desktopAXPressOperation:
 		return fmt.Sprintf(
 			"该回答将只授权一次桌面 AXPress 操作：pid=%d，node_id=%s，原因=%s。",
+			value.PID,
+			value.NodeID,
+			value.Reason,
+		)
+	case desktopClickOperation:
+		return fmt.Sprintf(
+			"该回答将只授权一次桌面物理点击操作：pid=%d，node_id=%s，原因=%s。",
 			value.PID,
 			value.NodeID,
 			value.Reason,

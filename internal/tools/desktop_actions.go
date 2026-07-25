@@ -117,7 +117,7 @@ func (t *DesktopAXPress) Run(ctx context.Context, call agent.ToolCallContext) (a
 		return desktopAXPressError(
 			"desktop_ax_press_unsupported",
 			"the requested AX node does not support AXPress",
-			"当前 M2.1 不会退化为坐标点击；请选择支持 AXPress 的节点或等待 desktop_click。",
+			"请选择支持 AXPress 的节点；如必须点击该节点，请改用受控 desktop_click，并继续使用当前 AX 节点 metadata。",
 		), nil
 	}
 
@@ -314,6 +314,325 @@ func desktopApprovalRequiredOutcome(approval ActionApproval, node desktop.AXNode
 func desktopAXPressError(code string, message string, hint string) agent.Outcome {
 	return agent.Outcome{
 		Data:       agent.NewToolError(code, message, hint),
+		NextPrompt: "\n",
+	}
+}
+
+type DesktopAXFocus struct {
+	driver desktop.Driver
+}
+
+func NewDesktopAXFocus(driver desktop.Driver) *DesktopAXFocus {
+	return &DesktopAXFocus{driver: driver}
+}
+
+func (t *DesktopAXFocus) Name() string { return ToolNameDesktopAXFocus }
+
+func (t *DesktopAXFocus) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Focus one current editable macOS Accessibility node. The target PID must already be frontmost. Provide the node ID and exact role/title/description from an immediately preceding desktop_ax_snapshot. This is used before desktop_type_text and does not type or send content.",
+		Parameters: objectSchema(map[string]any{
+			"pid":                  intProp("Target application PID from desktop_windows.", 0),
+			"node_id":              stringProp("Exact editable node ID from the immediately preceding desktop_ax_snapshot."),
+			"expected_role":        stringProp("Exact role from that node, for example AXTextArea or AXTextField."),
+			"expected_title":       stringProp("Exact title from that node. Pass an empty string when the snapshot title is empty."),
+			"expected_description": stringProp("Exact description from that node. Pass an empty string when the snapshot description is empty."),
+			"reason":               stringProp("Concrete user-facing reason for focusing this input field."),
+		}, "pid", "node_id", "expected_role", "expected_title", "expected_description", "reason"),
+	}}
+}
+
+func (t *DesktopAXFocus) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	pid := asInt(call.Args["pid"], 0)
+	if pid <= 0 {
+		return desktopBadPIDOutcome(t.Name()), nil
+	}
+	nodeID, nodeIDErr := requiredDesktopActionString(call.Args, "node_id")
+	if nodeIDErr != nil {
+		return agent.Outcome{Data: *nodeIDErr, NextPrompt: "\n"}, nil
+	}
+	role, roleErr := requiredDesktopActionString(call.Args, "expected_role")
+	if roleErr != nil {
+		return agent.Outcome{Data: *roleErr, NextPrompt: "\n"}, nil
+	}
+	title, titleErr := requiredDesktopActionField(call.Args, "expected_title")
+	if titleErr != nil {
+		return agent.Outcome{Data: *titleErr, NextPrompt: "\n"}, nil
+	}
+	description, descriptionErr := requiredDesktopActionField(call.Args, "expected_description")
+	if descriptionErr != nil {
+		return agent.Outcome{Data: *descriptionErr, NextPrompt: "\n"}, nil
+	}
+	reason, reasonErr := requiredDesktopActionString(call.Args, "reason")
+	if reasonErr != nil {
+		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
+	}
+
+	snapshotRequest := desktop.AXSnapshotRequest{
+		PID:             pid,
+		MaxDepth:        desktopActionSnapshotDepth,
+		MaxNodes:        desktopActionSnapshotNodes,
+		IncludeZeroSize: false,
+	}
+	before, err := t.driver.AXSnapshot(ctx, snapshotRequest)
+	if err != nil {
+		return desktopToolError(err), nil
+	}
+	node, found := findAXNode(before.Root, nodeID)
+	if !found {
+		return desktopActionError(
+			"desktop_ax_node_stale",
+			"the requested AX node is absent from the current snapshot",
+			"界面可能已变化；请重新调用 desktop_ax_snapshot，选择当前可见输入节点后再操作。",
+		), nil
+	}
+	if node.Role != role || node.Title != title || node.Description != description {
+		return desktopActionError(
+			"desktop_ax_node_stale",
+			"the requested AX node no longer matches its expected role, title, or description",
+			"界面可能已变化；请重新读取 AX 快照，不要沿用旧 node_id。",
+		), nil
+	}
+	if node.Enabled != nil && !*node.Enabled {
+		return desktopActionError(
+			"desktop_ax_node_disabled",
+			"the requested AX node is disabled",
+			"请重新读取 AX 快照，选择 enabled=true 的输入节点。",
+		), nil
+	}
+	if !isEditableAXNode(node) {
+		return desktopActionError(
+			"desktop_ax_focus_not_editable",
+			"desktop_ax_focus only supports editable AX nodes",
+			"请选择 AXTextField、AXTextArea、AXSearchField 或其他可编辑文本节点。",
+		), nil
+	}
+
+	result, err := t.driver.AXFocus(ctx, desktop.AXFocusRequest{
+		PID:                 pid,
+		NodeID:              nodeID,
+		ExpectedRole:        role,
+		ExpectedTitle:       title,
+		ExpectedDescription: description,
+	})
+	if err != nil {
+		return desktopToolError(err), nil
+	}
+	verified := result.Performed && result.ActiveBefore && result.ActiveAfter && result.Focused
+	data := map[string]any{
+		"status":            agent.ToolStatusSuccess,
+		"pid":               result.PID,
+		"node_id":           result.NodeID,
+		"action":            result.Action,
+		"reason":            reason,
+		"performed":         result.Performed,
+		"active_before":     result.ActiveBefore,
+		"active_after":      result.ActiveAfter,
+		"focused":           result.Focused,
+		"focus_role":        result.FocusRole,
+		"focus_title":       result.FocusTitle,
+		"focus_description": result.FocusDescription,
+		"verified":          verified,
+	}
+	if !verified {
+		data["status"] = agent.ToolStatusError
+		data["code"] = "desktop_ax_focus_unverified"
+		data["message"] = "desktop focus action was sent but focused editable state was not verified"
+		data["hint"] = "请停止输入文本，重新调用 desktop_windows、desktop_activate 和 desktop_ax_snapshot 确认当前焦点。"
+	}
+	return agent.Outcome{Data: data, NextPrompt: "\n"}, nil
+}
+
+type DesktopClick struct {
+	driver        desktop.Driver
+	confirmations *ConfirmationStore
+}
+
+func NewDesktopClick(driver desktop.Driver, confirmations *ConfirmationStore) *DesktopClick {
+	return &DesktopClick{driver: driver, confirmations: confirmations}
+}
+
+func (t *DesktopClick) Name() string { return ToolNameDesktopClick }
+
+func (t *DesktopClick) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Click the center of one current macOS Accessibility node. This is a controlled fallback when AXPress is unavailable. The target PID must already be frontmost. Provide the node ID and exact role/title/description from an immediately preceding desktop_ax_snapshot. R2 clicks require a one-time confirmation_token from ask_user; R3 clicks are refused.",
+		Parameters: objectSchema(map[string]any{
+			"pid":                  intProp("Target application PID from desktop_windows.", 0),
+			"node_id":              stringProp("Exact node ID from the immediately preceding desktop_ax_snapshot."),
+			"expected_role":        stringProp("Exact role from that node."),
+			"expected_title":       stringProp("Exact title from that node. Pass an empty string when the snapshot title is empty."),
+			"expected_description": stringProp("Exact description from that node. Pass an empty string when the snapshot description is empty."),
+			"reason":               stringProp("Concrete user-facing reason for this click."),
+			"confirmation_token":   stringProp("Required only for R2 clicks. Obtain it from ask_user with an approval binding for this exact pid, node_id, and reason."),
+		}, "pid", "node_id", "expected_role", "expected_title", "expected_description", "reason"),
+	}}
+}
+
+func (t *DesktopClick) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	pid := asInt(call.Args["pid"], 0)
+	if pid <= 0 {
+		return desktopBadPIDOutcome(t.Name()), nil
+	}
+	nodeID, nodeIDErr := requiredDesktopActionString(call.Args, "node_id")
+	if nodeIDErr != nil {
+		return agent.Outcome{Data: *nodeIDErr, NextPrompt: "\n"}, nil
+	}
+	role, roleErr := requiredDesktopActionString(call.Args, "expected_role")
+	if roleErr != nil {
+		return agent.Outcome{Data: *roleErr, NextPrompt: "\n"}, nil
+	}
+	title, titleErr := requiredDesktopActionField(call.Args, "expected_title")
+	if titleErr != nil {
+		return agent.Outcome{Data: *titleErr, NextPrompt: "\n"}, nil
+	}
+	description, descriptionErr := requiredDesktopActionField(call.Args, "expected_description")
+	if descriptionErr != nil {
+		return agent.Outcome{Data: *descriptionErr, NextPrompt: "\n"}, nil
+	}
+	reason, reasonErr := requiredDesktopActionString(call.Args, "reason")
+	if reasonErr != nil {
+		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
+	}
+
+	before, err := t.driver.AXSnapshot(ctx, desktop.AXSnapshotRequest{
+		PID:             pid,
+		MaxDepth:        desktopActionSnapshotDepth,
+		MaxNodes:        desktopActionSnapshotNodes,
+		IncludeZeroSize: false,
+	})
+	if err != nil {
+		return desktopToolError(err), nil
+	}
+	node, found := findAXNode(before.Root, nodeID)
+	if !found {
+		return desktopActionError(
+			"desktop_ax_node_stale",
+			"the requested AX node is absent from the current snapshot",
+			"界面可能已变化；请重新调用 desktop_ax_snapshot，选择当前可见节点后再点击。",
+		), nil
+	}
+	if node.Role != role || node.Title != title || node.Description != description {
+		return desktopActionError(
+			"desktop_ax_node_stale",
+			"the requested AX node no longer matches its expected role, title, or description",
+			"界面可能已变化；请重新读取 AX 快照，不要沿用旧 node_id。",
+		), nil
+	}
+	if node.Enabled != nil && !*node.Enabled {
+		return desktopActionError(
+			"desktop_ax_node_disabled",
+			"the requested AX node is disabled",
+			"请重新读取 AX 快照，选择 enabled=true 的节点。",
+		), nil
+	}
+	if node.Bounds.Width <= 0 || node.Bounds.Height <= 0 {
+		return desktopActionError(
+			"desktop_click_bad_bounds",
+			"the requested AX node has no clickable bounds",
+			"请选择带有有效 bounds 的可见节点；不要把 OCR bbox 传给 desktop_click。",
+		), nil
+	}
+
+	risk := classifyDesktopClickRisk(node)
+	if risk == desktopRiskHigh {
+		return desktopActionError(
+			"desktop_action_high_risk_refused",
+			"this click is classified as high risk and must be completed manually",
+			"支付、审批、授权、登录验证、删除等操作不能由 desktop_click 自动执行。",
+		), nil
+	}
+	if risk == desktopRiskExternal {
+		approval := ActionApproval{
+			Operation: desktopClickOperation,
+			PID:       pid,
+			NodeID:    nodeID,
+			Reason:    reason,
+		}
+		token := strings.TrimSpace(asString(call.Args["confirmation_token"]))
+		if !t.confirmations.Consume(token, approval) {
+			return desktopClickApprovalRequiredOutcome(approval, node, risk), nil
+		}
+	}
+
+	result, err := t.driver.Click(ctx, desktop.ClickRequest{
+		PID:                 pid,
+		NodeID:              nodeID,
+		ExpectedRole:        role,
+		ExpectedTitle:       title,
+		ExpectedDescription: description,
+	})
+	if err != nil {
+		return desktopToolError(err), nil
+	}
+	verified := result.Performed && result.ActiveBefore && result.ActiveAfter
+	data := map[string]any{
+		"status":           agent.ToolStatusSuccess,
+		"pid":              result.PID,
+		"node_id":          result.NodeID,
+		"action":           result.Action,
+		"risk":             risk,
+		"performed":        result.Performed,
+		"active_before":    result.ActiveBefore,
+		"active_after":     result.ActiveAfter,
+		"x":                result.X,
+		"y":                result.Y,
+		"coordinate_space": result.CoordinateSpace,
+		"verified":         verified,
+	}
+	if !verified {
+		data["status"] = agent.ToolStatusError
+		data["code"] = "desktop_click_unverified"
+		data["message"] = "desktop click was sent but target foreground state was not verified"
+		data["hint"] = "请停止连续点击，重新调用 desktop_windows 和 desktop_activate 确认目标应用状态。"
+	}
+	return agent.Outcome{Data: data, NextPrompt: "\n"}, nil
+}
+
+func isEditableAXNode(node desktop.AXNode) bool {
+	role := strings.ToLower(node.Role)
+	switch node.Role {
+	case "AXTextField", "AXTextArea", "AXSearchField", "AXComboBox":
+		return true
+	}
+	return strings.Contains(role, "text") && !strings.Contains(role, "static")
+}
+
+func classifyDesktopClickRisk(node desktop.AXNode) desktopActionRisk {
+	risk := classifyDesktopAXRisk(node)
+	if risk != desktopRiskExternal {
+		return risk
+	}
+	if isEditableAXNode(node) {
+		return desktopRiskReversible
+	}
+	return risk
+}
+
+func desktopClickApprovalRequiredOutcome(approval ActionApproval, node desktop.AXNode, risk desktopActionRisk) agent.Outcome {
+	return agent.Outcome{
+		Data: map[string]any{
+			"status":  agent.ToolStatusError,
+			"code":    "desktop_action_confirmation_required",
+			"message": "this desktop click requires one-time user confirmation",
+			"hint":    "请调用 ask_user，并在 approval 中原样传入 approval_request；用户明确确认后，将返回 confirmation_token。然后用同一 pid、node_id、reason 和该 token 重试一次 desktop_click。",
+			"risk":    risk,
+			"node": map[string]any{
+				"id":          node.ID,
+				"role":        node.Role,
+				"title":       node.Title,
+				"description": node.Description,
+				"bounds":      node.Bounds,
+			},
+			"approval_request": map[string]any{
+				"operation": approval.Operation,
+				"pid":       approval.PID,
+				"node_id":   approval.NodeID,
+				"reason":    approval.Reason,
+			},
+		},
 		NextPrompt: "\n",
 	}
 }

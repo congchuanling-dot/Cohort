@@ -18,11 +18,13 @@ desktop_screenshot
 desktop_ax_snapshot
 desktop_ocr
 desktop_ax_press
+desktop_ax_focus
+desktop_click
 desktop_press_key
 desktop_type_text
 ```
 
-当前仅允许三类真实输入：`desktop_ax_press` 对刚刚读取、仍支持 `AXPress` 的语义节点执行动作；`desktop_press_key` 只发送 allowlist 中的受限按键；`desktop_type_text` 只向当前焦点可编辑输入框起草文本。当前没有 `desktop_click`。不得使用 `code_run`、AppleScript 或自写脚本绕过该边界模拟真实输入。
+当前仅允许五类真实输入：`desktop_ax_press` 对刚刚读取、仍支持 `AXPress` 的语义节点执行动作；`desktop_ax_focus` 只聚焦刚刚读取的可编辑 AX 节点；`desktop_click` 只点击刚刚读取并重新校验的 AX 节点中心点，不接受任意坐标；`desktop_press_key` 只发送 allowlist 中的受限按键；`desktop_type_text` 只向当前焦点可编辑输入框起草文本。不得使用 `code_run`、AppleScript 或自写脚本绕过该边界模拟真实输入。
 
 ## 默认探测流程
 
@@ -75,12 +77,46 @@ desktop_windows
 - 确认流程与 AXPress 一致：先调用 `desktop_press_key`，收到 `desktop_action_confirmation_required` 后，把 `approval_request` 原样传给 `ask_user`；只能用同一 `pid`、`key`、`reason` 和一次性令牌重试一次。
 - 不支持任意快捷键，不支持字符输入；需要文本输入时使用 `desktop_type_text`，不得用反复按键模拟输入。
 
+## AXFocus 操作流程
+
+```text
+desktop_windows
+  -> desktop_activate(pid)
+  -> desktop_ax_snapshot(pid)
+  -> 选择可编辑 node_id 并复制 role/title/description
+  -> desktop_ax_focus
+  -> desktop_type_text(pid, text, reason)
+```
+
+- 只能聚焦 `AXTextField`、`AXTextArea`、`AXSearchField`、`AXComboBox` 或其他明确可编辑文本节点。
+- 工具会重新读取 AX 树，验证 PID 前台、节点路径、节点语义、enabled 状态和可编辑角色。
+- 聚焦后必须确认 `focused=true` 和 `verified=true`，再调用 `desktop_type_text`。
+- `desktop_ax_focus` 不输入文本、不发送消息，也不处理发送按钮。
+
+## Click 操作流程
+
+```text
+desktop_windows
+  -> desktop_activate(pid)
+  -> desktop_ax_snapshot(pid)
+  -> 选择 node_id 并复制 role/title/description
+  -> 风险判断
+  -> desktop_click
+  -> 工具验证前后台 PID
+```
+
+- `desktop_click` 是 AXPress 不可用时的受控兜底，只能点击当前 AX 节点的中心点。
+- 不接受模型传入 x/y；不得从 OCR bbox、截图坐标或手工估算坐标发起点击。
+- 可编辑输入节点的点击视为 R1，可用于把焦点放到输入框。
+- 发送、提交、上传、保存、发布、关闭或语义不明确的节点是 R2，必须走 `ask_user` 一次性确认令牌。
+- 支付、审批、授权、登录验证、删除等 R3 操作直接拒绝，要求用户手动完成。
+
 ## TypeText 操作流程
 
 ```text
 desktop_windows
   -> desktop_activate(pid)
-  -> 聚焦目标输入框
+  -> desktop_ax_focus 或 desktop_click 聚焦目标输入框
   -> desktop_type_text(pid, text, reason)
   -> 发送动作单独走 desktop_press_key
 ```
@@ -95,15 +131,17 @@ desktop_windows
 - `desktop_windows` 和 `desktop_ax_snapshot` 的 bounds 使用 `screen-physical`。
 - `desktop_screenshot` 返回的图片内部坐标，以及 `desktop_ocr` 的 bbox，使用 `screenshot-local`。
 - 不得把 `screenshot-local` 坐标直接当作系统屏幕坐标。
-- OCR 只能用于理解界面，不能转化为鼠标点击；M2.1 不提供 `desktop_click`。
+- OCR 只能用于理解界面，不能转化为鼠标点击；`desktop_click` 只能使用当前 AX 节点，不接受 OCR bbox 或任意坐标。
 
 ## 敏感信息与安全
 
 - AX 快照不会返回 secure text field 的真实值；不得通过其他方式读取密码或敏感输入。
 - 登录验证码、人机校验、支付、审批、删除、发送消息等外部副作用均不自动处理。
 - `desktop_ax_press` 已绑定 PID、前台验证、风险确认和动作后 AX 验证。
+- `desktop_ax_focus` 只聚焦可编辑 AX 节点，绑定 PID、节点语义和焦点验证。
+- `desktop_click` 只点击已验证 AX 节点中心点，绑定 PID、节点语义、风险确认和前台验证。
 - `desktop_press_key` 只做受限按键，绑定 PID 并验证按键前后目标仍为前台。
-- `desktop_type_text` 只做文本起草，绑定 PID 和焦点输入框，不负责发送。后续坐标点击仍需单独评审。
+- `desktop_type_text` 只做文本起草，绑定 PID 和焦点输入框，不负责发送。
 
 ## 验收标准
 
@@ -113,6 +151,8 @@ desktop_windows
 - AX 快照受到深度和节点数限制，secure 文本不泄露。
 - OCR bbox 明确标为 `screenshot-local`。
 - AXPress 只能执行当前语义匹配、enabled 且支持 `AXPress` 的节点；R2 需要一次性确认令牌，R3 被拒绝。
+- AXFocus 只能聚焦当前语义匹配、enabled 且可编辑的节点。
+- Click 只能点击当前语义匹配、enabled 且有有效 bounds 的 AX 节点；R2 需要一次性确认令牌，R3 被拒绝。
 - PressKey 只接受 allowlist 按键；R2 按键需要一次性确认令牌。
 - TypeText 不回显完整文本；发送动作必须拆成单独确认。
 

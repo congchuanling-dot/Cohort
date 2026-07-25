@@ -119,6 +119,47 @@ type AXPressResult struct {
 	Performed bool   `json:"performed"`
 }
 
+type AXFocusRequest struct {
+	PID                 int    `json:"pid"`
+	NodeID              string `json:"node_id"`
+	ExpectedRole        string `json:"expected_role"`
+	ExpectedTitle       string `json:"expected_title"`
+	ExpectedDescription string `json:"expected_description"`
+}
+
+type AXFocusResult struct {
+	PID              int    `json:"pid"`
+	NodeID           string `json:"node_id"`
+	Action           string `json:"action"`
+	Performed        bool   `json:"performed"`
+	ActiveBefore     bool   `json:"active_before"`
+	ActiveAfter      bool   `json:"active_after"`
+	Focused          bool   `json:"focused"`
+	FocusRole        string `json:"focus_role"`
+	FocusTitle       string `json:"focus_title"`
+	FocusDescription string `json:"focus_description"`
+}
+
+type ClickRequest struct {
+	PID                 int    `json:"pid"`
+	NodeID              string `json:"node_id"`
+	ExpectedRole        string `json:"expected_role"`
+	ExpectedTitle       string `json:"expected_title"`
+	ExpectedDescription string `json:"expected_description"`
+}
+
+type ClickResult struct {
+	PID             int    `json:"pid"`
+	NodeID          string `json:"node_id"`
+	Action          string `json:"action"`
+	Performed       bool   `json:"performed"`
+	ActiveBefore    bool   `json:"active_before"`
+	ActiveAfter     bool   `json:"active_after"`
+	X               int    `json:"x"`
+	Y               int    `json:"y"`
+	CoordinateSpace string `json:"coordinate_space"`
+}
+
 type PressKeyRequest struct {
 	PID int    `json:"pid"`
 	Key string `json:"key"`
@@ -159,6 +200,8 @@ type Driver interface {
 	Screenshot(ctx context.Context, req ScreenshotRequest) (ScreenshotResult, error)
 	AXSnapshot(ctx context.Context, req AXSnapshotRequest) (AXSnapshotResult, error)
 	AXPress(ctx context.Context, req AXPressRequest) (AXPressResult, error)
+	AXFocus(ctx context.Context, req AXFocusRequest) (AXFocusResult, error)
+	Click(ctx context.Context, req ClickRequest) (ClickResult, error)
 	PressKey(ctx context.Context, req PressKeyRequest) (PressKeyResult, error)
 	TypeText(ctx context.Context, req TypeTextRequest) (TypeTextResult, error)
 }

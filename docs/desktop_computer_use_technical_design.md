@@ -692,14 +692,15 @@ M2.1 验收：
 
 ### M2：受限真实输入
 
-状态：M2.1 已完成 `desktop_ax_press`、风险确认和 AX 结果验证；M2.2 已完成受限 `desktop_press_key`；M2.3 已完成 `desktop_type_text` 文本起草。坐标点击尚未开始。
+状态：M2.1 已完成 `desktop_ax_press`、风险确认和 AX 结果验证；M2.2 已完成受限 `desktop_press_key`；M2.3 已完成 `desktop_type_text` 文本起草；M2.4 已完成 `desktop_ax_focus` 和受控 `desktop_click`。`desktop_click` 只点击当前 AX 节点中心点，不开放任意坐标点击。
 
 交付：
 
 - `desktop_ax_press`（已完成）
+- `desktop_ax_focus`（已完成）
+- `desktop_click`（已完成，限定为 AX 节点中心点点击）
 - `desktop_press_key`（已完成）
 - `desktop_type_text`（已完成）
-- `desktop_click`
 - 风险分类和 `ask_user` 确认策略。（AXPress / PressKey 已完成）
 - 动作后验证机制。（AXPress / PressKey / TypeText 已完成）
 

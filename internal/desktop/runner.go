@@ -81,6 +81,16 @@ func (d *PythonDriver) AXPress(ctx context.Context, req AXPressRequest) (AXPress
 	return result, d.call(ctx, "ax_press", req, &result)
 }
 
+func (d *PythonDriver) AXFocus(ctx context.Context, req AXFocusRequest) (AXFocusResult, error) {
+	var result AXFocusResult
+	return result, d.call(ctx, "ax_focus", req, &result)
+}
+
+func (d *PythonDriver) Click(ctx context.Context, req ClickRequest) (ClickResult, error) {
+	var result ClickResult
+	return result, d.call(ctx, "click", req, &result)
+}
+
 func (d *PythonDriver) PressKey(ctx context.Context, req PressKeyRequest) (PressKeyResult, error) {
 	var result PressKeyResult
 	return result, d.call(ctx, "press_key", req, &result)

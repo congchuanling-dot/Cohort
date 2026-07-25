@@ -20,6 +20,8 @@ type fakeDesktopDriver struct {
 	axSnapshot  desktop.AXSnapshotResult
 	axSnapshots []desktop.AXSnapshotResult
 	axPress     desktop.AXPressResult
+	axFocus     desktop.AXFocusResult
+	click       desktop.ClickResult
 	pressKey    desktop.PressKeyResult
 	typeText    desktop.TypeTextResult
 	err         error
@@ -29,6 +31,8 @@ type fakeDesktopDriver struct {
 	screenshotRequest desktop.ScreenshotRequest
 	axRequest         desktop.AXSnapshotRequest
 	axPressRequest    desktop.AXPressRequest
+	axFocusRequest    desktop.AXFocusRequest
+	clickRequest      desktop.ClickRequest
 	pressKeyRequest   desktop.PressKeyRequest
 	typeTextRequest   desktop.TypeTextRequest
 	axSnapshotCalls   int
@@ -90,6 +94,22 @@ func (d *fakeDesktopDriver) AXPress(ctx context.Context, req desktop.AXPressRequ
 		return desktop.AXPressResult{}, d.err
 	}
 	return d.axPress, nil
+}
+
+func (d *fakeDesktopDriver) AXFocus(ctx context.Context, req desktop.AXFocusRequest) (desktop.AXFocusResult, error) {
+	d.axFocusRequest = req
+	if d.err != nil {
+		return desktop.AXFocusResult{}, d.err
+	}
+	return d.axFocus, nil
+}
+
+func (d *fakeDesktopDriver) Click(ctx context.Context, req desktop.ClickRequest) (desktop.ClickResult, error) {
+	d.clickRequest = req
+	if d.err != nil {
+		return desktop.ClickResult{}, d.err
+	}
+	return d.click, nil
 }
 
 func (d *fakeDesktopDriver) PressKey(ctx context.Context, req desktop.PressKeyRequest) (desktop.PressKeyResult, error) {
@@ -432,6 +452,219 @@ func TestDesktopAXPressRejectsStaleNode_BitsUT(t *testing.T) {
 	toolErr := outcome.Data.(agent.ToolErrorData)
 	if toolErr.Code != "desktop_ax_node_stale" {
 		t.Fatalf("code = %q, want desktop_ax_node_stale", toolErr.Code)
+	}
+}
+
+func TestDesktopAXFocusFocusesEditableNode_BitsUT(t *testing.T) {
+	enabled := true
+	snapshot := desktop.AXSnapshotResult{
+		PID: 123,
+		Root: desktop.AXNode{
+			ID:   "ax:0",
+			Role: "AXApplication",
+			Children: []desktop.AXNode{{
+				ID:          "ax:0/0",
+				Role:        "AXTextArea",
+				Title:       "输入",
+				Description: "消息输入框",
+				Enabled:     &enabled,
+			}},
+		},
+	}
+	driver := &fakeDesktopDriver{
+		axSnapshots: []desktop.AXSnapshotResult{snapshot},
+		axFocus: desktop.AXFocusResult{
+			PID:              123,
+			NodeID:           "ax:0/0",
+			Action:           "AXFocus",
+			Performed:        true,
+			ActiveBefore:     true,
+			ActiveAfter:      true,
+			Focused:          true,
+			FocusRole:        "AXTextArea",
+			FocusTitle:       "输入",
+			FocusDescription: "消息输入框",
+		},
+	}
+	outcome, err := NewDesktopAXFocus(driver).Run(context.Background(), agent.ToolCallContext{
+		Args: desktopAXPressArgs(123, "ax:0/0", "AXTextArea", "输入", "消息输入框", "聚焦微信消息输入框"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if driver.axFocusRequest.NodeID != "ax:0/0" || driver.axFocusRequest.ExpectedRole != "AXTextArea" {
+		t.Fatalf("focus request = %#v", driver.axFocusRequest)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["verified"] != true || data["focused"] != true {
+		t.Fatalf("outcome = %#v", data)
+	}
+}
+
+func TestDesktopAXFocusRejectsNonEditableNode_BitsUT(t *testing.T) {
+	enabled := true
+	snapshot := desktop.AXSnapshotResult{
+		PID: 123,
+		Root: desktop.AXNode{
+			ID:   "ax:0",
+			Role: "AXApplication",
+			Children: []desktop.AXNode{{
+				ID:      "ax:0/0",
+				Role:    "AXButton",
+				Title:   "发送",
+				Enabled: &enabled,
+			}},
+		},
+	}
+	driver := &fakeDesktopDriver{axSnapshots: []desktop.AXSnapshotResult{snapshot}}
+	outcome, err := NewDesktopAXFocus(driver).Run(context.Background(), agent.ToolCallContext{
+		Args: desktopAXPressArgs(123, "ax:0/0", "AXButton", "发送", "", "聚焦按钮"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolErr := outcome.Data.(agent.ToolErrorData)
+	if toolErr.Code != "desktop_ax_focus_not_editable" || driver.axFocusRequest.NodeID != "" {
+		t.Fatalf("error = %#v, focus request = %#v", toolErr, driver.axFocusRequest)
+	}
+}
+
+func TestDesktopClickClicksEditableNodeWithoutConfirmation_BitsUT(t *testing.T) {
+	enabled := true
+	snapshot := desktop.AXSnapshotResult{
+		PID: 123,
+		Root: desktop.AXNode{
+			ID:   "ax:0",
+			Role: "AXApplication",
+			Children: []desktop.AXNode{{
+				ID:          "ax:0/0",
+				Role:        "AXTextArea",
+				Title:       "输入",
+				Description: "消息输入框",
+				Enabled:     &enabled,
+				Bounds:      desktop.Bounds{X: 10, Y: 20, Width: 300, Height: 80},
+			}},
+		},
+	}
+	driver := &fakeDesktopDriver{
+		axSnapshots: []desktop.AXSnapshotResult{snapshot},
+		click: desktop.ClickResult{
+			PID:             123,
+			NodeID:          "ax:0/0",
+			Action:          "Click",
+			Performed:       true,
+			ActiveBefore:    true,
+			ActiveAfter:     true,
+			X:               160,
+			Y:               60,
+			CoordinateSpace: desktop.CoordinateSpaceScreenPhysical,
+		},
+	}
+	outcome, err := NewDesktopClick(driver, NewConfirmationStore()).Run(context.Background(), agent.ToolCallContext{
+		Args: desktopAXPressArgs(123, "ax:0/0", "AXTextArea", "输入", "消息输入框", "聚焦微信消息输入框"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if driver.clickRequest.NodeID != "ax:0/0" || driver.clickRequest.ExpectedTitle != "输入" {
+		t.Fatalf("click request = %#v", driver.clickRequest)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["verified"] != true || data["risk"] != desktopRiskReversible {
+		t.Fatalf("outcome = %#v", data)
+	}
+}
+
+func TestDesktopClickRequiresConfirmationForSendNode_BitsUT(t *testing.T) {
+	enabled := true
+	snapshot := desktop.AXSnapshotResult{
+		PID: 123,
+		Root: desktop.AXNode{
+			ID:   "ax:0",
+			Role: "AXApplication",
+			Children: []desktop.AXNode{{
+				ID:          "ax:0/0",
+				Role:        "AXButton",
+				Title:       "发送",
+				Description: "发送消息",
+				Enabled:     &enabled,
+				Bounds:      desktop.Bounds{X: 10, Y: 20, Width: 80, Height: 40},
+			}},
+		},
+	}
+	driver := &fakeDesktopDriver{
+		axSnapshots: []desktop.AXSnapshotResult{snapshot},
+		click: desktop.ClickResult{
+			PID:             123,
+			NodeID:          "ax:0/0",
+			Action:          "Click",
+			Performed:       true,
+			ActiveBefore:    true,
+			ActiveAfter:     true,
+			X:               50,
+			Y:               40,
+			CoordinateSpace: desktop.CoordinateSpaceScreenPhysical,
+		},
+	}
+	store := NewConfirmationStore()
+	tool := NewDesktopClick(driver, store)
+	args := desktopAXPressArgs(123, "ax:0/0", "AXButton", "发送", "发送消息", "点击发送已确认消息")
+
+	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	required := outcome.Data.(map[string]any)
+	if required["code"] != "desktop_action_confirmation_required" || driver.clickRequest.NodeID != "" {
+		t.Fatalf("outcome = %#v, click request = %#v", required, driver.clickRequest)
+	}
+
+	token, err := store.Issue(ActionApproval{
+		Operation: desktopClickOperation,
+		PID:       123,
+		NodeID:    "ax:0/0",
+		Reason:    "点击发送已确认消息",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args["confirmation_token"] = token
+	outcome, err = tool.Run(context.Background(), agent.ToolCallContext{Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["risk"] != desktopRiskExternal {
+		t.Fatalf("outcome = %#v", data)
+	}
+}
+
+func TestDesktopClickRefusesHighRiskNode_BitsUT(t *testing.T) {
+	enabled := true
+	snapshot := desktop.AXSnapshotResult{
+		PID: 123,
+		Root: desktop.AXNode{
+			ID:   "ax:0",
+			Role: "AXApplication",
+			Children: []desktop.AXNode{{
+				ID:      "ax:0/0",
+				Role:    "AXButton",
+				Title:   "删除好友",
+				Enabled: &enabled,
+				Bounds:  desktop.Bounds{X: 10, Y: 20, Width: 80, Height: 40},
+			}},
+		},
+	}
+	driver := &fakeDesktopDriver{axSnapshots: []desktop.AXSnapshotResult{snapshot}}
+	outcome, err := NewDesktopClick(driver, NewConfirmationStore()).Run(context.Background(), agent.ToolCallContext{
+		Args: desktopAXPressArgs(123, "ax:0/0", "AXButton", "删除好友", "", "删除好友"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolErr := outcome.Data.(agent.ToolErrorData)
+	if toolErr.Code != "desktop_action_high_risk_refused" || driver.clickRequest.NodeID != "" {
+		t.Fatalf("error = %#v, click request = %#v", toolErr, driver.clickRequest)
 	}
 }
 

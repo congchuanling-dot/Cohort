@@ -85,7 +85,7 @@ Config
 - SOP 工作记忆：`update_working_checkpoint`
 - 长期记忆：`start_long_term_update`、`memory_propose_update`、`memory_apply_update`
 - 浏览器：`browser_open`、`browser_scan`、`browser_dom_summary`、`browser_snapshot`、点击/输入/按键、wait 和 screenshot 系列工具
-- 桌面端 M1 + M2.3：`desktop_permissions`、`desktop_windows`、`desktop_activate`、`desktop_screenshot`、`desktop_ax_snapshot`、`desktop_ocr`、`desktop_ax_press`、`desktop_press_key`、`desktop_type_text`
+- 桌面端 M1 + M2.4：`desktop_permissions`、`desktop_windows`、`desktop_activate`、`desktop_screenshot`、`desktop_ax_snapshot`、`desktop_ocr`、`desktop_ax_press`、`desktop_ax_focus`、`desktop_click`、`desktop_press_key`、`desktop_type_text`
 
 ### 3.3 再看配置加载
 
@@ -250,7 +250,7 @@ start_long_term_update -> memory_propose_update -> memory_apply_update
 
 文件：[internal/desktop](../internal/desktop)、[internal/tools/desktop_tools.go](../internal/tools/desktop_tools.go) 和 [internal/tools/desktop_actions.go](../internal/tools/desktop_actions.go)
 
-桌面端 M1 支持 macOS 的通用只读感知：先检查权限和枚举窗口，再按 PID 激活目标应用，优先读取 `desktop_ax_snapshot` 的 Accessibility 控件树；AX 不可用时才截取窗口并使用 `desktop_ocr`。M2.1 新增 `desktop_ax_press`：它重新验证节点路径和语义、按 R1/R2/R3 风险分类、为 R2 消费 `ask_user` 签发的一次性令牌，并在动作后重新读取 AX 树验证状态变化。M2.2 新增 `desktop_press_key`：只允许受限导航键自动执行，Enter、Cmd+Enter、Delete、Backspace 等必须确认。M2.3 新增 `desktop_type_text`：只向当前焦点可编辑输入框起草文本，不发送且不回显完整内容。截图和 OCR bbox 都是 `screenshot-local`；仍不支持坐标点击，也不能借助 `code_run` 绕过该边界。
+桌面端 M1 支持 macOS 的通用只读感知：先检查权限和枚举窗口，再按 PID 激活目标应用，优先读取 `desktop_ax_snapshot` 的 Accessibility 控件树；AX 不可用时才截取窗口并使用 `desktop_ocr`。M2.1 新增 `desktop_ax_press`：它重新验证节点路径和语义、按 R1/R2/R3 风险分类、为 R2 消费 `ask_user` 签发的一次性令牌，并在动作后重新读取 AX 树验证状态变化。M2.2 新增 `desktop_press_key`：只允许受限导航键自动执行，Enter、Cmd+Enter、Delete、Backspace 等必须确认。M2.3 新增 `desktop_type_text`：只向当前焦点可编辑输入框起草文本，不发送且不回显完整内容。M2.4 新增 `desktop_ax_focus` 和 `desktop_click`：前者只聚焦可编辑 AX 节点，后者只点击当前 AX 节点中心点，不接受任意坐标或 OCR bbox。截图和 OCR bbox 都是 `screenshot-local`；不能借助 `code_run` 绕过该边界。
 
 ## 5. 数据流
 

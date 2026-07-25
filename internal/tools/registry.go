@@ -82,6 +82,10 @@ const (
 	ToolNameDesktopOCR = "desktop_ocr"
 	// ToolNameDesktopAXPress 对已验证的 AX 节点执行受控语义点击。
 	ToolNameDesktopAXPress = "desktop_ax_press"
+	// ToolNameDesktopAXFocus 对已验证的可编辑 AX 节点设置输入焦点。
+	ToolNameDesktopAXFocus = "desktop_ax_focus"
+	// ToolNameDesktopClick 对已验证 AX 节点的中心点执行受控物理点击。
+	ToolNameDesktopClick = "desktop_click"
 	// ToolNameDesktopPressKey 对前台目标 PID 执行受限桌面按键。
 	ToolNameDesktopPressKey = "desktop_press_key"
 	// ToolNameDesktopTypeText 对前台目标 PID 的当前输入焦点起草文本。
@@ -146,6 +150,8 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameDesktopAXSnapshot,
 		ToolNameDesktopOCR,
 		ToolNameDesktopAXPress,
+		ToolNameDesktopAXFocus,
+		ToolNameDesktopClick,
 		ToolNameDesktopPressKey,
 		ToolNameDesktopTypeText,
 		ToolNameUpdateWorkingCheckpoint,

@@ -206,6 +206,8 @@ desktop_screenshot
 desktop_ax_snapshot
 desktop_ocr
 desktop_ax_press
+desktop_ax_focus
+desktop_click
 desktop_press_key
 desktop_type_text
 ```
