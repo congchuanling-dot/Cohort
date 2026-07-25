@@ -21,6 +21,7 @@ import (
 const (
 	toolNarrationInstructionEN = " Before every tool call, first write a visible action note explaining: what you currently know, why this tool is needed, the exact information or state you want to obtain, the expected success signal, and likely blockers or fallback options. After each tool result, briefly interpret what was obtained, what is still missing, whether there is any blocker, and what the next step is. If issuing multiple independent tool calls in one response, explain the purpose of each tool call before calling them. Keep the explanation concrete and useful; do not dump secrets or large raw outputs."
 	toolNarrationInstructionZH = " 每次调用工具前，必须先输出一段用户可见的行动说明，说明：当前已经知道什么、为什么需要这个工具、这次具体要获取或验证什么、成功信号是什么、可能的卡点和备选方案是什么。每次工具返回后，必须先解读结果：已经拿到了什么、还缺什么、有没有卡点、下一步准备怎么做。若同一轮要并行调用多个互不依赖的工具，调用前分别说明每个工具的目的。说明要具体、有信息量，避免泄露密钥或倾倒大段原始输出。"
+	mcpStartupTimeout          = 90 * time.Second
 )
 
 // NewRunner 根据配置创建完整的 Agent Runner。
@@ -160,7 +161,9 @@ func loadMCPManager(ctx context.Context, projectRoot string) (*mcp.Manager, erro
 	if err != nil {
 		return nil, err
 	}
-	loadCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// 首次通过 npx 启动 MCP Server 时，npm 安装依赖可能远超普通进程启动时间。
+	// 这里允许一次较长冷启动；后续命中本地 npm cache 时通常只需几秒。
+	loadCtx, cancel := context.WithTimeout(ctx, mcpStartupTimeout)
 	defer cancel()
 	manager := mcp.NewManager()
 	manager.Load(loadCtx, servers)

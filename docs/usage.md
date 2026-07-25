@@ -265,6 +265,8 @@ go run . mcp tools github
 go run . mcp probe github
 ```
 
+首次使用 `npx` 安装某个 MCP Server 时，npm 需要下载依赖，可能需要几十秒；等 `probe` 成功列出工具后再启动 `ask`，后续启动会命中本机缓存。
+
 默认写入项目级 `.mcp.json`。可加 `--scope user` 写入 `~/.cohert/mcp.json`，或加 `--scope local` 写入默认 gitignore 的 `.cohort/local.mcp.json`：
 
 ```bash

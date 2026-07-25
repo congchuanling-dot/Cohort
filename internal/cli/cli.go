@@ -16,6 +16,8 @@ import (
 	"cohert/internal/session"
 )
 
+const mcpProbeTimeout = 90 * time.Second
+
 // Run 是命令行入口的主分发函数。
 // 它只负责解析用户输入的子命令，真正的 Agent 执行交给 agent.Runner。
 func Run(args []string) error {
@@ -256,7 +258,7 @@ func inspectMCPServer(ctx context.Context, store mcp.Store, name string, probe b
 	if config == nil {
 		return fmt.Errorf("MCP server %q is not configured", name)
 	}
-	timeoutCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(ctx, mcpProbeTimeout)
 	defer cancel()
 	client, err := mcp.Open(timeoutCtx, *config)
 	if err != nil {
