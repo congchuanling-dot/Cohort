@@ -1,5 +1,9 @@
 # Cohert 和 GA 功能差异清单
 
+> 文档状态：`[历史]`。这是早期 MVP 差距快照，其中 session、浏览器、桌面、上下文和
+> 长期记忆等判断已过期。请使用 [cohort_vs_ga_current_gap.md](cohort_vs_ga_current_gap.md)
+> 获取当前差距判断。
+
 这份文档用于记录当前 Cohert MVP 和 GA 的功能差异，并按 P0/P1 给出后续补齐建议。
 
 当前原则：

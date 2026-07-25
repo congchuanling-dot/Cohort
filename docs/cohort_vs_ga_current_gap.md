@@ -1,5 +1,11 @@
 # Cohort 与 GenericAgent 当前差距分析
 
+> 文档状态：`[部分完成]`。状态基线为 2026-07-26；完整文档导航见 [docs/README.md](README.md)。
+>
+> 本文保留当前差距，但已按 MCP P0/P1 基础和工具级 `run.log` 实现修正。未完成的
+> 核心差距是 NoToolPolicy、文本工具兜底、完整 lifecycle hook、Project/Plan Mode、
+> 多模型和 daemon，而不是早期 MVP 基础能力。
+
 ## 结论摘要
 
 仓库里已有的 `docs/cohert_vs_ga_gap.md` 是早期 MVP 阶段的差距清单，其中“无 session、无浏览器、无长期记忆、无工作记忆”等判断已经过期。当前 Cohort 已经补齐并部分增强了这些基础能力：
@@ -46,7 +52,7 @@ GA 强在自举生态、前端入口、计划/目标/反射、多模型适配、
 | 多模型 | Claude/OpenAI/Gemini 等适配、thinking、prompt cache、fallback | OpenAI-compatible，`provider` 字段预留 | Cohort 缺 provider profile、fallback、Anthropic 原生 |
 | 用量/成本 | token/cost tracker、cache 命中展示 | 有 context stats，但无完整 usage/cost | Cohort 缺用量闭环 |
 | 安装运维 | 一键安装、桌面包、配置向导、hub/service 面板 | 本地 go run / go build | Cohort 缺 install/doctor/service 管理 |
-| 可观测性 | Langfuse hook、前端 token 页面、服务日志 | raw model response、context.log、memory audit | Cohort 缺统一 `run.log` 和 tracing sink |
+| 可观测性 | Langfuse hook、前端 token 页面、服务日志 | raw model response、context.log、memory audit、工具级 `run.log` | Cohort 缺完整生命周期事件和 tracing sink |
 | 安全治理 | 实战灵活，但工具边界更宽 | 桌面 R1/R2/R3、confirmation token、EvidenceLedger | Cohort 在安全模型上更强 |
 
 ## 2. Cohort 已经不落后的部分
@@ -145,7 +151,7 @@ GA 有 `plugins/hooks.py`，并通过 `agent_before/after`、`llm_before/after`�
 Cohort 缺：
 
 - 通用 lifecycle event。
-- `run.log` JSONL。
+- 覆盖 LLM、compact、session 事件的完整 `run.log`。
 - tracing sink。
 - policy sink。
 - diff/evidence/context 统一事件流。

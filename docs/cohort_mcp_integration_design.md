@@ -1,5 +1,15 @@
 # Cohort MCP 接入设计
 
+> 文档状态：`[部分完成]`。状态基线为 2026-07-26；完整文档导航见 [docs/README.md](README.md)。
+>
+> 已完成：零默认 Server、三级 scope、stdio/HTTP、initialize、分页 `tools/list`、
+> `tools/call`、工具命名空间、结果裁剪、R3 拒绝、精确参数的 once/session/project
+> 授权、`run.log` 工具审计、`mcp status/probe` 与 REPL `/mcp`。
+>
+> 未完成：官方飞书 MCP 的真实 OAuth 与读写验收、显式 per-tool 策略 CLI、动态 Registry
+> 热挂载、`add-json/import/export`、Plugin/Skill manifest、Marketplace、daemon 和 Cohort
+> 作为 MCP Server。
+
 ## 结论摘要
 
 MCP（Model Context Protocol）应该作为 Cohort 的外部工具扩展层，而不是替代现有 Tool Registry。
@@ -20,10 +30,11 @@ Cohort 第一版 MCP 的目标应当非常明确：体验对齐 Claude Code，�
 不要第一版就做完整 OpenClaw 式 gateway，但要优先做 Claude Code 的方便入口。合理顺序是：
 
 ```text
-P0: Claude Code 式 mcp add/list/tools/probe + .mcp.json 兼容 + stdio/http
-P1: R1/R2/R3 权限策略 + 写操作确认 + run.log
-P2: plugin install/reload + plugin.yaml 内声明 MCP/Skill/Command
-P3: daemon / gateway / 外部客户端反连 Cohort
+P0 [部分完成]: 核心 mcp add/list/status/tools/probe/remove + .mcp.json + stdio/http；
+               add-json/import/export 和旧 SSE transport 待补齐
+P1 [部分完成]: 权限、写操作确认、run.log、可靠性基础；飞书 OAuth E2E 和策略 CLI 待验收
+P2 [规划]: plugin install/reload + plugin.yaml 内声明 MCP/Skill/Command
+P3 [规划]: daemon / gateway / 外部客户端反连 Cohort
 ```
 
 一句话：

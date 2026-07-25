@@ -1,15 +1,24 @@
 <div align="center">
   <h1 align="center">Cohert</h1>
   <p align="center">
-    本地优先的命令行 Agent Runtime，支持工具调用、浏览器自动化、桌面感知、长上下文、SOP 和可验证记忆。
+    <strong>The Runtime Layer Between LLMs and Real Work</strong>
+  </p>
+  <p align="center">
+    为真实世界的 Agent 提供本地优先的执行内核。
+    <br />
+    连接模型推理、工具调用、浏览器、桌面、MCP、上下文治理与可验证记忆，
+    <br />
+    让智能体从“会回答”进化为“能工作”。
   </p>
 </div>
 
 <p align="center">
-  <img alt="Go" src="https://img.shields.io/badge/Go-1.24-00ADD8?style=flat-square&logo=go&logoColor=white">
-  <img alt="Runtime" src="https://img.shields.io/badge/runtime-Agent%20Loop-111827?style=flat-square">
+  <img alt="Go" src="https://img.shields.io/badge/Go-1.21-00ADD8?style=flat-square&logo=go&logoColor=white">
+  <img alt="Stage" src="https://img.shields.io/badge/stage-active%20development-0F172A?style=flat-square">
   <img alt="LLM" src="https://img.shields.io/badge/LLM-OpenAI%20Compatible-4F46E5?style=flat-square">
+  <img alt="Protocol" src="https://img.shields.io/badge/MCP-supported-111827?style=flat-square">
   <img alt="Browser" src="https://img.shields.io/badge/browser-Chrome%20Bridge-0F766E?style=flat-square">
+  <img alt="Desktop" src="https://img.shields.io/badge/desktop-macOS%20AX-334155?style=flat-square">
   <img alt="Memory" src="https://img.shields.io/badge/memory-verified%20evolution-7C3AED?style=flat-square">
 </p>
 
@@ -30,38 +39,91 @@
 </p>
 
 <p align="center">
+  <a href="#项目叙事">项目叙事</a>
+  ·
+  <a href="#为什么是-cohert">为什么是 Cohert</a>
+  ·
   <a href="#快速开始">快速开始</a>
   ·
-  <a href="#核心能力">核心能力</a>
+  <a href="#能力矩阵">能力矩阵</a>
   ·
-  <a href="#架构">架构</a>
+  <a href="#系统架构">系统架构</a>
   ·
-  <a href="#工具">工具</a>
+  <a href="#安全模型">安全模型</a>
   ·
-  <a href="docs/usage.md">使用教程</a>
+  <a href="#项目结构">项目结构</a>
+  ·
+  <a href="docs/usage.md">使用文档</a>
 </p>
 
 ---
 
-## Cohert 是什么
+> 我们并不缺新的聊天框。  
+> 我们缺的是一个足够可靠的运行时层, 让模型的判断可以穿过工具、浏览器、桌面和长期任务，真正抵达现实世界。
 
-Cohert 是一个用 Go 编写的本地 Agent Runtime。它把 OpenAI-compatible LLM、受控工具层、MCP 外部工具、持久会话、浏览器自动化、桌面 Computer Use、上下文压缩、SOP 路由和可验证长期记忆接在一起。
+## 项目叙事
 
-它不是纯聊天壳，而是面向真实本地工作的执行运行时：
+过去两年，Agent 领域最热闹的部分往往也是最脆弱的部分。
 
-```text
-用户意图
-  -> Agent Loop
-  -> Context Manager
-  -> LLM Tool Calling
-  -> 本地工具 / 浏览器 / 桌面 / Shell
-  -> 证据记录
-  -> 会话历史与可验证记忆
-```
+模型已经能写代码、能读网页、能理解复杂目标，甚至能在 benchmark 里看起来像一个“会做事的人”。  
+但一旦进入真实环境，问题很快暴露出来:
 
-核心原则：模型负责推理，执行必须显式、可审计、可恢复，并且长期记忆必须有工具证据支撑。
+- 它知道下一步该做什么，却没有稳定的执行路径。
+- 它可以调用工具，却没有足够强的约束、审计和恢复机制。
+- 它能记住一点东西，却记不清什么是事实、什么只是一次成功的幻觉。
+- 它能跑一段 demo，却很难跨过长任务、长上下文和真实副作用的门槛。
+
+这就是 Cohert 想解决的核心矛盾。
+
+我们不是把大模型再包一层 UI，也不是再做一个提示词更花哨的 Agent 壳。  
+我们想做的是更底层的一层东西: 一个真正意义上的 <strong>Agent Runtime</strong>。
+
+它的职责不是替模型思考，而是替系统建立秩序:
+
+- 给推理一个可执行的落点。
+- 给工具一个统一、受控、可恢复的运行边界。
+- 给长任务一个不会失控的上下文系统。
+- 给记忆一个可以被验证、被审计、被演化的生命周期。
+
+如果说大模型提供的是 intelligence，  
+那么 Cohert 试图补上的，是 intelligence 落地之前最缺的那层 infrastructure。
+
+## 为什么是 Cohert
+
+大部分 Agent Demo 的问题不是“不会想”，而是“不能稳定做事”。
+
+- 模型能调用工具，但执行链路不可审计。
+- 上下文越来越长，最后只能硬截断。
+- 浏览器和桌面自动化混在 prompt 里，失败后很难恢复。
+- 记忆是模型随手写下的摘要，不是有证据的事实。
+
+Cohert 的判断很明确:
+
+> 真正可用的 Agent，不该建立在“模型这次刚好没出错”的侥幸上。  
+> 它应该建立在 runtime 的边界、证据、恢复能力和长期演化能力之上。
+
+所以 Cohert 的目标不是炫技式地证明“模型能做到什么”，而是工程化地回答另一个问题:
+
+**当 Agent 进入真实工作流之后，它如何持续、稳定、可追踪地完成任务。**
+
+| 方向 | Cohert 的处理方式 |
+| --- | --- |
+| 执行 | 用受控工具层连接文件、Shell、浏览器、桌面、MCP |
+| 长任务 | 用 session、compact、memory 分层管理长上下文 |
+| 可恢复 | 每次任务都有 `history.jsonl` 和 session 元数据 |
+| 可验证 | 长期记忆必须引用工具证据，写入后回读确认 |
+| 自动化 | 浏览器优先 DOM，桌面优先 AX，避免纯视觉瞎点 |
+| 演化 | SOP、checkpoint、memory candidate 分层升级，而不是一次性 prompt 魔法 |
+
+换句话说，Cohert 关心的不是“像不像人”，而是更底层也更重要的三件事:
+
+- 能不能安全地行动。
+- 能不能在失败后恢复。
+- 能不能把一次性的成功沉淀成长期能力。
 
 ## 快速开始
+
+### 1. 运行交互式 Agent
 
 ```bash
 git clone <repo-url>
@@ -70,48 +132,192 @@ export DEEPSEEK_API_KEY="sk-xxx"
 go run .
 ```
 
-执行一次性任务：
+### 2. 执行一次性任务
 
 ```bash
-go run . ask "读取 README.md 并总结当前运行时能力"
+go run . ask "读取 README.md，并总结当前 runtime 的核心能力"
 ```
 
-查看运行状态：
+### 3. 查看当前运行状态
 
 ```bash
 go run . config
 go run . tools
 go run . mcp list
+go run . mcp status
 go run . session list
 ```
 
-构建二进制：
+### 4. 构建二进制
 
 ```bash
 go build -o cohert ./cmd/cohert
 ./cohert
 ```
 
-默认配置在 [`configs/config.yaml`](configs/config.yaml)，完整使用说明见 [`docs/usage.md`](docs/usage.md)。
+默认配置见 [configs/config.yaml](/Users/bytedance/Desktop/myOwnProject/Cohort/configs/config.yaml)。更完整的命令和 REPL 说明见 [docs/usage.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/usage.md)。
 
-## 核心能力
+## 能力矩阵
 
-| 领域 | 能力 |
-| --- | --- |
-| Agent Loop | 流式 OpenAI-compatible 对话、工具调用、最大轮次控制、可见行动说明 |
-| 本地工具 | 文件读写、patch、shell 执行、向用户提问、MCP 外部工具、结构化工具错误 |
-| MCP | Claude Code 兼容 `.mcp.json`、stdio/HTTP server、动态工具发现、session 授权缓存 |
-| 浏览器自动化 | Chrome bridge、打开/扫描页面、JS 执行、元素快照、点击、输入、按键、等待、截图、OCR |
-| 桌面 Computer Use | macOS 权限检查、窗口枚举、PID 激活、窗口截图、AX 控件树、桌面 OCR、受控 `AXPress`、受限按键和文本起草 |
-| 会话系统 | `history.jsonl`、元数据、session 列表、恢复、本地审计轨迹 |
-| 上下文管理 | 工具结果压缩、消息组安全裁剪、session memory、full compact 摘要 |
-| SOP Runtime | SOP 索引注入、任务场景路由、读取 SOP 后写入工作 checkpoint |
-| Evolution Memory | 工具证据、结构化记忆、项目记忆、去重、回读确认、写入审计 |
-| 可观测性 | 模型响应日志、上下文统计日志、memory audit 记录 |
+| 模块 | 真实能力 | 解决的问题 |
+| --- | --- | --- |
+| Agent Loop | 流式对话、工具调用、最大轮次控制、行动说明 | 让模型真正进入可执行闭环 |
+| Local Tools | 文件读写、补丁、命令执行、用户确认 | 处理真实仓库和本地环境 |
+| MCP Runtime | 兼容 `.mcp.json`、stdio/HTTP server、动态发现工具 | 接入外部系统而不是只活在本地 |
+| Browser Automation | Chrome Bridge、DOM 扫描、点击、输入、等待、截图、OCR | 支撑真实 Web 工作流 |
+| Desktop Computer Use | macOS 权限检查、窗口激活、AX 控件树、受控点击、键盘、起草输入 | 让 Agent 能跨浏览器外的桌面界面行动 |
+| Context Manager | 工具结果压缩、消息组裁剪、session memory、full compact | 让长任务不被上下文拖死 |
+| Session Store | `meta.json`、`history.jsonl`、resume、local audit trail | 让任务可以中断后继续 |
+| SOP Runtime | SOP 索引、任务路由、工作 checkpoint | 把稳定流程固化成可复用约束 |
+| Evolution Memory | 证据约束、去重、项目记忆、审计日志 | 让“长期记忆”从摘要变成资产 |
 
-## 命令
+## 一个完整任务是怎么跑起来的
 
-外部 CLI：
+```mermaid
+flowchart TD
+    U[User Intent] --> R[CLI / REPL]
+    R --> A[Agent Runner]
+    A --> C[Context Manager]
+    C --> L[OpenAI-Compatible LLM]
+    L --> A
+    A --> T[Tool Registry]
+    T --> F[File / Patch / Shell]
+    T --> M[MCP Tools]
+    T --> B[Browser Bridge]
+    T --> D[Desktop Driver]
+    T --> E[Memory Evolution]
+    A --> S[Session Store]
+    C --> SM[session memory.md]
+    C --> CP[compact.md]
+    C --> LM[relevant memory entries]
+    E --> AUD[memory audit.jsonl]
+```
+
+从用户输入到最终结果，Cohert 实际做的是这几件事：
+
+1. 读取当前 session、历史和上下文预算。
+2. 把 relevant memory、session memory、compact 摘要按层注入请求。
+3. 交给 OpenAI-compatible 模型做工具调用决策。
+4. 在受控工具层执行文件、Shell、浏览器、桌面或 MCP 操作。
+5. 把执行证据和工具结果写回历史。
+6. 在需要时压缩上下文、更新 checkpoint，或触发长期记忆写入流程。
+
+## 为什么它不像玩具
+
+### 1. 浏览器自动化不是截图脚本
+
+Cohert 通过本地 Browser Bridge 控制真实 Chrome:
+
+```text
+ws://127.0.0.1:18777/browser
+```
+
+推荐流程是稳定的浏览器动作链，而不是“看一眼就点”：
+
+```text
+open
+  -> wait_for_load
+  -> wait_for_stable
+  -> snapshot / dom_summary
+  -> click / type / press_key
+  -> wait_for_selector / text / url
+  -> verify
+```
+
+只有在 DOM 文本拿不到内容时，才降级到 `browser_ocr`。OCR 返回的是 `screenshot-local` bbox，不直接变成系统鼠标坐标。
+
+Chrome 扩展路径：
+
+```text
+assert/cohert_browser_bridge
+```
+
+### 2. 桌面自动化不是任意乱点
+
+Cohert 当前的桌面能力基于 macOS Accessibility / AX，目标是做“受控的语义动作”，不是暴露一个危险的任意坐标点击器。
+
+```text
+desktop_permissions
+  -> desktop_windows
+  -> desktop_activate
+  -> desktop_ax_snapshot
+  -> desktop_screenshot
+  -> desktop_ocr
+  -> desktop_ax_press
+  -> desktop_ax_focus
+  -> desktop_click
+  -> desktop_visual_click
+  -> desktop_press_key
+  -> desktop_type_text
+```
+
+默认策略：
+
+- 优先 AX 控件树，只有 AX 不可用时才退到截图和 OCR。
+- `desktop_type_text` 只负责起草文本，不直接发送。
+- `desktop_press_key` 使用受限按键集合。
+- 高风险动作直接拒绝，外部副作用动作要求显式确认。
+
+### 3. 长期记忆不是模型随手写便签
+
+长期记忆遵循严格三步流程：
+
+```text
+start_long_term_update
+  -> memory_propose_update
+  -> memory_apply_update
+```
+
+写入约束：
+
+- 必须引用已验证的工具证据。
+- 必须做去重和敏感信息过滤。
+- 成功写入前必须回读确认。
+- 每次 apply 都写审计记录。
+
+这意味着 Cohert 的 memory 更像可追踪知识库，而不是一堆不可验证的 prompt summary。
+
+### 4. 上下文不会失控
+
+每次请求模型前，Cohert 会构造一个受控上下文窗口，而不是盲目把所有历史都拼进去。它会：
+
+- 清理协议非法的 orphan tool result。
+- 注入 relevant memory 和 session memory。
+- 注入 `compact.md` 作为长任务摘要。
+- 压缩旧工具结果，只保留头尾高价值片段。
+- 按消息组裁剪历史，避免拆坏 tool-call 协议对。
+
+session 目录结构：
+
+```text
+temp/sessions/<session_id>/
+  meta.json
+  history.jsonl
+  memory.md
+  compact.md
+```
+
+`history.jsonl` 始终是事实来源。压缩只影响发送给模型的请求副本，不改写原始历史。
+
+## 系统架构
+
+| 层 | 目录 | 职责 |
+| --- | --- | --- |
+| App Assembly | `internal/app` | 配置加载、LLM client、工具注册、系统提示 |
+| Agent Runtime | `internal/agent` | 工具调用循环、运行日志、compact、证据收集 |
+| Context Manager | `internal/contextmgr` | 请求构造、预算控制、裁剪、记忆注入 |
+| Tool Runtime | `internal/tools` | 文件、命令、浏览器、桌面、记忆和 checkpoint 工具 |
+| Browser Bridge | `internal/browser` | Chrome Bridge 的 WebSocket 协议与服务端实现 |
+| Desktop Driver | `internal/desktop` | macOS helper 的 Go 接口与 runner |
+| Session Store | `internal/session` | session 列表、恢复、历史与元数据 |
+| LLM Client | `internal/llm` | OpenAI-compatible Chat Completions client |
+| MCP | `internal/mcp` | server 管理、权限缓存、配置持久化 |
+| REPL / CLI | `internal/repl`, `internal/cli` | 交互式 shell、slash 命令、CLI 入口 |
+| Verified Memory | `internal/evolution` | 记忆校验、apply、审计 |
+
+## CLI 与交互命令
+
+### 外部 CLI
 
 ```bash
 cohert                         # 进入交互模式
@@ -121,23 +327,14 @@ cohert config                  # 查看有效配置
 cohert mcp list                # 查看 MCP server
 cohert mcp status              # 检查 MCP server 连通性
 cohert mcp add <name> -- ...   # 添加 stdio MCP server
-cohert mcp tools <name>        # 发现 server 工具
-cohert mcp probe <name>        # 验证 server 连通性
+cohert mcp tools <name>        # 查看 server 提供的工具
+cohert mcp probe <name>        # 探测 server 可用性
 cohert mcp remove <name>       # 删除 MCP server
-cohert session list            # 查看本地会话
-cohert session resume <id>     # 恢复会话
+cohert session list            # 查看本地 session
+cohert session resume <id>     # 恢复 session
 ```
 
-开发入口：
-
-```bash
-go run .
-go run . ask "task"
-go run . tools
-go run . config
-```
-
-交互模式 slash 命令：
+### 交互模式 Slash Commands
 
 ```text
 /help
@@ -151,44 +348,11 @@ go run . config
 /compact
 /full-compact
 /memory
+/sop candidates
+/sop promote <id>
 /clear
 /exit
 ```
-
-## 架构
-
-```mermaid
-flowchart TD
-    U[User] --> R[REPL / CLI]
-    R --> A[Agent Runner]
-    A --> C[Context Manager]
-    C --> L[OpenAI-Compatible LLM]
-    L --> A
-    A --> T[Tool Registry]
-    T --> FS[File Tools]
-    T --> SH[Shell]
-    T --> BR[Chrome Browser Bridge]
-    T --> DT[Desktop Driver]
-    T --> MEM[Evolution Memory Tools]
-    A --> S[Session Store]
-    C --> SM[session memory.md]
-    C --> FC[compact.md]
-    C --> LM[Long-Term Memory Index + Relevant Entries]
-    MEM --> AUD[memory/audit.jsonl]
-```
-
-| 层 | 包 | 职责 |
-| --- | --- | --- |
-| 应用装配 | `internal/app` | 配置、LLM client、工具注册、系统提示 |
-| Agent Loop | `internal/agent` | 工具调用循环、历史、compact、证据收集 |
-| Context Manager | `internal/contextmgr` | 请求构造、上下文压缩、记忆注入 |
-| 工具运行时 | `internal/tools` | 文件、命令、浏览器、桌面、记忆、checkpoint 工具 |
-| 浏览器桥 | `internal/browser` | Cohert 与 Chrome 扩展的 WebSocket 协议 |
-| 桌面驱动 | `internal/desktop` | macOS desktop helper 的 Go 接口与 JSON runner |
-| 会话存储 | `internal/session` | `meta.json`、`history.jsonl`、列表和恢复 |
-| 进化记忆 | `internal/evolution` | 记忆校验、写入、审计 |
-
-## 工具
 
 <details>
 <summary>当前注册工具</summary>
@@ -237,176 +401,21 @@ desktop_type_text
 
 </details>
 
-## 浏览器自动化
+## 安全模型
 
-Cohert 通过本地 Browser Bridge 控制真实 Chrome：
+自动化如果没有边界，最终一定会变成事故放大器。Cohert 的策略是把风险前置到 runtime，而不是把判断完全留给模型。
 
-```text
-ws://127.0.0.1:18777/browser
-```
+风险分级：
 
-推荐流程：
+- `R1` 可恢复动作：允许直接执行，例如展开、切换、菜单、Tab 导航。
+- `R2` 外部副作用：必须通过 `ask_user` 获得一次性确认令牌，例如发送、提交、上传、保存、发布。
+- `R3` 高风险动作：直接拒绝，例如支付、审批、授权、删除、登录验证。
 
-```text
-open
-  -> wait for load
-  -> wait for stable state
-  -> snapshot interactive elements
-  -> click / type / press key
-  -> wait for selector / text / URL / stable state
-  -> verify result
-```
-
-当 DOM 文本和 `browser_dom_summary` 都无法读取渲染文字时，`browser_ocr` 可以读取 workspace 图片，或自动截取当前浏览器视口。OCR 返回 `screenshot-local` bbox，不执行点击。
-
-OCR 可选依赖：
-
-```bash
-python3 -m pip install rapidocr-onnxruntime pillow numpy
-```
-
-如果浏览器工具返回 `browser_not_connected`，请加载 Chrome 扩展：
-
-```text
-assert/cohert_browser_bridge
-```
-
-## 桌面 Computer Use
-
-Cohert 已具备 macOS 通用桌面感知与受控 AX 语义动作，不绑定具体应用：
-
-```text
-desktop_permissions
-  -> desktop_windows
-  -> desktop_activate
-  -> desktop_ax_snapshot
-  -> desktop_screenshot
-  -> desktop_ocr
-  -> desktop_ax_press
-  -> desktop_ax_focus
-  -> desktop_click
-  -> desktop_visual_click
-  -> desktop_press_key
-  -> desktop_type_text
-```
-
-优先使用 Accessibility / AX 控件树；AX 不可用时使用截图和 OCR。`desktop_ax_press` 使用刚刚读取的 AX 节点 metadata 重新校验节点，动作后再读取 AX 快照验证状态变化。`desktop_ax_focus` 只聚焦当前可编辑 AX 节点。`desktop_click` 只点击当前 AX 节点中心点，不接受任意坐标或 OCR bbox。`desktop_visual_click` 只接受 `desktop_screenshot` 生成的图片/manifest 和 OCR/UI bbox，由工具把 `screenshot-local` bbox 转成 `screen-physical` 鼠标点击；输入框/搜索框类视觉点击成功后会返回短期一次性 `visual_focus_token`，供 `desktop_type_text` 在 AX 无法证明 WebView 输入焦点时兜底起草文本；发送类视觉点击必须确认。`desktop_press_key` 只支持受限按键集合：`Escape`、`Tab`、`Shift+Tab`、方向键、`PageUp/PageDown`、`Home/End` 可直接执行；搜索结果/下拉候选中 `Enter` 打开已选项时传 `intent=open_selected_result`，按 R1 导航直接执行；普通 `Enter`、`Cmd+Enter`、`Ctrl+Enter`、`Delete`、`Backspace` 等必须确认。`desktop_type_text` 只向当前焦点可编辑输入框起草文本，或消费有效 `visual_focus_token` 后在 WebView 视觉焦点中起草文本；结果不回显完整内容；发送动作必须单独走 `desktop_press_key` 或经确认的 `desktop_click`/`desktop_visual_click`。
-
-风险策略：
-
-- R1 可恢复操作：可直接执行，例如展开、收起、菜单、tab。
-- R2 外部副作用：必须由 `ask_user` 签发一次性确认令牌，例如发送、提交、上传、保存、发布或提交/删除类按键。
-- R3 高风险：自动拒绝，要求用户手动完成，例如支付、审批、授权、登录验证、删除。
-
-当前仍没有任意桌面坐标点击工具。截图和 OCR bbox 是 `screenshot-local`，只能由 `desktop_visual_click` 读取 manifest 后转换，不能直接当作系统鼠标坐标。
-
-macOS helper 依赖：
-
-```bash
-python3 -m pip install pyobjc-framework-Quartz pyobjc-framework-Cocoa pyobjc-framework-ApplicationServices
-```
-
-使用桌面能力前，请在 macOS 系统设置中给运行 Cohert 的终端或 IDE 授权 Accessibility 和 Screen Recording。
-
-## 上下文与会话
-
-Cohert 会完整保存历史，但每次请求模型前会构造受控上下文窗口。
-
-它可以：
-
-- 丢弃协议非法的 orphan tool result。
-- 注入长期记忆索引与命中的相关 entry。
-- 注入 session `memory.md`。
-- 注入 session `compact.md`。
-- 压缩旧工具结果，只保留头尾摘要。
-- 按消息组裁剪旧历史，避免拆散 tool-call 协议对。
-
-会话保存在：
-
-```text
-temp/sessions/<session_id>/
-  meta.json
-  history.jsonl
-  memory.md
-  compact.md
-```
-
-`history.jsonl` 是事实来源。上下文压缩只影响发给模型的请求副本，不会改写完整历史。
-
-## SOP Runtime
-
-Cohert 把 SOP 当作轻量执行约束。系统提示只注入 [`sops/index.md`](sops/index.md) 作为导航，不把所有 SOP 全量塞进上下文。
-
-任务命中某个 SOP 场景时，Runner 会提示模型先读取对应 SOP。如果采用该 SOP，应调用：
-
-```text
-update_working_checkpoint
-```
-
-能力分层：
-
-```text
-C0 原子工具
-  -> C1 SOP 约束
-  -> C2 工作 checkpoint
-  -> C3 已验证长期记忆 entry
-  -> C4 SOP candidate
-  -> C5 已审查 SOP / Skill in sops/index.md
-```
-
-这样可以把可复用流程沉淀下来，同时避免把一次性任务直接升级成主动规则。
-
-## 记忆
-
-Cohert 的长期记忆流程是受控三步：
-
-```text
-start_long_term_update
-  -> memory_propose_update
-  -> memory_apply_update
-```
-
-记忆存储在 workspace 下：
-
-```text
-workspace/
-  memory/
-    index.md
-    global.md
-    projects/
-      <project_id>/
-        project.md
-    reflection/
-      sop_candidates.md
-    audit.jsonl
-```
-
-写入规则：
-
-- 必须引用工具执行过程中收集到的已验证证据。
-- 只允许 append。
-- 拒绝敏感内容。
-- 拒绝重复记忆。
-- 写入成功前必须回读确认。
-- 每次 apply 都写审计记录。
-
-稳定流程可以进入：
-
-```text
-memory/reflection/sop_candidates.md
-```
-
-它不会自动变成正式 SOP。晋级仍然需要显式审查：
-
-```text
-/sop candidates
-/sop promote <candidate_id>
-/sop promote <candidate_id> --confirm-index
-```
+这套规则同时作用在浏览器、桌面和需要副作用确认的执行链路上。
 
 ## 配置
 
-最小配置：
+最小配置如下，已经和仓库默认值保持一致：
 
 ```yaml
 language: zh
@@ -421,47 +430,105 @@ llm:
   api_base: https://api.deepseek.com
   model: deepseek-v4-pro
   stream: true
+  connect_timeout_seconds: 10
+  read_timeout_seconds: 120
+  max_retries: 2
+
+context:
+  max_history_messages: 40
+  keep_recent_tool_results: 2
+  max_tool_result_chars: 12000
+  compacted_tool_head_chars: 4000
+  compacted_tool_tail_chars: 4000
+  max_request_chars: 100000
+  max_session_memory_chars: 20000
+  max_compact_summary_chars: 60000
+  enable_micro_compact: true
 ```
 
-当前客户端使用 OpenAI-compatible Chat Completions。`deepseek-v4-pro` / `dsv4pro` 会按大上下文模型处理。
+当前模型接入层使用 OpenAI-compatible Chat Completions，默认模型为 `deepseek-v4-pro`。
 
 ## 项目结构
 
 ```text
 cmd/cohert/             CLI 入口
 configs/                本地配置
-docs/                   使用教程、设计文档、开发记录
-internal/app/           应用装配与系统提示
-internal/agent/         Agent loop、compact、证据流
-internal/browser/       Chrome bridge server 和协议
-internal/cli/           外部 CLI 命令
-internal/contextmgr/    请求构造、压缩、记忆注入
-internal/desktop/       桌面驱动接口与 Python helper runner
-internal/evolution/     记忆校验、写入、审计
-internal/llm/           OpenAI-compatible LLM client
-internal/repl/          交互 shell 和 slash 命令
-internal/session/       session 元数据和历史存储
-internal/tools/         文件、命令、浏览器、桌面、记忆工具
-sops/                   SOP 索引和执行手册
-workspace/              默认本地 workspace
-temp/                   session 和运行日志
+docs/                   使用教程、技术设计、开发记录
 assert/                 浏览器 bridge 扩展资源
+internal/app/           应用装配与系统提示
+internal/agent/         Agent loop、证据流、compact
+internal/browser/       Chrome Bridge 协议与服务
+internal/cli/           命令分发和 CLI 子命令
+internal/contextmgr/    请求构造、裁剪、记忆注入
+internal/desktop/       桌面驱动与 helper runner
+internal/evolution/     长期记忆演化与审计
+internal/llm/           OpenAI-compatible client
+internal/mcp/           MCP server 管理
+internal/repl/          交互 shell 和 slash 命令
+internal/session/       session 存储与恢复
+internal/tools/         全部受控工具
+sops/                   SOP 索引和执行手册
+workspace/              默认工作区与长期记忆目录
+temp/                   session、日志和运行时输出
 ```
 
-## 开发
+## 文档索引
+
+- [docs/usage.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/usage.md): 使用方法、命令、session 恢复
+- [docs/context_management_design.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/context_management_design.md): 上下文裁剪与 compact 设计
+- [docs/browser_operation_design.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/browser_operation_design.md): 浏览器操作设计
+- [docs/desktop_computer_use_technical_design.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/desktop_computer_use_technical_design.md): 桌面 Computer Use 技术设计
+- [docs/cohort_mcp_integration_design.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/cohort_mcp_integration_design.md): MCP 集成设计
+- [docs/cohort_self_evolution_research.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/cohort_self_evolution_research.md): 自演化与记忆方向研究
+
+## 开发与测试
+
+### 本地开发
 
 ```bash
-go test ./...
-go vet ./...
-go run . tools
 go run . config
+go run . tools
+go run . ask "读取 configs/config.yaml 并解释关键字段"
+```
+
+### 测试
+
+```bash
+./internal/tests/run.sh
+go vet ./...
+```
+
+如果只想跑某一类测试：
+
+```bash
+./internal/tests/run.sh -run TestDesktop -count=1
 ```
 
 ## 设计原则
 
-- 本地优先：执行、浏览器控制、桌面感知、会话、日志和记忆默认都在本地。
-- 工具可审计：动作通过 schema、结构化输出和明确错误流转。
-- 历史不可变：即使请求上下文被压缩，`history.jsonl` 也保留完整记录。
-- 上下文分层：SOP、session memory、full compact 和长期记忆各司其职。
-- 记忆可验证：长期记忆需要证据，模型猜测不能变成事实。
-- 渐进演化：先稳定运行时，再扩展 UI、插件、多 Agent 编排或更重的检索。
+- 本地优先：执行、日志、历史、会话、截图、记忆默认留在本地。
+- 工具优先：让模型负责推理，让 runtime 负责约束和执行。
+- 历史不可变：即使上下文被压缩，`history.jsonl` 仍然保留完整事实。
+- 上下文分层：recent history、session memory、compact、relevant memory 各司其职。
+- 记忆可验证：没有工具证据的“经验”不能直接进入长期记忆。
+- 渐进演化：先把单 Agent runtime 做稳，再考虑更重的编排、UI 和生态。
+
+## 非目标
+
+为了让边界更清楚，下面这些不是 Cohert 当前要解决的问题：
+
+- 不是云端托管 Agent 平台。
+- 不是无约束的自动点击机器人。
+- 不是“所有信息都塞进 prompt”的长上下文捷径。
+- 不是靠模型自由发挥写记忆的黑盒系统。
+
+## 结语
+
+如果你想做的是一个真正能落地的本地 Agent 系统，而不是一个只会说“我可以帮你”的聊天界面，Cohert 的重点就在这里：
+
+- 有执行闭环。
+- 有上下文治理。
+- 有审计和恢复。
+- 有可以进化但不失控的记忆体系。
+
+这正是它和普通 Agent Demo 拉开差距的地方。

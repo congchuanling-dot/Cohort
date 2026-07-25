@@ -1,5 +1,7 @@
 # Cohert 使用教程
 
+> 文档状态：`[维护]`。当前实现状态和设计文档导航见 [docs/README.md](README.md)。
+
 这份文档说明当前 Cohert 怎么启动、有哪些命令、怎么恢复 session。
 
 当前阶段只说明项目根目录内的本地启动方式，不说明全局安装。所有命令都默认在 Cohert 项目根目录执行：
@@ -286,7 +288,7 @@ go run . mcp remove github
 go run . mcp remove --scope local github
 ```
 
-MCP 工具会自动变成 `mcp_<server>_<tool>` 并进入 Agent Tool Registry。读取类工具直接执行；发送、创建、更新等外部副作用首次执行时会询问，选择 `allow session` 后同一 session 不再重复询问；删除、审批、授权和支付类工具默认拒绝。
+MCP 工具会自动变成 `mcp_<server>_<tool>` 并进入 Agent Tool Registry。没有显式项目规则的外部工具默认按 `R2 + ask` 处理；用户可选择一次、同参数 session 或同参数 project 授权。名称明确包含删除、审批、授权和支付语义的工具默认 `R3 + deny`。显式配置为 `R1 + allow` 的只读工具才会直接执行。
 
 ### 4.7 查看 session 列表
 

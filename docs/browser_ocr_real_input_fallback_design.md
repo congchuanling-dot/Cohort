@@ -1,5 +1,10 @@
 # 浏览器 OCR 与系统级真实输入兜底技术方案
 
+> 文档状态：`[部分完成]`。状态基线为 2026-07-26；完整文档导航见 [docs/README.md](README.md)。
+>
+> DOM 摘要、浏览器 OCR、macOS 受控桌面输入和视觉焦点令牌已经落地。通用 UI detector、
+> browser_visual_snapshot 高级模式、Windows helper 和视觉候选系统仍是规划。
+
 ## 背景
 
 Cohert 当前浏览器主链路已经是：

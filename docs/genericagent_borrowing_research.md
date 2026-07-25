@@ -1,5 +1,9 @@
 # GenericAgent 调研与 Cohert 可借鉴能力清单
 
+> 文档状态：`[历史]`。这是对 GenericAgent 的调研快照，不直接描述 Cohert 当前实现。
+> 当前开发优先级和已实现状态请看 [docs/README.md](README.md) 与
+> [development_task_breakdown.md](development_task_breakdown.md)。
+
 ## 目标
 
 本文档基于 `/Users/bytedance/Desktop/myOwnProject/GenericAgent` 的代码和记忆/SOP 文件，整理 GenericAgent 的功能结构、关键实现思路，以及 Cohert 后续还能借鉴哪些能力。

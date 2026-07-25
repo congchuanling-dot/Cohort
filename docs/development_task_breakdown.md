@@ -1,50 +1,49 @@
 # Cohert 开发任务拆解表
 
-这份文档用于指导 Cohert 后续开发。
+> 文档状态：`[维护]`。状态基线为 2026-07-26；完整文档导航见 [docs/README.md](README.md)。
+>
+> 本文顶部是当前唯一有效的开发路径。后半部分保留早期 P0/P1 任务档案，用于追溯
+> 决策和任务依赖，不能再把其中的“待做”直接当作当前状态。
 
-它不是照搬 GA 的功能列表，而是结合三类信息重新排序：
+## 当前开发路径
 
-- Cohert 当前已经实现的能力。
-- GA 项目中已经验证过的工具形态和工程经验。
-- Cohert 实际运行中暴露的问题，例如 `code_run` 扫描用户目录导致卡住。
+### 已完成的能力基座
 
-当前开发原则：
-
-- 先保证命令行 Agent 核心可靠，再做 UI、浏览器、多模型等外围能力。
-- 先解决真实阻塞问题，再做体验优化。
-- 任务拆解必须能落到具体文件、测试和验收标准。
-- 每完成一个开发任务，都要同步更新 `docs/开发记录文档.md`。
-
-## 1. 当前状态
-
-### 1.1 已完成能力
-
-| 模块 | 当前状态 | 说明 |
+| 模块 | 状态 | 说明 |
 | --- | --- | --- |
-| CLI 入口 | 已完成 | 支持 `go run .`、`go run . ask`、`go run . tools`、`go run . config` |
-| Agent Loop | 已完成 | 支持用户输入、模型调用、工具调用、工具结果回灌、最大轮数保护 |
-| LLM Client | 已完成 | 支持 OpenAI-compatible SSE 流式输出 |
-| 基础工具 | 已完成 | `file_read`、`file_write`、`file_patch`、`code_run`、`ask_user` |
-| 运行状态常量 | 已完成 | `done/exited/max_turns_exceeded` 已抽成常量 |
-| 工具名常量 | 已完成 | 基础工具名已集中定义 |
-| 工具错误格式 | 已完成 | 支持 `ToolErrorData{status/code/message/hint}` |
-| bad JSON 提示 | 已完成 | 工具参数 JSON 解析失败会回灌结构化错误 |
-| OpenAI SSE 测试 | 已完成 | 覆盖文本流和 tool_calls 分片拼接 |
-| Session 数据结构 | 已完成 | 已有 `Session`、`HistoryEntry`、`Store` |
-| history.jsonl 写入 | 已完成 | Runner 会把 user/assistant/tool 消息追加落盘 |
-| session list/resume | 已完成 | 支持列出本地会话并恢复历史上下文 |
-| 开发记录文档 | 已完成 | 已建立 `docs/开发记录文档.md` |
+| Agent Runtime 与 REPL | `[完成]` | 工具循环、session、SOP、工作记忆、长期记忆、slash 命令已可用。 |
+| 上下文管理 | `[完成]` | token 预算、工具结果裁剪、group trim、session memory、full compact 已实现。 |
+| 浏览器与桌面 | `[完成]` | Chrome bridge、DOM/OCR、受控点击输入，以及 macOS AX/OCR 受控输入链路已实现。 |
+| MCP 核心链路 | `[部分完成]` | `.mcp.json` scope、stdio/HTTP、发现、调用、分页、status/probe、REPL `/mcp` 已实现；导入导出与旧 SSE 待补。 |
+| MCP P1 基础 | `[完成]` | 精确参数授权、R3 拒绝、外部结果裁剪、MCP 审计和零默认 Server 已实现。 |
+| `run.log` 基础 | `[部分完成]` | 已记录工具完成事件、脱敏参数摘要和 MCP 元数据；尚未覆盖完整 LLM/生命周期事件。 |
 
-### 1.2 当前主要问题
+### 当前优先级
 
-| 问题 | 严重程度 | 原因 | 处理优先级 |
+| 顺序 | 任务 | 状态 | 完成条件 |
 | --- | --- | --- | --- |
-| `code_run` 可能卡住 | 高 | 模型可能执行大范围 `grep -r`、`find`，当前超时和进程树清理不够硬 | 最高 |
-| `code_run` 可跳出 workspace | 高 | 模型可在脚本里写 `cd /Users/...` | 最高 |
-| 工具输出可能撑爆上下文 | 中 | 长 stdout 和长 history 缺少统一裁剪策略 | 高 |
-| 运行链路缺少结构化日志 | 中 | 只有模型 raw log，缺少 turn/tool/run 级别日志 | 中 |
-| 文件工具反馈不够细 | 中 | 读错路径、patch 成功后缺少候选和摘要 | 中 |
-| doctor 优先级偏低 | 低 | 它主要是环境诊断体验，不是 Agent 核心链路 | 后置 |
+| 1 | 飞书 MCP 真实端到端验收 | `[进行中]` | 用户显式装配官方 Server 后，完成 OAuth、只读文档、R2 写操作确认和 `run.log` 检查。 |
+| 2 | `NoToolPolicy` 与早停治理 | `[规划]` | 模型空回复、未调用工具的写入任务、大代码块未落盘和未验证 final 均能受控重试。 |
+| 3 | Runner 生命周期事件 | `[规划]` | 将 `run.log`、权限、evidence、compact 等收敛为内部事件接口，避免继续堆入 Runner。 |
+| 4 | 交互式 diff 与变更审阅 | `[规划]` | 提供 `/diff`、变更摘要、接受/拒绝与受限回滚边界。 |
+| 5 | Project / Plan Mode | `[规划]` | 项目 bootstrap、计划状态和验证关口可在 session 中恢复。 |
+
+### 延后项
+
+- Plugin/Skill manifest、LSP、多模型 fallback：在 Project/Plan Mode 的最小形态稳定后开始。
+- Marketplace、daemon、Gateway、Cohort 作为 MCP Server：在权限、审计、运行事件和真实 MCP 验收稳定后开始。
+- 自动反射、L4 会话挖掘：在生命周期事件和质量门禁完成后开始。
+
+### 更新规则
+
+1. 未通过真实外部服务验收的能力必须标为 `[部分完成]` 或 `[进行中]`。
+2. 每完成一项任务，同步更新本节、相关设计文档和 `docs/开发记录文档.md`。
+3. 新任务必须说明目标文件、测试和验收条件，不能只写抽象能力名称。
+
+## 历史任务档案
+
+以下内容是早期任务拆解和 GA 对比依据。它保留已完成任务、技术取舍和依赖关系，但
+其中的优先级与“待做”状态已经被“当前开发路径”取代。
 
 ## 2. GA 经验对 Cohert 的影响
 

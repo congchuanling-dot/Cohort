@@ -1,5 +1,9 @@
 # GA 浏览器操作技术路线记录
 
+> 文档状态：`[历史]`。这是 GenericAgent 浏览器实现的调研和对比依据；Cohert 当前浏览器
+> 能力与未完成项请看 [docs/README.md](README.md) 和
+> [browser_operation_design.md](browser_operation_design.md)。
+
 本文记录 GenericAgent 中浏览器操作能力的完整链路，以及 Cohert 下一步应如何对齐这条路线。
 
 ## 1. 核心结论

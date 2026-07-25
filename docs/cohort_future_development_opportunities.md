@@ -1,5 +1,11 @@
 # Cohort 后续值得开发的能力建议
 
+> 文档状态：`[规划]`。状态基线为 2026-07-26；完整文档导航见 [docs/README.md](README.md)。
+>
+> 本文是能力池和中长期路线，不是实现清单。当前已落地 MCP P0、MCP 权限与工具级
+> `run.log`、浏览器/桌面/SOP/受控长期记忆；`NoToolPolicy`、Lifecycle Hook、交互式
+> diff、Project/Plan Mode、Plugin、LSP、daemon 仍按本文路线保留为未完成规划。
+
 ## 结论摘要
 
 Cohort 当前已经不是早期 MVP：它已经具备 CLI/REPL、会话恢复、上下文压缩、浏览器自动化、桌面 Computer Use、SOP 路由、工作记忆和受控长期记忆。接下来最值得做的不是继续横向堆工具，而是把它从“能执行任务的本地 Agent”推进到“可扩展、可观察、可协作、可长期运行的开发者 Agent Runtime”。

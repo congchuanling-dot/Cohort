@@ -1,5 +1,11 @@
 # Cohert 上下文管理层技术方案
 
+> 文档状态：`[部分完成]`。状态基线为 2026-07-26；完整文档导航见 [docs/README.md](README.md)。
+>
+> 已完成：请求预算、Micro Compact、group trim、session memory、手动 full compact、
+> relevant memory 注入和 context stats。未完成：自动触发 full compact、持久化
+> `context_state.json` 与连续失败熔断器。后续阶段以本文保留的方案为准。
+
 本文档描述 Cohert 后续实现 Context Manager 的完整技术方案。
 
 方案参考 Claude Code 上下文工程的四层压缩思路，并结合 Cohert 当前已经实现的 `history.jsonl`、`Runner.history`、工具调用协议和 session 恢复能力重新设计。
