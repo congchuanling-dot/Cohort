@@ -70,12 +70,14 @@ desktop_windows
 ```text
 desktop_windows
   -> desktop_activate(pid)
-  -> desktop_press_key(pid, key, reason)
+  -> desktop_press_key(pid, key, reason, intent?)
   -> 工具验证前后台 PID
 ```
 
 - 低风险导航键可直接执行：`Escape`、`Tab`、`Shift+Tab`、方向键、`PageUp`、`PageDown`、`Home`、`End`。
-- 外部副作用按键必须先确认：`Enter`、`Cmd+Enter`、`Ctrl+Enter`、`Delete`、`Backspace`、`Cmd+Backspace`、`Ctrl+Backspace`。
+- 搜索结果、下拉候选、自动补全等 transient UI 中，`Enter` 打开当前已选结果时必须传 `intent=open_selected_result`，该场景是 R1 导航，不应调用 `ask_user`，避免焦点切走导致候选框消失。
+- 外部副作用按键必须先确认：普通 `Enter`、`Cmd+Enter`、`Ctrl+Enter`、`Delete`、`Backspace`、`Cmd+Backspace`、`Ctrl+Backspace`。
+- `open_selected_result` 只能用于打开已选搜索/下拉结果，不能用于发送消息、提交表单、保存、发布、删除或确认外部副作用。
 - 确认流程与 AXPress 一致：先调用 `desktop_press_key`，收到 `desktop_action_confirmation_required` 后，把 `approval_request` 原样传给 `ask_user`；只能用同一 `pid`、`key`、`reason` 和一次性令牌重试一次。
 - 不支持任意快捷键，不支持字符输入；需要文本输入时使用 `desktop_type_text`，不得用反复按键模拟输入。
 

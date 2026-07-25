@@ -549,8 +549,9 @@ M2.2 已实现。用途：对前台 PID 发送受限桌面按键。
 ```json
 {
   "pid": 888,
-  "key": "Escape",
-  "reason": "关闭当前浮层",
+  "key": "Enter",
+  "intent": "open_selected_result",
+  "reason": "打开当前已选搜索结果",
   "confirmation_token": "R2 时由 ask_user 返回"
 }
 ```
@@ -559,7 +560,9 @@ M2.2 已实现。用途：对前台 PID 发送受限桌面按键。
 
 - 必须绑定 PID，helper 在按键前确认目标 PID 为前台，按键后再次返回前台状态。
 - 只支持 allowlist：`Escape`、`Tab`、`Shift+Tab`、方向键、`PageUp`、`PageDown`、`Home`、`End`，以及需要确认的 `Enter`、`Cmd+Enter`、`Ctrl+Enter`、`Delete`、`Backspace`、`Cmd+Backspace`、`Ctrl+Backspace`。
+- `Enter + intent=open_selected_result` 用于打开当前已选搜索/下拉候选结果，是 R1 导航；该场景不能插入 `ask_user`，否则 transient UI 会因失焦消失。
 - R1 导航键可直接执行；R2 提交/删除类按键必须消费 `ask_user` 为同一 `pid + key + reason` 签发的一次性 `confirmation_token`。
+- `open_selected_result` 不能用于发送消息、提交表单、保存、发布、删除或其他外部副作用。
 - 不支持任意快捷键，不支持字符输入。
 
 ### desktop_type_text

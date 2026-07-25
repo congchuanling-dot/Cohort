@@ -1027,10 +1027,11 @@ func (t *DesktopPressKey) Name() string { return ToolNameDesktopPressKey }
 func (t *DesktopPressKey) Schema() llm.ToolSchema {
 	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
 		Name:        t.Name(),
-		Description: "Press a restricted desktop key for the frontmost target PID. Low-risk navigation keys such as Escape, Tab, Shift+Tab, arrows, PageUp/PageDown, Home, and End can run directly. Enter, Cmd+Enter, Ctrl+Enter, Delete, Backspace, and related deletion/submit keys require a one-time confirmation_token from ask_user. This tool does not type text and does not support arbitrary shortcuts.",
+		Description: "Press a restricted desktop key for the frontmost target PID. Low-risk navigation keys such as Escape, Tab, Shift+Tab, arrows, PageUp/PageDown, Home, and End can run directly. Enter normally requires confirmation, except intent=open_selected_result where Enter opens a selected transient search/dropdown result as R1 navigation. Cmd+Enter, Ctrl+Enter, Delete, Backspace, and related deletion/submit keys require a one-time confirmation_token from ask_user. This tool does not type text and does not support arbitrary shortcuts.",
 		Parameters: objectSchema(map[string]any{
 			"pid":                intProp("Target application PID from desktop_windows. The helper refuses to press the key unless this PID is frontmost.", 0),
 			"key":                stringProp("Restricted key or shortcut, for example Escape, Tab, Shift+Tab, ArrowUp, ArrowDown, Enter, Cmd+Enter, Delete, Backspace."),
+			"intent":             stringProp("Optional semantic intent. Use open_selected_result only when Enter opens the currently selected transient search/dropdown result; this is R1 navigation and must not be used for sending/submitting."),
 			"reason":             stringProp("Concrete user-facing reason for this key press."),
 			"confirmation_token": stringProp("Required only for R2 keys. Obtain it from ask_user with an approval binding for this exact pid, key, and reason."),
 		}, "pid", "key", "reason"),
@@ -1050,7 +1051,15 @@ func (t *DesktopPressKey) Run(ctx context.Context, call agent.ToolCallContext) (
 	if reasonErr != nil {
 		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
 	}
-	normalizedKey, risk, ok := classifyDesktopKeyRisk(key)
+	intent, intentOK := normalizeDesktopPressKeyIntent(asString(call.Args["intent"]))
+	if !intentOK {
+		return desktopActionError(
+			"desktop_press_key_bad_intent",
+			"desktop_press_key intent is not supported",
+			"当前只支持空 intent 或 open_selected_result；发送、提交、删除等副作用不能用 intent 降级。",
+		), nil
+	}
+	normalizedKey, risk, ok := classifyDesktopKeyRisk(key, intent)
 	if !ok {
 		return desktopActionError(
 			"desktop_press_key_unsupported",
@@ -1083,6 +1092,7 @@ func (t *DesktopPressKey) Run(ctx context.Context, call agent.ToolCallContext) (
 		"status":        agent.ToolStatusSuccess,
 		"pid":           result.PID,
 		"key":           result.Key,
+		"intent":        intent,
 		"action":        result.Action,
 		"risk":          risk,
 		"performed":     result.Performed,
@@ -1102,8 +1112,11 @@ func (t *DesktopPressKey) Run(ctx context.Context, call agent.ToolCallContext) (
 	}, nil
 }
 
-func classifyDesktopKeyRisk(key string) (string, desktopActionRisk, bool) {
+func classifyDesktopKeyRisk(key string, intent string) (string, desktopActionRisk, bool) {
 	normalized := normalizeDesktopKey(key)
+	if normalized == "Enter" && intent == "open_selected_result" {
+		return normalized, desktopRiskReversible, true
+	}
 	switch normalized {
 	case "Escape", "Tab", "Shift+Tab", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End":
 		return normalized, desktopRiskReversible, true
@@ -1111,6 +1124,20 @@ func classifyDesktopKeyRisk(key string) (string, desktopActionRisk, bool) {
 		return normalized, desktopRiskExternal, true
 	default:
 		return "", "", false
+	}
+}
+
+func normalizeDesktopPressKeyIntent(raw string) (string, bool) {
+	intent := strings.ToLower(strings.TrimSpace(raw))
+	intent = strings.ReplaceAll(intent, "-", "_")
+	intent = strings.ReplaceAll(intent, " ", "_")
+	switch intent {
+	case "":
+		return "", true
+	case "open_selected_result":
+		return "open_selected_result", true
+	default:
+		return "", false
 	}
 }
 

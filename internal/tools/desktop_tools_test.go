@@ -1012,6 +1012,37 @@ func TestDesktopPressKeyRunsLowRiskKey_BitsUT(t *testing.T) {
 	}
 }
 
+func TestDesktopPressKeyOpenSelectedResultEnterIsLowRisk_BitsUT(t *testing.T) {
+	driver := &fakeDesktopDriver{
+		pressKey: desktop.PressKeyResult{
+			PID:          123,
+			Key:          "Enter",
+			Action:       "PressKey",
+			Performed:    true,
+			ActiveBefore: true,
+			ActiveAfter:  true,
+		},
+	}
+	outcome, err := NewDesktopPressKey(driver, NewConfirmationStore()).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{
+			"pid":    123,
+			"key":    "Enter",
+			"intent": "open_selected_result",
+			"reason": "确认选择搜索结果李洋，打开聊天窗口",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if driver.pressKeyRequest.Key != "Enter" {
+		t.Fatalf("press key request = %#v", driver.pressKeyRequest)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["risk"] != desktopRiskReversible || data["intent"] != "open_selected_result" {
+		t.Fatalf("outcome = %#v", data)
+	}
+}
+
 func TestDesktopPressKeyRequiresConfirmationForEnter_BitsUT(t *testing.T) {
 	driver := &fakeDesktopDriver{
 		pressKey: desktop.PressKeyResult{

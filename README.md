@@ -282,7 +282,7 @@ desktop_permissions
   -> desktop_type_text
 ```
 
-优先使用 Accessibility / AX 控件树；AX 不可用时使用截图和 OCR。`desktop_ax_press` 使用刚刚读取的 AX 节点 metadata 重新校验节点，动作后再读取 AX 快照验证状态变化。`desktop_ax_focus` 只聚焦当前可编辑 AX 节点。`desktop_click` 只点击当前 AX 节点中心点，不接受任意坐标或 OCR bbox。`desktop_visual_click` 只接受 `desktop_screenshot` 生成的图片/manifest 和 OCR/UI bbox，由工具把 `screenshot-local` bbox 转成 `screen-physical` 鼠标点击；输入框/搜索框类视觉点击成功后会返回短期一次性 `visual_focus_token`，供 `desktop_type_text` 在 AX 无法证明 WebView 输入焦点时兜底起草文本；发送类视觉点击必须确认。`desktop_press_key` 只支持受限按键集合：`Escape`、`Tab`、`Shift+Tab`、方向键、`PageUp/PageDown`、`Home/End` 可直接执行；`Enter`、`Cmd+Enter`、`Ctrl+Enter`、`Delete`、`Backspace` 等必须确认。`desktop_type_text` 只向当前焦点可编辑输入框起草文本，或消费有效 `visual_focus_token` 后在 WebView 视觉焦点中起草文本；结果不回显完整内容；发送动作必须单独走 `desktop_press_key` 或经确认的 `desktop_click`/`desktop_visual_click`。
+优先使用 Accessibility / AX 控件树；AX 不可用时使用截图和 OCR。`desktop_ax_press` 使用刚刚读取的 AX 节点 metadata 重新校验节点，动作后再读取 AX 快照验证状态变化。`desktop_ax_focus` 只聚焦当前可编辑 AX 节点。`desktop_click` 只点击当前 AX 节点中心点，不接受任意坐标或 OCR bbox。`desktop_visual_click` 只接受 `desktop_screenshot` 生成的图片/manifest 和 OCR/UI bbox，由工具把 `screenshot-local` bbox 转成 `screen-physical` 鼠标点击；输入框/搜索框类视觉点击成功后会返回短期一次性 `visual_focus_token`，供 `desktop_type_text` 在 AX 无法证明 WebView 输入焦点时兜底起草文本；发送类视觉点击必须确认。`desktop_press_key` 只支持受限按键集合：`Escape`、`Tab`、`Shift+Tab`、方向键、`PageUp/PageDown`、`Home/End` 可直接执行；搜索结果/下拉候选中 `Enter` 打开已选项时传 `intent=open_selected_result`，按 R1 导航直接执行；普通 `Enter`、`Cmd+Enter`、`Ctrl+Enter`、`Delete`、`Backspace` 等必须确认。`desktop_type_text` 只向当前焦点可编辑输入框起草文本，或消费有效 `visual_focus_token` 后在 WebView 视觉焦点中起草文本；结果不回显完整内容；发送动作必须单独走 `desktop_press_key` 或经确认的 `desktop_click`/`desktop_visual_click`。
 
 风险策略：
 
