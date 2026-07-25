@@ -100,7 +100,7 @@ go build -o cohert ./cmd/cohert
 | Agent Loop | 流式 OpenAI-compatible 对话、工具调用、最大轮次控制、可见行动说明 |
 | 本地工具 | 文件读写、patch、shell 执行、向用户提问、结构化工具错误 |
 | 浏览器自动化 | Chrome bridge、打开/扫描页面、JS 执行、元素快照、点击、输入、按键、等待、截图、OCR |
-| 桌面 Computer Use | macOS 权限检查、窗口枚举、PID 激活、窗口截图、AX 控件树、桌面 OCR、受控 `AXPress` |
+| 桌面 Computer Use | macOS 权限检查、窗口枚举、PID 激活、窗口截图、AX 控件树、桌面 OCR、受控 `AXPress` 和受限按键 |
 | 会话系统 | `history.jsonl`、元数据、session 列表、恢复、本地审计轨迹 |
 | 上下文管理 | 工具结果压缩、消息组安全裁剪、session memory、full compact 摘要 |
 | SOP Runtime | SOP 索引注入、任务场景路由、读取 SOP 后写入工作 checkpoint |
@@ -220,6 +220,7 @@ desktop_screenshot
 desktop_ax_snapshot
 desktop_ocr
 desktop_ax_press
+desktop_press_key
 ```
 
 </details>
@@ -270,17 +271,18 @@ desktop_permissions
   -> desktop_screenshot
   -> desktop_ocr
   -> desktop_ax_press
+  -> desktop_press_key
 ```
 
-优先使用 Accessibility / AX 控件树；AX 不可用时才使用截图和 OCR。`desktop_ax_press` 是当前唯一桌面输入动作：它要求目标 PID 已在前台，并使用刚刚读取的 AX 节点 metadata 重新校验节点，动作后再读取 AX 快照验证状态变化。
+优先使用 Accessibility / AX 控件树；AX 不可用时才使用截图和 OCR。`desktop_ax_press` 要求目标 PID 已在前台，并使用刚刚读取的 AX 节点 metadata 重新校验节点，动作后再读取 AX 快照验证状态变化。`desktop_press_key` 只支持受限按键集合：`Escape`、`Tab`、`Shift+Tab`、方向键、`PageUp/PageDown`、`Home/End` 可直接执行；`Enter`、`Cmd+Enter`、`Ctrl+Enter`、`Delete`、`Backspace` 等必须确认。
 
 风险策略：
 
 - R1 可恢复操作：可直接执行，例如展开、收起、菜单、tab。
-- R2 外部副作用：必须由 `ask_user` 签发一次性确认令牌，例如发送、提交、上传、保存、发布。
+- R2 外部副作用：必须由 `ask_user` 签发一次性确认令牌，例如发送、提交、上传、保存、发布或提交/删除类按键。
 - R3 高风险：自动拒绝，要求用户手动完成，例如支付、审批、授权、登录验证、删除。
 
-当前仍没有桌面坐标点击、键盘输入或文本输入工具。截图和 OCR bbox 是 `screenshot-local`，不能当作系统鼠标坐标。
+当前仍没有桌面坐标点击或文本输入工具。截图和 OCR bbox 是 `screenshot-local`，不能当作系统鼠标坐标。
 
 macOS helper 依赖：
 

@@ -34,7 +34,7 @@ func (t *AskUser) Schema() llm.ToolSchema {
 		Description: "Ask the user for missing information or a decision.",
 		Parameters: objectSchema(map[string]any{
 			"question": stringProp("Question for the user"),
-			"approval": objectProp("Optional confirmation binding for a high-risk action. Supported operation: desktop_ax_press. It must include operation, pid, node_id, and reason. A positive user answer returns a one-time confirmation_token."),
+			"approval": objectProp("Optional confirmation binding for a high-risk action. Supported operations: desktop_ax_press with operation, pid, node_id, reason; desktop_press_key with operation, pid, key, reason. A positive user answer returns a one-time confirmation_token."),
 		}, "question"),
 	}}
 }
@@ -50,12 +50,7 @@ func (t *AskUser) Run(ctx context.Context, call agent.ToolCallContext) (agent.Ou
 		return agent.Outcome{Data: *approvalErr, NextPrompt: "\n"}, nil
 	}
 	if approval != nil {
-		question += fmt.Sprintf(
-			"\n\n该回答将只授权一次桌面 AXPress 操作：pid=%d，node_id=%s，原因=%s。\n请输入“确认”继续，其他回答均视为拒绝。",
-			approval.PID,
-			approval.NodeID,
-			approval.Reason,
-		)
+		question += "\n\n" + approvalPrompt(*approval) + "\n请输入“确认”继续，其他回答均视为拒绝。"
 	}
 	fmt.Printf("\n%s\n> ", question)
 	answerCh := make(chan string, 1)
@@ -123,15 +118,51 @@ func parseAskUserApproval(args map[string]any) (*ActionApproval, *agent.ToolErro
 		Operation: strings.TrimSpace(asString(approval["operation"])),
 		PID:       asInt(approval["pid"], 0),
 		NodeID:    strings.TrimSpace(asString(approval["node_id"])),
+		Key:       strings.TrimSpace(asString(approval["key"])),
 		Reason:    strings.TrimSpace(asString(approval["reason"])),
 	}
-	if value.Operation != desktopAXPressOperation || value.PID <= 0 || value.NodeID == "" || value.Reason == "" {
+	if !validActionApproval(value) {
 		err := agent.NewToolError(
 			"confirmation_bad_request",
-			"ask_user approval only supports desktop_ax_press with a positive pid, node_id, and reason",
-			"请先通过 desktop_ax_snapshot 获取节点，再为对应动作创建精确确认请求。",
+			"ask_user approval only supports desktop_ax_press with pid/node_id/reason or desktop_press_key with pid/key/reason",
+			"请使用工具返回的 approval_request 原样请求用户确认，不要手写或复用旧确认。",
 		)
 		return nil, &err
 	}
 	return &value, nil
+}
+
+func validActionApproval(value ActionApproval) bool {
+	if value.PID <= 0 || value.Reason == "" {
+		return false
+	}
+	switch value.Operation {
+	case desktopAXPressOperation:
+		return value.NodeID != "" && value.Key == ""
+	case desktopPressKeyOperation:
+		return value.Key != "" && value.NodeID == ""
+	default:
+		return false
+	}
+}
+
+func approvalPrompt(value ActionApproval) string {
+	switch value.Operation {
+	case desktopAXPressOperation:
+		return fmt.Sprintf(
+			"该回答将只授权一次桌面 AXPress 操作：pid=%d，node_id=%s，原因=%s。",
+			value.PID,
+			value.NodeID,
+			value.Reason,
+		)
+	case desktopPressKeyOperation:
+		return fmt.Sprintf(
+			"该回答将只授权一次桌面按键操作：pid=%d，key=%s，原因=%s。",
+			value.PID,
+			value.Key,
+			value.Reason,
+		)
+	default:
+		return "该回答将只授权一次受控桌面操作。"
+	}
 }

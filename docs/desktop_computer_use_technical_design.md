@@ -513,16 +513,38 @@ M2 阶段工具。用途：受控物理点击。
 - 执行后截图或状态验证。
 - 同一坐标失败后不允许盲目重试。
 
-### desktop_type_text / desktop_press_key
+### desktop_press_key
 
-M2 阶段工具。用途：真实键盘输入。
+M2.2 已实现。用途：对前台 PID 发送受限桌面按键。
+
+参数：
+
+```json
+{
+  "pid": 888,
+  "key": "Escape",
+  "reason": "关闭当前浮层",
+  "confirmation_token": "R2 时由 ask_user 返回"
+}
+```
+
+要求：
+
+- 必须绑定 PID，helper 在按键前确认目标 PID 为前台，按键后再次返回前台状态。
+- 只支持 allowlist：`Escape`、`Tab`、`Shift+Tab`、方向键、`PageUp`、`PageDown`、`Home`、`End`，以及需要确认的 `Enter`、`Cmd+Enter`、`Ctrl+Enter`、`Delete`、`Backspace`、`Cmd+Backspace`、`Ctrl+Backspace`。
+- R1 导航键可直接执行；R2 提交/删除类按键必须消费 `ask_user` 为同一 `pid + key + reason` 签发的一次性 `confirmation_token`。
+- 不支持任意快捷键，不支持字符输入。
+
+### desktop_type_text
+
+M2 后续工具。用途：真实文本输入。
 
 要求：
 
 - 必须绑定 PID。
 - 输入前确认焦点窗口。
 - 敏感字段不在日志中明文输出。
-- 对发送、提交、确认类快捷键需要用户确认。
+- 不能通过多次 `desktop_press_key` 模拟文本输入。
 
 ## 执行链路
 
@@ -659,16 +681,16 @@ M2.1 验收：
 
 ### M2：受限真实输入
 
-状态：M2.1 已完成 `desktop_ax_press`、风险确认和 AX 结果验证；坐标点击与键盘输入尚未开始。
+状态：M2.1 已完成 `desktop_ax_press`、风险确认和 AX 结果验证；M2.2 已完成受限 `desktop_press_key`。坐标点击与文本输入尚未开始。
 
 交付：
 
 - `desktop_ax_press`（已完成）
+- `desktop_press_key`（已完成）
 - `desktop_click`
-- `desktop_press_key`
 - `desktop_type_text`
-- 风险分类和 `ask_user` 确认策略。（AXPress 已完成）
-- 动作后验证机制。（AXPress 已完成）
+- 风险分类和 `ask_user` 确认策略。（AXPress / PressKey 已完成）
+- 动作后验证机制。（AXPress / PressKey 已完成）
 
 ### M3：视觉控件候选
 

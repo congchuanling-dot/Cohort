@@ -82,6 +82,8 @@ const (
 	ToolNameDesktopOCR = "desktop_ocr"
 	// ToolNameDesktopAXPress 对已验证的 AX 节点执行受控语义点击。
 	ToolNameDesktopAXPress = "desktop_ax_press"
+	// ToolNameDesktopPressKey 对前台目标 PID 执行受限桌面按键。
+	ToolNameDesktopPressKey = "desktop_press_key"
 )
 
 // Tool 是所有本地工具必须实现的接口。
@@ -142,6 +144,7 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameDesktopAXSnapshot,
 		ToolNameDesktopOCR,
 		ToolNameDesktopAXPress,
+		ToolNameDesktopPressKey,
 		ToolNameUpdateWorkingCheckpoint,
 		ToolNameStartLongTermUpdate,
 		ToolNameMemoryProposeUpdate,

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """macOS desktop sensing helper for Cohert.
 
-The script exposes a small JSON protocol for M1. It deliberately has no mouse
-or keyboard commands: real input is deferred to the separately reviewed M2.
+The script exposes a small JSON protocol for desktop sensing and narrowly
+reviewed semantic input. Mouse coordinates and free-form text input are still
+intentionally unsupported.
 """
 
 import argparse
@@ -498,6 +499,97 @@ def ax_press(payload):
     return {"pid": pid, "node_id": node_id, "action": "AXPress", "performed": True}
 
 
+def parse_key(quartz, raw_key):
+    key = str(raw_key or "").strip()
+    keycodes = {
+        "Escape": 53,
+        "Tab": 48,
+        "Enter": 36,
+        "Delete": 117,
+        "Backspace": 51,
+        "ArrowLeft": 123,
+        "ArrowRight": 124,
+        "ArrowDown": 125,
+        "ArrowUp": 126,
+        "PageUp": 116,
+        "PageDown": 121,
+        "Home": 115,
+        "End": 119,
+    }
+    modifiers = 0
+    if "+" in key:
+        modifier, base = key.split("+", 1)
+        if modifier == "Shift":
+            modifiers |= quartz.kCGEventFlagMaskShift
+        elif modifier == "Cmd":
+            modifiers |= quartz.kCGEventFlagMaskCommand
+        elif modifier == "Ctrl":
+            modifiers |= quartz.kCGEventFlagMaskControl
+        else:
+            raise DesktopError(
+                "desktop_press_key_unsupported",
+                f"unsupported desktop key modifier: {modifier}",
+                "请使用 Cohert desktop_press_key 工具提供的受限按键集合。",
+            )
+        key = base
+    keycode = keycodes.get(key)
+    if keycode is None:
+        raise DesktopError(
+            "desktop_press_key_unsupported",
+            f"unsupported desktop key: {raw_key!r}",
+            "请使用 Cohert desktop_press_key 工具提供的受限按键集合。",
+        )
+    return keycode, modifiers
+
+
+def post_key_event(quartz, keycode, down, flags):
+    event = quartz.CGEventCreateKeyboardEvent(None, keycode, down)
+    if event is None:
+        raise DesktopError(
+            "desktop_press_key_failed",
+            "unable to create Quartz keyboard event",
+            "请确认 Cohert 运行进程具备必要的系统权限。",
+        )
+    quartz.CGEventSetFlags(event, flags)
+    quartz.CGEventPost(quartz.kCGHIDEventTap, event)
+
+
+def press_key(payload):
+    quartz, _, workspace = require_macos_modules()
+    pid = int(payload.get("pid") or 0)
+    if pid <= 0:
+        raise DesktopError(
+            "desktop_bad_pid",
+            "desktop_press_key requires a positive pid",
+            "请先通过 desktop_windows 获取目标窗口对应的 pid。",
+        )
+    require_active_pid(pid)
+    key = str(payload.get("key") or "").strip()
+    keycode, modifiers = parse_key(quartz, key)
+    try:
+        post_key_event(quartz, keycode, True, modifiers)
+        time.sleep(0.03)
+        post_key_event(quartz, keycode, False, modifiers)
+        time.sleep(0.15)
+    except DesktopError:
+        raise
+    except Exception as exc:
+        raise DesktopError(
+            "desktop_press_key_failed",
+            f"desktop key event failed: {exc}",
+            "请重新确认目标应用前台状态，不要连续重试。",
+        ) from exc
+    active_after = active_pid(workspace) == pid
+    return {
+        "pid": pid,
+        "key": key,
+        "action": "PressKey",
+        "performed": True,
+        "active_before": True,
+        "active_after": active_after,
+    }
+
+
 def ax_snapshot(payload):
     quartz, _, _ = require_macos_modules()
     api = load_ax()
@@ -594,6 +686,7 @@ def dispatch(command, payload):
         "screenshot": screenshot,
         "ax_snapshot": ax_snapshot,
         "ax_press": ax_press,
+        "press_key": press_key,
     }
     handler = commands.get(command)
     if handler is None:

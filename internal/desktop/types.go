@@ -119,6 +119,20 @@ type AXPressResult struct {
 	Performed bool   `json:"performed"`
 }
 
+type PressKeyRequest struct {
+	PID int    `json:"pid"`
+	Key string `json:"key"`
+}
+
+type PressKeyResult struct {
+	PID          int    `json:"pid"`
+	Key          string `json:"key"`
+	Action       string `json:"action"`
+	Performed    bool   `json:"performed"`
+	ActiveBefore bool   `json:"active_before"`
+	ActiveAfter  bool   `json:"active_after"`
+}
+
 // Driver 抽象平台相关的桌面感知和受限 AX 语义动作能力。
 type Driver interface {
 	Permissions(ctx context.Context) (PermissionsResult, error)
@@ -127,4 +141,5 @@ type Driver interface {
 	Screenshot(ctx context.Context, req ScreenshotRequest) (ScreenshotResult, error)
 	AXSnapshot(ctx context.Context, req AXSnapshotRequest) (AXSnapshotResult, error)
 	AXPress(ctx context.Context, req AXPressRequest) (AXPressResult, error)
+	PressKey(ctx context.Context, req PressKeyRequest) (PressKeyResult, error)
 }

@@ -81,6 +81,11 @@ func (d *PythonDriver) AXPress(ctx context.Context, req AXPressRequest) (AXPress
 	return result, d.call(ctx, "ax_press", req, &result)
 }
 
+func (d *PythonDriver) PressKey(ctx context.Context, req PressKeyRequest) (PressKeyResult, error) {
+	var result PressKeyResult
+	return result, d.call(ctx, "press_key", req, &result)
+}
+
 type helperEnvelope struct {
 	Status  string          `json:"status"`
 	Code    string          `json:"code"`

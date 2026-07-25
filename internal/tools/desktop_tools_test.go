@@ -19,6 +19,7 @@ type fakeDesktopDriver struct {
 	axSnapshot  desktop.AXSnapshotResult
 	axSnapshots []desktop.AXSnapshotResult
 	axPress     desktop.AXPressResult
+	pressKey    desktop.PressKeyResult
 	err         error
 
 	listRequest       desktop.ListWindowsRequest
@@ -26,6 +27,7 @@ type fakeDesktopDriver struct {
 	screenshotRequest desktop.ScreenshotRequest
 	axRequest         desktop.AXSnapshotRequest
 	axPressRequest    desktop.AXPressRequest
+	pressKeyRequest   desktop.PressKeyRequest
 	axSnapshotCalls   int
 }
 
@@ -85,6 +87,14 @@ func (d *fakeDesktopDriver) AXPress(ctx context.Context, req desktop.AXPressRequ
 		return desktop.AXPressResult{}, d.err
 	}
 	return d.axPress, nil
+}
+
+func (d *fakeDesktopDriver) PressKey(ctx context.Context, req desktop.PressKeyRequest) (desktop.PressKeyResult, error) {
+	d.pressKeyRequest = req
+	if d.err != nil {
+		return desktop.PressKeyResult{}, d.err
+	}
+	return d.pressKey, nil
 }
 
 func TestDesktopWindowsClampsLimitAndReportsPhysicalCoordinates_BitsUT(t *testing.T) {
@@ -436,6 +446,99 @@ func TestConfirmationStoreConsumesOnlyExactActionOnce_BitsUT(t *testing.T) {
 	}
 	if store.Consume(token, approval) {
 		t.Fatal("token was reusable")
+	}
+}
+
+func TestDesktopPressKeyRunsLowRiskKey_BitsUT(t *testing.T) {
+	driver := &fakeDesktopDriver{
+		pressKey: desktop.PressKeyResult{
+			PID:          123,
+			Key:          "Escape",
+			Action:       "PressKey",
+			Performed:    true,
+			ActiveBefore: true,
+			ActiveAfter:  true,
+		},
+	}
+	outcome, err := NewDesktopPressKey(driver, NewConfirmationStore()).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"pid": 123, "key": "Esc", "reason": "关闭当前浮层"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if driver.pressKeyRequest.Key != "Escape" {
+		t.Fatalf("press key request = %#v", driver.pressKeyRequest)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["verified"] != true || data["risk"] != desktopRiskReversible {
+		t.Fatalf("outcome = %#v", data)
+	}
+}
+
+func TestDesktopPressKeyRequiresConfirmationForEnter_BitsUT(t *testing.T) {
+	driver := &fakeDesktopDriver{
+		pressKey: desktop.PressKeyResult{
+			PID:          123,
+			Key:          "Cmd+Enter",
+			Action:       "PressKey",
+			Performed:    true,
+			ActiveBefore: true,
+			ActiveAfter:  true,
+		},
+	}
+	store := NewConfirmationStore()
+	tool := NewDesktopPressKey(driver, store)
+	args := map[string]any{"pid": 123, "key": "Meta+Return", "reason": "发送已确认消息"}
+
+	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	required := outcome.Data.(map[string]any)
+	if required["code"] != "desktop_action_confirmation_required" || driver.pressKeyRequest.Key != "" {
+		t.Fatalf("outcome = %#v, press request = %#v", required, driver.pressKeyRequest)
+	}
+
+	token, err := store.Issue(ActionApproval{
+		Operation: desktopPressKeyOperation,
+		PID:       123,
+		Key:       "Cmd+Enter",
+		Reason:    "发送已确认消息",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args["confirmation_token"] = token
+	outcome, err = tool.Run(context.Background(), agent.ToolCallContext{Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["risk"] != desktopRiskExternal {
+		t.Fatalf("outcome = %#v", data)
+	}
+
+	outcome, err = tool.Run(context.Background(), agent.ToolCallContext{Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reused := outcome.Data.(map[string]any)
+	if reused["code"] != "desktop_action_confirmation_required" {
+		t.Fatalf("reused token outcome = %#v", reused)
+	}
+}
+
+func TestDesktopPressKeyRejectsUnsupportedKey_BitsUT(t *testing.T) {
+	driver := &fakeDesktopDriver{}
+	outcome, err := NewDesktopPressKey(driver, NewConfirmationStore()).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"pid": 123, "key": "Cmd+Q", "reason": "退出应用"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolErr := outcome.Data.(agent.ToolErrorData)
+	if toolErr.Code != "desktop_press_key_unsupported" || driver.pressKeyRequest.Key != "" {
+		t.Fatalf("error = %#v, press request = %#v", toolErr, driver.pressKeyRequest)
 	}
 }
 

@@ -59,7 +59,7 @@ go build -o cohert ./cmd/cohert
 | Agent Loop | 스트리밍 대화, 도구 호출, 최대 턴 제어 |
 | 로컬 도구 | 파일 읽기/쓰기/patch, shell 실행, 사용자 질문, 구조화 오류 |
 | 브라우저 자동화 | Chrome bridge, 페이지 스캔, JS 실행, 요소 snapshot, click/type/key/wait/screenshot/OCR |
-| Desktop Computer Use | macOS 권한, 창 목록, PID 활성화, 스크린샷, AX tree, desktop OCR, 통제된 `AXPress` |
+| Desktop Computer Use | macOS 권한, 창 목록, PID 활성화, 스크린샷, AX tree, desktop OCR, 통제된 `AXPress`, 제한된 키 입력 |
 | 세션 | `history.jsonl`, 메타데이터, 목록, 재개, 로컬 감사 기록 |
 | 컨텍스트 관리 | 도구 결과 압축, 안전한 히스토리 트리밍, session memory, full compact |
 | SOP Runtime | SOP index, 작업 기반 힌트, working checkpoint |
@@ -128,9 +128,10 @@ desktop_permissions
   -> desktop_screenshot
   -> desktop_ocr
   -> desktop_ax_press
+  -> desktop_press_key
 ```
 
-OCR 보다 Accessibility / AX 를 우선합니다. 현재 유일한 데스크톱 입력은 `desktop_ax_press` 입니다. frontmost PID, 최신 AX node metadata, 실행 전 재검증, 실행 후 AX 검증이 필요합니다.
+OCR 보다 Accessibility / AX 를 우선합니다. `desktop_ax_press` 는 frontmost PID, 최신 AX node metadata, 실행 전 재검증, 실행 후 AX 검증이 필요합니다. `desktop_press_key` 는 제한된 key allowlist 만 지원합니다. 저위험 navigation key 는 바로 실행할 수 있고, Enter, Cmd+Enter, Delete, Backspace 같은 제출/삭제 키는 확인이 필요합니다.
 
 위험 정책:
 
@@ -138,7 +139,7 @@ OCR 보다 Accessibility / AX 를 우선합니다. 현재 유일한 데스크톱
 - R2 외부 부작용은 `ask_user` 의 일회성 confirmation token 이 필요합니다.
 - R3 결제, 승인, 권한 부여, 로그인 검증, 삭제 등은 자동 실행을 거부합니다.
 
-좌표 클릭, 키보드 입력, 텍스트 입력 도구는 아직 없습니다.
+좌표 클릭과 텍스트 입력 도구는 아직 없습니다.
 
 macOS helper 의존성:
 

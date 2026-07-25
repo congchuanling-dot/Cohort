@@ -59,7 +59,7 @@ La configuration par défaut se trouve dans [`configs/config.yaml`](../../config
 | Agent Loop | Chat streaming compatible OpenAI, tool calling, contrôle du nombre de tours |
 | Outils locaux | Lecture/écriture/patch de fichiers, shell, questions utilisateur, erreurs structurées |
 | Navigateur | Chrome bridge, scan de page, JS, snapshot d'éléments, click/type/key/wait/screenshot/OCR |
-| Desktop Computer Use | Permissions macOS, fenêtres, activation PID, captures, arbre AX, OCR bureau, `AXPress` contrôlé |
+| Desktop Computer Use | Permissions macOS, fenêtres, activation PID, captures, arbre AX, OCR bureau, `AXPress` contrôlé, touches restreintes |
 | Sessions | `history.jsonl`, métadonnées, liste, reprise, audit local |
 | Context Manager | Compactation des résultats, découpage sûr, session memory, full compact |
 | SOP Runtime | Index SOP, indices par tâche, working checkpoint |
@@ -128,9 +128,10 @@ desktop_permissions
   -> desktop_screenshot
   -> desktop_ocr
   -> desktop_ax_press
+  -> desktop_press_key
 ```
 
-Accessibility / AX est prioritaire sur l'OCR. `desktop_ax_press` est aujourd'hui la seule action d'entrée desktop. Elle exige un PID au premier plan, des métadonnées AX fraîches, une revalidation avant action et une vérification AX après action.
+Accessibility / AX est prioritaire sur l'OCR. `desktop_ax_press` exige un PID au premier plan, des métadonnées AX fraîches, une revalidation avant action et une vérification AX après action. `desktop_press_key` n'accepte qu'une allowlist de touches ; les touches de navigation à faible risque peuvent être exécutées directement, tandis que Enter, Cmd+Enter, Delete, Backspace et équivalents exigent une confirmation.
 
 Politique de risque :
 
@@ -138,7 +139,7 @@ Politique de risque :
 - R2 effets externes : token de confirmation unique émis par `ask_user`.
 - R3 actions à haut risque comme paiement, approbation, autorisation, vérification de connexion ou suppression : refus automatique pour exécution manuelle.
 
-Il n'existe pas encore de clic par coordonnées, clavier ou saisie texte desktop.
+Il n'existe pas encore de clic par coordonnées ni de saisie texte desktop.
 
 Dépendances du helper macOS :
 

@@ -59,7 +59,7 @@ Default config [`configs/config.yaml`](../../configs/config.yaml) में ह�
 | Agent Loop | Streaming OpenAI-compatible chat, tool calling, max-turn control |
 | Local Tools | File read/write/patch, shell execution, user questions, structured errors |
 | Browser Automation | Chrome bridge, page scan, JS execution, element snapshot, click/type/key/wait/screenshot/OCR |
-| Desktop Computer Use | macOS permissions, windows, PID activation, screenshots, AX tree, desktop OCR, controlled `AXPress` |
+| Desktop Computer Use | macOS permissions, windows, PID activation, screenshots, AX tree, desktop OCR, controlled `AXPress`, restricted key press |
 | Sessions | `history.jsonl`, metadata, session list, resume, local audit trail |
 | Context Manager | Tool-result compaction, safe trimming, session memory, full compact |
 | SOP Runtime | SOP index, task-based hints, working checkpoints |
@@ -128,9 +128,10 @@ desktop_permissions
   -> desktop_screenshot
   -> desktop_ocr
   -> desktop_ax_press
+  -> desktop_press_key
 ```
 
-OCR से पहले Accessibility / AX को prefer किया जाता है। आज `desktop_ax_press` ही अकेला desktop input action है। इसके लिए frontmost PID, fresh AX node metadata, action से पहले revalidation और action के बाद AX verification जरूरी है।
+OCR से पहले Accessibility / AX को prefer किया जाता है। `desktop_ax_press` के लिए frontmost PID, fresh AX node metadata, action से पहले revalidation और action के बाद AX verification जरूरी है। `desktop_press_key` सिर्फ restricted key allowlist support करता है। Low-risk navigation keys direct चल सकते हैं; Enter, Cmd+Enter, Delete, Backspace जैसे submit/delete keys के लिए confirmation चाहिए।
 
 Risk policy:
 
@@ -138,7 +139,7 @@ Risk policy:
 - R2 external side effects के लिए `ask_user` का one-time confirmation token चाहिए।
 - R3 high-risk actions जैसे payment, approval, authorization, login verification या deletion automatic run नहीं होंगे।
 
-Desktop coordinate click, keyboard और text-input tool अभी उपलब्ध नहीं हैं।
+Desktop coordinate click और text-input tool अभी उपलब्ध नहीं हैं।
 
 macOS helper dependencies:
 

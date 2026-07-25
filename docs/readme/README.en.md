@@ -59,7 +59,7 @@ Default config lives in [`configs/config.yaml`](../../configs/config.yaml). Full
 | Agent Loop | Streaming OpenAI-compatible chat, tool calling, max-turn control |
 | Local Tools | File read/write/patch, shell execution, user questions, structured errors |
 | Browser Automation | Chrome bridge, page scan, JS execution, element snapshot, click/type/key/wait/screenshot/OCR |
-| Desktop Computer Use | macOS permissions, windows, PID activation, screenshots, AX tree, desktop OCR, controlled `AXPress` |
+| Desktop Computer Use | macOS permissions, windows, PID activation, screenshots, AX tree, desktop OCR, controlled `AXPress`, restricted key press |
 | Sessions | `history.jsonl`, metadata, session list, resume, local audit trail |
 | Context Manager | Tool-result compaction, group-safe trimming, session memory, full compact |
 | SOP Runtime | SOP index, task-based hints, working checkpoints |
@@ -128,9 +128,10 @@ desktop_permissions
   -> desktop_screenshot
   -> desktop_ocr
   -> desktop_ax_press
+  -> desktop_press_key
 ```
 
-Accessibility / AX is preferred over OCR. `desktop_ax_press` is the only desktop input action today. It requires a frontmost PID, fresh AX node metadata, pre-action revalidation, and post-action AX verification.
+Accessibility / AX is preferred over OCR. `desktop_ax_press` requires a frontmost PID, fresh AX node metadata, pre-action revalidation, and post-action AX verification. `desktop_press_key` only supports a restricted key allowlist. Low-risk navigation keys can run directly; Enter, Cmd+Enter, Delete, Backspace, and similar submit/delete keys require confirmation.
 
 Risk policy:
 
@@ -138,7 +139,7 @@ Risk policy:
 - R2 external side effects require a one-time `ask_user` confirmation token.
 - R3 high-risk actions such as payment, approval, authorization, login verification, or deletion are refused for manual completion.
 
-There is still no desktop coordinate click, keyboard, or text-input tool.
+There is still no desktop coordinate click or text-input tool.
 
 macOS helper dependencies:
 

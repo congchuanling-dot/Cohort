@@ -9,14 +9,18 @@ import (
 	"time"
 )
 
-const desktopAXPressOperation = "desktop_ax_press"
+const (
+	desktopAXPressOperation  = "desktop_ax_press"
+	desktopPressKeyOperation = "desktop_press_key"
+)
 
 // ActionApproval 绑定用户确认到一个具体的高风险桌面动作。
-// 绑定 pid、node_id 和 reason，避免确认令牌被复用于其他控件或任务。
+// 绑定 pid、node_id/key 和 reason，避免确认令牌被复用于其他控件、按键或任务。
 type ActionApproval struct {
 	Operation string
 	PID       int
 	NodeID    string
+	Key       string
 	Reason    string
 }
 

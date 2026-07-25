@@ -59,7 +59,7 @@ go build -o cohert ./cmd/cohert
 | Agent Loop | ストリーミング対話、ツール呼び出し、最大ターン制御 |
 | ローカルツール | ファイル読書き、patch、shell 実行、ユーザー確認、構造化エラー |
 | ブラウザ自動化 | Chrome bridge、ページ読み取り、JS 実行、要素 snapshot、click/type/key/wait/screenshot/OCR |
-| Desktop Computer Use | macOS 権限、ウィンドウ列挙、PID activation、スクリーンショット、AX tree、desktop OCR、制御済み `AXPress` |
+| Desktop Computer Use | macOS 権限、ウィンドウ列挙、PID activation、スクリーンショット、AX tree、desktop OCR、制御済み `AXPress`、制限付きキー入力 |
 | セッション | `history.jsonl`、メタデータ、一覧、再開、ローカル監査 |
 | コンテキスト管理 | ツール結果圧縮、安全な履歴裁剪、session memory、full compact |
 | SOP Runtime | SOP index、タスク別ヒント、working checkpoint |
@@ -128,9 +128,10 @@ desktop_permissions
   -> desktop_screenshot
   -> desktop_ocr
   -> desktop_ax_press
+  -> desktop_press_key
 ```
 
-OCR より Accessibility / AX を優先します。現在の唯一のデスクトップ入力は `desktop_ax_press` です。frontmost PID、最新の AX node metadata、実行前の再検証、実行後の AX 検証が必要です。
+OCR より Accessibility / AX を優先します。`desktop_ax_press` は frontmost PID、最新の AX node metadata、実行前の再検証、実行後の AX 検証が必要です。`desktop_press_key` は制限付きキー allowlist のみ対応し、低リスクのナビゲーションキーは直接実行できます。Enter、Cmd+Enter、Delete、Backspace などの送信/削除系キーは確認が必要です。
 
 リスクポリシー：
 
@@ -138,7 +139,7 @@ OCR より Accessibility / AX を優先します。現在の唯一のデスク�
 - R2 の外部副作用は `ask_user` の一回限り confirmation token が必要です。
 - R3 の支払い、承認、認可、ログイン確認、削除などは自動実行を拒否します。
 
-座標クリック、キーボード入力、テキスト入力はまだありません。
+座標クリックとテキスト入力はまだありません。
 
 macOS helper 依存：
 

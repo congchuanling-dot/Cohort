@@ -315,3 +315,186 @@ func desktopAXPressError(code string, message string, hint string) agent.Outcome
 		NextPrompt: "\n",
 	}
 }
+
+type DesktopPressKey struct {
+	driver        desktop.Driver
+	confirmations *ConfirmationStore
+}
+
+func NewDesktopPressKey(driver desktop.Driver, confirmations *ConfirmationStore) *DesktopPressKey {
+	return &DesktopPressKey{driver: driver, confirmations: confirmations}
+}
+
+func (t *DesktopPressKey) Name() string { return ToolNameDesktopPressKey }
+
+func (t *DesktopPressKey) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Press a restricted desktop key for the frontmost target PID. Low-risk navigation keys such as Escape, Tab, Shift+Tab, arrows, PageUp/PageDown, Home, and End can run directly. Enter, Cmd+Enter, Ctrl+Enter, Delete, Backspace, and related deletion/submit keys require a one-time confirmation_token from ask_user. This tool does not type text and does not support arbitrary shortcuts.",
+		Parameters: objectSchema(map[string]any{
+			"pid":                intProp("Target application PID from desktop_windows. The helper refuses to press the key unless this PID is frontmost.", 0),
+			"key":                stringProp("Restricted key or shortcut, for example Escape, Tab, Shift+Tab, ArrowUp, ArrowDown, Enter, Cmd+Enter, Delete, Backspace."),
+			"reason":             stringProp("Concrete user-facing reason for this key press."),
+			"confirmation_token": stringProp("Required only for R2 keys. Obtain it from ask_user with an approval binding for this exact pid, key, and reason."),
+		}, "pid", "key", "reason"),
+	}}
+}
+
+func (t *DesktopPressKey) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	pid := asInt(call.Args["pid"], 0)
+	if pid <= 0 {
+		return desktopBadPIDOutcome(t.Name()), nil
+	}
+	key, keyErr := requiredDesktopActionString(call.Args, "key")
+	if keyErr != nil {
+		return agent.Outcome{Data: *keyErr, NextPrompt: "\n"}, nil
+	}
+	reason, reasonErr := requiredDesktopActionString(call.Args, "reason")
+	if reasonErr != nil {
+		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
+	}
+	normalizedKey, risk, ok := classifyDesktopKeyRisk(key)
+	if !ok {
+		return desktopActionError(
+			"desktop_press_key_unsupported",
+			"desktop_press_key only supports a restricted key allowlist",
+			"当前只支持 Escape、Tab、Shift+Tab、方向键、PageUp/PageDown、Home/End，以及需要确认的 Enter/Cmd+Enter/Ctrl+Enter/Delete/Backspace。",
+		), nil
+	}
+	if risk == desktopRiskExternal {
+		approval := ActionApproval{
+			Operation: desktopPressKeyOperation,
+			PID:       pid,
+			Key:       normalizedKey,
+			Reason:    reason,
+		}
+		token := strings.TrimSpace(asString(call.Args["confirmation_token"]))
+		if !t.confirmations.Consume(token, approval) {
+			return desktopPressKeyApprovalRequiredOutcome(approval, risk), nil
+		}
+	}
+
+	result, err := t.driver.PressKey(ctx, desktop.PressKeyRequest{PID: pid, Key: normalizedKey})
+	if err != nil {
+		return desktopToolError(err), nil
+	}
+	verified := result.Performed && result.ActiveBefore && result.ActiveAfter
+	data := map[string]any{
+		"status":        agent.ToolStatusSuccess,
+		"pid":           result.PID,
+		"key":           result.Key,
+		"action":        result.Action,
+		"risk":          risk,
+		"performed":     result.Performed,
+		"active_before": result.ActiveBefore,
+		"active_after":  result.ActiveAfter,
+		"verified":      verified,
+	}
+	if !verified {
+		data["status"] = agent.ToolStatusError
+		data["code"] = "desktop_press_key_unverified"
+		data["message"] = "desktop key event was sent but target foreground state was not verified"
+		data["hint"] = "请停止连续按键，重新调用 desktop_windows 和 desktop_activate 确认目标应用状态。"
+	}
+	return agent.Outcome{
+		Data:       data,
+		NextPrompt: "\n",
+	}, nil
+}
+
+func classifyDesktopKeyRisk(key string) (string, desktopActionRisk, bool) {
+	normalized := normalizeDesktopKey(key)
+	switch normalized {
+	case "Escape", "Tab", "Shift+Tab", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End":
+		return normalized, desktopRiskReversible, true
+	case "Enter", "Cmd+Enter", "Ctrl+Enter", "Delete", "Backspace", "Cmd+Backspace", "Ctrl+Backspace":
+		return normalized, desktopRiskExternal, true
+	default:
+		return "", "", false
+	}
+}
+
+func normalizeDesktopKey(key string) string {
+	parts := strings.Split(strings.TrimSpace(key), "+")
+	for index := range parts {
+		parts[index] = strings.ToLower(strings.TrimSpace(parts[index]))
+	}
+	if len(parts) == 1 {
+		switch parts[0] {
+		case "esc", "escape":
+			return "Escape"
+		case "tab":
+			return "Tab"
+		case "enter", "return":
+			return "Enter"
+		case "delete", "forwarddelete", "forward_delete":
+			return "Delete"
+		case "backspace":
+			return "Backspace"
+		case "arrowup", "up":
+			return "ArrowUp"
+		case "arrowdown", "down":
+			return "ArrowDown"
+		case "arrowleft", "left":
+			return "ArrowLeft"
+		case "arrowright", "right":
+			return "ArrowRight"
+		case "pageup":
+			return "PageUp"
+		case "pagedown":
+			return "PageDown"
+		case "home":
+			return "Home"
+		case "end":
+			return "End"
+		}
+		return ""
+	}
+	if len(parts) != 2 {
+		return ""
+	}
+	modifier := ""
+	switch parts[0] {
+	case "shift":
+		modifier = "Shift"
+	case "cmd", "command", "meta":
+		modifier = "Cmd"
+	case "ctrl", "control":
+		modifier = "Ctrl"
+	default:
+		return ""
+	}
+	base := normalizeDesktopKey(parts[1])
+	switch modifier + "+" + base {
+	case "Shift+Tab", "Cmd+Enter", "Ctrl+Enter", "Cmd+Backspace", "Ctrl+Backspace":
+		return modifier + "+" + base
+	default:
+		return ""
+	}
+}
+
+func desktopPressKeyApprovalRequiredOutcome(approval ActionApproval, risk desktopActionRisk) agent.Outcome {
+	return agent.Outcome{
+		Data: map[string]any{
+			"status":  agent.ToolStatusError,
+			"code":    "desktop_action_confirmation_required",
+			"message": "this desktop key requires one-time user confirmation",
+			"hint":    "请调用 ask_user，并在 approval 中原样传入 approval_request；用户明确确认后，将返回 confirmation_token。然后用同一 pid、key、reason 和该 token 重试一次 desktop_press_key。",
+			"risk":    risk,
+			"approval_request": map[string]any{
+				"operation": approval.Operation,
+				"pid":       approval.PID,
+				"key":       approval.Key,
+				"reason":    approval.Reason,
+			},
+		},
+		NextPrompt: "\n",
+	}
+}
+
+func desktopActionError(code string, message string, hint string) agent.Outcome {
+	return agent.Outcome{
+		Data:       agent.NewToolError(code, message, hint),
+		NextPrompt: "\n",
+	}
+}
