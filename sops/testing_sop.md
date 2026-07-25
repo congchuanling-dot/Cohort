@@ -11,8 +11,10 @@
 Go 改动：
 
 ```bash
-go test ./...
+./internal/tests/run.sh
 ```
+
+`internal/tests/packages.txt` 是 internal 包测试的统一清单。Go 同包白盒测试文件仍放在源码包旁边，不要直接搬进 `internal/tests`，否则会改变包路径并破坏未导出符号访问。
 
 Chrome 插件 JS 改动：
 

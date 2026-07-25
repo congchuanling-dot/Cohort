@@ -44,17 +44,16 @@ gofmt -w ./cmd ./internal
 ### 2.2 编译和测试
 
 ```bash
-go test ./...
+./internal/tests/run.sh
 ```
 
-预期结果类似：
+这个脚本会读取 `internal/tests/packages.txt`，统一执行当前所有带测试的 internal 包。
+源码旁的 `*_test.go` 保持在原包目录中，因为它们是 Go 同包白盒测试，搬到其他目录会失去对包内未导出符号的访问。
 
-```text
-?    cohert/cmd/cohert              [no test files]
-?    cohert/internal/agent      [no test files]
-?    cohert/internal/app        [no test files]
-?    cohert/internal/llm        [no test files]
-?    cohert/internal/tools      [no test files]
+也可以直接运行全量包测试：
+
+```bash
+go test ./...
 ```
 
 ### 2.3 直接运行 CLI

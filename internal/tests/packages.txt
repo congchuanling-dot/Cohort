@@ -1,0 +1,12 @@
+# Packages with colocated Go tests.
+./internal/agent
+./internal/app
+./internal/browser
+./internal/contextmgr
+./internal/desktop
+./internal/evolution
+./internal/llm
+./internal/repl
+./internal/session
+./internal/tools
+./internal/vision
