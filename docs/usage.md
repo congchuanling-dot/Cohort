@@ -242,7 +242,19 @@ MCP 让 Cohert 连接飞书、GitHub、数据库等外部系统。项目级配�
 
 ```bash
 go run . mcp list
+go run . mcp status
 ```
+
+也可以进入 `go run .` 后直接使用，不需要退出 REPL：
+
+```text
+/mcp list
+/mcp status
+/mcp tools github
+/mcp probe github
+```
+
+`/mcp` 只查看和诊断你已经显式装配的 Server，不会添加默认 MCP，也不会修改配置。
 
 添加本地 stdio server：
 

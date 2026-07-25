@@ -60,8 +60,13 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 	if err != nil {
 		return nil, err
 	}
+	mcpPermissions, err := loadMCPPermissions(cwd)
+	if err != nil {
+		_ = mcpManager.Close()
+		return nil, err
+	}
 	browserClient := newBrowserClient()
-	registry := newRegistry(workspace, browserClient, mcpManager)
+	registry := newRegistry(workspace, browserClient, mcpManager, mcpPermissions)
 	sessionStore := session.NewStore(session.DefaultRootDir)
 	contextManager := &contextmgr.Manager{
 		Config:     cfg.Context.Normalize(),
@@ -79,6 +84,7 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 		SessionStore:   &sessionStore,
 		SessionCWD:     cwd,
 		SessionModel:   cfg.LLM.Model,
+		CloseFunc:      mcpManager.Close,
 	}, nil
 }
 
@@ -93,16 +99,32 @@ func ToolSchemas(cfg Config) ([]llm.ToolSchema, error) {
 		return nil, err
 	}
 	defer mcpManager.Close()
-	return newRegistry(normalizeWorkspace(cfg.Workspace), browser.NewUnavailableClient(browser.ErrNotConnected), mcpManager).Schemas(), nil
+	mcpPermissions, err := loadMCPPermissions(cwd)
+	if err != nil {
+		return nil, err
+	}
+	return newRegistry(
+		normalizeWorkspace(cfg.Workspace),
+		browser.NewUnavailableClient(browser.ErrNotConnected),
+		mcpManager,
+		mcpPermissions,
+	).Schemas(), nil
 }
 
 // newRegistry 集中注册当前 MVP 暴露给模型的本地工具。
-func newRegistry(workspace string, browserClient browser.Client, mcpManager *mcp.Manager) *tools.Registry {
+func newRegistry(
+	workspace string,
+	browserClient browser.Client,
+	mcpManager *mcp.Manager,
+	mcpPermissions *tools.MCPPermissionStore,
+) *tools.Registry {
 	registry := tools.NewRegistry()
 	desktopDriver := newDesktopDriver(workspace)
 	confirmations := tools.NewConfirmationStore()
 	visualFocuses := tools.NewVisualFocusStore()
-	mcpPermissions := tools.NewMCPPermissionStore()
+	if mcpPermissions == nil {
+		mcpPermissions = tools.NewMCPPermissionStore()
+	}
 	registry.Register(tools.NewFileRead(workspace))
 	registry.Register(tools.NewFileWrite(workspace))
 	registry.Register(tools.NewFilePatch(workspace))
@@ -168,6 +190,14 @@ func loadMCPManager(ctx context.Context, projectRoot string) (*mcp.Manager, erro
 	manager := mcp.NewManager()
 	manager.Load(loadCtx, servers)
 	return manager, nil
+}
+
+// loadMCPPermissions 只读取当前项目的 MCP 策略和已确认授权。
+//
+// 这里不读取、更不创建任何 Server 配置；因此 Cohert 启动时没有默认飞书或其他
+// MCP，所有外部能力仍必须由用户通过 mcp add 或配置文件显式装配。
+func loadMCPPermissions(projectRoot string) (*tools.MCPPermissionStore, error) {
+	return tools.NewProjectMCPPermissionStore(mcp.NewStore(projectRoot))
 }
 
 func newBrowserClient() browser.Client {

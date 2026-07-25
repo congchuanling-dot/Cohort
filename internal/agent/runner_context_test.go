@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +12,7 @@ import (
 
 	"cohert/internal/contextmgr"
 	"cohert/internal/llm"
+	"cohert/internal/session"
 )
 
 type contextRecordingClient struct {
@@ -253,6 +255,52 @@ func TestRunnerPromptsLongTermMemoryWhenUserRequestsIt_BitsUT(t *testing.T) {
 	last := client.requests[0].Messages[len(client.requests[0].Messages)-1]
 	if !strings.Contains(last.Content, "[LONG-TERM MEMORY HINT]") || !strings.Contains(last.Content, "用户明确要求保留经验") {
 		t.Fatalf("long-term memory hint = %q", last.Content)
+	}
+}
+
+func TestRunnerWritesRedactedRunLog_BitsUT(t *testing.T) {
+	client := &contextRecordingClient{
+		responses: []llm.Response{
+			{ToolCalls: []llm.ToolCall{{
+				ID:   "call-log",
+				Type: "function",
+				Function: llm.ToolFunction{
+					Name:      "mcp_custom_send",
+					Arguments: `{"token":"super-secret","text":"hello"}`,
+				},
+			}}},
+			{Content: "done"},
+		},
+	}
+	root := t.TempDir()
+	store := session.NewStore(filepath.Join(root, "sessions"))
+	runner := &Runner{
+		Client:       client,
+		Tools:        contextFakeTools{result: `{"status":"success"}`},
+		MaxTurns:     2,
+		LogDir:       filepath.Join(root, "logs"),
+		SessionStore: &store,
+	}
+
+	if _, err := runner.Run(context.Background(), "record audit", NewConsoleSink(&bytes.Buffer{})); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(store.SessionDir(runner.SessionID()), runLogFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(content), "super-secret") {
+		t.Fatalf("run.log leaked secret: %s", content)
+	}
+	var entry runLogEntry
+	if err := json.Unmarshal(bytes.TrimSpace(content), &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry.Tool != "mcp_custom_send" || entry.Status != ToolStatusSuccess || entry.ArgsHash == "" {
+		t.Fatalf("run log entry = %#v", entry)
+	}
+	if !strings.Contains(entry.ArgsSummary, "[redacted]") {
+		t.Fatalf("args summary must redact token: %q", entry.ArgsSummary)
 	}
 }
 

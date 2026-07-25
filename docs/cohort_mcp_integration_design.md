@@ -395,6 +395,49 @@ scope 写入位置：
 - 默认可以加载 server 暴露的工具，但写操作必须按风险策略确认。
 - 如果项目启用了 strict mode，则只启用 allowlist 中的工具。
 
+### 5.4 零默认 MCP 原则
+
+Cohort 不内置飞书、GitHub、文件系统或任何第三方 MCP Server。首次启动时：
+
+```text
+没有 .mcp.json / 用户级配置 / local 配置
+  -> 不启动任何 MCP 子进程
+  -> 不向模型暴露任何 mcp_* 工具
+```
+
+所有 Server 必须由用户通过 `cohert mcp add`、导入已有 `.mcp.json`，或显式启用
+插件后装配。项目级授权文件 `.cohort/mcp.permissions.json` 只能保存风险规则和已确认
+调用的参数哈希，不能包含 command、url、env 或 headers，因此授权永远不会隐式安装
+或启用任何 MCP Server。
+
+授权文件示例：
+
+```json
+{
+  "rules": {
+    "my_docs/read_document": {
+      "risk": "R1",
+      "decision": "allow"
+    },
+    "my_docs/update_document": {
+      "risk": "R2",
+      "decision": "ask",
+      "args_policy": "exact_args"
+    },
+    "my_local_drafts/create_draft": {
+      "risk": "R2",
+      "decision": "allow",
+      "args_policy": "tool_scope"
+    }
+  },
+  "grants": []
+}
+```
+
+未显式配置的工具一律是 `R2 + ask`；名称明显包含 delete/remove/approve/pay/
+authorize 等不可逆语义的工具是 `R3 + deny`。`allow project` 自动追加的 grant
+始终绑定同一个 `server + tool + args_hash`。
+
 ## 6. Go 类型设计
 
 配置结构：
@@ -687,18 +730,7 @@ mcp_lark_send_message
 - 发飞书消息默认询问，但用户可按 session/project 授权减少重复打扰。
 - 修改飞书文档默认询问，但用户可按 session/project 授权减少重复打扰。
 - 删除、审批、授权类动作默认 R3。
-    private int partitions(int[] nums,int left,int right){
-        int pivot = nums[right];
-        int i = left;
-        for(int j = left ; j < right ; j++){
-            if(nums[j] <= pivot){
-                swap(nums,i,j);
-                i++;
-            }
-        }
-        swap(nums,i,right);
-        return i;
-    }
+
 ## 10. MCP 结果处理
 
 MCP result 常见结构是 content array：
@@ -784,6 +816,7 @@ cohert mcp add <name> -- <command> [args...]
 cohert mcp add --transport http <name> <url>
 cohert mcp add-json <name> <json-file-or-json-string>
 cohert mcp list
+cohert mcp status
 cohert mcp tools <server>
 cohert mcp probe <server>
 cohert mcp remove <server>
@@ -819,7 +852,8 @@ cohert mcp export --scope project
 - `add-json`：兼容 Claude Code 文档中的 JSON 配置片段。
 - `import`：导入现有 `.mcp.json`。
 - `export`：导出为 Claude Code 兼容 `.mcp.json`。
-- `list`：读取配置，显示 scope、transport、enabled、last probe。
+- `list`：读取配置，显示 scope、transport 和连接目标，不启动 Server。
+- `status`：对已经显式配置的 server 完成 initialize + tools/list，显示可用性和工具数。
 - `tools`：启动指定 server，拉 tools/list。
 - `probe`：完整 initialize + tools/list + ping/call dry-run。
 - `remove`：从对应 scope 删除 server。
@@ -962,8 +996,8 @@ hooks 第一版只读取，不自动执行脚本
 
 - `mcp_lark_send_message` 首次调用时询问。
 - 用户选择 `allow once` 后只执行当前 args。
-- 用户选择 `allow session` 后当前 session 内不再重复打扰。
-- 用户选择 `allow project` 后写入项目权限配置。
+- 用户选择 `allow session` 后，当前 session 内相同 `server + tool + args_hash` 不再重复询问。
+- 用户选择 `allow project` 后，只为相同 `server + tool + args_hash` 写入项目权限配置。
 - R3 工具不注册或执行时拒绝。
 
 ### P2：Claude Code 式 Plugin / Skill

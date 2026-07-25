@@ -60,6 +60,32 @@ func (m *Manager) Load(ctx context.Context, configs []ServerConfig) {
 	}
 }
 
+// Reload 在新连接完成握手和发现后原子替换当前快照。
+//
+// 构建新快照失败的 Server 只会在新状态中显示为 unavailable，不会破坏仍在使用的
+// 旧快照；替换完成后才关闭旧客户端。已注册的 MCPTool 仍通过 CohertID 回查本
+// Manager，因此同名工具可以无感切到新连接。新增工具则需要 Registry 刷新后才会
+// 出现在下一次模型请求中。
+func (m *Manager) Reload(ctx context.Context, configs []ServerConfig) {
+	fresh := NewManager()
+	fresh.Load(ctx, configs)
+
+	m.mu.Lock()
+	oldClients := m.clients
+	m.clients = fresh.clients
+	m.tools = fresh.tools
+	m.statuses = fresh.statuses
+	m.mu.Unlock()
+
+	for name, client := range oldClients {
+		if err := client.Close(); err != nil {
+			// Reload 不返回 error 的语义与 Load 一致：可选外部能力失败不阻断
+			// 本地 Agent；新状态已经通过 Statuses 暴露新的连接诊断。
+			_ = name
+		}
+	}
+}
+
 // loadOne 校验、打开并发现单个服务器。
 //
 // 失败只记录状态，不返回给批量加载调用方，因为一个可选 MCP 服务器故障
@@ -83,33 +109,51 @@ func (m *Manager) loadOne(ctx context.Context, config ServerConfig) {
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if existing, ok := m.clients[validated.Name]; ok {
 		_ = existing.Close()
 	}
-	count := 0
+	// 同名 Server 被重复加载时，先移除它的旧工具映射；否则新发现到同名工具会
+	// 和自己的旧快照冲突。不同 Server 的工具仍保留，用于检测真实命名冲突。
+	for cohertID, registered := range m.tools {
+		if registered.Server.Name == validated.Name {
+			delete(m.tools, cohertID)
+		}
+	}
+	registered := make([]RegisteredTool, 0, len(discovered))
+	seen := map[string]bool{}
 	for _, tool := range discovered {
 		if tool.Name == "" {
 			continue
 		}
 		cohertID := ToolName(validated.Name, tool.Name)
-		if _, conflict := m.tools[cohertID]; conflict {
-			continue
+		if _, conflict := m.tools[cohertID]; conflict || seen[cohertID] {
+			m.mu.Unlock()
+			_ = client.Close()
+			m.setStatus(ServerStatus{
+				Name:      validated.Name,
+				Transport: validated.Type,
+				Error:     fmt.Sprintf("MCP tool name conflict: %s", cohertID),
+			})
+			return
 		}
-		m.tools[cohertID] = RegisteredTool{
+		seen[cohertID] = true
+		registered = append(registered, RegisteredTool{
 			Server:   validated,
 			Tool:     tool,
 			CohertID: cohertID,
-		}
-		count++
+		})
+	}
+	for _, tool := range registered {
+		m.tools[tool.CohertID] = tool
 	}
 	m.clients[validated.Name] = client
 	m.statuses[validated.Name] = ServerStatus{
 		Name:      validated.Name,
 		Transport: validated.Type,
 		Available: true,
-		Tools:     count,
+		Tools:     len(registered),
 	}
+	m.mu.Unlock()
 }
 
 // Tools 返回按 CohertID 排序的发现结果，使 CLI 与模型 schema 顺序稳定。

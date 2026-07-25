@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/chzyer/readline"
 	"github.com/manifoldco/promptui"
@@ -17,6 +18,7 @@ import (
 	"cohert/internal/agent"
 	"cohert/internal/app"
 	"cohert/internal/evolution"
+	"cohert/internal/mcp"
 	"cohert/internal/session"
 )
 
@@ -35,6 +37,7 @@ const (
 	commandFullCompact = "full-compact"
 	commandMemory      = "memory"
 	commandSOP         = "sop"
+	commandMCP         = "mcp"
 	commandClear       = "clear"
 
 	sessionCommandList   = "list"
@@ -43,6 +46,13 @@ const (
 
 	sopCommandCandidates = "candidates"
 	sopCommandPromote    = "promote"
+
+	mcpCommandList   = "list"
+	mcpCommandStatus = "status"
+	mcpCommandTools  = "tools"
+	mcpCommandProbe  = "probe"
+
+	mcpProbeTimeout = 90 * time.Second
 )
 
 // Options 是启动交互模式需要的依赖。
@@ -56,6 +66,9 @@ type Options struct {
 	Runner *agent.Runner
 	// SessionStore 是 slash 命令读取和恢复本地 session 的存储器。
 	SessionStore session.Store
+	// MCPStore 是当前项目的 MCP 配置入口。为空时 REPL 使用当前工作目录，
+	// CLI 会显式注入启动目录，保证 /mcp 与外部 cohert mcp 命令看到同一份配置。
+	MCPStore *mcp.Store
 	// In 是 REPL 读取用户输入的来源。
 	In io.Reader
 	// Out 是 REPL 普通输出目标。
@@ -201,6 +214,12 @@ func slashCompleter() *readline.PrefixCompleter {
 		readline.PcItem("/model"),
 		readline.PcItem("/config"),
 		readline.PcItem("/tools"),
+		readline.PcItem("/mcp",
+			readline.PcItem("list"),
+			readline.PcItem("status"),
+			readline.PcItem("tools"),
+			readline.PcItem("probe"),
+		),
 		readline.PcItem("/session",
 			readline.PcItem("list"),
 			readline.PcItem("resume"),
@@ -284,6 +303,11 @@ func selectSlashCommand(opts Options) (SlashCommand, bool, error) {
 			Usage:       "/tools",
 			Description: "查看当前可用工具",
 			Command:     SlashCommand{Raw: "/tools", Name: commandTools},
+		},
+		{
+			Usage:       "/mcp",
+			Description: "查看 MCP 管理命令",
+			Command:     SlashCommand{Raw: "/mcp", Name: commandMCP},
 		},
 		{
 			Usage:       "/session",
@@ -401,6 +425,8 @@ func handleSlashCommand(opts Options, cmd SlashCommand) (bool, error) {
 		printSlashHelp(opts.Out)
 	case commandTools:
 		printTools(opts.Out, opts.Runner)
+	case commandMCP:
+		return false, handleMCPCommand(opts, cmd.Args)
 	case commandModel:
 		printModel(opts.Out, opts.Config)
 	case commandConfig:
@@ -449,6 +475,154 @@ func handleSessionCommand(opts Options, args []string) error {
 	}
 }
 
+// handleMCPCommand 在正在运行的 REPL 内执行只读的 MCP 管理操作。
+//
+// list 不会启动任何进程；status/tools/probe 只连接用户已经显式装配的 Server。
+// 这里不提供 add/remove，因为当前 Runner 的工具集合在启动时确定，运行中写配置却
+// 不自动挂载会制造误导。添加或删除 Server 后应重启 REPL，或使用外部 CLI。
+func handleMCPCommand(opts Options, args []string) error {
+	if len(args) == 0 {
+		printMCPHelp(opts.Out)
+		return nil
+	}
+	store, err := mcpStoreForOptions(opts)
+	if err != nil {
+		return err
+	}
+	switch strings.ToLower(args[0]) {
+	case mcpCommandList:
+		if len(args) != 1 {
+			return fmt.Errorf("usage: /mcp list")
+		}
+		return printMCPList(opts.Out, store)
+	case mcpCommandStatus:
+		if len(args) != 1 {
+			return fmt.Errorf("usage: /mcp status")
+		}
+		return printMCPStatus(opts.Context, opts.Out, store)
+	case mcpCommandTools, mcpCommandProbe:
+		if len(args) != 2 {
+			return fmt.Errorf("usage: /mcp %s <server>", args[0])
+		}
+		return printMCPTools(opts.Context, opts.Out, store, args[1], strings.EqualFold(args[0], mcpCommandProbe))
+	default:
+		return fmt.Errorf("unknown MCP command %q, use /mcp", args[0])
+	}
+}
+
+// mcpStoreForOptions 解析 REPL 当前项目对应的配置存储。
+func mcpStoreForOptions(opts Options) (mcp.Store, error) {
+	if opts.MCPStore != nil {
+		return *opts.MCPStore, nil
+	}
+	root, err := os.Getwd()
+	if err != nil {
+		return mcp.Store{}, err
+	}
+	return mcp.NewStore(root), nil
+}
+
+func printMCPHelp(out io.Writer) {
+	fmt.Fprint(out, `mcp commands
+
+  /mcp list                 查看已显式装配的 MCP Server
+  /mcp status               检查所有已装配 Server 的连通性和工具数量
+  /mcp tools <server>       列出一个 Server 暴露的工具
+  /mcp probe <server>       完整握手并列出工具
+
+提示：/mcp 不会添加默认 Server，也不会修改配置。
+`)
+}
+
+func printMCPList(out io.Writer, store mcp.Store) error {
+	servers, err := store.LoadEffectiveWithScopes()
+	if err != nil {
+		return err
+	}
+	if len(servers) == 0 {
+		fmt.Fprintln(out, "no MCP servers configured")
+		return nil
+	}
+	writer := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(writer, "NAME\tSCOPE\tTRANSPORT\tTARGET")
+	for _, entry := range servers {
+		target := entry.Server.Command
+		if entry.Server.Type == mcp.TransportHTTP {
+			target = entry.Server.URL
+		}
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\n", entry.Server.Name, entry.Scope, entry.Server.Type, target)
+	}
+	return writer.Flush()
+}
+
+func printMCPStatus(ctx context.Context, out io.Writer, store mcp.Store) error {
+	servers, err := store.LoadEffective()
+	if err != nil {
+		return err
+	}
+	if len(servers) == 0 {
+		fmt.Fprintln(out, "no MCP servers configured")
+		return nil
+	}
+	timeoutCtx, cancel := context.WithTimeout(ctx, mcpProbeTimeout)
+	defer cancel()
+	manager := mcp.NewManager()
+	manager.Load(timeoutCtx, servers)
+	defer manager.Close()
+
+	writer := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(writer, "NAME\tTRANSPORT\tSTATUS\tTOOLS\tDETAIL")
+	for _, status := range manager.Statuses() {
+		state := "unavailable"
+		detail := status.Error
+		if status.Available {
+			state = "available"
+			detail = "-"
+		}
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%d\t%s\n", status.Name, status.Transport, state, status.Tools, detail)
+	}
+	return writer.Flush()
+}
+
+func printMCPTools(ctx context.Context, out io.Writer, store mcp.Store, name string, probe bool) error {
+	servers, err := store.LoadEffective()
+	if err != nil {
+		return err
+	}
+	var config *mcp.ServerConfig
+	for index := range servers {
+		if servers[index].Name == name {
+			config = &servers[index]
+			break
+		}
+	}
+	if config == nil {
+		return fmt.Errorf("MCP server %q is not configured", name)
+	}
+	timeoutCtx, cancel := context.WithTimeout(ctx, mcpProbeTimeout)
+	defer cancel()
+	client, err := mcp.Open(timeoutCtx, *config)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	tools, err := client.ListTools(timeoutCtx)
+	if err != nil {
+		return err
+	}
+	if probe {
+		fmt.Fprintf(out, "MCP server %s is available (%s)\n", config.Name, config.Type)
+	}
+	if len(tools) == 0 {
+		fmt.Fprintln(out, "no tools")
+		return nil
+	}
+	for _, tool := range tools {
+		fmt.Fprintf(out, "%s\t%s\n", tool.Name, tool.Description)
+	}
+	return nil
+}
+
 func resumeSession(opts Options, sessionID string) error {
 	sess, err := opts.SessionStore.LoadMeta(sessionID)
 	if err != nil {
@@ -490,6 +664,11 @@ func printSlashHelp(out io.Writer) {
   /model                   查看当前模型配置摘要
   /config                  查看当前运行配置摘要
   /tools                   查看当前可用工具
+  /mcp                     查看 MCP 管理命令
+  /mcp list                查看已装配 MCP Server
+  /mcp status              检查已装配 MCP Server 连通性
+  /mcp tools <server>      列出 Server 工具
+  /mcp probe <server>      完整握手并列出 Server 工具
   /session                 查看当前 session 状态
   /session list            列出本地历史 session
   /session memory          查看当前 session memory.md
@@ -514,6 +693,7 @@ func printCommandPalette(out io.Writer) {
   /model                查看当前模型
   /config               查看运行配置
   /tools                查看工具列表
+  /mcp                  MCP 管理命令
   /session              查看当前 session
   /session list         列出历史 session
   /session memory       查看 session memory

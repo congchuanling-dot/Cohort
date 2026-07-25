@@ -74,6 +74,7 @@ func Run(args []string) error {
 	if err != nil {
 		return err
 	}
+	defer runner.Close()
 
 	switch args[0] {
 	case "run":
@@ -92,7 +93,7 @@ func Run(args []string) error {
 
 func runMCPCommand(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: cohert mcp add|list|tools|probe|remove ...")
+		return errors.New("usage: cohert mcp add|list|status|tools|probe|remove ...")
 	}
 	projectRoot, err := os.Getwd()
 	if err != nil {
@@ -102,6 +103,11 @@ func runMCPCommand(ctx context.Context, args []string) error {
 	switch args[0] {
 	case "list":
 		return printMCPList(store)
+	case "status":
+		if len(args) != 1 {
+			return errors.New("usage: cohert mcp status")
+		}
+		return printMCPStatus(ctx, store)
 	case "add":
 		return addMCPServer(store, args[1:])
 	case "remove":
@@ -114,6 +120,39 @@ func runMCPCommand(ctx context.Context, args []string) error {
 	default:
 		return fmt.Errorf("unknown mcp command %q", args[0])
 	}
+}
+
+// printMCPStatus 尝试连接用户已经显式配置的 MCP Server，并输出运行状态。
+//
+// 它只读取 Store 的有效配置；空配置时不会启动任何子进程，直接显示 no MCP
+// servers configured。status 是诊断命令，不会写入或添加飞书等默认 Server。
+func printMCPStatus(ctx context.Context, store mcp.Store) error {
+	servers, err := store.LoadEffective()
+	if err != nil {
+		return err
+	}
+	if len(servers) == 0 {
+		fmt.Println("no MCP servers configured")
+		return nil
+	}
+	timeoutCtx, cancel := context.WithTimeout(ctx, mcpProbeTimeout)
+	defer cancel()
+	manager := mcp.NewManager()
+	manager.Load(timeoutCtx, servers)
+	defer manager.Close()
+
+	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(writer, "NAME\tTRANSPORT\tSTATUS\tTOOLS\tDETAIL")
+	for _, status := range manager.Statuses() {
+		state := "unavailable"
+		detail := status.Error
+		if status.Available {
+			state = "available"
+			detail = "-"
+		}
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%d\t%s\n", status.Name, status.Transport, state, status.Tools, detail)
+	}
+	return writer.Flush()
 }
 
 func printMCPList(store mcp.Store) error {
@@ -353,6 +392,7 @@ func resumeSession(ctx context.Context, cfg app.Config, store session.Store, ses
 	if err != nil {
 		return err
 	}
+	defer runner.Close()
 	runner.ResumeSession(sess.ID, history)
 	fmt.Printf("resumed session %s (%d messages): %s\n", sess.ID, len(history), sess.Title)
 	return startREPL(ctx, cfg, runner)
@@ -362,10 +402,16 @@ func resumeSession(ctx context.Context, cfg app.Config, store session.Store, ses
 // CLI 仍负责外部子命令分发；进入交互模式后，/model、/tools、/session 等命令由 repl 包处理。
 func startREPL(ctx context.Context, cfg app.Config, runner *agent.Runner) error {
 	store := session.NewStore(session.DefaultRootDir)
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	mcpStore := mcp.NewStore(projectRoot)
 	return repl.Start(ctx, repl.Options{
 		Config:       cfg,
 		Runner:       runner,
 		SessionStore: store,
+		MCPStore:     &mcpStore,
 		In:           os.Stdin,
 		Out:          os.Stdout,
 		Err:          os.Stderr,
@@ -382,6 +428,7 @@ Usage:
   cohert tools            list mounted tools
   cohert config           show effective config
   cohert mcp list         list configured MCP servers
+  cohert mcp status       check configured MCP server availability
   cohert mcp add ...      add an MCP server
   cohert mcp tools <name> inspect an MCP server's tools
   cohert mcp probe <name> verify an MCP server
@@ -398,6 +445,10 @@ Interactive slash commands:
   /help                   show in-REPL command help
   /model                  show current model
   /tools                  list tools
+  /mcp list               list configured MCP servers
+  /mcp status             check MCP server availability
+  /mcp tools <server>     inspect MCP server tools
+  /mcp probe <server>     verify MCP server connectivity
   /session list           list local sessions
   /resume <id>            resume a session
   /compact                reserved for Context Manager

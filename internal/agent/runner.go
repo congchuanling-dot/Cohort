@@ -127,6 +127,9 @@ type Runner struct {
 	SessionCWD string
 	// SessionModel 记录本次会话使用的模型名，会写入 meta.json。
 	SessionModel string
+	// CloseFunc 由应用装配层注入，用于关闭 MCP 子进程等 Runner 持有的资源。
+	// Runner 本身不依赖具体实现，因此测试可留空。
+	CloseFunc func() error
 	// WorkingCheckpoint 保存当前任务的短期关键约束，避免读过 SOP 后在多轮执行中遗忘。
 	WorkingCheckpoint WorkingCheckpoint
 
@@ -216,6 +219,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			sink.WriteToolCall(call)
 
 			// 模型返回的工具参数是 JSON 字符串，这里先解析成 map 给工具使用。
+			toolStartedAt := time.Now()
 			args, err := parseToolArgs(call.Function.Arguments)
 			var outcome Outcome
 			if err != nil {
@@ -264,6 +268,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			}
 			r.recordLongTermMemorySignal(&memorySignals, call.Function.Name, args, outcome)
 			evidenceLedger = append(evidenceLedger, newToolEvidence(call, turn, i, outcome))
+			r.logToolRun(call, args, turn, i, outcome, time.Since(toolStartedAt))
 			if outcome.ShouldExit {
 				return RunResult{Status: RunStatusExited, Response: resp}, nil
 			}
@@ -656,6 +661,17 @@ func isSOPPath(path string) bool {
 // ToolSchemas 返回当前注册器暴露给模型的工具定义。
 func (r *Runner) ToolSchemas() []llm.ToolSchema {
 	return r.Tools.Schemas()
+}
+
+// Close 释放本 Runner 持有的外部资源。它是幂等的，便于 ask、REPL 和错误清理
+// 路径统一调用；未配置 CloseFunc 的轻量测试 Runner 不做任何事。
+func (r *Runner) Close() error {
+	if r == nil || r.CloseFunc == nil {
+		return nil
+	}
+	closeFunc := r.CloseFunc
+	r.CloseFunc = nil
+	return closeFunc()
 }
 
 // SessionID 返回当前 Runner 绑定的本地 session ID。

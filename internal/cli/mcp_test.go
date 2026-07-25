@@ -1,10 +1,17 @@
 package cli
 
 import (
+	"context"
 	"testing"
 
 	"cohert/internal/mcp"
 )
+
+func TestPrintMCPStatusAllowsEmptyUserAssembly(t *testing.T) {
+	if err := printMCPStatus(context.Background(), mcp.NewStore(t.TempDir())); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestAddMCPServerAcceptsOptionsAfterName(t *testing.T) {
 	store := mcp.NewStore(t.TempDir())

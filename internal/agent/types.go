@@ -16,6 +16,11 @@ type Outcome struct {
 	NextPrompt string
 	// ShouldExit 表示工具请求 Runner 结束当前任务循环。
 	ShouldExit bool
+	// Audit 是仅供 Runner 写入 run.log 的结构化元数据，不会回灌给模型。
+	//
+	// 外部 MCP 等工具可以把 server、风险等级、授权决策、参数哈希放在这里；
+	// 该字段禁止保存原始密钥、完整参数或完整外部响应。
+	Audit map[string]any
 }
 
 const (

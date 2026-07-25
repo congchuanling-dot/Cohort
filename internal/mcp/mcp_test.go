@@ -164,6 +164,99 @@ func TestOpenHTTPClientReadsStreamableHTTPEvent(t *testing.T) {
 	}
 }
 
+func TestOpenHTTPClientListsAllToolPages(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request rpcRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		switch request.Method {
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+		case "initialize":
+			writeTestResponse(t, w, request.ID, map[string]any{})
+		case "tools/list":
+			var params struct {
+				Cursor string `json:"cursor"`
+			}
+			paramsJSON, err := json.Marshal(request.Params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(paramsJSON, &params); err != nil {
+				t.Fatal(err)
+			}
+			if params.Cursor == "" {
+				writeTestResponse(t, w, request.ID, map[string]any{
+					"tools":      []map[string]any{{"name": "first"}},
+					"nextCursor": "page-2",
+				})
+				return
+			}
+			if params.Cursor == "page-2" {
+				writeTestResponse(t, w, request.ID, map[string]any{
+					"tools": []map[string]any{{"name": "second"}},
+				})
+				return
+			}
+			t.Fatalf("unexpected tools/list cursor %q", params.Cursor)
+		default:
+			t.Fatalf("unexpected method %q", request.Method)
+		}
+	}))
+	defer server.Close()
+
+	client, err := Open(context.Background(), ServerConfig{Name: "paged", Type: TransportHTTP, URL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	tools, err := client.ListTools(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tools) != 2 || tools[0].Name != "first" || tools[1].Name != "second" {
+		t.Fatalf("tools = %#v", tools)
+	}
+}
+
+func TestManagerReloadReplacesDiscoveredToolSnapshot(t *testing.T) {
+	toolName := "first_tool"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request rpcRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		switch request.Method {
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+		case "initialize":
+			writeTestResponse(t, w, request.ID, map[string]any{})
+		case "tools/list":
+			writeTestResponse(t, w, request.ID, map[string]any{
+				"tools": []map[string]any{{"name": toolName}},
+			})
+		default:
+			t.Fatalf("unexpected method %q", request.Method)
+		}
+	}))
+	defer server.Close()
+
+	configs := []ServerConfig{{Name: "custom", Type: TransportHTTP, URL: server.URL}}
+	manager := NewManager()
+	manager.Load(context.Background(), configs)
+	if tools := manager.Tools(); len(tools) != 1 || tools[0].CohertID != "mcp_custom_first_tool" {
+		t.Fatalf("initial tools = %#v", tools)
+	}
+
+	toolName = "second_tool"
+	manager.Reload(context.Background(), configs)
+	defer manager.Close()
+	if tools := manager.Tools(); len(tools) != 1 || tools[0].CohertID != "mcp_custom_second_tool" {
+		t.Fatalf("reloaded tools = %#v", tools)
+	}
+}
+
 func TestStoreMergesScopesWithLocalPrecedence(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()

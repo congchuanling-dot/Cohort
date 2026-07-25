@@ -94,6 +94,65 @@ func TestMCPToolRefusesHighRiskToolWithoutCallingServer(t *testing.T) {
 	}
 }
 
+func TestMCPToolProjectPermissionMatchesExactArguments(t *testing.T) {
+	var calls int
+	server := newToolMCPServer(t, "send_message", func(_ map[string]any) map[string]any {
+		calls++
+		return map[string]any{
+			"content": []map[string]any{{"type": "text", "text": "sent"}},
+		}
+	})
+	defer server.Close()
+
+	manager := mcp.NewManager()
+	manager.Load(context.Background(), []mcp.ServerConfig{{
+		Name: "custom", Type: mcp.TransportHTTP, URL: server.URL,
+	}})
+	defer manager.Close()
+	registered := manager.Tools()[0]
+
+	store := mcp.NewStore(t.TempDir())
+	permissions, storeErr := NewProjectMCPPermissionStore(store)
+	if storeErr != nil {
+		t.Fatal(storeErr)
+	}
+	firstPrompter := &recordingMCPPrompter{decision: mcpPermissionAllowProject}
+	firstTool := NewMCPTool(registered, manager, permissions, firstPrompter)
+	args := map[string]any{"recipient": "self", "text": "hello"}
+	if _, runErr := firstTool.Run(context.Background(), agent.ToolCallContext{Args: args}); runErr != nil {
+		t.Fatal(runErr)
+	}
+	if firstPrompter.calls != 1 || calls != 1 {
+		t.Fatalf("initial prompt/calls = %d/%d, want 1/1", firstPrompter.calls, calls)
+	}
+
+	// 新建授权缓存模拟下次启动，确认授权确实来自项目文件而非内存 session。
+	reloadedPermissions, reloadErr := NewProjectMCPPermissionStore(store)
+	if reloadErr != nil {
+		t.Fatal(reloadErr)
+	}
+	secondPrompter := &recordingMCPPrompter{decision: mcpPermissionDeny}
+	secondTool := NewMCPTool(registered, manager, reloadedPermissions, secondPrompter)
+	if _, runErr := secondTool.Run(context.Background(), agent.ToolCallContext{Args: args}); runErr != nil {
+		t.Fatal(runErr)
+	}
+	if secondPrompter.calls != 0 || calls != 2 {
+		t.Fatalf("matching grant prompt/calls = %d/%d, want 0/2", secondPrompter.calls, calls)
+	}
+
+	differentArgs := map[string]any{"recipient": "self", "text": "different"}
+	outcome, runErr := secondTool.Run(context.Background(), agent.ToolCallContext{Args: differentArgs})
+	if runErr != nil {
+		t.Fatal(runErr)
+	}
+	if _, denied := outcome.Data.(agent.ToolErrorData); !denied {
+		t.Fatalf("different arguments should require a new decision: %#v", outcome)
+	}
+	if secondPrompter.calls != 1 || calls != 2 {
+		t.Fatalf("different args prompt/calls = %d/%d, want 1/2", secondPrompter.calls, calls)
+	}
+}
+
 func TestTruncateMCPResult(t *testing.T) {
 	content, truncated := truncateMCPResult(string(make([]byte, maxMCPToolResultChars+100)))
 	if !truncated {

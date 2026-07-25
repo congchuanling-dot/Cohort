@@ -119,6 +119,7 @@ cohert ask "task"              # 执行一次任务后退出
 cohert tools                   # 查看已挂载工具
 cohert config                  # 查看有效配置
 cohert mcp list                # 查看 MCP server
+cohert mcp status              # 检查 MCP server 连通性
 cohert mcp add <name> -- ...   # 添加 stdio MCP server
 cohert mcp tools <name>        # 发现 server 工具
 cohert mcp probe <name>        # 验证 server 连通性

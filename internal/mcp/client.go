@@ -103,14 +103,34 @@ func (c *initializedClient) initialize(ctx context.Context) error {
 }
 
 // ListTools 请求服务器列出可被 Cohert 注册的工具定义。
+//
+// MCP Server 可以通过 nextCursor 分页返回工具。必须拉完全部页面后再注册，
+// 否则工具数量较大的 Server 会随机缺少后半部分能力，且用户难以察觉。
 func (c *initializedClient) ListTools(ctx context.Context) ([]ToolDefinition, error) {
-	var result struct {
-		Tools []ToolDefinition `json:"tools"`
+	type listResult struct {
+		Tools      []ToolDefinition `json:"tools"`
+		NextCursor string           `json:"nextCursor"`
 	}
-	if err := c.request(ctx, "tools/list", map[string]any{}, &result); err != nil {
-		return nil, err
+	var all []ToolDefinition
+	cursor := ""
+	for {
+		params := map[string]any{}
+		if cursor != "" {
+			params["cursor"] = cursor
+		}
+		var result listResult
+		if err := c.request(ctx, "tools/list", params, &result); err != nil {
+			return nil, err
+		}
+		all = append(all, result.Tools...)
+		if result.NextCursor == "" {
+			return all, nil
+		}
+		if result.NextCursor == cursor {
+			return nil, fmt.Errorf("MCP tools/list returned repeated cursor %q", cursor)
+		}
+		cursor = result.NextCursor
 	}
-	return result.Tools, nil
 }
 
 // CallTool 调用远端工具并将多种 MCP content block 规范化为安全的文本结果。
@@ -151,18 +171,34 @@ func (c *initializedClient) Close() error {
 	return c.close()
 }
 
-// stdioClient 管理单个 MCP 子进程及其串行 JSON-RPC 对话。
+// stdioClient 管理单个 MCP 子进程及其 JSON-RPC 对话。
 type stdioClient struct {
 	// cmd 是正在运行的 MCP server 子进程。
 	cmd *exec.Cmd
 	// stdin 是向子进程写 JSON-RPC 行的通道。
 	stdin io.WriteCloser
-	// decoder 从子进程 stdout 持续解码响应。
+	// decoder 从子进程 stdout 持续解码响应；只有 readerLoop 可以读取它。
 	decoder *json.Decoder
-	// mu 让一次请求完整占有 stdin/decoder，避免响应与请求 ID 交叉。
+	// mu 保护请求 ID、pending 等待表与关闭状态。
 	mu sync.Mutex
 	// nextID 递增生成当前连接内的请求 ID。
 	nextID int
+	// pending 按 JSON-RPC ID 将 readerLoop 收到的响应交给对应请求。
+	pending map[int]chan stdioReply
+	// closed 表示 stdin 已关闭或 stdout 解码已终止。
+	closed bool
+	// closeErr 保存连接终止原因，供已挂起和后续请求返回。
+	closeErr error
+	// closeOnce 确保并发 Close 只等待子进程一次。
+	closeOnce sync.Once
+	// closeResult 供重复 Close 返回第一次清理的结果。
+	closeResult error
+}
+
+// stdioReply 是单个请求从 readerLoop 收到的响应或连接错误。
+type stdioReply struct {
+	response rpcResponse
+	err      error
 }
 
 // openStdio 启动 MCP server 子进程，并包装其标准输入输出为初始化前客户端。
@@ -186,66 +222,146 @@ func openStdio(ctx context.Context, config ServerConfig) (*initializedClient, er
 		cmd:     cmd,
 		stdin:   stdin,
 		decoder: json.NewDecoder(bufio.NewReaderSize(stdout, 1<<20)),
+		pending: map[int]chan stdioReply{},
 	}
+	go raw.readerLoop()
 	return &initializedClient{
 		request: raw.request,
-		close: func() error {
-			_ = stdin.Close()
-			done := make(chan error, 1)
-			go func() { done <- cmd.Wait() }()
-			select {
-			case err := <-done:
-				if err != nil && stderr.Len() > 0 {
-					return fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
-				}
-				return err
-			case <-time.After(time.Second):
-				if cmd.Process != nil {
-					_ = cmd.Process.Kill()
-				}
-				<-done
-				return nil
-			}
-		},
+		close:   func() error { return raw.close(&stderr) },
 	}, nil
 }
 
-// request 串行发送一条 stdio JSON-RPC 请求并等待同 ID 响应。
+// readerLoop 是 stdout 唯一读取者。旧实现为每个 request 启动一个 decoder
+// goroutine：请求超时后该 goroutine 仍会继续读 stdout，下一次请求就可能被它
+// 吞掉响应。集中分发后，取消只移除本请求等待表，不会破坏后续调用。
+func (c *stdioClient) readerLoop() {
+	for {
+		var response rpcResponse
+		if err := c.decoder.Decode(&response); err != nil {
+			c.failPending(err)
+			return
+		}
+		if response.ID == nil {
+			continue
+		}
+		id := rpcResponseID(response.ID)
+		c.mu.Lock()
+		reply, ok := c.pending[id]
+		if ok {
+			delete(c.pending, id)
+		}
+		c.mu.Unlock()
+		if ok {
+			reply <- stdioReply{response: response}
+		}
+	}
+}
+
+// failPending 关闭连接并把同一错误广播给仍在等待响应的请求。
+func (c *stdioClient) failPending(err error) {
+	if err == nil {
+		err = io.EOF
+	}
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return
+	}
+	c.closed = true
+	c.closeErr = err
+	pending := c.pending
+	c.pending = map[int]chan stdioReply{}
+	c.mu.Unlock()
+	for _, reply := range pending {
+		reply <- stdioReply{err: err}
+	}
+}
+
+// request 发送一条 stdio JSON-RPC 请求，并由 readerLoop 按响应 ID 分发结果。
 //
-// decoder 循环会跳过通知或其他 ID 的消息，兼容服务器在响应间插入事件；
-// 调用取消后不强杀共享子进程，后续请求仍可继续使用连接。
+// 调用取消后不强杀共享子进程，后续请求仍可继续使用连接；延迟抵达的响应会因
+// pending 中已无对应 ID 而被安全丢弃。
 func (c *stdioClient) request(ctx context.Context, method string, params any, target any) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if method == "notifications/initialized" {
-		return writeRPC(c.stdin, rpcRequest{JSONRPC: "2.0", Method: method, Params: params})
+		if c.closed {
+			err := c.closeErr
+			c.mu.Unlock()
+			if err == nil {
+				return io.ErrClosedPipe
+			}
+			return err
+		}
+		err := writeRPC(c.stdin, rpcRequest{JSONRPC: "2.0", Method: method, Params: params})
+		c.mu.Unlock()
+		return err
+	}
+	if c.closed {
+		err := c.closeErr
+		c.mu.Unlock()
+		if err == nil {
+			return io.ErrClosedPipe
+		}
+		return err
 	}
 	c.nextID++
 	id := c.nextID
+	reply := make(chan stdioReply, 1)
+	c.pending[id] = reply
 	if err := writeRPC(c.stdin, rpcRequest{JSONRPC: "2.0", ID: id, Method: method, Params: params}); err != nil {
+		delete(c.pending, id)
+		c.mu.Unlock()
 		return err
 	}
-	responseCh := make(chan error, 1)
-	go func() {
-		for {
-			var response rpcResponse
-			if err := c.decoder.Decode(&response); err != nil {
-				responseCh <- err
-				return
-			}
-			if response.ID == nil || rpcResponseID(response.ID) != id {
-				continue
-			}
-			responseCh <- decodeRPCResult(response, target)
-			return
-		}
-	}()
+	c.mu.Unlock()
 	select {
 	case <-ctx.Done():
+		c.mu.Lock()
+		delete(c.pending, id)
+		c.mu.Unlock()
 		return ctx.Err()
-	case err := <-responseCh:
-		return err
+	case received := <-reply:
+		if received.err != nil {
+			return received.err
+		}
+		return decodeRPCResult(received.response, target)
 	}
+}
+
+// close 先关闭 stdin，再等待进程正常退出；超过短暂宽限期后才发送 kill。
+func (c *stdioClient) close(stderr *bytes.Buffer) error {
+	c.closeOnce.Do(func() {
+		c.mu.Lock()
+		if !c.closed {
+			c.closed = true
+			c.closeErr = io.ErrClosedPipe
+		}
+		pending := c.pending
+		c.pending = map[int]chan stdioReply{}
+		c.mu.Unlock()
+		for _, reply := range pending {
+			reply <- stdioReply{err: io.ErrClosedPipe}
+		}
+		_ = c.stdin.Close()
+
+		done := make(chan error, 1)
+		go func() { done <- c.cmd.Wait() }()
+		select {
+		case err := <-done:
+			if err != nil && stderr.Len() > 0 {
+				c.closeResult = fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+				return
+			}
+			c.closeResult = err
+		case <-time.After(time.Second):
+			if c.cmd.Process != nil {
+				_ = c.cmd.Process.Kill()
+			}
+			<-done
+			c.closeResult = nil
+		}
+	})
+	return c.closeResult
 }
 
 // writeRPC 将一条 JSON-RPC 消息编码为 JSON Lines，stdio MCP 以换行分隔消息。

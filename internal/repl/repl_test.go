@@ -13,6 +13,7 @@ import (
 	"cohert/internal/contextmgr"
 	"cohert/internal/evolution"
 	"cohert/internal/llm"
+	"cohert/internal/mcp"
 	"cohert/internal/session"
 )
 
@@ -77,6 +78,36 @@ func TestStartHandlesSlashCommandsLocally(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output does not contain %q:\n%s", want, output)
 		}
+	}
+}
+
+func TestStartHandlesMCPCommandsWithoutDefaultServer(t *testing.T) {
+	// /mcp 只能读取调用方注入的配置；空配置不能偷偷拉起任何默认 MCP。
+	client := &fakeClient{}
+	runner := &agent.Runner{
+		Client: client,
+		Tools:  fakeTools{},
+	}
+	mcpStore := mcp.NewStore(t.TempDir())
+
+	var out bytes.Buffer
+	err := Start(context.Background(), Options{
+		Config:       testConfig(),
+		Runner:       runner,
+		SessionStore: session.NewStore(t.TempDir()),
+		MCPStore:     &mcpStore,
+		In:           strings.NewReader("/mcp list\n/mcp status\n/exit\n"),
+		Out:          &out,
+		Err:          &out,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.calls != 0 {
+		t.Fatalf("model calls = %d, want 0", client.calls)
+	}
+	if got := strings.Count(out.String(), "no MCP servers configured"); got != 2 {
+		t.Fatalf("empty MCP output count = %d, want 2:\n%s", got, out.String())
 	}
 }
 
