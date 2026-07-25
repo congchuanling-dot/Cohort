@@ -170,9 +170,9 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 			seen[name] = true
 		}
 	}
-	for name, tool := range r.tools {
+	for _, name := range r.toolNames() {
 		if !seen[name] {
-			schemas = append(schemas, tool.Schema())
+			schemas = append(schemas, r.tools[name].Schema())
 		}
 	}
 	return schemas

@@ -45,7 +45,7 @@
 
 ## Cohert 是什么
 
-Cohert 是一个用 Go 编写的本地 Agent Runtime。它把 OpenAI-compatible LLM、受控工具层、持久会话、浏览器自动化、桌面 Computer Use、上下文压缩、SOP 路由和可验证长期记忆接在一起。
+Cohert 是一个用 Go 编写的本地 Agent Runtime。它把 OpenAI-compatible LLM、受控工具层、MCP 外部工具、持久会话、浏览器自动化、桌面 Computer Use、上下文压缩、SOP 路由和可验证长期记忆接在一起。
 
 它不是纯聊天壳，而是面向真实本地工作的执行运行时：
 
@@ -81,6 +81,7 @@ go run . ask "读取 README.md 并总结当前运行时能力"
 ```bash
 go run . config
 go run . tools
+go run . mcp list
 go run . session list
 ```
 
@@ -98,7 +99,8 @@ go build -o cohert ./cmd/cohert
 | 领域 | 能力 |
 | --- | --- |
 | Agent Loop | 流式 OpenAI-compatible 对话、工具调用、最大轮次控制、可见行动说明 |
-| 本地工具 | 文件读写、patch、shell 执行、向用户提问、结构化工具错误 |
+| 本地工具 | 文件读写、patch、shell 执行、向用户提问、MCP 外部工具、结构化工具错误 |
+| MCP | Claude Code 兼容 `.mcp.json`、stdio/HTTP server、动态工具发现、session 授权缓存 |
 | 浏览器自动化 | Chrome bridge、打开/扫描页面、JS 执行、元素快照、点击、输入、按键、等待、截图、OCR |
 | 桌面 Computer Use | macOS 权限检查、窗口枚举、PID 激活、窗口截图、AX 控件树、桌面 OCR、受控 `AXPress`、受限按键和文本起草 |
 | 会话系统 | `history.jsonl`、元数据、session 列表、恢复、本地审计轨迹 |
@@ -116,6 +118,11 @@ cohert                         # 进入交互模式
 cohert ask "task"              # 执行一次任务后退出
 cohert tools                   # 查看已挂载工具
 cohert config                  # 查看有效配置
+cohert mcp list                # 查看 MCP server
+cohert mcp add <name> -- ...   # 添加 stdio MCP server
+cohert mcp tools <name>        # 发现 server 工具
+cohert mcp probe <name>        # 验证 server 连通性
+cohert mcp remove <name>       # 删除 MCP server
 cohert session list            # 查看本地会话
 cohert session resume <id>     # 恢复会话
 ```

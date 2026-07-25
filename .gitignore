@@ -7,5 +7,6 @@
 /bin/
 /temp/
 /workspace/
+/.cohort/local.mcp.json
 
 *.log

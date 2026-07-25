@@ -7,9 +7,11 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"cohert/internal/agent"
 	"cohert/internal/app"
+	"cohert/internal/mcp"
 	"cohert/internal/repl"
 	"cohert/internal/session"
 )
@@ -53,10 +55,16 @@ func Run(args []string) error {
 	case "session":
 		return runSessionCommand(context.Background(), cfg, args[1:])
 	case "tools":
-		for _, schema := range app.ToolSchemas(cfg) {
+		schemas, schemasErr := app.ToolSchemas(cfg)
+		if schemasErr != nil {
+			return schemasErr
+		}
+		for _, schema := range schemas {
 			fmt.Println(schema.Function.Name)
 		}
 		return nil
+	case "mcp":
+		return runMCPCommand(context.Background(), args[1:])
 	}
 
 	// 真正执行任务前才创建 Runner，此时会检查 API Key、工作区、日志目录等。
@@ -78,6 +86,198 @@ func Run(args []string) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runMCPCommand(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: cohert mcp add|list|tools|probe|remove ...")
+	}
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	store := mcp.NewStore(projectRoot)
+	switch args[0] {
+	case "list":
+		return printMCPList(store)
+	case "add":
+		return addMCPServer(store, args[1:])
+	case "remove":
+		return removeMCPServer(store, args[1:])
+	case "tools", "probe":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: cohert mcp %s <server>", args[0])
+		}
+		return inspectMCPServer(ctx, store, args[1], args[0] == "probe")
+	default:
+		return fmt.Errorf("unknown mcp command %q", args[0])
+	}
+}
+
+func printMCPList(store mcp.Store) error {
+	servers, err := store.LoadEffectiveWithScopes()
+	if err != nil {
+		return err
+	}
+	if len(servers) == 0 {
+		fmt.Println("no MCP servers configured")
+		return nil
+	}
+	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(writer, "NAME\tSCOPE\tTRANSPORT\tTARGET")
+	for _, entry := range servers {
+		server := entry.Server
+		target := server.Command
+		if server.Type == mcp.TransportHTTP {
+			target = server.URL
+		}
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\n", server.Name, entry.Scope, server.Type, target)
+	}
+	return writer.Flush()
+}
+
+func addMCPServer(store mcp.Store, args []string) error {
+	scope := mcp.ScopeProject
+	transport := mcp.TransportStdio
+	env := map[string]string{}
+	name := ""
+	positionals := []string{}
+	commandArgs := []string{}
+	afterSeparator := false
+	for len(args) > 0 {
+		arg := args[0]
+		args = args[1:]
+		if afterSeparator {
+			commandArgs = append(commandArgs, arg)
+			continue
+		}
+		if arg == "--" {
+			afterSeparator = true
+			continue
+		}
+		switch arg {
+		case "--scope":
+			if len(args) < 1 {
+				return errors.New("--scope requires project, user, or local")
+			}
+			parsed, err := mcp.ParseScope(args[0])
+			if err != nil {
+				return err
+			}
+			scope = parsed
+			args = args[1:]
+		case "--transport":
+			if len(args) < 1 {
+				return errors.New("--transport requires stdio or http")
+			}
+			transport = strings.ToLower(args[0])
+			args = args[1:]
+		case "-e", "--env":
+			if len(args) < 1 {
+				return errors.New("-e requires KEY=VALUE")
+			}
+			key, value, ok := strings.Cut(args[0], "=")
+			if !ok || strings.TrimSpace(key) == "" {
+				return fmt.Errorf("invalid env assignment %q", args[0])
+			}
+			env[key] = value
+			args = args[1:]
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return fmt.Errorf("unknown mcp add option %q", arg)
+			}
+			if name == "" {
+				name = arg
+			} else {
+				positionals = append(positionals, arg)
+			}
+		}
+	}
+	if name == "" {
+		return errors.New("usage: cohert mcp add [--scope project|user|local] [--transport http] [-e KEY=VALUE] <name> -- <command> [args...]")
+	}
+	server := mcp.ServerConfig{Name: name, Type: transport, Env: env}
+	if transport == mcp.TransportHTTP {
+		if len(positionals) != 1 || len(commandArgs) != 0 {
+			return errors.New("usage: cohert mcp add --transport http <name> <url>")
+		}
+		server.URL = positionals[0]
+	} else {
+		if len(positionals) != 0 || len(commandArgs) == 0 {
+			return errors.New("stdio MCP usage: cohert mcp add <name> -- <command> [args...]")
+		}
+		server.Command = commandArgs[0]
+		server.Args = commandArgs[1:]
+	}
+	if err := store.Add(scope, server); err != nil {
+		return err
+	}
+	path, _ := store.Path(scope)
+	fmt.Printf("added MCP server %s to %s\n", name, path)
+	return nil
+}
+
+func removeMCPServer(store mcp.Store, args []string) error {
+	scope := mcp.ScopeProject
+	if len(args) >= 2 && args[0] == "--scope" {
+		parsed, err := mcp.ParseScope(args[1])
+		if err != nil {
+			return err
+		}
+		scope = parsed
+		args = args[2:]
+	}
+	if len(args) != 1 {
+		return errors.New("usage: cohert mcp remove [--scope project|user|local] <server>")
+	}
+	removed, err := store.Remove(scope, args[0])
+	if err != nil {
+		return err
+	}
+	if !removed {
+		return fmt.Errorf("MCP server %q is not configured in %s scope", args[0], scope)
+	}
+	fmt.Printf("removed MCP server %s from %s scope\n", args[0], scope)
+	return nil
+}
+
+func inspectMCPServer(ctx context.Context, store mcp.Store, name string, probe bool) error {
+	servers, err := store.LoadEffective()
+	if err != nil {
+		return err
+	}
+	var config *mcp.ServerConfig
+	for i := range servers {
+		if servers[i].Name == name {
+			config = &servers[i]
+			break
+		}
+	}
+	if config == nil {
+		return fmt.Errorf("MCP server %q is not configured", name)
+	}
+	timeoutCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	client, err := mcp.Open(timeoutCtx, *config)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	tools, err := client.ListTools(timeoutCtx)
+	if err != nil {
+		return err
+	}
+	if probe {
+		fmt.Printf("MCP server %s is available (%s)\n", config.Name, config.Type)
+	}
+	if len(tools) == 0 {
+		fmt.Println("no tools")
+		return nil
+	}
+	for _, tool := range tools {
+		fmt.Printf("%s\t%s\n", tool.Name, tool.Description)
+	}
+	return nil
 }
 
 // runSessionCommand 处理本地会话命令。
@@ -179,6 +379,11 @@ Usage:
   cohert ask "task"       run one task without entering REPL
   cohert tools            list mounted tools
   cohert config           show effective config
+  cohert mcp list         list configured MCP servers
+  cohert mcp add ...      add an MCP server
+  cohert mcp tools <name> inspect an MCP server's tools
+  cohert mcp probe <name> verify an MCP server
+  cohert mcp remove <name>
   cohert session list     list local sessions
   cohert session resume <id>
                           resume a local session and enter REPL

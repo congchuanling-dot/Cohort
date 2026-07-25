@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"cohert/internal/contextmgr"
 	"cohert/internal/desktop"
 	"cohert/internal/llm"
+	"cohert/internal/mcp"
 	"cohert/internal/session"
 	"cohert/internal/tools"
 )
@@ -49,16 +51,20 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 		MaxRetries:     cfg.LLM.MaxRetries,
 	})
 
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	mcpManager, err := loadMCPManager(context.Background(), cwd)
+	if err != nil {
+		return nil, err
+	}
 	browserClient := newBrowserClient()
-	registry := newRegistry(workspace, browserClient)
+	registry := newRegistry(workspace, browserClient, mcpManager)
 	sessionStore := session.NewStore(session.DefaultRootDir)
 	contextManager := &contextmgr.Manager{
 		Config:     cfg.Context.Normalize(),
 		MemoryRoot: filepath.Join(workspace, "memory"),
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, err
 	}
 
 	// Runner 不直接知道具体工具类型，只依赖 ToolRunner 接口。
@@ -76,16 +82,26 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 }
 
 // ToolSchemas 给 CLI 的 tools 命令使用，只列工具 schema，不初始化 LLM。
-func ToolSchemas(cfg Config) []llm.ToolSchema {
-	return newRegistry(normalizeWorkspace(cfg.Workspace), browser.NewUnavailableClient(browser.ErrNotConnected)).Schemas()
+func ToolSchemas(cfg Config) ([]llm.ToolSchema, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	mcpManager, err := loadMCPManager(context.Background(), cwd)
+	if err != nil {
+		return nil, err
+	}
+	defer mcpManager.Close()
+	return newRegistry(normalizeWorkspace(cfg.Workspace), browser.NewUnavailableClient(browser.ErrNotConnected), mcpManager).Schemas(), nil
 }
 
 // newRegistry 集中注册当前 MVP 暴露给模型的本地工具。
-func newRegistry(workspace string, browserClient browser.Client) *tools.Registry {
+func newRegistry(workspace string, browserClient browser.Client, mcpManager *mcp.Manager) *tools.Registry {
 	registry := tools.NewRegistry()
 	desktopDriver := newDesktopDriver(workspace)
 	confirmations := tools.NewConfirmationStore()
 	visualFocuses := tools.NewVisualFocusStore()
+	mcpPermissions := tools.NewMCPPermissionStore()
 	registry.Register(tools.NewFileRead(workspace))
 	registry.Register(tools.NewFileWrite(workspace))
 	registry.Register(tools.NewFilePatch(workspace))
@@ -125,7 +141,30 @@ func newRegistry(workspace string, browserClient browser.Client) *tools.Registry
 	registry.Register(tools.NewMemoryProposeUpdate(workspace))
 	registry.Register(tools.NewMemoryApplyUpdate(workspace))
 	registry.Register(tools.NewAskUser(confirmations))
+	if mcpManager != nil {
+		for _, registered := range mcpManager.Tools() {
+			registry.Register(tools.NewMCPTool(
+				registered,
+				mcpManager,
+				mcpPermissions,
+				tools.NewTerminalMCPPermissionPrompter(),
+			))
+		}
+	}
 	return registry
+}
+
+func loadMCPManager(ctx context.Context, projectRoot string) (*mcp.Manager, error) {
+	store := mcp.NewStore(projectRoot)
+	servers, err := store.LoadEffective()
+	if err != nil {
+		return nil, err
+	}
+	loadCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	manager := mcp.NewManager()
+	manager.Load(loadCtx, servers)
+	return manager, nil
 }
 
 func newBrowserClient() browser.Client {

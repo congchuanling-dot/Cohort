@@ -234,7 +234,47 @@ go run . config
 
 这个命令不需要 API Key。
 
-### 4.6 查看 session 列表
+### 4.6 管理 MCP Server
+
+MCP 让 Cohert 连接飞书、GitHub、数据库等外部系统。项目级配置使用 Claude Code 兼容的 `.mcp.json`，所以现有 Claude Code 配置可以直接复用。
+
+查看当前生效的 server：
+
+```bash
+go run . mcp list
+```
+
+添加本地 stdio server：
+
+```bash
+go run . mcp add github \
+  -e GITHUB_PERSONAL_ACCESS_TOKEN='${GITHUB_TOKEN}' \
+  -- npx -y @modelcontextprotocol/server-github
+```
+
+添加远程 HTTP server：
+
+```bash
+go run . mcp add --transport http docs https://code.claude.com/docs/mcp
+```
+
+查看或验证 server：
+
+```bash
+go run . mcp tools github
+go run . mcp probe github
+```
+
+默认写入项目级 `.mcp.json`。可加 `--scope user` 写入 `~/.cohert/mcp.json`，或加 `--scope local` 写入默认 gitignore 的 `.cohort/local.mcp.json`：
+
+```bash
+go run . mcp remove github
+go run . mcp remove --scope local github
+```
+
+MCP 工具会自动变成 `mcp_<server>_<tool>` 并进入 Agent Tool Registry。读取类工具直接执行；发送、创建、更新等外部副作用首次执行时会询问，选择 `allow session` 后同一 session 不再重复询问；删除、审批、授权和支付类工具默认拒绝。
+
+### 4.7 查看 session 列表
 
 推荐在交互模式里输入：
 
@@ -267,7 +307,7 @@ ID                        TITLE           MESSAGES  UPDATED              CWD
 - `UPDATED`：最后更新时间。
 - `CWD`：创建 session 时所在目录。
 
-### 4.7 恢复 session
+### 4.8 恢复 session
 
 推荐在交互模式里输入：
 
