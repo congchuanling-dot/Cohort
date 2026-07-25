@@ -180,7 +180,7 @@ type BuildResult struct {
 	Stats Stats
 }
 
-// RelevantMemoryHitLog records why a long-term memory entry was injected.
+// RelevantMemoryHitLog 记录某条长期记忆为何被注入本轮请求，不包含记忆正文。
 type RelevantMemoryHitLog struct {
 	EntryID string   `json:"entry_id,omitempty"`
 	Source  string   `json:"source"`

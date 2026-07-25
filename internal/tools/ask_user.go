@@ -13,6 +13,7 @@ import (
 
 // AskUser 让模型在缺少关键信息或高风险操作确认时，通过命令行向用户提问。
 type AskUser struct {
+	// confirmations 可选地为高风险桌面动作签发精确绑定的一次性令牌。
 	confirmations *ConfirmationStore
 }
 
@@ -25,6 +26,7 @@ func NewAskUser(confirmations ...*ConfirmationStore) *AskUser {
 	return &AskUser{confirmations: store}
 }
 
+// Name 返回模型协议中注册的稳定工具名。
 func (t *AskUser) Name() string { return ToolNameAskUser }
 
 // Schema 只要求一个 question 字段。
@@ -100,6 +102,8 @@ func (t *AskUser) Run(ctx context.Context, call agent.ToolCallContext) (agent.Ou
 	}
 }
 
+// parseAskUserApproval 将动态 JSON 参数转为精确的桌面授权绑定。
+// 不能证明字段完整的请求一律拒绝，避免模型手工构造宽泛确认令牌。
 func parseAskUserApproval(args map[string]any) (*ActionApproval, *agent.ToolErrorData) {
 	raw, present := args["approval"]
 	if !present || raw == nil {
@@ -134,6 +138,7 @@ func parseAskUserApproval(args map[string]any) (*ActionApproval, *agent.ToolErro
 	return &value, nil
 }
 
+// validActionApproval 按动作类型检查互斥字段，保证一个令牌不能迁移到其他目标。
 func validActionApproval(value ActionApproval) bool {
 	if value.PID <= 0 || value.Reason == "" {
 		return false
@@ -150,6 +155,7 @@ func validActionApproval(value ActionApproval) bool {
 	}
 }
 
+// approvalPrompt 把即将被授权的精确动作翻译成用户可理解的确认文本。
 func approvalPrompt(value ActionApproval) string {
 	switch value.Operation {
 	case desktopAXPressOperation:

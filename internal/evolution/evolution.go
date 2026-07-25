@@ -13,113 +13,179 @@ import (
 )
 
 const (
-	MemoryDirName              = "memory"
-	MemoryIndexPath            = "memory/index.md"
-	GlobalMemoryPath           = "memory/global.md"
-	SOPCandidateMemoryPath     = "memory/reflection/sop_candidates.md"
-	MemoryAuditPath            = "memory/audit.jsonl"
-	SOPIndexPath               = "sops/index.md"
-	defaultMemoryFilePerm      = 0644
+	// MemoryDirName 是工作区内长期记忆文件的根目录名。
+	MemoryDirName = "memory"
+	// MemoryIndexPath 是仅包含记忆入口指针的轻量索引文件。
+	MemoryIndexPath = "memory/index.md"
+	// GlobalMemoryPath 存放跨项目复用的稳定经验。
+	GlobalMemoryPath = "memory/global.md"
+	// SOPCandidateMemoryPath 存放等待人工审阅与提升的工作流候选。
+	SOPCandidateMemoryPath = "memory/reflection/sop_candidates.md"
+	// MemoryAuditPath 以 JSONL 形式追加每次实际写入的审计记录。
+	MemoryAuditPath = "memory/audit.jsonl"
+	// SOPIndexPath 是经审阅 SOP 的项目内导航索引。
+	SOPIndexPath = "sops/index.md"
+	// defaultMemoryFilePerm 是普通 Markdown 和记忆审计文件权限。
+	defaultMemoryFilePerm = 0644
+	// defaultMemoryDirectoryPerm 是记忆目录权限。
 	defaultMemoryDirectoryPerm = 0755
 )
 
-// Manager owns controlled long-term memory initialization, validation, and writes.
+// Manager 负责受控长期记忆的初始化、候选校验和追加写入。
 type Manager struct {
+	// Workspace 是所有 memory/ 相对路径的绝对解析根目录。
 	Workspace string
+	// ProjectID 是从 Git 根目录或工作区推导出的稳定项目标识。
 	ProjectID string
 }
 
-// Candidate is a proposed long-term memory update. It is intentionally small:
-// the model proposes it, this package validates boundaries and writes only safe appends.
+// Candidate 是一条待写入的长期记忆提案。
+// 模型只提出内容；本包验证目标、证据、敏感信息和写入方式后才允许安全追加。
 type Candidate struct {
-	Type                     string   `json:"type"`
-	Target                   string   `json:"target"`
-	Content                  string   `json:"content"`
-	Scene                    string   `json:"scene,omitempty"`
-	TriggerKeywords          []string `json:"trigger_keywords,omitempty"`
-	Lesson                   string   `json:"lesson,omitempty"`
-	RecommendedSteps         []string `json:"recommended_steps,omitempty"`
-	PromoteToSOP             bool     `json:"promote_to_sop,omitempty"`
-	SOPTitle                 string   `json:"sop_title,omitempty"`
-	SOPPath                  string   `json:"sop_path,omitempty"`
-	EvidenceIDs              []string `json:"evidence_ids"`
-	Risk                     string   `json:"risk"`
-	Action                   string   `json:"action"`
-	RequiresUserConfirmation bool     `json:"requires_user_confirmation,omitempty"`
+	// Type 是经验分类，例如 project_lesson、user_preference 或 sop_candidate。
+	Type string `json:"type"`
+	// Target 是受 allowlist 限制的记忆相对路径。
+	Target string `json:"target"`
+	// Content 是兼容旧格式的额外自由文本，不应取代结构化字段。
+	Content string `json:"content"`
+	// Scene 描述未来可复用该经验的简短场景。
+	Scene string `json:"scene,omitempty"`
+	// TriggerKeywords 是用于后续检索该经验的关键词。
+	TriggerKeywords []string `json:"trigger_keywords,omitempty"`
+	// Lesson 是经过验证、可长期保留的结论。
+	Lesson string `json:"lesson,omitempty"`
+	// RecommendedSteps 是可复现的操作步骤。
+	RecommendedSteps []string `json:"recommended_steps,omitempty"`
+	// PromoteToSOP 表示此经验值得生成为待审阅 SOP 候选。
+	PromoteToSOP bool `json:"promote_to_sop,omitempty"`
+	// SOPTitle 是候选 SOP 的展示标题。
+	SOPTitle string `json:"sop_title,omitempty"`
+	// SOPPath 是候选 SOP 建议落在 sops/ 下的相对路径。
+	SOPPath string `json:"sop_path,omitempty"`
+	// EvidenceIDs 必须引用本次任务中已验证的证据账本条目。
+	EvidenceIDs []string `json:"evidence_ids"`
+	// Risk 是提案风险分级；P0 只允许低风险追加。
+	Risk string `json:"risk"`
+	// Action 是请求的写入方式；P0 仅允许 append。
+	Action string `json:"action"`
+	// RequiresUserConfirmation 表示即使内容通过校验也必须先询问用户。
+	RequiresUserConfirmation bool `json:"requires_user_confirmation,omitempty"`
 }
 
-// Evidence records a single source that may support a memory candidate.
-// Summary must be metadata only; raw tool output is deliberately not retained here.
+// Evidence 记录可以支撑长期记忆候选的单个来源。
+// Summary 只能包含元数据，刻意不在此保留原始工具输出。
 type Evidence struct {
-	ID       string `json:"id"`
-	Source   string `json:"source"`
+	// ID 是候选提案引用的稳定账本标识。
+	ID string `json:"id"`
+	// Source 表示证据来自用户输入还是工具执行。
+	Source string `json:"source"`
+	// ToolName 是工具来源时的工具名。
 	ToolName string `json:"tool_name,omitempty"`
-	Turn     int    `json:"turn,omitempty"`
-	CallID   string `json:"call_id,omitempty"`
-	Verified bool   `json:"verified"`
-	Summary  string `json:"summary"`
+	// Turn 是证据产生于第几轮 Agent 循环。
+	Turn int `json:"turn,omitempty"`
+	// CallID 是模型工具调用 ID，用于审计关联。
+	CallID string `json:"call_id,omitempty"`
+	// Verified 表示系统已按工具特性验证结果成功。
+	Verified bool `json:"verified"`
+	// Summary 仅存元数据摘要，绝不存原始工具输出。
+	Summary string `json:"summary"`
 }
 
-// ValidationResult describes whether a candidate can be applied by the memory tool.
+// ValidationResult 描述记忆工具是否可安全应用某个候选。
 type ValidationResult struct {
-	Valid   bool     `json:"valid"`
+	// Valid 表示候选通过所有当前 P0 安全规则。
+	Valid bool `json:"valid"`
+	// Reasons 包含拒绝或警告原因，供模型修改候选或选择 skip。
 	Reasons []string `json:"reasons,omitempty"`
 }
 
-// ProposedCandidate is returned by memory_propose_update.
+// ProposedCandidate 是 memory_propose_update 返回的候选及其验证结果。
 type ProposedCandidate struct {
-	Candidate  Candidate        `json:"candidate"`
+	// Candidate 是原始结构化提案。
+	Candidate Candidate `json:"candidate"`
+	// Validation 是不写磁盘的校验结果。
 	Validation ValidationResult `json:"validation"`
 }
 
-// ApplyResult is returned after a candidate is appended and read back from disk.
+// ApplyResult 是候选追加并从磁盘回读确认后的结果。
 type ApplyResult struct {
-	AuditRecord       AuditRecord `json:"audit_record"`
-	MemoryRoot        string      `json:"memory_root"`
-	TargetPath        string      `json:"target_path"`
-	SOPCandidatePath  string      `json:"sop_candidate_path,omitempty"`
-	ReadBackConfirmed bool        `json:"read_back_confirmed"`
-	ReadBackBytes     int         `json:"read_back_bytes"`
+	// AuditRecord 是已写入 audit.jsonl 的审计条目。
+	AuditRecord AuditRecord `json:"audit_record"`
+	// MemoryRoot 是本次操作的记忆根目录。
+	MemoryRoot string `json:"memory_root"`
+	// TargetPath 是实际追加的绝对目标路径。
+	TargetPath string `json:"target_path"`
+	// SOPCandidatePath 是同步生成候选时的反思文件路径。
+	SOPCandidatePath string `json:"sop_candidate_path,omitempty"`
+	// ReadBackConfirmed 表示写入后已重新读取文件验证内容。
+	ReadBackConfirmed bool `json:"read_back_confirmed"`
+	// ReadBackBytes 是回读确认的字节数。
+	ReadBackBytes int `json:"read_back_bytes"`
 }
 
-// SOPCandidate is a reviewed workflow candidate stored under memory/reflection.
+// SOPCandidate 是存放在 memory/reflection 下、等待人工审阅的工作流候选。
 type SOPCandidate struct {
-	ID              string   `json:"id"`
-	Title           string   `json:"title"`
-	Scene           string   `json:"scene,omitempty"`
+	// ID 是候选内容派生出的稳定标识。
+	ID string `json:"id"`
+	// Title 是工作流的简短人类可读名称。
+	Title string `json:"title"`
+	// Scene 描述该 SOP 适用的场景。
+	Scene string `json:"scene,omitempty"`
+	// TriggerKeywords 帮助后续任务路由到该候选。
 	TriggerKeywords []string `json:"trigger_keywords,omitempty"`
-	ProposedSOPPath string   `json:"proposed_sop_path,omitempty"`
-	SourceSession   string   `json:"source_session,omitempty"`
-	EvidenceIDs     []string `json:"evidence_ids,omitempty"`
-	Why             string   `json:"why,omitempty"`
-	DraftSteps      []string `json:"draft_steps,omitempty"`
+	// ProposedSOPPath 是建议的 sops/ 目标相对路径。
+	ProposedSOPPath string `json:"proposed_sop_path,omitempty"`
+	// SourceSession 是产生候选的会话标识。
+	SourceSession string `json:"source_session,omitempty"`
+	// EvidenceIDs 是支撑候选的已验证证据。
+	EvidenceIDs []string `json:"evidence_ids,omitempty"`
+	// Why 说明该经验为何应提升为可复用规程。
+	Why string `json:"why,omitempty"`
+	// DraftSteps 是待审阅的操作步骤草案。
+	DraftSteps []string `json:"draft_steps,omitempty"`
 }
 
-// SOPPromotionResult describes the controlled SOP promotion side effects.
+// SOPPromotionResult 描述受控 SOP 提升操作产生的文件与索引副作用。
 type SOPPromotionResult struct {
-	Candidate                 SOPCandidate `json:"candidate"`
-	SOPRoot                   string       `json:"sop_root"`
-	SOPPath                   string       `json:"sop_path"`
-	SOPAbsolutePath           string       `json:"sop_absolute_path"`
-	SOPCreated                bool         `json:"sop_created"`
-	IndexPath                 string       `json:"index_path,omitempty"`
-	IndexUpdated              bool         `json:"index_updated"`
-	RequiresIndexConfirmation bool         `json:"requires_index_confirmation"`
-	Confirmation              string       `json:"confirmation,omitempty"`
+	// Candidate 是被提升的已审阅候选。
+	Candidate SOPCandidate `json:"candidate"`
+	// SOPRoot 是经解析的项目 SOP 根目录。
+	SOPRoot string `json:"sop_root"`
+	// SOPPath 是相对于项目根目录的 SOP 路径。
+	SOPPath string `json:"sop_path"`
+	// SOPAbsolutePath 是实际创建或检查的绝对文件路径。
+	SOPAbsolutePath string `json:"sop_absolute_path"`
+	// SOPCreated 表示提升过程是否新建了 SOP 文件。
+	SOPCreated bool `json:"sop_created"`
+	// IndexPath 是更新索引时对应的绝对路径。
+	IndexPath string `json:"index_path,omitempty"`
+	// IndexUpdated 表示 sops/index.md 是否已写入导航项。
+	IndexUpdated bool `json:"index_updated"`
+	// RequiresIndexConfirmation 表示索引更新还需要用户明确确认。
+	RequiresIndexConfirmation bool `json:"requires_index_confirmation"`
+	// Confirmation 是记录在索引审计文本中的用户确认说明。
+	Confirmation string `json:"confirmation,omitempty"`
 }
 
-// AuditRecord is appended to memory/audit.jsonl after every applied update.
+// AuditRecord 在每次实际应用更新后追加到 memory/audit.jsonl。
 type AuditRecord struct {
-	Time          string   `json:"time"`
-	Target        string   `json:"target"`
-	Action        string   `json:"action"`
-	SourceSession string   `json:"source_session,omitempty"`
-	EvidenceIDs   []string `json:"evidence_ids"`
-	Summary       string   `json:"summary"`
-	Confirmation  string   `json:"confirmation,omitempty"`
+	// Time 是本地写入发生的 RFC3339 时间。
+	Time string `json:"time"`
+	// Target 是被追加的记忆目标相对路径。
+	Target string `json:"target"`
+	// Action 是实际执行的写入方式。
+	Action string `json:"action"`
+	// SourceSession 是产生该候选的会话标识。
+	SourceSession string `json:"source_session,omitempty"`
+	// EvidenceIDs 记录支撑写入的验证证据。
+	EvidenceIDs []string `json:"evidence_ids"`
+	// Summary 是不含原始数据的审计摘要。
+	Summary string `json:"summary"`
+	// Confirmation 记录需要用户确认时的确认文本。
+	Confirmation string `json:"confirmation,omitempty"`
 }
 
-// NewManager creates a Manager rooted at workspace. Relative memory paths are resolved there.
+// NewManager 以 workspace 为根创建管理器；所有记忆相对路径都在此解析。
 func NewManager(workspace string) Manager {
 	if strings.TrimSpace(workspace) == "" {
 		workspace = "."
@@ -132,12 +198,12 @@ func NewManager(workspace string) Manager {
 	return Manager{Workspace: workspace, ProjectID: discoverProjectID(workspace)}
 }
 
-// MemoryRoot returns the absolute memory directory path.
+// MemoryRoot 返回绝对记忆目录路径。
 func (m Manager) MemoryRoot() string {
 	return filepath.Join(m.Workspace, MemoryDirName)
 }
 
-// SOPRoot returns the project root used for reviewed SOP files.
+// SOPRoot 返回经审阅 SOP 文件所在项目根目录，优先使用最近 Git 根。
 func (m Manager) SOPRoot() string {
 	if root := findGitRoot(m.Workspace); root != "" {
 		return root
@@ -145,12 +211,12 @@ func (m Manager) SOPRoot() string {
 	return m.Workspace
 }
 
-// ProjectMemoryPath returns the project-specific long-term memory path.
+// ProjectMemoryPath 返回相对 memory/ 目录的项目专属长期记忆路径。
 func (m Manager) ProjectMemoryPath() string {
 	return projectMemoryPath(m.ProjectID)
 }
 
-// EnsureStructure creates the P0 memory files if they do not exist.
+// EnsureStructure 仅在缺失时创建 P0 所需目录和空白模板，不覆盖已有记忆。
 func (m Manager) EnsureStructure() ([]string, error) {
 	files := map[string]string{
 		MemoryIndexPath:        defaultIndexContent(m.ProjectID, m.ProjectMemoryPath()),
@@ -195,7 +261,7 @@ func (m Manager) EnsureStructure() ([]string, error) {
 	return created, nil
 }
 
-// ValidateCandidate enforces the P0 safety policy before a candidate can be written.
+// ValidateCandidate 在候选实际写入前执行 P0 安全策略校验。
 func (m Manager) ValidateCandidate(candidate Candidate, evidence []Evidence) ValidationResult {
 	var reasons []string
 	normalized := normalizeMemoryPath(candidate.Target)
@@ -235,7 +301,7 @@ func (m Manager) ValidateCandidate(candidate Candidate, evidence []Evidence) Val
 	return ValidationResult{Valid: true}
 }
 
-// ApplyCandidate appends a validated candidate and records an audit entry.
+// ApplyCandidate 追加一条通过校验的候选，并写入对应审计记录。
 func (m Manager) ApplyCandidate(candidate Candidate, evidence []Evidence, sourceSession string) (ApplyResult, error) {
 	candidate.Target = normalizeMemoryPath(candidate.Target)
 	candidate.Action = normalizedAction(candidate.Action)
@@ -304,7 +370,7 @@ func (m Manager) ApplyCandidate(candidate Candidate, evidence []Evidence, source
 	}, nil
 }
 
-// ListSOPCandidates returns structured SOP promotion candidates.
+// ListSOPCandidates 读取可提升为正式 SOP 的结构化候选。
 func (m Manager) ListSOPCandidates() ([]SOPCandidate, error) {
 	if _, err := m.EnsureStructure(); err != nil {
 		return nil, err
@@ -329,8 +395,8 @@ func (m Manager) ListSOPCandidates() ([]SOPCandidate, error) {
 	return candidates, nil
 }
 
-// PromoteSOPCandidate writes a reviewed SOP file and, only with explicit
-// confirmation, updates sops/index.md so future tasks can route to it.
+// PromoteSOPCandidate 写入经过审阅的 SOP 文件；只有显式确认后才更新 sops/index.md，
+// 这样未来任务才会被路由到新 SOP。
 func (m Manager) PromoteSOPCandidate(id string, confirmIndex bool, confirmation string) (SOPPromotionResult, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {

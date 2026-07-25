@@ -36,9 +36,10 @@ func (t workspaceTool) resolve(path string) string {
 	return filepath.Clean(filepath.Join(t.workspace, path))
 }
 
-// resolveSOPReadFallback resolves repository SOP files for read-only access.
-// SOPs live beside the configured workspace in this project, while file tools
-// intentionally resolve ordinary relative paths inside workspace.
+// resolveSOPReadFallback 为只读 SOP 提供仓库级路径回退。
+//
+// 普通相对路径仍严格相对 workspace；只有 sops/ 前缀的读取请求才会
+// 向 workspace、Git 根目录和其父目录查找，以免工作区配置影响规则文件可见性。
 func (t workspaceTool) resolveSOPReadFallback(path string) (string, bool) {
 	if path == "" || filepath.IsAbs(path) {
 		return "", false
@@ -56,6 +57,7 @@ func (t workspaceTool) resolveSOPReadFallback(path string) (string, bool) {
 	return "", false
 }
 
+// candidateSOPRoots 按优先级生成可能包含 sops/ 的目录，并去重保证查找稳定。
 func candidateSOPRoots(workspace string) []string {
 	seen := map[string]bool{}
 	var roots []string
@@ -75,6 +77,7 @@ func candidateSOPRoots(workspace string) []string {
 	return roots
 }
 
+// findGitRoot 从给定路径向上查找 .git，用于定位项目级 SOP。
 func findGitRoot(path string) string {
 	path = filepath.Clean(path)
 	for {

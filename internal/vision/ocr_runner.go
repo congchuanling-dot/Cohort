@@ -21,34 +21,49 @@ const (
 
 // OCRRequest 是传给 OCR helper 的受控请求参数。
 type OCRRequest struct {
-	ImagePath     string
+	// ImagePath 是工具层确认位于 workspace 内的输入图片。
+	ImagePath string
+	// MinConfidence 过滤低置信度文字，取值语义由 Python helper 定义。
 	MinConfidence float64
-	Enhance       bool
+	// Enhance 请求 helper 对图片执行增强预处理，适合低对比度截图。
+	Enhance bool
 }
 
 // OCRLine 是单行文字及其在原始图片中的矩形区域。
 // BBox 使用 [x1, y1, x2, y2]，坐标空间由调用工具声明。
 type OCRLine struct {
-	Index      int     `json:"index"`
-	Text       string  `json:"text"`
+	// Index 是结果中的一基行号，缺失时 Go 侧会按顺序补齐。
+	Index int `json:"index"`
+	// Text 是识别出的文本内容。
+	Text string `json:"text"`
+	// Confidence 是 helper 给出的识别置信度。
 	Confidence float64 `json:"confidence"`
-	BBox       []int   `json:"bbox"`
-	Center     Point   `json:"center"`
+	// BBox 是 [x1,y1,x2,y2] 图片局部像素框，不能直接当作系统屏幕坐标。
+	BBox []int `json:"bbox"`
+	// Center 是 BBox 中心点，仍处于同一图片局部坐标系。
+	Center Point `json:"center"`
 }
 
 // Point 表示图片内像素坐标。
 type Point struct {
+	// X 是图片内横坐标。
 	X int `json:"x"`
+	// Y 是图片内纵坐标。
 	Y int `json:"y"`
 }
 
 // OCRResult 是 Python helper 输出的稳定结构。
 type OCRResult struct {
-	Status string    `json:"status"`
-	Width  int       `json:"width"`
-	Height int       `json:"height"`
-	Text   string    `json:"text"`
-	Lines  []OCRLine `json:"lines"`
+	// Status 只能是 success 或 error。
+	Status string `json:"status"`
+	// Width 是原始图片像素宽度。
+	Width int `json:"width"`
+	// Height 是原始图片像素高度。
+	Height int `json:"height"`
+	// Text 是 helper 汇总的完整识别文本。
+	Text string `json:"text"`
+	// Lines 是带位置的逐行结果。
+	Lines []OCRLine `json:"lines"`
 }
 
 // OCRRunner 抽象 OCR 引擎，便于工具层测试并隔离 Python 进程实现。
@@ -58,11 +73,15 @@ type OCRRunner interface {
 
 // ToolError 表示可以直接转换为结构化工具错误的 OCR 失败。
 type ToolError struct {
-	Code    string
+	// Code 是工具层映射为稳定错误结果的机器可读编码。
+	Code string
+	// Message 是展示给用户和模型的错误摘要。
 	Message string
-	Hint    string
+	// Hint 是安全的下一步排障建议。
+	Hint string
 }
 
+// Error 让 ToolError 实现 Go 的 error，同时保留结构化诊断字段。
 func (e *ToolError) Error() string {
 	if e == nil {
 		return ""
@@ -72,9 +91,12 @@ func (e *ToolError) Error() string {
 
 // PythonOCRRunner 使用受控 Python helper 调用 RapidOCR。
 type PythonOCRRunner struct {
-	Python     string
+	// Python 是运行 OCR helper 的解释器。
+	Python string
+	// ScriptPath 是受版本管理的 browser_ocr.py 路径。
 	ScriptPath string
-	Timeout    time.Duration
+	// Timeout 限制单次 OCR 推理。
+	Timeout time.Duration
 }
 
 // NewPythonOCRRunner 创建使用默认超时的 Python OCR runner。
@@ -180,6 +202,8 @@ func (r *PythonOCRRunner) Run(ctx context.Context, request OCRRequest) (OCRResul
 	return result, nil
 }
 
+// parseOCRResult 校验 helper JSON 形状并补齐缺失的行索引。
+// 这里早期拒绝非法 bbox，避免后续视觉点击把损坏坐标当作可信定位。
 func parseOCRResult(data []byte) (OCRResult, error) {
 	var result OCRResult
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -207,6 +231,7 @@ func parseOCRResult(data []byte) (OCRResult, error) {
 	return result, nil
 }
 
+// resultError 解析 helper 的 error JSON，并为缺失字段补上安全默认值。
 func resultError(data []byte) error {
 	var payload struct {
 		Code    string `json:"code"`
@@ -232,6 +257,7 @@ func resultError(data []byte) error {
 	return &ToolError{Code: payload.Code, Message: payload.Message, Hint: payload.Hint}
 }
 
+// compactHelperOutput 截断异常输出，防止依赖堆栈过度占用模型上下文。
 func compactHelperOutput(value string) string {
 	value = strings.TrimSpace(value)
 	if len(value) <= maxOCRHelperOutputBytes {
@@ -240,6 +266,7 @@ func compactHelperOutput(value string) string {
 	return value[:maxOCRHelperOutputBytes] + "...[truncated]"
 }
 
+// detailSuffix 在存在诊断文本时提供可读分隔符。
 func detailSuffix(detail string) string {
 	if detail == "" {
 		return ""

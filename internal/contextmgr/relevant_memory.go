@@ -15,28 +15,41 @@ import (
 )
 
 const (
+	// defaultGlobalMemoryPath 是不依赖索引、每轮都可参与相关性匹配的全局经验文件。
 	defaultGlobalMemoryPath = "memory/global.md"
-	sopCandidateMemoryPath  = "memory/reflection/sop_candidates.md"
+	// sopCandidateMemoryPath 允许已验证的候选工作流参与匹配，但不等同于已正式启用的 SOP。
+	sopCandidateMemoryPath = "memory/reflection/sop_candidates.md"
 )
 
 var (
+	// memoryPathPattern 从索引文本中提取可安全读取的 Markdown 记忆引用。
 	memoryPathPattern = regexp.MustCompile(`memory/[A-Za-z0-9._/\-]+`)
-	taskKeywordHints  = []string{
+	// taskKeywordHints 给中英文常见工具场景增加基础检索召回。
+	taskKeywordHints = []string{
 		"飞书", "lark", "浏览器", "browser", "网页", "页面", "点击", "输入",
 		"审批", "表单", "登录", "chrome", "snapshot", "selector", "element",
 		"元素", "wait_for_stable", "wait_for_load", "wait_for_text", "cdp",
 	}
 )
 
+// relevantMemoryMatch 是一条进入本轮候选的记忆条目及其可解释匹配信息。
 type relevantMemoryMatch struct {
+	// relPath 是相对于 workspace 的记忆来源路径。
 	relPath string
+	// entryID 是条目稳定标识，方便审计日志关联。
 	entryID string
-	title   string
+	// title 是 Markdown 条目的标题。
+	title string
+	// content 是实际要注入的条目正文。
 	content string
-	score   int
+	// score 是关键词匹配得到的确定性分数。
+	score int
+	// reasons 是各字段命中带来的分数说明。
 	reasons []string
 }
 
+// loadRelevantLongTermMemory 从受限记忆文件中找出与最新用户任务最相关的少量条目。
+// 它只做确定性关键词打分，不访问网络、不修改记忆文件。
 func loadRelevantLongTermMemory(memoryRoot string, indexText string, messages []llm.Message, cfg Config) (matches []relevantMemoryMatch, err error) {
 	if strings.TrimSpace(memoryRoot) == "" || cfg.MaxRelevantMemoryEntries <= 0 || cfg.MaxRelevantMemoryChars <= 0 {
 		return nil, nil
@@ -84,6 +97,7 @@ func loadRelevantLongTermMemory(memoryRoot string, indexText string, messages []
 	return scored, nil
 }
 
+// buildRelevantLongTermMemoryMessage 将命中条目编码为请求前缀，并同步记录可审计匹配理由。
 func buildRelevantLongTermMemoryMessage(matches []relevantMemoryMatch, cfg Config, stats *Stats) (llm.Message, bool) {
 	if len(matches) == 0 {
 		return llm.Message{}, false
@@ -125,6 +139,7 @@ func buildRelevantLongTermMemoryMessage(matches []relevantMemoryMatch, cfg Confi
 	return llm.Message{Role: llm.RoleAssistant, Content: content}, true
 }
 
+// recentUserTaskText 从历史末尾逆向寻找最近一条实际用户任务，忽略工具和系统注入消息。
 func recentUserTaskText(messages []llm.Message) string {
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role == llm.RoleUser && strings.TrimSpace(messages[i].Content) != "" {
@@ -134,6 +149,7 @@ func recentUserTaskText(messages []llm.Message) string {
 	return ""
 }
 
+// extractTaskKeywords 结合预置场景词和通用分词提取检索词，并保持首次出现顺序。
 func extractTaskKeywords(text string) []string {
 	lower := strings.ToLower(text)
 	seen := map[string]bool{}
@@ -155,6 +171,7 @@ func extractTaskKeywords(text string) []string {
 	return keywords
 }
 
+// splitKeywordWords 按非字母数字边界分词，但保留下划线和连字符组成的工具名。
 func splitKeywordWords(text string) []string {
 	return strings.FieldsFunc(text, func(r rune) bool {
 		if r == '_' || r == '-' {
@@ -164,6 +181,7 @@ func splitKeywordWords(text string) []string {
 	})
 }
 
+// candidateMemoryPaths 汇总固定、索引引用和自动发现的项目记忆路径，并去重。
 func candidateMemoryPaths(memoryRoot string, indexText string) []string {
 	seen := map[string]bool{}
 	var paths []string
@@ -186,6 +204,7 @@ func candidateMemoryPaths(memoryRoot string, indexText string) []string {
 	return paths
 }
 
+// discoverProjectMemoryPaths 查找 memory/projects/*/project.md，使项目记忆不必全部手写进索引。
 func discoverProjectMemoryPaths(memoryRoot string) []string {
 	pattern := filepath.Join(memoryRoot, "projects", "*", "project.md")
 	matches, err := filepath.Glob(pattern)
@@ -204,6 +223,7 @@ func discoverProjectMemoryPaths(memoryRoot string) []string {
 	return paths
 }
 
+// normalizeMemoryReference 拒绝索引中指向 audit、原始会话或目录逃逸的路径。
 func normalizeMemoryReference(path string) string {
 	path = strings.TrimSpace(path)
 	path = strings.Trim(path, "`'\"：:，,。.)]}")
@@ -224,6 +244,7 @@ func normalizeMemoryReference(path string) string {
 	return path
 }
 
+// loadMemoryMarkdown 在词法路径检查后读取一份 Markdown 记忆；不存在和空文件都不是错误。
 func loadMemoryMarkdown(memoryRoot, relPath string) (text string, ok bool, err error) {
 	relPath = normalizeMemoryReference(relPath)
 	if relPath == "" {
@@ -250,11 +271,15 @@ func loadMemoryMarkdown(memoryRoot, relPath string) (text string, ok bool, err e
 	return text, true, nil
 }
 
+// memoryEntry 是从一个 Markdown 文件按二级标题拆出的可独立检索单元。
 type memoryEntry struct {
-	title   string
+	// title 是条目标题，没有标准标题时为空。
+	title string
+	// content 是保留标题在内的原始条目文本。
 	content string
 }
 
+// splitMemoryEntries 识别标准 Memory Entry/SOP Candidate 二级标题，并保留无法识别的完整文件作为兜底条目。
 func splitMemoryEntries(content string) []memoryEntry {
 	content = strings.TrimSpace(content)
 	if content == "" {
@@ -301,11 +326,15 @@ func splitMemoryEntries(content string) []memoryEntry {
 	return filtered
 }
 
+// relevantMemoryScore 保存确定性关键词评分及可展示的命中理由。
 type relevantMemoryScore struct {
-	score   int
+	// score 是字段权重的累计分数。
+	score int
+	// reasons 是至多四项最早命中的解释。
 	reasons []string
 }
 
+// scoreRelevantMemory 对结构化字段赋予高于正文的权重，优先召回明确标注场景和关键词的经验。
 func scoreRelevantMemory(relPath, title, content string, keywords []string) relevantMemoryScore {
 	fields := []struct {
 		name   string
@@ -357,6 +386,7 @@ func scoreRelevantMemory(relPath, title, content string, keywords []string) rele
 	return score
 }
 
+// extractMemoryField 从 Markdown 元数据行中读取一个小写字段值。
 func extractMemoryField(content, field string) string {
 	prefix := "- " + field + ":"
 	for _, line := range strings.Split(content, "\n") {
@@ -368,6 +398,7 @@ func extractMemoryField(content, field string) string {
 	return ""
 }
 
+// extractMemorySection 返回指定三级标题到下一个三级标题之间的正文。
 func extractMemorySection(content, heading string) string {
 	prefix := "### " + heading
 	lines := strings.Split(content, "\n")
@@ -392,6 +423,7 @@ func extractMemorySection(content, heading string) string {
 	return strings.TrimSpace(b.String())
 }
 
+// stableMemoryEntryID 优先复用条目显式 ID，否则根据规范化文本生成稳定 FNV 标识。
 func stableMemoryEntryID(title, content string) string {
 	if id := extractMemoryField(content, "id"); id != "" {
 		return id
@@ -405,6 +437,7 @@ func stableMemoryEntryID(title, content string) string {
 	return fmt.Sprintf("mem-%08x", h.Sum32())
 }
 
+// relevantMemoryHitLogs 将内部匹配结果复制为不包含正文的诊断日志结构。
 func relevantMemoryHitLogs(matches []relevantMemoryMatch) []RelevantMemoryHitLog {
 	logs := make([]RelevantMemoryHitLog, 0, len(matches))
 	for _, match := range matches {

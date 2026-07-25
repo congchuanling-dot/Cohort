@@ -46,6 +46,8 @@ type bridgeResponse struct {
 	Error bridgeError `json:"error,omitempty"`
 }
 
+// bridgeError 是插件以 type=error 返回的协议错误详情。
+// 它与 Go 的 error 分开保存，便于关联原始请求 ID 和调试堆栈。
 type bridgeError struct {
 	// Message 是插件侧返回的错误摘要。
 	Message string `json:"message"`
@@ -53,6 +55,10 @@ type bridgeError struct {
 	Stack string `json:"stack,omitempty"`
 }
 
+// newRequestID 为并发中的每个桥命令生成关联标识。
+//
+// 优先使用加密安全随机字节，避免不同请求误配；极端随机源失败时回退纳秒时间，
+// 仍能保持本地单进程场景下足够低的碰撞概率。
 func newRequestID() string {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err == nil {

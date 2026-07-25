@@ -133,6 +133,10 @@ func (b *Bridge) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	b.readLoop(conn)
 }
 
+// replaceConnection 以最新插件连接替换旧连接。
+//
+// 一个浏览器扩展重载后可能再次连接；关闭旧连接可以避免两个 readLoop
+// 同时向同一 pending 映射投递响应，造成请求关联不确定。
 func (b *Bridge) replaceConnection(conn *websocket.Conn) {
 	b.mu.Lock()
 	old := b.conn
@@ -143,6 +147,8 @@ func (b *Bridge) replaceConnection(conn *websocket.Conn) {
 	}
 }
 
+// readLoop 持续读取单个插件连接，直到对端断开。
+// 只有仍是当前连接的 conn 才能清空 b.conn，避免旧连接退出时误删新连接。
 func (b *Bridge) readLoop(conn *websocket.Conn) {
 	defer func() {
 		b.mu.Lock()
@@ -162,6 +168,8 @@ func (b *Bridge) readLoop(conn *websocket.Conn) {
 	}
 }
 
+// handleIncoming 按消息 type 路由插件事件。
+// tabs 是无请求 ID 的状态广播，而 result/error 必须交给对应 pending 命令等待者。
 func (b *Bridge) handleIncoming(raw []byte) {
 	var envelope bridgeEnvelope
 	if err := json.Unmarshal(raw, &envelope); err != nil {
@@ -181,12 +189,15 @@ func (b *Bridge) handleIncoming(raw []byte) {
 	}
 }
 
+// setTabs 深复制插件上报的切片，防止调用方或 JSON 解析缓存意外共享底层数组。
 func (b *Bridge) setTabs(tabs []Tab) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.tabs = cloneTabs(tabs)
 }
 
+// resolvePending 根据响应 ID 唤醒唯一等待该命令的 goroutine。
+// 先从 map 删除再发送，保证超时后的迟到响应不会保留泄漏的 channel。
 func (b *Bridge) resolvePending(raw []byte) {
 	var resp bridgeResponse
 	if err := json.Unmarshal(raw, &resp); err != nil {
@@ -402,6 +413,10 @@ func (b *Bridge) Wait(ctx context.Context, tabID string, mode string, params map
 	return result, err
 }
 
+// command 是所有浏览器操作共享的请求-响应关联逻辑。
+//
+// 每条消息带唯一 ID 并绑定一个缓冲为 1 的 channel。缓冲使插件在 select
+// 另一端刚超时的竞态窗口中仍能完成投递，不会卡住 readLoop。
 func (b *Bridge) command(ctx context.Context, payload map[string]any, out any) error {
 	conn := b.currentConnection()
 	if conn == nil {
@@ -439,24 +454,30 @@ func (b *Bridge) command(ctx context.Context, payload map[string]any, out any) e
 	}
 }
 
+// currentConnection 在锁保护下取得当前插件连接快照。
 func (b *Bridge) currentConnection() *websocket.Conn {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.conn
 }
 
+// writeJSON 串行化 WebSocket 写操作。
+// gorilla/websocket 不支持并发 writer；多个工具调用可以并行，因此必须单独加锁。
 func (b *Bridge) writeJSON(conn *websocket.Conn, payload any) error {
 	b.writeMu.Lock()
 	defer b.writeMu.Unlock()
 	return conn.WriteJSON(payload)
 }
 
+// removePending 在写失败或等待超时时清理请求记录。
 func (b *Bridge) removePending(id string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	delete(b.pending, id)
 }
 
+// closeConnection 断开插件并关闭所有未完成命令的等待 channel。
+// 这样等待者会立即收到零值响应并返回，不必等到各自的超时。
 func (b *Bridge) closeConnection() {
 	b.mu.Lock()
 	conn := b.conn
@@ -471,6 +492,7 @@ func (b *Bridge) closeConnection() {
 	}
 }
 
+// cloneTabs 返回标签页切片副本，隔离 Bridge 内部缓存。
 func cloneTabs(in []Tab) []Tab {
 	if len(in) == 0 {
 		return nil

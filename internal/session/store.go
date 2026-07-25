@@ -28,7 +28,6 @@ type Store struct {
 	RootDir string
 }
 
-// test
 // NewStore 创建 session 存储器。
 // rootDir 为空时使用 DefaultRootDir，调用方可以在测试里传 t.TempDir() 隔离文件。
 //

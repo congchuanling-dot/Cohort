@@ -10,7 +10,7 @@ import (
 	"cohert/internal/llm"
 )
 
-// StartLongTermUpdate initializes the controlled long-term memory flow.
+// StartLongTermUpdate 初始化受控长期记忆沉淀流程，但不直接写入经验内容。
 type StartLongTermUpdate struct {
 	manager evolution.Manager
 }
@@ -55,7 +55,7 @@ func (t *StartLongTermUpdate) Run(ctx context.Context, call agent.ToolCallContex
 	}, nil
 }
 
-// MemoryProposeUpdate validates candidate memory updates without writing files.
+// MemoryProposeUpdate 校验候选记忆更新，但不写入任何文件。
 type MemoryProposeUpdate struct {
 	manager evolution.Manager
 }
@@ -154,7 +154,7 @@ func (t *MemoryProposeUpdate) Run(ctx context.Context, call agent.ToolCallContex
 	}, nil
 }
 
-// MemoryApplyUpdate appends one validated candidate and writes an audit record.
+// MemoryApplyUpdate 追加一条已验证的候选，并写入审计记录。
 type MemoryApplyUpdate struct {
 	manager evolution.Manager
 }

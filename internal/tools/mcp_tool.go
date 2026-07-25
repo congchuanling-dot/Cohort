@@ -10,17 +10,23 @@ import (
 	"cohert/internal/mcp"
 )
 
+// maxMCPToolResultChars 限制不可信外部内容进入模型上下文的最大长度。
 const maxMCPToolResultChars = 12000
 
-// MCPTool adapts one dynamically discovered MCP tool to Cohert's static Tool
-// interface. It keeps all protocol details in internal/mcp.
+// MCPTool 将动态发现的 MCP 工具适配为 Cohert 的静态 Tool 接口。
+// MCP 协议细节留在 internal/mcp，本层负责权限、上下文大小和不可信标记。
 type MCPTool struct {
-	registered  mcp.RegisteredTool
-	manager     *mcp.Manager
+	// registered 保存发现阶段确定的服务器、原始工具与 CohertID。
+	registered mcp.RegisteredTool
+	// manager 负责将 CohertID 路由回已打开的 MCP 连接。
+	manager *mcp.Manager
+	// permissions 缓存本会话内用户允许的写操作。
 	permissions *MCPPermissionStore
-	prompter    MCPPermissionPrompter
+	// prompter 在需要逐次确认时询问用户。
+	prompter MCPPermissionPrompter
 }
 
+// NewMCPTool 用一项已发现的远端工具构造本地适配器。
 func NewMCPTool(
 	registered mcp.RegisteredTool,
 	manager *mcp.Manager,
@@ -35,10 +41,12 @@ func NewMCPTool(
 	}
 }
 
+// Name 返回 Registry 与模型使用的 Cohert 命名空间工具名。
 func (t *MCPTool) Name() string {
 	return t.registered.CohertID
 }
 
+// Schema 保留服务器输入 schema，同时追加来源和风险说明给模型。
 func (t *MCPTool) Schema() llm.ToolSchema {
 	parameters := t.registered.Tool.InputSchema
 	if parameters == nil {
@@ -62,6 +70,7 @@ func (t *MCPTool) Schema() llm.ToolSchema {
 	}}
 }
 
+// Run 先执行本地权限策略，再调用远端工具，并把结果显式标记为不可信外部内容。
 func (t *MCPTool) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
 	decision, err := ensureMCPPermission(
 		ctx,
@@ -114,6 +123,7 @@ func (t *MCPTool) Run(ctx context.Context, call agent.ToolCallContext) (agent.Ou
 	}, nil
 }
 
+// truncateMCPResult 首尾保留过长结果，既保留响应开头的状态又尽量保留末尾结论。
 func truncateMCPResult(content string) (string, bool) {
 	if len(content) <= maxMCPToolResultChars {
 		return content, false

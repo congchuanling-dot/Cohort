@@ -29,6 +29,10 @@ const (
 	longTermMemoryTurnThreshold = 3
 )
 
+// ToolRunner 是 Runner 对工具注册表的最小依赖。
+//
+// Runner 只需要“给模型列出可用工具”和“按名称执行一次调用”两种能力，
+// 因此测试可以替换成轻量 fake，而不必启动真实浏览器或桌面驱动。
 type ToolRunner interface {
 	Schemas() []llm.ToolSchema
 	Run(ctx context.Context, call ToolCallContext) (Outcome, error)
@@ -71,6 +75,8 @@ type WorkingCheckpoint struct {
 	UpdatedAtTurn int
 }
 
+// pendingSOPRead 防止模型读完 SOP 后忽略其中的约束。
+// 它只在当前任务的相邻轮次中有效，checkpoint 更新后会被清空。
 type pendingSOPRead struct {
 	// Path 是最近一次通过 file_read 读取到的 SOP 路径。
 	Path string
@@ -82,14 +88,22 @@ type pendingSOPRead struct {
 //
 // 它只用于决定是否给模型追加一次临时提示，不替代 evolution 包对写入证据的最终校验。
 type longTermMemorySignals struct {
-	userRequested         bool
-	successfulCodeRun     bool
+	// userRequested 表示用户明确要求保存可复用经验。
+	userRequested bool
+	// successfulCodeRun 表示本任务有成功执行的命令或测试可作为证据。
+	successfulCodeRun bool
+	// readReusableReference 表示已读取 SOP、记忆或其他可复用规则。
 	readReusableReference bool
-	recoveredFromFailure  bool
-	consecutiveFailures   int
-	prompted              bool
-	finalReviewPrompted   bool
-	started               bool
+	// recoveredFromFailure 表示连续失败后出现了成功结果，通常值得总结修复路径。
+	recoveredFromFailure bool
+	// consecutiveFailures 用于识别“失败后恢复”这一序列，而非单次工具失败。
+	consecutiveFailures int
+	// prompted 防止同一任务重复插入长期记忆提示。
+	prompted bool
+	// finalReviewPrompted 防止模型最终回答前的复核提示造成循环。
+	finalReviewPrompted bool
+	// started 表示模型已经进入长期记忆工具流程，无需再提示。
+	started bool
 }
 
 // Runner 表示一个 Agent 会话，负责串起模型、工具、历史消息和循环控制。
@@ -292,6 +306,10 @@ func (r *Runner) buildRequestMessages() []llm.Message {
 	return r.appendEphemeralGuidance(result.Messages)
 }
 
+// updateWorkingCheckpoint 将模型提交的短期工作记忆写回 Runner。
+//
+// 使用 fmt.Sprint 读取 map 参数是为了兼容工具调用 JSON 解码后的动态类型；
+// "<nil>" 需要显式排除，避免把缺失字段误写成字符串。
 func (r *Runner) updateWorkingCheckpoint(args map[string]any, turn int) {
 	if value := strings.TrimSpace(fmt.Sprint(args["key_info"])); value != "" && value != "<nil>" {
 		r.WorkingCheckpoint.KeyInfo = value
@@ -303,6 +321,8 @@ func (r *Runner) updateWorkingCheckpoint(args map[string]any, turn int) {
 	r.pendingSOPRead = pendingSOPRead{}
 }
 
+// rememberSOPRead 仅记录真正位于 SOP 目录或名称包含 sop 的读取操作。
+// 普通文件读取不会触发 checkpoint 提醒，避免给每轮对话增加无关提示。
 func (r *Runner) rememberSOPRead(args map[string]any) {
 	path := strings.TrimSpace(fmt.Sprint(args["path"]))
 	if !isSOPPath(path) {
@@ -311,6 +331,8 @@ func (r *Runner) rememberSOPRead(args map[string]any) {
 	r.pendingSOPRead = pendingSOPRead{Path: path}
 }
 
+// containsToolCall 判断本轮模型是否已经调用指定工具。
+// 它用于避免在模型已更新 checkpoint 时追加重复提醒。
 func containsToolCall(calls []llm.ToolCall, name string) bool {
 	for _, call := range calls {
 		if call.Function.Name == name {
@@ -320,6 +342,8 @@ func containsToolCall(calls []llm.ToolCall, name string) bool {
 	return false
 }
 
+// addPendingHint 暂存只对下一次模型请求可见的系统提示。
+// 这些提示不进入 history.jsonl，避免把运行控制信息污染可恢复的用户会话。
 func (r *Runner) addPendingHint(hint string) {
 	hint = strings.TrimSpace(hint)
 	if hint == "" {
@@ -394,6 +418,8 @@ func (r *Runner) maybeForceLongTermMemoryReview(signals *longTermMemorySignals, 
 	return true
 }
 
+// longTermMemoryReasons 将内部布尔状态转换成人和模型都可理解的触发原因。
+// 返回空切片表示当前没有足够理由要求模型评估长期记忆。
 func longTermMemoryReasons(signals *longTermMemorySignals, turn int) []string {
 	if signals == nil {
 		return nil
@@ -417,6 +443,10 @@ func longTermMemoryReasons(signals *longTermMemorySignals, turn int) []string {
 	return reasons
 }
 
+// outcomeSucceeded 从工具可返回的几种数据形状推断是否成功。
+//
+// 工具错误通常作为正常的 Outcome.Data 返回，而非 Go error；
+// 这里集中处理该约定，避免长期记忆证据把失败结果误标为已验证。
 func outcomeSucceeded(outcome Outcome) bool {
 	switch data := outcome.Data.(type) {
 	case ToolErrorData:
@@ -432,8 +462,10 @@ func outcomeSucceeded(outcome Outcome) bool {
 	}
 }
 
-// newToolEvidence creates a metadata-only ledger entry for one completed tool call.
-// It intentionally excludes raw tool output, which can be large, volatile, or sensitive.
+// newToolEvidence 为一次完成的工具调用建立仅含元数据的证据账本条目。
+//
+// 它刻意不保存原始工具输出：原始输出可能很大、易变化，或包含敏感内容；
+// 记忆系统只需要知道“哪次调用、是否验证成功、为什么可用”。
 func newToolEvidence(call llm.ToolCall, turn, index int, outcome Outcome) evolution.Evidence {
 	name := call.Function.Name
 	verified := toolOutcomeVerified(name, outcome)
@@ -448,6 +480,8 @@ func newToolEvidence(call llm.ToolCall, turn, index int, outcome Outcome) evolut
 	}
 }
 
+// toolOutcomeVerified 对需要更严格判定的工具补充验证条件。
+// 例如 code_run 只有退出码为 0 才可证明命令或测试成功。
 func toolOutcomeVerified(name string, outcome Outcome) bool {
 	if !outcomeSucceeded(outcome) {
 		return false
@@ -463,6 +497,7 @@ func toolOutcomeVerified(name string, outcome Outcome) bool {
 	return ok && exitCode == 0
 }
 
+// toolEvidenceSummary 生成适合写入长期记忆审计记录的简短结果说明。
 func toolEvidenceSummary(name string, verified bool) string {
 	if !verified {
 		return name + " did not produce verified evidence"
@@ -473,6 +508,7 @@ func toolEvidenceSummary(name string, verified bool) string {
 	return name + " completed successfully"
 }
 
+// integerValue 兼容 JSON 数字解码成 float64 与测试直接传入 int 的两种形态。
 func integerValue(value any) (int, bool) {
 	switch number := value.(type) {
 	case int:
@@ -486,6 +522,8 @@ func integerValue(value any) (int, bool) {
 	}
 }
 
+// requestsLongTermMemory 用中英文关键词识别用户是否明确要求沉淀经验。
+// 这是提示条件而不是写入授权，实际内容仍由 evolution 包进行校验。
 func requestsLongTermMemory(input string) bool {
 	lower := strings.ToLower(input)
 	keywords := []string{
@@ -500,6 +538,8 @@ func requestsLongTermMemory(input string) bool {
 	return false
 }
 
+// isReusableReferencePath 识别通常包含项目约定的文件，而不是任意业务数据文件。
+// 命中后只会触发“考虑记忆”的提示，不会自动读取或保存文件内容。
 func isReusableReferencePath(path string) bool {
 	path = strings.ToLower(filepath.ToSlash(filepath.Clean(strings.TrimSpace(path))))
 	if path == "." || path == "" {
@@ -516,6 +556,10 @@ func isReusableReferencePath(path string) bool {
 		strings.HasPrefix(path, "configs/") || strings.Contains(path, "/configs/")
 }
 
+// appendEphemeralGuidance 把 checkpoint 和一次性提示附加到请求副本末尾。
+//
+// 采用 user 消息是为了让模型优先看到当前执行约束；清空 pendingHints
+// 确保它们只影响一轮，不能在长对话里反复累积。
 func (r *Runner) appendEphemeralGuidance(messages []llm.Message) []llm.Message {
 	content := r.workingCheckpointPrompt()
 	if len(r.pendingHints) > 0 {
@@ -534,6 +578,8 @@ func (r *Runner) appendEphemeralGuidance(messages []llm.Message) []llm.Message {
 	})
 }
 
+// addSOPRouteHint 根据用户任务的关键词提示可能相关的操作规程。
+// 这只是导航，模型仍要先用 file_read 读取 SOP 原文再按其中规则执行。
 func (r *Runner) addSOPRouteHint(input string) {
 	matches := routeSOPs(input)
 	if len(matches) == 0 {
@@ -542,6 +588,8 @@ func (r *Runner) addSOPRouteHint(input string) {
 	r.addPendingHint("[SOP HINT] 这个任务可能相关：" + strings.Join(matches, "、") + "。请先 file_read 相关 SOP；如果采用其规则，请调用 update_working_checkpoint 保存关键约束和 related_sop。")
 }
 
+// workingCheckpointPrompt 将内存中的短期状态编码为下一轮可见的提示文本。
+// 空 checkpoint 不生成消息，以免为每轮请求增加无意义 token。
 func (r *Runner) workingCheckpointPrompt() string {
 	if strings.TrimSpace(r.WorkingCheckpoint.KeyInfo) == "" && strings.TrimSpace(r.WorkingCheckpoint.RelatedSOP) == "" {
 		return ""
@@ -561,6 +609,8 @@ func (r *Runner) workingCheckpointPrompt() string {
 	return strings.TrimSpace(b.String())
 }
 
+// routeSOPs 通过保守关键词路由返回至多三个候选 SOP。
+// 关键词匹配并不代表 SOP 一定适用，因此结果只用于建议读取，不直接改变工具权限。
 func routeSOPs(input string) []string {
 	lower := strings.ToLower(input)
 	routes := []struct {
@@ -596,12 +646,14 @@ func routeSOPs(input string) []string {
 	return matches
 }
 
+// isSOPPath 兼容相对路径、绝对路径和 Windows 风格分隔符，判断文件是否像 SOP。
 func isSOPPath(path string) bool {
 	path = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(path), "\\", "/"))
 	base := filepath.Base(path)
 	return strings.Contains(path, "/sops/") || strings.HasPrefix(path, "sops/") || strings.Contains(base, "sop")
 }
 
+// ToolSchemas 返回当前注册器暴露给模型的工具定义。
 func (r *Runner) ToolSchemas() []llm.ToolSchema {
 	return r.Tools.Schemas()
 }
@@ -620,6 +672,8 @@ func (r *Runner) HistoryLen() int {
 	return len(r.history)
 }
 
+// Reset 清空内存会话绑定，不删除已经写入磁盘的历史目录。
+// 它服务于 REPL 的 /clear，让用户开始新会话时保留旧会话可恢复。
 func (r *Runner) Reset() {
 	r.history = nil
 	r.sessionID = ""
@@ -667,6 +721,7 @@ func (r *Runner) ensureSession(titleSeed string) error {
 	return nil
 }
 
+// sessionDir 返回当前会话目录；尚未创建会话或关闭落盘时返回空字符串。
 func (r *Runner) sessionDir() string {
 	if r.SessionStore == nil || r.sessionID == "" {
 		return ""
@@ -712,6 +767,8 @@ func consume(stream <-chan llm.Event, sink OutputSink) (*llm.Response, error) {
 	return nil, fmt.Errorf("llm stream closed without done event")
 }
 
+// writeMissingFinalText 补齐部分供应商没有以 SSE delta 发出的最终文本尾部。
+// 若完整响应与已输出前缀不一致，宁可不重复输出，避免终端出现错乱内容。
 func writeMissingFinalText(sink OutputSink, written string, final string) {
 	if final == "" {
 		return
@@ -725,6 +782,7 @@ func writeMissingFinalText(sink OutputSink, written string, final string) {
 	}
 }
 
+// ensureTerminalLineBreak 让直接结束的模型输出不会与下一段终端提示连在同一行。
 func ensureTerminalLineBreak(sink OutputSink, content string) {
 	if content == "" || strings.HasSuffix(content, "\n") {
 		return

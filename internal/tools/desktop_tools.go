@@ -18,12 +18,19 @@ import (
 )
 
 const (
-	defaultDesktopWindowLimit      = 50
-	maxDesktopWindowLimit          = 100
-	defaultDesktopAXDepth          = 8
-	maxDesktopAXDepth              = 12
-	defaultDesktopAXNodes          = 300
-	maxDesktopAXNodes              = 500
+	// defaultDesktopWindowLimit 是一次窗口枚举的默认返回上限。
+	defaultDesktopWindowLimit = 50
+	// maxDesktopWindowLimit 防止模型请求无界窗口列表。
+	maxDesktopWindowLimit = 100
+	// defaultDesktopAXDepth 是辅助功能树读取的默认深度。
+	defaultDesktopAXDepth = 8
+	// maxDesktopAXDepth 限制递归快照的最深层级。
+	maxDesktopAXDepth = 12
+	// defaultDesktopAXNodes 是辅助功能树默认节点上限。
+	defaultDesktopAXNodes = 300
+	// maxDesktopAXNodes 是辅助功能树可返回的最大节点数。
+	maxDesktopAXNodes = 500
+	// defaultDesktopScreenshotDir 是工作区内桌面截图和 manifest 的固定目录。
 	defaultDesktopScreenshotDir    = ".cohert/desktop/screenshots"
 	defaultDesktopOCRMinConfidence = 0.5
 	defaultDesktopOCRMaxLines      = 80
@@ -32,24 +39,38 @@ const (
 	maxDesktopOCRChars             = 12000
 )
 
+// desktopScreenshotManifest 是截图局部 bbox 映射为物理屏幕坐标所需的不可变证据。
+// 视觉点击必须读取并校验它，不能仅凭模型传来的图片路径和坐标执行。
 type desktopScreenshotManifest struct {
-	Version               int            `json:"version"`
-	ImagePath             string         `json:"image_path"`
-	PID                   int            `json:"pid"`
-	WindowID              string         `json:"window_id"`
-	Width                 int            `json:"width"`
-	Height                int            `json:"height"`
-	WindowBounds          desktop.Bounds `json:"window_bounds"`
-	CoordinateSpace       string         `json:"coordinate_space"`
-	ScreenCoordinateSpace string         `json:"screen_coordinate_space"`
-	CreatedAt             string         `json:"created_at"`
+	// Version 允许未来安全演进 manifest 格式。
+	Version int `json:"version"`
+	// ImagePath 将 manifest 绑定到唯一截图文件。
+	ImagePath string `json:"image_path"`
+	// PID 将截图绑定到产生它的应用进程。
+	PID int `json:"pid"`
+	// WindowID 将截图绑定到进程中的具体窗口。
+	WindowID string `json:"window_id"`
+	// Width 是截图像素宽度。
+	Width int `json:"width"`
+	// Height 是截图像素高度。
+	Height int `json:"height"`
+	// WindowBounds 是截图时窗口在物理屏幕中的边界。
+	WindowBounds desktop.Bounds `json:"window_bounds"`
+	// CoordinateSpace 说明 OCR bbox 使用的截图局部坐标系。
+	CoordinateSpace string `json:"coordinate_space"`
+	// ScreenCoordinateSpace 说明 WindowBounds 使用的物理屏幕坐标系。
+	ScreenCoordinateSpace string `json:"screen_coordinate_space"`
+	// CreatedAt 是截图生成时间，主要用于审计和排查旧图复用。
+	CreatedAt string `json:"created_at"`
 }
 
 // DesktopPermissions 检查桌面感知所需的 macOS 权限。
 type DesktopPermissions struct {
+	// driver 查询系统权限而不执行任何桌面输入。
 	driver desktop.Driver
 }
 
+// NewDesktopPermissions 创建只读权限探测工具。
 func NewDesktopPermissions(driver desktop.Driver) *DesktopPermissions {
 	return &DesktopPermissions{driver: driver}
 }
@@ -85,9 +106,11 @@ func (t *DesktopPermissions) Run(ctx context.Context, call agent.ToolCallContext
 
 // DesktopWindows 枚举可见普通应用窗口，供模型定位目标 PID。
 type DesktopWindows struct {
+	// driver 枚举可见窗口。
 	driver desktop.Driver
 }
 
+// NewDesktopWindows 创建窗口枚举工具。
 func NewDesktopWindows(driver desktop.Driver) *DesktopWindows {
 	return &DesktopWindows{driver: driver}
 }
@@ -129,9 +152,11 @@ func (t *DesktopWindows) Run(ctx context.Context, call agent.ToolCallContext) (a
 
 // DesktopActivate 将一个 PID 对应的应用带到前台，并验证结果。
 type DesktopActivate struct {
+	// driver 负责把指定应用带到前台。
 	driver desktop.Driver
 }
 
+// NewDesktopActivate 创建前台激活工具。
 func NewDesktopActivate(driver desktop.Driver) *DesktopActivate {
 	return &DesktopActivate{driver: driver}
 }
@@ -174,10 +199,13 @@ func (t *DesktopActivate) Run(ctx context.Context, call agent.ToolCallContext) (
 
 // DesktopScreenshot 捕获指定 PID 的一个窗口，并由 Go 侧固定保存路径。
 type DesktopScreenshot struct {
+	// driver 执行平台截图。
 	driver desktop.Driver
+	// workspaceTool 约束截图落盘位置。
 	workspaceTool
 }
 
+// NewDesktopScreenshot 创建受工作区路径约束的截图工具。
 func NewDesktopScreenshot(driver desktop.Driver, workspace string) *DesktopScreenshot {
 	return &DesktopScreenshot{driver: driver, workspaceTool: newWorkspaceTool(workspace)}
 }
@@ -272,6 +300,7 @@ func (t *DesktopScreenshot) Run(ctx context.Context, call agent.ToolCallContext)
 	}, nil
 }
 
+// writeDesktopScreenshotManifest 以格式化 JSON 写入截图旁车文件，便于人工审计坐标来源。
 func writeDesktopScreenshotManifest(path string, manifest desktopScreenshotManifest) error {
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -282,9 +311,11 @@ func writeDesktopScreenshotManifest(path string, manifest desktopScreenshotManif
 
 // DesktopAXSnapshot 返回目标应用的受限 AX 控件树。
 type DesktopAXSnapshot struct {
+	// driver 读取平台辅助功能树。
 	driver desktop.Driver
 }
 
+// NewDesktopAXSnapshot 创建只读且有深度/节点上限的 AX 快照工具。
 func NewDesktopAXSnapshot(driver desktop.Driver) *DesktopAXSnapshot {
 	return &DesktopAXSnapshot{driver: driver}
 }
@@ -333,10 +364,13 @@ func (t *DesktopAXSnapshot) Run(ctx context.Context, call agent.ToolCallContext)
 
 // DesktopOCR 对已经保存到 workspace 的桌面截图执行只读 OCR。
 type DesktopOCR struct {
+	// workspaceTool 解析并限制图片路径。
 	workspaceTool
+	// runner 是可替换的 OCR 引擎接口。
 	runner vision.OCRRunner
 }
 
+// NewDesktopOCR 构造默认 Python OCR runner，并从项目根目录定位 helper 脚本。
 func NewDesktopOCR(workspace string) *DesktopOCR {
 	workspaceRoot := newWorkspaceTool(workspace).workspace
 	scriptPath := filepath.Join("scripts", "browser_ocr.py")
@@ -351,6 +385,7 @@ func NewDesktopOCR(workspace string) *DesktopOCR {
 	)
 }
 
+// NewDesktopOCRWithRunner 允许测试或未来实现注入不同 OCR 引擎。
 func NewDesktopOCRWithRunner(workspace string, runner vision.OCRRunner) *DesktopOCR {
 	return &DesktopOCR{workspaceTool: newWorkspaceTool(workspace), runner: runner}
 }
@@ -449,6 +484,7 @@ func (t *DesktopOCR) Run(ctx context.Context, call agent.ToolCallContext) (agent
 	}, nil
 }
 
+// resolveImagePath 同时验证词法路径和符号链接真实路径均留在 workspace 内。
 func (t *DesktopOCR) resolveImagePath(rawPath string) (string, *agent.ToolErrorData) {
 	if rawPath == "" {
 		err := agent.NewToolError(
@@ -492,6 +528,7 @@ func (t *DesktopOCR) resolveImagePath(rawPath string) (string, *agent.ToolErrorD
 	return path, nil
 }
 
+// desktopBadPIDOutcome 统一提示模型先通过 desktop_windows 获取有效目标进程。
 func desktopBadPIDOutcome(toolName string) agent.Outcome {
 	return agent.Outcome{
 		Data: agent.NewToolError(
@@ -503,6 +540,7 @@ func desktopBadPIDOutcome(toolName string) agent.Outcome {
 	}
 }
 
+// desktopToolError 将平台结构化错误转换为通用工具错误，其余 error 使用保守诊断提示。
 func desktopToolError(err error) agent.Outcome {
 	var toolErr *desktop.ToolError
 	if errors.As(err, &toolErr) {
@@ -521,6 +559,7 @@ func desktopToolError(err error) agent.Outcome {
 	}
 }
 
+// clampDesktopLimit 对模型给出的数量参数应用默认值与硬上限。
 func clampDesktopLimit(value int, fallback int, max int) int {
 	if value <= 0 {
 		return fallback

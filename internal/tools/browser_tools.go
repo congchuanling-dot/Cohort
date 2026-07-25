@@ -20,8 +20,11 @@ import (
 )
 
 const (
-	defaultBrowserScanChars        = 12000
-	defaultBrowserDOMSummaryChars  = 20000
+	// defaultBrowserScanChars 限制普通 DOM 文本进入模型上下文的默认长度。
+	defaultBrowserScanChars = 12000
+	// defaultBrowserDOMSummaryChars 限制结构化 DOM 摘要默认长度。
+	defaultBrowserDOMSummaryChars = 20000
+	// defaultBrowserJSReturnChars 限制页面脚本返回值的默认长度。
 	defaultBrowserJSReturnChars    = 8000
 	defaultBrowserSnapshotItems    = 80
 	defaultBrowserWaitTimeoutMS    = 10000
@@ -1146,6 +1149,7 @@ func browserToolError(err error) agent.Outcome {
 	}
 }
 
+// runBrowserWait 统一解析等待工具的超时和轮询间隔，避免每种等待模式有不同零值行为。
 func runBrowserWait(ctx context.Context, client browser.Client, tabID string, mode string, params map[string]any, args map[string]any) (browser.WaitResult, error) {
 	timeoutMS := asInt(args["timeout_ms"], defaultBrowserWaitTimeoutMS)
 	if timeoutMS <= 0 {
@@ -1158,6 +1162,7 @@ func runBrowserWait(ctx context.Context, client browser.Client, tabID string, mo
 	return client.Wait(ctx, tabID, mode, params, timeoutMS, intervalMS)
 }
 
+// badSelectorOutcome 返回一致的 CSS selector 参数错误，提示模型重新发现页面元素。
 func badSelectorOutcome() agent.Outcome {
 	return agent.Outcome{
 		Data: agent.NewToolError(
@@ -1169,6 +1174,8 @@ func badSelectorOutcome() agent.Outcome {
 	}
 }
 
+// elementTarget 是页面脚本定位、滚动和命中测试后的元素几何信息。
+// 随后的真实点击仍通过 CDP 发送，避免 element.click() 生成不受信任事件。
 type elementTarget struct {
 	// Rect 是目标元素的 viewport 边界框。
 	Rect browser.Rect `json:"rect"`
@@ -1180,6 +1187,7 @@ type elementTarget struct {
 	Value string `json:"value"`
 }
 
+// elementTypeVerification 是真实键盘输入后重新读取 DOM 得到的验证结果。
 type elementTypeVerification struct {
 	// Actual 是输入后从 DOM 读取到的实际值。
 	Actual string `json:"actual"`
@@ -1187,6 +1195,10 @@ type elementTypeVerification struct {
 	Verified bool `json:"verified"`
 }
 
+// locateElementTarget 在页面内验证 selector、可见性、可编辑性和实际命中点。
+//
+// 这里的 JavaScript 只做只读定位和滚动；不会调用 element.click()。
+// 这样上层可在浏览器桥中发送真实 CDP 输入事件，并保留更接近用户操作的语义。
 func locateElementTarget(ctx context.Context, client browser.Client, tabID string, selector string, requireEditable bool) (elementTarget, error) {
 	selectorJSON, err := json.Marshal(selector)
 	if err != nil {
@@ -1300,6 +1312,7 @@ throw new Error("element is covered or not hit-testable: " + selector + (blocked
 	return target, nil
 }
 
+// verifyElementTyped 在真实输入后读取元素值，确认 clear/append 语义符合预期。
 func verifyElementTyped(ctx context.Context, client browser.Client, tabID string, selector string, expected string, clear bool) (string, bool, error) {
 	selectorJSON, err := json.Marshal(selector)
 	if err != nil {
@@ -1341,6 +1354,7 @@ return {
 	return verification.Actual, verification.Verified, nil
 }
 
+// waitAfterBrowserAction 在有明确标签页 ID 时等待短暂稳定，减少点击后过早判定失败。
 func waitAfterBrowserAction(ctx context.Context, client browser.Client, tabID string) (browser.WaitResult, error) {
 	if tabID == "" {
 		return browser.WaitResult{}, nil
@@ -1348,6 +1362,7 @@ func waitAfterBrowserAction(ctx context.Context, client browser.Client, tabID st
 	return client.Wait(ctx, tabID, "stable", map[string]any{"stable_ms": 500}, 1500, 150)
 }
 
+// appendBrowserDiff 在两个非空变化摘要之间加入可读分隔符。
 func appendBrowserDiff(diff string, extra string) string {
 	if extra == "" {
 		return diff
@@ -1358,6 +1373,7 @@ func appendBrowserDiff(diff string, extra string) string {
 	return diff + ", " + extra
 }
 
+// centerPoint 计算视口矩形中心，用于没有更可靠命中点时的点击回退。
 func centerPoint(rect browser.Rect) browser.Point {
 	return browser.Point{
 		X: rect.Left + rect.Width/2,
@@ -1365,6 +1381,7 @@ func centerPoint(rect browser.Rect) browser.Point {
 	}
 }
 
+// normalizeBrowserURL 清理模型常见的 Markdown 包裹并严格限制为绝对 http/https URL。
 func normalizeBrowserURL(raw string) (string, error) {
 	// 模型有时会把 URL 当成 Markdown 代码片段，传成 " `https://...` "。
 	// 工具层做一次轻量清洗，避免浏览器能力因为格式噪音失败。
@@ -1381,6 +1398,7 @@ func normalizeBrowserURL(raw string) (string, error) {
 	return raw, nil
 }
 
+// normalizeBrowserScript 为单行读取表达式补 return，但不篡改带控制流或 JSON 命令的脚本。
 func normalizeBrowserScript(script string) string {
 	script = strings.TrimSpace(script)
 	if script == "" || hasExplicitJSControl(script) {
@@ -1397,6 +1415,7 @@ func normalizeBrowserScript(script string) string {
 	return "return (" + script + ")"
 }
 
+// looksLikeBrowserJSONCommand 识别插件内部的 JSON 命令格式，保持其原样透传。
 func looksLikeBrowserJSONCommand(script string) bool {
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(script), &payload); err != nil {
@@ -1407,6 +1426,7 @@ func looksLikeBrowserJSONCommand(script string) bool {
 	return hasCmd || hasCommand
 }
 
+// hasExplicitJSControl 检测脚本是否已显式包含语句或 return，避免再套表达式包装。
 func hasExplicitJSControl(script string) bool {
 	lower := strings.ToLower(strings.TrimSpace(script))
 	prefixes := []string{

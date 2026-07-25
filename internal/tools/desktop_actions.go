@@ -17,27 +17,37 @@ import (
 	"cohert/internal/llm"
 )
 
+// desktopActionRisk 是桌面输入动作按可逆性和外部副作用划分的风险等级。
 type desktopActionRisk string
 
 const (
+	// desktopRiskReversible 表示导航、展开等可轻易撤销的 R1 操作。
 	desktopRiskReversible desktopActionRisk = "R1_reversible"
-	desktopRiskExternal   desktopActionRisk = "R2_external_side_effect"
-	desktopRiskHigh       desktopActionRisk = "R3_high_risk"
+	// desktopRiskExternal 表示发送、保存、上传等需要一次性用户确认的 R2 操作。
+	desktopRiskExternal desktopActionRisk = "R2_external_side_effect"
+	// desktopRiskHigh 表示支付、授权、删除等必须由用户手动完成的 R3 操作。
+	desktopRiskHigh desktopActionRisk = "R3_high_risk"
 )
 
 const (
+	// desktopActionSnapshotDepth 限制操作前后复核 AX 树的深度。
 	desktopActionSnapshotDepth = 12
+	// desktopActionSnapshotNodes 限制操作前后复核 AX 树的节点数。
 	desktopActionSnapshotNodes = 500
-	maxDesktopTypeTextRunes    = 2000
+	// maxDesktopTypeTextRunes 限制一次起草长度，避免误把长文或秘密批量输入。
+	maxDesktopTypeTextRunes = 2000
 )
 
 // DesktopAXPress 对一个刚刚发现且语义仍匹配的 AX 节点执行 AXPress。
 // 它不提供坐标点击降级路径，避免 M2.1 引入未经验证的物理输入。
 type DesktopAXPress struct {
-	driver        desktop.Driver
+	// driver 执行平台层 AX 快照、激活和 Press。
+	driver desktop.Driver
+	// confirmations 校验 R2 动作所需的一次性用户确认。
 	confirmations *ConfirmationStore
 }
 
+// NewDesktopAXPress 创建仅允许语义 AXPress 的桌面操作工具。
 func NewDesktopAXPress(driver desktop.Driver, confirmations *ConfirmationStore) *DesktopAXPress {
 	return &DesktopAXPress{driver: driver, confirmations: confirmations}
 }
@@ -205,6 +215,7 @@ func (t *DesktopAXPress) Run(ctx context.Context, call agent.ToolCallContext) (a
 	}, nil
 }
 
+// requiredDesktopActionString 要求字段存在且为非空字符串，适用于 node_id、role 与 reason。
 func requiredDesktopActionString(args map[string]any, key string) (string, *agent.ToolErrorData) {
 	value, err := requiredDesktopActionField(args, key)
 	if err != nil {
@@ -221,8 +232,8 @@ func requiredDesktopActionString(args map[string]any, key string) (string, *agen
 	return strings.TrimSpace(value), nil
 }
 
-// requiredDesktopActionField preserves empty title/description as valid values,
-// while still rejecting omitted fields that would weaken stale-node validation.
+// requiredDesktopActionField 保留空标题/描述这一合法状态，但拒绝缺失字段。
+// 若允许省略字段，后续 stale-node 校验会退化为只比较部分语义，可能误操作已变化的界面。
 func requiredDesktopActionField(args map[string]any, key string) (string, *agent.ToolErrorData) {
 	raw, present := args[key]
 	if !present {
@@ -245,6 +256,7 @@ func requiredDesktopActionField(args map[string]any, key string) (string, *agent
 	return value, nil
 }
 
+// findAXNode 深度优先查找当前快照内节点 ID；旧快照 ID 不存在即视为界面已变化。
 func findAXNode(root desktop.AXNode, id string) (desktop.AXNode, bool) {
 	if root.ID == id {
 		return root, true
@@ -257,10 +269,13 @@ func findAXNode(root desktop.AXNode, id string) (desktop.AXNode, bool) {
 	return desktop.AXNode{}, false
 }
 
+// containsAXAction 判断平台为该节点声明的辅助功能动作是否可用。
 func containsAXAction(actions []string, action string) bool {
 	return slices.Contains(actions, action)
 }
 
+// classifyDesktopAXRisk 根据节点当前可见语义保守分级。
+// 无法识别的动作默认 R2，宁可询问用户，也不把未知副作用当作可逆导航。
 func classifyDesktopAXRisk(node desktop.AXNode) desktopActionRisk {
 	text := strings.ToLower(strings.Join([]string{node.Role, node.Title, node.Description, node.Value}, " "))
 	if containsAny(text, []string{
@@ -285,6 +300,7 @@ func classifyDesktopAXRisk(node desktop.AXNode) desktopActionRisk {
 	return desktopRiskExternal
 }
 
+// containsAny 判断规范化文本是否含任一风险关键词。
 func containsAny(text string, values []string) bool {
 	for _, value := range values {
 		if strings.Contains(text, value) {
@@ -294,6 +310,7 @@ func containsAny(text string, values []string) bool {
 	return false
 }
 
+// desktopApprovalRequiredOutcome 统一返回模型可转交给 ask_user 的精确授权请求。
 func desktopApprovalRequiredOutcome(approval ActionApproval, node desktop.AXNode, risk desktopActionRisk) agent.Outcome {
 	return agent.Outcome{
 		Data: map[string]any{
@@ -319,6 +336,7 @@ func desktopApprovalRequiredOutcome(approval ActionApproval, node desktop.AXNode
 	}
 }
 
+// desktopAXPressError 将语义点击失败转换为统一的工具错误结果。
 func desktopAXPressError(code string, message string, hint string) agent.Outcome {
 	return agent.Outcome{
 		Data:       agent.NewToolError(code, message, hint),
@@ -326,10 +344,13 @@ func desktopAXPressError(code string, message string, hint string) agent.Outcome
 	}
 }
 
+// DesktopAXFocus 只负责把已验证的可编辑 AX 节点置为焦点，不输入任何文本。
 type DesktopAXFocus struct {
+	// driver 是平台层辅助功能驱动。
 	driver desktop.Driver
 }
 
+// NewDesktopAXFocus 创建安全的焦点设置工具。
 func NewDesktopAXFocus(driver desktop.Driver) *DesktopAXFocus {
 	return &DesktopAXFocus{driver: driver}
 }
@@ -456,10 +477,13 @@ func (t *DesktopAXFocus) Run(ctx context.Context, call agent.ToolCallContext) (a
 }
 
 type DesktopClick struct {
-	driver        desktop.Driver
+	// driver 执行当前 AX 节点中心的受控点击。
+	driver desktop.Driver
+	// confirmations 消费 R2 点击的精确一次性授权。
 	confirmations *ConfirmationStore
 }
 
+// NewDesktopClick 创建 AXPress 不可用时的受控物理点击回退工具。
 func NewDesktopClick(driver desktop.Driver, confirmations *ConfirmationStore) *DesktopClick {
 	return &DesktopClick{driver: driver, confirmations: confirmations}
 }
@@ -605,6 +629,7 @@ func (t *DesktopClick) Run(ctx context.Context, call agent.ToolCallContext) (age
 	return agent.Outcome{Data: data, NextPrompt: "\n"}, nil
 }
 
+// isEditableAXNode 判断节点是否属于可输入控件，允许这类点击按 R1 聚焦处理。
 func isEditableAXNode(node desktop.AXNode) bool {
 	role := strings.ToLower(node.Role)
 	switch node.Role {
@@ -614,6 +639,7 @@ func isEditableAXNode(node desktop.AXNode) bool {
 	return strings.Contains(role, "text") && !strings.Contains(role, "static")
 }
 
+// classifyDesktopClickRisk 沿用语义风险分类，但把可编辑节点的点击降为可逆聚焦。
 func classifyDesktopClickRisk(node desktop.AXNode) desktopActionRisk {
 	risk := classifyDesktopAXRisk(node)
 	if risk != desktopRiskExternal {
@@ -625,6 +651,7 @@ func classifyDesktopClickRisk(node desktop.AXNode) desktopActionRisk {
 	return risk
 }
 
+// desktopClickApprovalRequiredOutcome 为 R2 节点中心点击生成精确确认请求。
 func desktopClickApprovalRequiredOutcome(approval ActionApproval, node desktop.AXNode, risk desktopActionRisk) agent.Outcome {
 	return agent.Outcome{
 		Data: map[string]any{
@@ -652,12 +679,17 @@ func desktopClickApprovalRequiredOutcome(approval ActionApproval, node desktop.A
 }
 
 type DesktopVisualClick struct {
-	driver        desktop.Driver
+	// driver 执行将截图局部坐标转换后的物理屏幕点击。
+	driver desktop.Driver
+	// confirmations 校验 R2 视觉点击的用户授权。
 	confirmations *ConfirmationStore
+	// visualFocuses 为输入框点击签发仅能起草文本的短期焦点令牌。
 	visualFocuses *VisualFocusStore
+	// workspaceTool 约束截图和 manifest 都必须位于工作区中。
 	workspaceTool
 }
 
+// NewDesktopVisualClick 创建只能消费 desktop_screenshot 产物的视觉点击工具。
 func NewDesktopVisualClick(driver desktop.Driver, confirmations *ConfirmationStore, workspace string, visualFocuses ...*VisualFocusStore) *DesktopVisualClick {
 	var focusStore *VisualFocusStore
 	if len(visualFocuses) > 0 {
@@ -814,6 +846,8 @@ func (t *DesktopVisualClick) Run(ctx context.Context, call agent.ToolCallContext
 	return agent.Outcome{Data: data, NextPrompt: "\n"}, nil
 }
 
+// resolveDesktopVisualFile 校验视觉输入文件属于 workspace，且符号链接不会逃逸到外部路径。
+// 这避免模型用任意本机图片或伪造 manifest 驱动物理输入。
 func (t *DesktopVisualClick) resolveDesktopVisualFile(rawPath string, requiredCode string, outsideCode string, notFoundCode string) (string, *agent.ToolErrorData) {
 	if rawPath == "" {
 		err := agent.NewToolError(
@@ -857,6 +891,7 @@ func (t *DesktopVisualClick) resolveDesktopVisualFile(rawPath string, requiredCo
 	return path, nil
 }
 
+// requiredDesktopVisualBBox 校验 OCR 返回的四点截图局部矩形，不接受屏幕坐标或中心点。
 func requiredDesktopVisualBBox(raw any) ([4]int, *agent.ToolErrorData) {
 	var bbox [4]int
 	values, ok := raw.([]any)
@@ -882,6 +917,7 @@ func requiredDesktopVisualBBox(raw any) ([4]int, *agent.ToolErrorData) {
 	return bbox, nil
 }
 
+// readDesktopVisualManifest 读取由 desktop_screenshot 生成的坐标映射旁车文件。
 func readDesktopVisualManifest(path string) (desktopScreenshotManifest, *agent.ToolErrorData) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -904,6 +940,7 @@ func readDesktopVisualManifest(path string) (desktopScreenshotManifest, *agent.T
 	return manifest, nil
 }
 
+// validateDesktopVisualManifest 绑定截图、PID、尺寸和坐标系，防止将旧图或其他窗口的 bbox 复用。
 func validateDesktopVisualManifest(manifest desktopScreenshotManifest, pid int, imagePath string, bbox [4]int) *agent.ToolErrorData {
 	if manifest.Version != 1 || manifest.CoordinateSpace != desktop.CoordinateSpaceScreenshotLocal || manifest.ScreenCoordinateSpace != desktop.CoordinateSpaceScreenPhysical {
 		err := agent.NewToolError(
@@ -948,6 +985,8 @@ func validateDesktopVisualManifest(manifest desktopScreenshotManifest, pid int, 
 	return nil
 }
 
+// mapScreenshotBBoxCenterToScreen 按截图与窗口的比例将局部中心点映射到物理屏幕坐标。
+// 不假设 Retina 缩放比固定为 1，因此使用 manifest 中实际记录的两套尺寸。
 func mapScreenshotBBoxCenterToScreen(manifest desktopScreenshotManifest, bbox [4]int) (int, int) {
 	centerX := (bbox[0] + bbox[2]) / 2
 	centerY := (bbox[1] + bbox[3]) / 2
@@ -956,10 +995,12 @@ func mapScreenshotBBoxCenterToScreen(manifest desktopScreenshotManifest, bbox [4
 	return screenX, screenY
 }
 
+// canonicalDesktopBBox 生成稳定字符串，供一次性视觉点击授权精确绑定定位框。
 func canonicalDesktopBBox(bbox [4]int) string {
 	return fmt.Sprintf("%d,%d,%d,%d", bbox[0], bbox[1], bbox[2], bbox[3])
 }
 
+// classifyDesktopVisualClickRisk 使用 OCR 文本和用户可见理由做保守风险分类。
 func classifyDesktopVisualClickRisk(expectedText string, reason string) desktopActionRisk {
 	text := strings.ToLower(strings.Join([]string{expectedText, reason}, " "))
 	if containsAny(text, []string{
@@ -984,6 +1025,7 @@ func classifyDesktopVisualClickRisk(expectedText string, reason string) desktopA
 	return desktopRiskExternal
 }
 
+// shouldIssueDesktopVisualFocusToken 仅在目标看起来是输入或搜索区域时允许后续起草。
 func shouldIssueDesktopVisualFocusToken(expectedText string, reason string) bool {
 	text := strings.ToLower(strings.Join([]string{expectedText, reason}, " "))
 	return containsAny(text, []string{
@@ -992,6 +1034,7 @@ func shouldIssueDesktopVisualFocusToken(expectedText string, reason string) bool
 	})
 }
 
+// desktopVisualClickApprovalRequiredOutcome 为 R2 视觉点击返回可原样传给 ask_user 的授权绑定。
 func desktopVisualClickApprovalRequiredOutcome(approval ActionApproval, expectedText string, risk desktopActionRisk) agent.Outcome {
 	return agent.Outcome{
 		Data: map[string]any{
@@ -1013,11 +1056,15 @@ func desktopVisualClickApprovalRequiredOutcome(approval ActionApproval, expected
 	}
 }
 
+// DesktopPressKey 仅允许显式白名单中的导航、提交或删除相关按键。
 type DesktopPressKey struct {
-	driver        desktop.Driver
+	// driver 向当前前台目标进程发送按键。
+	driver desktop.Driver
+	// confirmations 消费 R2 按键的精确一次性授权。
 	confirmations *ConfirmationStore
 }
 
+// NewDesktopPressKey 创建受按键白名单限制的输入工具。
 func NewDesktopPressKey(driver desktop.Driver, confirmations *ConfirmationStore) *DesktopPressKey {
 	return &DesktopPressKey{driver: driver, confirmations: confirmations}
 }
@@ -1112,6 +1159,7 @@ func (t *DesktopPressKey) Run(ctx context.Context, call agent.ToolCallContext) (
 	}, nil
 }
 
+// classifyDesktopKeyRisk 将多种用户写法标准化后映射到受限白名单和风险等级。
 func classifyDesktopKeyRisk(key string, intent string) (string, desktopActionRisk, bool) {
 	normalized := normalizeDesktopKey(key)
 	if normalized == "Enter" && intent == "open_selected_result" {
@@ -1127,6 +1175,7 @@ func classifyDesktopKeyRisk(key string, intent string) (string, desktopActionRis
 	}
 }
 
+// normalizeDesktopPressKeyIntent 只认可空 intent 或打开临时搜索结果的特殊导航意图。
 func normalizeDesktopPressKeyIntent(raw string) (string, bool) {
 	intent := strings.ToLower(strings.TrimSpace(raw))
 	intent = strings.ReplaceAll(intent, "-", "_")
@@ -1141,6 +1190,7 @@ func normalizeDesktopPressKeyIntent(raw string) (string, bool) {
 	}
 }
 
+// normalizeDesktopKey 把常见按键别名规范成 helper 可识别的稳定名称。
 func normalizeDesktopKey(key string) string {
 	parts := strings.Split(strings.TrimSpace(key), "+")
 	for index := range parts {
@@ -1200,6 +1250,7 @@ func normalizeDesktopKey(key string) string {
 	}
 }
 
+// desktopPressKeyApprovalRequiredOutcome 为 R2 按键操作生成精确确认请求。
 func desktopPressKeyApprovalRequiredOutcome(approval ActionApproval, risk desktopActionRisk) agent.Outcome {
 	return agent.Outcome{
 		Data: map[string]any{
@@ -1219,6 +1270,7 @@ func desktopPressKeyApprovalRequiredOutcome(approval ActionApproval, risk deskto
 	}
 }
 
+// desktopActionError 统一生成桌面动作工具的结构化错误输出。
 func desktopActionError(code string, message string, hint string) agent.Outcome {
 	return agent.Outcome{
 		Data:       agent.NewToolError(code, message, hint),
@@ -1226,16 +1278,21 @@ func desktopActionError(code string, message string, hint string) agent.Outcome 
 	}
 }
 
+// activateDesktopTarget 在每次输入前重新将目标应用带到前台，缩小误操作其他窗口的窗口期。
 func activateDesktopTarget(ctx context.Context, driver desktop.Driver, pid int) error {
 	_, err := driver.Activate(ctx, desktop.ActivateRequest{PID: pid})
 	return err
 }
 
+// DesktopTypeText 只在已验证的编辑焦点中起草文本，绝不承担发送或提交动作。
 type DesktopTypeText struct {
-	driver        desktop.Driver
+	// driver 执行平台层文本输入。
+	driver desktop.Driver
+	// visualFocuses 只在 AX 无法验证 WebView 焦点时提供一次回退证明。
 	visualFocuses *VisualFocusStore
 }
 
+// NewDesktopTypeText 创建只用于起草而非发送的文本输入工具。
 func NewDesktopTypeText(driver desktop.Driver, visualFocuses ...*VisualFocusStore) *DesktopTypeText {
 	var focusStore *VisualFocusStore
 	if len(visualFocuses) > 0 {
@@ -1331,6 +1388,8 @@ func (t *DesktopTypeText) Run(ctx context.Context, call agent.ToolCallContext) (
 	}, nil
 }
 
+// isDesktopTypeTextFocusError 仅识别“焦点无法由 AX 证明”的可回退错误。
+// 其他失败不能消耗视觉令牌，避免把任意驱动错误误当作可安全继续输入。
 func isDesktopTypeTextFocusError(err error) bool {
 	var toolErr *desktop.ToolError
 	if !errors.As(err, &toolErr) {
@@ -1344,6 +1403,7 @@ func isDesktopTypeTextFocusError(err error) bool {
 	}
 }
 
+// requiredDesktopTypeText 检查输入文本存在、类型正确且未超过单次起草限制。
 func requiredDesktopTypeText(args map[string]any) (string, *agent.ToolErrorData) {
 	raw, present := args["text"]
 	if !present {
