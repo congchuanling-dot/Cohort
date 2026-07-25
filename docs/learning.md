@@ -250,7 +250,7 @@ start_long_term_update -> memory_propose_update -> memory_apply_update
 
 文件：[internal/desktop](../internal/desktop)、[internal/tools/desktop_tools.go](../internal/tools/desktop_tools.go) 和 [internal/tools/desktop_actions.go](../internal/tools/desktop_actions.go)
 
-桌面端 M1 支持 macOS 的通用只读感知：先检查权限和枚举窗口，再按 PID 激活目标应用，优先读取 `desktop_ax_snapshot` 的 Accessibility 控件树；AX 不可用时才截取窗口并使用 `desktop_ocr`。M2.1 新增 `desktop_ax_press`：它重新验证节点路径和语义、按 R1/R2/R3 风险分类、为 R2 消费 `ask_user` 签发的一次性令牌，并在动作后重新读取 AX 树验证状态变化。M2.2 新增 `desktop_press_key`：只允许受限导航键自动执行，Enter、Cmd+Enter、Delete、Backspace 等必须确认。M2.3 新增 `desktop_type_text`：只向当前焦点可编辑输入框起草文本，不发送且不回显完整内容。M2.4 新增 `desktop_ax_focus` 和 `desktop_click`：前者只聚焦可编辑 AX 节点，后者只点击当前 AX 节点中心点。M2.5 新增 `desktop_visual_click`：它读取 `desktop_screenshot` 的 sidecar manifest，把 OCR/UI bbox 从 `screenshot-local` 转成 `screen-physical` 后执行受控点击，用于 WebView 或自绘 UI 场景。仍然没有任意坐标点击工具，不能借助 `code_run` 绕过该边界。
+桌面端 M1 支持 macOS 的通用只读感知：先检查权限和枚举窗口，再按 PID 激活目标应用，优先读取 `desktop_ax_snapshot` 的 Accessibility 控件树；AX 不可用时才截取窗口并使用 `desktop_ocr`。M2.1 新增 `desktop_ax_press`：它重新验证节点路径和语义、按 R1/R2/R3 风险分类、为 R2 消费 `ask_user` 签发的一次性令牌，并在动作后重新读取 AX 树验证状态变化。M2.2 新增 `desktop_press_key`：只允许受限导航键自动执行，Enter、Cmd+Enter、Delete、Backspace 等必须确认。M2.3 新增 `desktop_type_text`：只向当前焦点可编辑输入框起草文本，不发送且不回显完整内容。M2.4 新增 `desktop_ax_focus` 和 `desktop_click`：前者只聚焦可编辑 AX 节点，后者只点击当前 AX 节点中心点。M2.5 新增 `desktop_visual_click` 和 `visual_focus_token`：它读取 `desktop_screenshot` 的 sidecar manifest，把 OCR/UI bbox 从 `screenshot-local` 转成 `screen-physical` 后执行受控点击；输入类 bbox 点击成功后可签发短期一次性令牌，让 `desktop_type_text` 在 AX 无法证明 WebView 输入焦点时继续起草。仍然没有任意坐标点击工具，不能借助 `code_run` 绕过该边界。
 
 ## 5. 数据流
 

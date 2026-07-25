@@ -535,6 +535,8 @@ M2.5 阶段工具。用途：基于截图 manifest 和 OCR/UI bbox 执行受控�
 - bbox 必须是同一张截图内的 `screenshot-local` 坐标。
 - 工具读取 manifest 后转换到 `screen-physical`，模型不能传裸屏幕坐标。
 - R2 点击必须消费同一 `pid + image_path + bbox + reason` 的一次性确认令牌。
+- 输入框、搜索框或聚焦类 bbox 点击成功后，工具可签发短期一次性 `visual_focus_token`，供 `desktop_type_text` 在 AX 无法证明 WebView 可编辑焦点时兜底起草文本。
+- `visual_focus_token` 只绑定 PID、图片和 bbox，不授权发送、提交或确认。
 - 执行后截图或状态验证。
 - 同一坐标失败后不允许盲目重试。
 
@@ -717,14 +719,14 @@ M2.1 验收：
 
 ### M2：受限真实输入
 
-状态：M2.1 已完成 `desktop_ax_press`、风险确认和 AX 结果验证；M2.2 已完成受限 `desktop_press_key`；M2.3 已完成 `desktop_type_text` 文本起草；M2.4 已完成 `desktop_ax_focus` 和受控 `desktop_click`；M2.5 已完成 `desktop_visual_click` 和截图 sidecar manifest。`desktop_click` 只点击当前 AX 节点中心点，`desktop_visual_click` 只点击 manifest 校验后的 OCR/UI bbox，不开放任意坐标点击。
+状态：M2.1 已完成 `desktop_ax_press`、风险确认和 AX 结果验证；M2.2 已完成受限 `desktop_press_key`；M2.3 已完成 `desktop_type_text` 文本起草；M2.4 已完成 `desktop_ax_focus` 和受控 `desktop_click`；M2.5 已完成 `desktop_visual_click`、截图 sidecar manifest 和 `visual_focus_token`。`desktop_click` 只点击当前 AX 节点中心点，`desktop_visual_click` 只点击 manifest 校验后的 OCR/UI bbox，不开放任意坐标点击。
 
 交付：
 
 - `desktop_ax_press`（已完成）
 - `desktop_ax_focus`（已完成）
 - `desktop_click`（已完成，限定为 AX 节点中心点点击）
-- `desktop_visual_click`（已完成，限定为截图 manifest + OCR/UI bbox）
+- `desktop_visual_click`（已完成，限定为截图 manifest + OCR/UI bbox，可为输入类 bbox 签发视觉焦点令牌）
 - `desktop_press_key`（已完成）
 - `desktop_type_text`（已完成）
 - 风险分类和 `ask_user` 确认策略。（AXPress / PressKey 已完成）

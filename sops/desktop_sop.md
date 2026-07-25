@@ -131,6 +131,7 @@ desktop_windows
 - 工具会校验路径在 workspace 内、manifest 绑定同一 PID 和图片、bbox 位于截图尺寸内，然后把 bbox 中心换算为 `screen-physical` 坐标。
 - 工具执行前会自动激活目标 PID，避免 `ask_user` 在终端确认后抢走焦点。
 - 输入框、搜索框、聚焦类视觉点击可视为 R1；发送、提交、保存、发布等 R2 必须走 `ask_user`，确认令牌绑定 `pid + image_path + bbox + reason`。
+- 当视觉点击目标是输入框、搜索框或聚焦类 bbox 且点击验证成功时，工具会返回短期一次性 `visual_focus_token`；该令牌只用于下一步 `desktop_type_text` 在 AX 无法证明 WebView 输入焦点时起草文本。
 - 支付、审批、授权、登录验证、删除等 R3 操作直接拒绝，要求用户手动完成。
 
 ## TypeText 操作流程
@@ -139,12 +140,14 @@ desktop_windows
 desktop_windows
   -> desktop_activate(pid)
   -> desktop_ax_focus / desktop_click / desktop_visual_click 聚焦目标输入框
-  -> desktop_type_text(pid, text, reason)
+  -> desktop_type_text(pid, text, reason, visual_focus_token?)
   -> 发送动作单独走 desktop_press_key
 ```
 
 - `desktop_type_text` 只负责起草文本，不负责发送、提交或确认。
 - 工具会验证目标 PID 是前台，并通过 AX 检查当前焦点是可编辑控件；焦点不可判断或不是输入框时必须停止。
+- 如果前一步 `desktop_visual_click` 返回了 `visual_focus_token`，`desktop_type_text` 会先尝试 AX 可编辑焦点；只有 AX 返回焦点不可读或不可编辑时，才消费该 token 进行一次 WebView 视觉焦点兜底输入。
+- `visual_focus_token` 短时、一次性、绑定 PID；不能复用、不能跨应用、不能授权发送。
 - 工具执行前会自动激活目标 PID。
 - 工具结果只返回 `text_length`、`line_count` 和焦点摘要，不回显完整文本。
 - 单次文本长度有限制；长文本应分段输入。发送前必须让用户确认内容。
@@ -163,9 +166,9 @@ desktop_windows
 - `desktop_ax_press` 已绑定 PID、前台验证、风险确认和动作后 AX 验证。
 - `desktop_ax_focus` 只聚焦可编辑 AX 节点，绑定 PID、节点语义和焦点验证。
 - `desktop_click` 只点击已验证 AX 节点中心点，绑定 PID、节点语义、风险确认和前台验证。
-- `desktop_visual_click` 只点击 manifest 校验后的 OCR/UI bbox 中心点，绑定 PID、图片、bbox、风险确认和前台验证。
+- `desktop_visual_click` 只点击 manifest 校验后的 OCR/UI bbox 中心点，绑定 PID、图片、bbox、风险确认和前台验证；输入类 bbox 可签发一次性视觉焦点令牌。
 - `desktop_press_key` 只做受限按键，绑定 PID 并验证按键前后目标仍为前台。
-- `desktop_type_text` 只做文本起草，绑定 PID 和焦点输入框，不负责发送。
+- `desktop_type_text` 只做文本起草，绑定 PID 和 AX/视觉焦点，不负责发送。
 
 ## 验收标准
 
@@ -179,6 +182,7 @@ desktop_windows
 - AXFocus 只能聚焦当前语义匹配、enabled 且可编辑的节点。
 - Click 只能点击当前语义匹配、enabled 且有有效 bounds 的 AX 节点；R2 需要一次性确认令牌，R3 被拒绝。
 - VisualClick 只能点击当前截图 manifest 校验过的 bbox；R2 需要一次性确认令牌，R3 被拒绝。
+- VisualFocusToken 只能由输入类 VisualClick 签发，且只能被 TypeText 消费一次。
 - PressKey 只接受 allowlist 按键；R2 按键需要一次性确认令牌。
 - TypeText 不回显完整文本；发送动作必须拆成单独确认。
 

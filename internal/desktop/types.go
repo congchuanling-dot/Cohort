@@ -193,21 +193,23 @@ type PressKeyResult struct {
 }
 
 type TypeTextRequest struct {
-	PID  int    `json:"pid"`
-	Text string `json:"text"`
+	PID              int    `json:"pid"`
+	Text             string `json:"text"`
+	AllowVisualFocus bool   `json:"allow_visual_focus"`
 }
 
 type TypeTextResult struct {
-	PID              int    `json:"pid"`
-	Action           string `json:"action"`
-	Performed        bool   `json:"performed"`
-	ActiveBefore     bool   `json:"active_before"`
-	ActiveAfter      bool   `json:"active_after"`
-	TextLength       int    `json:"text_length"`
-	LineCount        int    `json:"line_count"`
-	FocusRole        string `json:"focus_role"`
-	FocusTitle       string `json:"focus_title"`
-	FocusDescription string `json:"focus_description"`
+	PID               int    `json:"pid"`
+	Action            string `json:"action"`
+	Performed         bool   `json:"performed"`
+	ActiveBefore      bool   `json:"active_before"`
+	ActiveAfter       bool   `json:"active_after"`
+	TextLength        int    `json:"text_length"`
+	LineCount         int    `json:"line_count"`
+	FocusRole         string `json:"focus_role"`
+	FocusTitle        string `json:"focus_title"`
+	FocusDescription  string `json:"focus_description"`
+	FocusVerification string `json:"focus_verification"`
 }
 
 // Driver 抽象平台相关的桌面感知和受限 AX 语义动作能力。

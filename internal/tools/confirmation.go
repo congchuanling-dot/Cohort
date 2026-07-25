@@ -33,6 +33,21 @@ type storedApproval struct {
 	expires  time.Time
 }
 
+// VisualFocusGrant 记录一次由 desktop_visual_click 建立的短期视觉焦点。
+// 它不授权发送或提交，只允许 desktop_type_text 在 AX 无法证明 WebView
+// 输入框焦点时执行一次文本起草。
+type VisualFocusGrant struct {
+	PID       int
+	ImagePath string
+	BBox      string
+	Reason    string
+}
+
+type storedVisualFocus struct {
+	grant   VisualFocusGrant
+	expires time.Time
+}
+
 // ConfirmationStore 保存短时、一次性的用户确认令牌。
 // 它只在一个 Cohert 进程内生效，令牌消费后立即失效。
 type ConfirmationStore struct {
@@ -99,4 +114,61 @@ func approvalAnswerAccepted(answer string) bool {
 	default:
 		return false
 	}
+}
+
+// VisualFocusStore 保存由视觉点击签发的短时、一次性焦点令牌。
+type VisualFocusStore struct {
+	mu      sync.Mutex
+	entries map[string]storedVisualFocus
+	now     func() time.Time
+	ttl     time.Duration
+}
+
+func NewVisualFocusStore() *VisualFocusStore {
+	return &VisualFocusStore{
+		entries: make(map[string]storedVisualFocus),
+		now:     time.Now,
+		ttl:     45 * time.Second,
+	}
+}
+
+func (s *VisualFocusStore) Issue(grant VisualFocusGrant) (string, time.Duration, error) {
+	if s == nil {
+		return "", 0, errors.New("visual focus store is not configured")
+	}
+	tokenBytes := make([]byte, 24)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return "", 0, err
+	}
+	token := base64.RawURLEncoding.EncodeToString(tokenBytes)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now()
+	for key, entry := range s.entries {
+		if !entry.expires.After(now) {
+			delete(s.entries, key)
+		}
+	}
+	s.entries[token] = storedVisualFocus{
+		grant:   grant,
+		expires: now.Add(s.ttl),
+	}
+	return token, s.ttl, nil
+}
+
+func (s *VisualFocusStore) Consume(token string, pid int) (VisualFocusGrant, bool) {
+	if s == nil || token == "" || pid <= 0 {
+		return VisualFocusGrant{}, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, ok := s.entries[token]
+	if !ok {
+		return VisualFocusGrant{}, false
+	}
+	delete(s.entries, token)
+	if !entry.expires.After(s.now()) || entry.grant.PID != pid {
+		return VisualFocusGrant{}, false
+	}
+	return entry.grant, true
 }

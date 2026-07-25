@@ -14,19 +14,21 @@ import (
 )
 
 type fakeDesktopDriver struct {
-	permissions desktop.PermissionsResult
-	windows     desktop.ListWindowsResult
-	activate    desktop.ActivateResult
-	screenshot  desktop.ScreenshotResult
-	axSnapshot  desktop.AXSnapshotResult
-	axSnapshots []desktop.AXSnapshotResult
-	axPress     desktop.AXPressResult
-	axFocus     desktop.AXFocusResult
-	click       desktop.ClickResult
-	visualClick desktop.VisualClickResult
-	pressKey    desktop.PressKeyResult
-	typeText    desktop.TypeTextResult
-	err         error
+	permissions  desktop.PermissionsResult
+	windows      desktop.ListWindowsResult
+	activate     desktop.ActivateResult
+	screenshot   desktop.ScreenshotResult
+	axSnapshot   desktop.AXSnapshotResult
+	axSnapshots  []desktop.AXSnapshotResult
+	axPress      desktop.AXPressResult
+	axFocus      desktop.AXFocusResult
+	click        desktop.ClickResult
+	visualClick  desktop.VisualClickResult
+	pressKey     desktop.PressKeyResult
+	typeText     desktop.TypeTextResult
+	typeTexts    []desktop.TypeTextResult
+	typeTextErrs []error
+	err          error
 
 	listRequest        desktop.ListWindowsRequest
 	activateRequest    desktop.ActivateRequest
@@ -38,7 +40,9 @@ type fakeDesktopDriver struct {
 	visualClickRequest desktop.VisualClickRequest
 	pressKeyRequest    desktop.PressKeyRequest
 	typeTextRequest    desktop.TypeTextRequest
+	typeTextRequests   []desktop.TypeTextRequest
 	axSnapshotCalls    int
+	typeTextCalls      int
 }
 
 func (d *fakeDesktopDriver) Permissions(ctx context.Context) (desktop.PermissionsResult, error) {
@@ -133,8 +137,27 @@ func (d *fakeDesktopDriver) PressKey(ctx context.Context, req desktop.PressKeyRe
 
 func (d *fakeDesktopDriver) TypeText(ctx context.Context, req desktop.TypeTextRequest) (desktop.TypeTextResult, error) {
 	d.typeTextRequest = req
+	d.typeTextRequests = append(d.typeTextRequests, req)
 	if d.err != nil {
 		return desktop.TypeTextResult{}, d.err
+	}
+	index := d.typeTextCalls
+	d.typeTextCalls++
+	if len(d.typeTextErrs) > 0 {
+		errIndex := index
+		if errIndex >= len(d.typeTextErrs) {
+			errIndex = len(d.typeTextErrs) - 1
+		}
+		if d.typeTextErrs[errIndex] != nil {
+			return desktop.TypeTextResult{}, d.typeTextErrs[errIndex]
+		}
+	}
+	if len(d.typeTexts) > 0 {
+		resultIndex := index
+		if resultIndex >= len(d.typeTexts) {
+			resultIndex = len(d.typeTexts) - 1
+		}
+		return d.typeTexts[resultIndex], nil
 	}
 	return d.typeText, nil
 }
@@ -741,6 +764,9 @@ func TestDesktopVisualClickMapsScreenshotBBoxAndActivates_BitsUT(t *testing.T) {
 	if data["status"] != agent.ToolStatusSuccess || data["risk"] != desktopRiskReversible || data["verified"] != true {
 		t.Fatalf("outcome = %#v", data)
 	}
+	if token, ok := data["visual_focus_token"].(string); !ok || token == "" {
+		t.Fatalf("expected visual focus token for input bbox: %#v", data)
+	}
 }
 
 func TestDesktopVisualClickRequiresConfirmationForSendText_BitsUT(t *testing.T) {
@@ -839,6 +865,99 @@ func TestDesktopVisualClickRejectsBBoxOutsideManifest_BitsUT(t *testing.T) {
 	toolErr := outcome.Data.(agent.ToolErrorData)
 	if toolErr.Code != "desktop_visual_click_bbox_outside_image" || driver.visualClickRequest.PID != 0 {
 		t.Fatalf("error = %#v, request = %#v", toolErr, driver.visualClickRequest)
+	}
+}
+
+func TestDesktopTypeTextUsesVisualFocusTokenAfterAXFocusRejection_BitsUT(t *testing.T) {
+	visualFocuses := NewVisualFocusStore()
+	token, _, err := visualFocuses.Issue(VisualFocusGrant{
+		PID:       123,
+		ImagePath: "/tmp/visual.png",
+		BBox:      "10,10,30,30",
+		Reason:    "聚焦消息输入框",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	driver := &fakeDesktopDriver{
+		typeTextErrs: []error{
+			&desktop.ToolError{
+				Code:    "desktop_type_text_focus_not_editable",
+				Message: "focused UI element is not editable: role='AXLink'",
+				Hint:    "请先聚焦输入框。",
+			},
+			nil,
+		},
+		typeTexts: []desktop.TypeTextResult{
+			{},
+			{
+				PID:               123,
+				Action:            "TypeText",
+				Performed:         true,
+				ActiveBefore:      true,
+				ActiveAfter:       true,
+				TextLength:        2,
+				LineCount:         1,
+				FocusVerification: "visual_token",
+			},
+		},
+	}
+	outcome, err := NewDesktopTypeText(driver, visualFocuses).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{
+			"pid":                123,
+			"text":               "你好",
+			"reason":             "在 WebView 输入框中起草消息",
+			"visual_focus_token": token,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(driver.typeTextRequests) != 2 {
+		t.Fatalf("type text requests = %#v", driver.typeTextRequests)
+	}
+	if driver.typeTextRequests[0].AllowVisualFocus {
+		t.Fatalf("first request should require AX focus: %#v", driver.typeTextRequests[0])
+	}
+	if !driver.typeTextRequests[1].AllowVisualFocus {
+		t.Fatalf("second request should use visual focus fallback: %#v", driver.typeTextRequests[1])
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["visual_focus_used"] != true || data["focus_verification"] != "visual_token" {
+		t.Fatalf("outcome = %#v", data)
+	}
+	if _, ok := visualFocuses.Consume(token, 123); ok {
+		t.Fatal("visual focus token was reusable")
+	}
+}
+
+func TestDesktopTypeTextRejectsInvalidVisualFocusToken_BitsUT(t *testing.T) {
+	driver := &fakeDesktopDriver{
+		typeTextErrs: []error{
+			&desktop.ToolError{
+				Code:    "desktop_type_text_focus_unavailable",
+				Message: "Accessibility did not return a focused UI element",
+				Hint:    "请先聚焦输入框。",
+			},
+		},
+	}
+	outcome, err := NewDesktopTypeText(driver, NewVisualFocusStore()).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{
+			"pid":                123,
+			"text":               "你好",
+			"reason":             "在 WebView 输入框中起草消息",
+			"visual_focus_token": "invalid-token",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolErr := outcome.Data.(agent.ToolErrorData)
+	if toolErr.Code != "desktop_type_text_visual_focus_token_invalid" {
+		t.Fatalf("error = %#v", toolErr)
+	}
+	if len(driver.typeTextRequests) != 1 || driver.typeTextRequests[0].AllowVisualFocus {
+		t.Fatalf("unexpected retry requests = %#v", driver.typeTextRequests)
 	}
 }
 

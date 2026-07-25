@@ -864,14 +864,27 @@ def type_text(payload):
         )
     require_active_pid(pid)
     text = str(payload.get("text") or "")
+    allow_visual_focus = bool(payload.get("allow_visual_focus", False))
     if not text:
         raise DesktopError(
             "desktop_type_text_bad_request",
             "desktop_type_text requires non-empty text",
             "请提供要输入的文本；发送动作仍需单独使用 desktop_press_key 并确认。",
         )
-    metadata = focused_metadata(pid)
-    require_editable_focus(metadata)
+    focus_verification = "ax_editable"
+    try:
+        metadata = focused_metadata(pid)
+        try:
+            require_editable_focus(metadata)
+        except DesktopError:
+            if not allow_visual_focus:
+                raise
+            focus_verification = "visual_token"
+    except DesktopError:
+        if not allow_visual_focus:
+            raise
+        metadata = {"role": "", "title": "", "description": ""}
+        focus_verification = "visual_token"
     try:
         post_unicode_text(quartz, text)
         time.sleep(0.15)
@@ -895,6 +908,7 @@ def type_text(payload):
         "focus_role": metadata["role"],
         "focus_title": metadata["title"],
         "focus_description": metadata["description"],
+        "focus_verification": focus_verification,
     }
 
 

@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -653,13 +654,22 @@ func desktopClickApprovalRequiredOutcome(approval ActionApproval, node desktop.A
 type DesktopVisualClick struct {
 	driver        desktop.Driver
 	confirmations *ConfirmationStore
+	visualFocuses *VisualFocusStore
 	workspaceTool
 }
 
-func NewDesktopVisualClick(driver desktop.Driver, confirmations *ConfirmationStore, workspace string) *DesktopVisualClick {
+func NewDesktopVisualClick(driver desktop.Driver, confirmations *ConfirmationStore, workspace string, visualFocuses ...*VisualFocusStore) *DesktopVisualClick {
+	var focusStore *VisualFocusStore
+	if len(visualFocuses) > 0 {
+		focusStore = visualFocuses[0]
+	}
+	if focusStore == nil {
+		focusStore = NewVisualFocusStore()
+	}
 	return &DesktopVisualClick{
 		driver:        driver,
 		confirmations: confirmations,
+		visualFocuses: focusStore,
 		workspaceTool: newWorkspaceTool(workspace),
 	}
 }
@@ -779,6 +789,27 @@ func (t *DesktopVisualClick) Run(ctx context.Context, call agent.ToolCallContext
 		data["code"] = "desktop_visual_click_unverified"
 		data["message"] = "desktop visual click was sent but target foreground state was not verified"
 		data["hint"] = "请停止连续点击，重新截图和 OCR，确认目标应用仍在前台且视觉目标未变化。"
+	} else if shouldIssueDesktopVisualFocusToken(expectedText, reason) {
+		token, ttl, issueErr := t.visualFocuses.Issue(VisualFocusGrant{
+			PID:       pid,
+			ImagePath: imagePath,
+			BBox:      bboxKey,
+			Reason:    reason,
+		})
+		if issueErr != nil {
+			data["status"] = agent.ToolStatusError
+			data["code"] = "desktop_visual_focus_token_issue_failed"
+			data["message"] = "desktop visual click succeeded but visual focus token could not be issued"
+			data["hint"] = "请重新执行 desktop_visual_click；没有 visual_focus_token 时不要在 WebView 中绕过 AX 焦点校验输入。"
+		} else {
+			data["visual_focus_token"] = token
+			data["visual_focus_expires_in_seconds"] = int(ttl.Seconds())
+			data["visual_focus_scope"] = map[string]any{
+				"pid":        pid,
+				"image_path": imagePath,
+				"bbox":       bboxKey,
+			}
+		}
 	}
 	return agent.Outcome{Data: data, NextPrompt: "\n"}, nil
 }
@@ -951,6 +982,14 @@ func classifyDesktopVisualClickRisk(expectedText string, reason string) desktopA
 		return desktopRiskReversible
 	}
 	return desktopRiskExternal
+}
+
+func shouldIssueDesktopVisualFocusToken(expectedText string, reason string) bool {
+	text := strings.ToLower(strings.Join([]string{expectedText, reason}, " "))
+	return containsAny(text, []string{
+		"输入", "发消息", "搜索", "编辑", "聚焦", "光标", "文本框", "输入框",
+		"message", "input", "search", "edit", "focus", "cursor", "textbox", "text field",
+	})
 }
 
 func desktopVisualClickApprovalRequiredOutcome(approval ActionApproval, expectedText string, risk desktopActionRisk) agent.Outcome {
@@ -1166,11 +1205,19 @@ func activateDesktopTarget(ctx context.Context, driver desktop.Driver, pid int) 
 }
 
 type DesktopTypeText struct {
-	driver desktop.Driver
+	driver        desktop.Driver
+	visualFocuses *VisualFocusStore
 }
 
-func NewDesktopTypeText(driver desktop.Driver) *DesktopTypeText {
-	return &DesktopTypeText{driver: driver}
+func NewDesktopTypeText(driver desktop.Driver, visualFocuses ...*VisualFocusStore) *DesktopTypeText {
+	var focusStore *VisualFocusStore
+	if len(visualFocuses) > 0 {
+		focusStore = visualFocuses[0]
+	}
+	if focusStore == nil {
+		focusStore = NewVisualFocusStore()
+	}
+	return &DesktopTypeText{driver: driver, visualFocuses: focusStore}
 }
 
 func (t *DesktopTypeText) Name() string { return ToolNameDesktopTypeText }
@@ -1178,11 +1225,12 @@ func (t *DesktopTypeText) Name() string { return ToolNameDesktopTypeText }
 func (t *DesktopTypeText) Schema() llm.ToolSchema {
 	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
 		Name:        t.Name(),
-		Description: "Type text into the currently focused editable desktop field for the frontmost target PID. This is for drafting only and never sends the message. The tool refuses empty or overly long text, does not return the typed content, and send/submit must be handled separately with desktop_press_key plus confirmation.",
+		Description: "Type text into the currently focused editable desktop field for the frontmost target PID. This is for drafting only and never sends the message. The tool first requires AX editable focus; when AX cannot prove WebView focus, it may consume a one-time visual_focus_token returned by desktop_visual_click. The tool refuses empty or overly long text, does not return the typed content, and send/submit must be handled separately with desktop_press_key plus confirmation.",
 		Parameters: objectSchema(map[string]any{
-			"pid":    intProp("Target application PID from desktop_windows. The helper refuses to type unless this PID is frontmost.", 0),
-			"text":   stringProp("Text to type into the current focused editable field. The tool result will not echo this text."),
-			"reason": stringProp("Concrete user-facing reason for typing this draft."),
+			"pid":                intProp("Target application PID from desktop_windows. The helper refuses to type unless this PID is frontmost.", 0),
+			"text":               stringProp("Text to type into the current focused editable field. The tool result will not echo this text."),
+			"reason":             stringProp("Concrete user-facing reason for typing this draft."),
+			"visual_focus_token": stringProp("Optional one-time token returned by desktop_visual_click after clicking an input/search bbox. Used only if AX editable focus validation fails."),
 		}, "pid", "text", "reason"),
 	}}
 }
@@ -1205,25 +1253,44 @@ func (t *DesktopTypeText) Run(ctx context.Context, call agent.ToolCallContext) (
 		return desktopToolError(err), nil
 	}
 	result, err := t.driver.TypeText(ctx, desktop.TypeTextRequest{PID: pid, Text: text})
+	usedVisualFocus := false
+	visualFocusToken := strings.TrimSpace(asString(call.Args["visual_focus_token"]))
 	if err != nil {
-		return desktopToolError(err), nil
+		if !isDesktopTypeTextFocusError(err) || visualFocusToken == "" {
+			return desktopToolError(err), nil
+		}
+		_, ok := t.visualFocuses.Consume(visualFocusToken, pid)
+		if !ok {
+			return desktopActionError(
+				"desktop_type_text_visual_focus_token_invalid",
+				"visual_focus_token is invalid, expired, already used, or bound to a different pid",
+				"请重新用 desktop_visual_click 点击输入框 bbox，拿到新的 visual_focus_token 后再输入。",
+			), nil
+		}
+		result, err = t.driver.TypeText(ctx, desktop.TypeTextRequest{PID: pid, Text: text, AllowVisualFocus: true})
+		if err != nil {
+			return desktopToolError(err), nil
+		}
+		usedVisualFocus = true
 	}
 	verified := result.Performed && result.ActiveBefore && result.ActiveAfter
 	data := map[string]any{
-		"status":            agent.ToolStatusSuccess,
-		"pid":               result.PID,
-		"action":            result.Action,
-		"reason":            reason,
-		"text_length":       result.TextLength,
-		"line_count":        result.LineCount,
-		"focus_role":        result.FocusRole,
-		"focus_title":       result.FocusTitle,
-		"focus_description": result.FocusDescription,
-		"performed":         result.Performed,
-		"active_before":     result.ActiveBefore,
-		"active_after":      result.ActiveAfter,
-		"verified":          verified,
-		"content_returned":  false,
+		"status":             agent.ToolStatusSuccess,
+		"pid":                result.PID,
+		"action":             result.Action,
+		"reason":             reason,
+		"text_length":        result.TextLength,
+		"line_count":         result.LineCount,
+		"focus_role":         result.FocusRole,
+		"focus_title":        result.FocusTitle,
+		"focus_description":  result.FocusDescription,
+		"focus_verification": result.FocusVerification,
+		"visual_focus_used":  usedVisualFocus,
+		"performed":          result.Performed,
+		"active_before":      result.ActiveBefore,
+		"active_after":       result.ActiveAfter,
+		"verified":           verified,
+		"content_returned":   false,
 	}
 	if !verified {
 		data["status"] = agent.ToolStatusError
@@ -1235,6 +1302,19 @@ func (t *DesktopTypeText) Run(ctx context.Context, call agent.ToolCallContext) (
 		Data:       data,
 		NextPrompt: "\n",
 	}, nil
+}
+
+func isDesktopTypeTextFocusError(err error) bool {
+	var toolErr *desktop.ToolError
+	if !errors.As(err, &toolErr) {
+		return false
+	}
+	switch toolErr.Code {
+	case "desktop_type_text_focus_not_editable", "desktop_type_text_focus_unavailable":
+		return true
+	default:
+		return false
+	}
 }
 
 func requiredDesktopTypeText(args map[string]any) (string, *agent.ToolErrorData) {
