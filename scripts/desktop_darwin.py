@@ -320,6 +320,7 @@ def load_ax():
             kAXChildrenAttribute,
             kAXDescriptionAttribute,
             kAXEnabledAttribute,
+            kAXFocusedUIElementAttribute,
             kAXPositionAttribute,
             kAXPressAction,
             kAXRoleAttribute,
@@ -345,6 +346,7 @@ def load_ax():
         "value": AXValueGetValue,
         "children": kAXChildrenAttribute,
         "windows": kAXWindowsAttribute,
+        "focused": kAXFocusedUIElementAttribute,
         "role": kAXRoleAttribute,
         "title": kAXTitleAttribute,
         "description": kAXDescriptionAttribute,
@@ -590,6 +592,103 @@ def press_key(payload):
     }
 
 
+def focused_metadata(pid):
+    quartz, _, _ = require_macos_modules()
+    api = load_ax()
+    if not bool(api["trusted"]()):
+        raise DesktopError(
+            "desktop_permission_denied",
+            "Accessibility permission is not granted",
+            "系统设置 -> 隐私与安全性 -> 辅助功能：允许运行 Cohert 的终端或 IDE。",
+        )
+    app = api["application"](pid)
+    element = ax_attr(api, app, api["focused"])
+    if element is None:
+        raise DesktopError(
+            "desktop_type_text_focus_unavailable",
+            "Accessibility did not return a focused UI element for the target app",
+            "请先用 desktop_ax_press 或手动点击把光标放到目标输入框，再重试 desktop_type_text。",
+        )
+    return ax_node_metadata(api, element, display_scale(quartz))
+
+
+def require_editable_focus(metadata):
+    role = str(metadata.get("role") or "")
+    role_lower = role.lower()
+    if role in {"AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"}:
+        return
+    if "text" in role_lower and "static" not in role_lower:
+        return
+    raise DesktopError(
+        "desktop_type_text_focus_not_editable",
+        f"focused UI element is not editable: role={role!r}",
+        "请先聚焦输入框；不要在未知焦点下发送文本。",
+    )
+
+
+def post_unicode_text(quartz, text):
+    # Split to keep each event small enough for Quartz and avoid partial
+    # failures on long drafts. The Go tool bounds total length before this.
+    chunk_size = 64
+    for start in range(0, len(text), chunk_size):
+        chunk = text[start : start + chunk_size]
+        event = quartz.CGEventCreateKeyboardEvent(None, 0, True)
+        if event is None:
+            raise DesktopError(
+                "desktop_type_text_failed",
+                "unable to create Quartz unicode keyboard event",
+                "请确认 Cohert 运行进程具备必要的系统权限。",
+            )
+        quartz.CGEventKeyboardSetUnicodeString(event, len(chunk), chunk)
+        quartz.CGEventPost(quartz.kCGHIDEventTap, event)
+        time.sleep(0.01)
+
+
+def type_text(payload):
+    quartz, _, workspace = require_macos_modules()
+    pid = int(payload.get("pid") or 0)
+    if pid <= 0:
+        raise DesktopError(
+            "desktop_bad_pid",
+            "desktop_type_text requires a positive pid",
+            "请先通过 desktop_windows 获取目标窗口对应的 pid。",
+        )
+    require_active_pid(pid)
+    text = str(payload.get("text") or "")
+    if not text:
+        raise DesktopError(
+            "desktop_type_text_bad_request",
+            "desktop_type_text requires non-empty text",
+            "请提供要输入的文本；发送动作仍需单独使用 desktop_press_key 并确认。",
+        )
+    metadata = focused_metadata(pid)
+    require_editable_focus(metadata)
+    try:
+        post_unicode_text(quartz, text)
+        time.sleep(0.15)
+    except DesktopError:
+        raise
+    except Exception as exc:
+        raise DesktopError(
+            "desktop_type_text_failed",
+            f"desktop text input failed: {exc}",
+            "请重新确认目标应用前台状态和输入框焦点，不要连续重试。",
+        ) from exc
+    active_after = active_pid(workspace) == pid
+    return {
+        "pid": pid,
+        "action": "TypeText",
+        "performed": True,
+        "active_before": True,
+        "active_after": active_after,
+        "text_length": len(text),
+        "line_count": text.count("\n") + 1,
+        "focus_role": metadata["role"],
+        "focus_title": metadata["title"],
+        "focus_description": metadata["description"],
+    }
+
+
 def ax_snapshot(payload):
     quartz, _, _ = require_macos_modules()
     api = load_ax()
@@ -687,6 +786,7 @@ def dispatch(command, payload):
         "ax_snapshot": ax_snapshot,
         "ax_press": ax_press,
         "press_key": press_key,
+        "type_text": type_text,
     }
     handler = commands.get(command)
     if handler is None:

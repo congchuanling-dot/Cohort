@@ -19,9 +19,10 @@ desktop_ax_snapshot
 desktop_ocr
 desktop_ax_press
 desktop_press_key
+desktop_type_text
 ```
 
-当前仅允许两类真实输入：`desktop_ax_press` 对刚刚读取、仍支持 `AXPress` 的语义节点执行动作；`desktop_press_key` 只发送 allowlist 中的受限按键。当前没有 `desktop_click` 或 `desktop_type_text`。不得使用 `code_run`、AppleScript 或自写脚本绕过该边界模拟真实输入。
+当前仅允许三类真实输入：`desktop_ax_press` 对刚刚读取、仍支持 `AXPress` 的语义节点执行动作；`desktop_press_key` 只发送 allowlist 中的受限按键；`desktop_type_text` 只向当前焦点可编辑输入框起草文本。当前没有 `desktop_click`。不得使用 `code_run`、AppleScript 或自写脚本绕过该边界模拟真实输入。
 
 ## 默认探测流程
 
@@ -72,7 +73,22 @@ desktop_windows
 - 低风险导航键可直接执行：`Escape`、`Tab`、`Shift+Tab`、方向键、`PageUp`、`PageDown`、`Home`、`End`。
 - 外部副作用按键必须先确认：`Enter`、`Cmd+Enter`、`Ctrl+Enter`、`Delete`、`Backspace`、`Cmd+Backspace`、`Ctrl+Backspace`。
 - 确认流程与 AXPress 一致：先调用 `desktop_press_key`，收到 `desktop_action_confirmation_required` 后，把 `approval_request` 原样传给 `ask_user`；只能用同一 `pid`、`key`、`reason` 和一次性令牌重试一次。
-- 不支持任意快捷键，不支持字符输入；需要文本输入时等待 `desktop_type_text`，不得用反复按键模拟输入。
+- 不支持任意快捷键，不支持字符输入；需要文本输入时使用 `desktop_type_text`，不得用反复按键模拟输入。
+
+## TypeText 操作流程
+
+```text
+desktop_windows
+  -> desktop_activate(pid)
+  -> 聚焦目标输入框
+  -> desktop_type_text(pid, text, reason)
+  -> 发送动作单独走 desktop_press_key
+```
+
+- `desktop_type_text` 只负责起草文本，不负责发送、提交或确认。
+- 工具会验证目标 PID 是前台，并通过 AX 检查当前焦点是可编辑控件；焦点不可判断或不是输入框时必须停止。
+- 工具结果只返回 `text_length`、`line_count` 和焦点摘要，不回显完整文本。
+- 单次文本长度有限制；长文本应分段输入。发送前必须让用户确认内容。
 
 ## 坐标纪律
 
@@ -86,7 +102,8 @@ desktop_windows
 - AX 快照不会返回 secure text field 的真实值；不得通过其他方式读取密码或敏感输入。
 - 登录验证码、人机校验、支付、审批、删除、发送消息等外部副作用均不自动处理。
 - `desktop_ax_press` 已绑定 PID、前台验证、风险确认和动作后 AX 验证。
-- `desktop_press_key` 只做受限按键，绑定 PID 并验证按键前后目标仍为前台。后续坐标点击和文本输入仍需单独评审。
+- `desktop_press_key` 只做受限按键，绑定 PID 并验证按键前后目标仍为前台。
+- `desktop_type_text` 只做文本起草，绑定 PID 和焦点输入框，不负责发送。后续坐标点击仍需单独评审。
 
 ## 验收标准
 
@@ -97,6 +114,7 @@ desktop_windows
 - OCR bbox 明确标为 `screenshot-local`。
 - AXPress 只能执行当前语义匹配、enabled 且支持 `AXPress` 的节点；R2 需要一次性确认令牌，R3 被拒绝。
 - PressKey 只接受 allowlist 按键；R2 按键需要一次性确认令牌。
+- TypeText 不回显完整文本；发送动作必须拆成单独确认。
 
 ## 常见坑
 

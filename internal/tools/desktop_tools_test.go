@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"cohert/internal/agent"
@@ -20,6 +21,7 @@ type fakeDesktopDriver struct {
 	axSnapshots []desktop.AXSnapshotResult
 	axPress     desktop.AXPressResult
 	pressKey    desktop.PressKeyResult
+	typeText    desktop.TypeTextResult
 	err         error
 
 	listRequest       desktop.ListWindowsRequest
@@ -28,6 +30,7 @@ type fakeDesktopDriver struct {
 	axRequest         desktop.AXSnapshotRequest
 	axPressRequest    desktop.AXPressRequest
 	pressKeyRequest   desktop.PressKeyRequest
+	typeTextRequest   desktop.TypeTextRequest
 	axSnapshotCalls   int
 }
 
@@ -95,6 +98,14 @@ func (d *fakeDesktopDriver) PressKey(ctx context.Context, req desktop.PressKeyRe
 		return desktop.PressKeyResult{}, d.err
 	}
 	return d.pressKey, nil
+}
+
+func (d *fakeDesktopDriver) TypeText(ctx context.Context, req desktop.TypeTextRequest) (desktop.TypeTextResult, error) {
+	d.typeTextRequest = req
+	if d.err != nil {
+		return desktop.TypeTextResult{}, d.err
+	}
+	return d.typeText, nil
 }
 
 func TestDesktopWindowsClampsLimitAndReportsPhysicalCoordinates_BitsUT(t *testing.T) {
@@ -539,6 +550,68 @@ func TestDesktopPressKeyRejectsUnsupportedKey_BitsUT(t *testing.T) {
 	toolErr := outcome.Data.(agent.ToolErrorData)
 	if toolErr.Code != "desktop_press_key_unsupported" || driver.pressKeyRequest.Key != "" {
 		t.Fatalf("error = %#v, press request = %#v", toolErr, driver.pressKeyRequest)
+	}
+}
+
+func TestDesktopTypeTextDraftsWithoutEchoingContent_BitsUT(t *testing.T) {
+	driver := &fakeDesktopDriver{
+		typeText: desktop.TypeTextResult{
+			PID:              123,
+			Action:           "TypeText",
+			Performed:        true,
+			ActiveBefore:     true,
+			ActiveAfter:      true,
+			TextLength:       5,
+			LineCount:        1,
+			FocusRole:        "AXTextArea",
+			FocusTitle:       "输入",
+			FocusDescription: "消息输入框",
+		},
+	}
+	outcome, err := NewDesktopTypeText(driver).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"pid": 123, "text": "hello", "reason": "起草微信回复"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if driver.typeTextRequest.PID != 123 || driver.typeTextRequest.Text != "hello" {
+		t.Fatalf("type text request = %#v", driver.typeTextRequest)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["verified"] != true {
+		t.Fatalf("outcome = %#v", data)
+	}
+	if _, exists := data["text"]; exists {
+		t.Fatalf("tool result must not echo text: %#v", data)
+	}
+	if data["content_returned"] != false || data["text_length"] != 5 {
+		t.Fatalf("outcome = %#v", data)
+	}
+}
+
+func TestDesktopTypeTextRejectsEmptyAndTooLongText_BitsUT(t *testing.T) {
+	driver := &fakeDesktopDriver{}
+	outcome, err := NewDesktopTypeText(driver).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"pid": 123, "text": "", "reason": "空输入"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolErr := outcome.Data.(agent.ToolErrorData)
+	if toolErr.Code != "desktop_type_text_bad_request" || driver.typeTextRequest.Text != "" {
+		t.Fatalf("error = %#v, request = %#v", toolErr, driver.typeTextRequest)
+	}
+
+	longText := strings.Repeat("好", maxDesktopTypeTextRunes+1)
+	outcome, err = NewDesktopTypeText(driver).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"pid": 123, "text": longText, "reason": "超长输入"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolErr = outcome.Data.(agent.ToolErrorData)
+	if toolErr.Code != "desktop_type_text_too_long" || driver.typeTextRequest.Text != "" {
+		t.Fatalf("error = %#v, request = %#v", toolErr, driver.typeTextRequest)
 	}
 }
 

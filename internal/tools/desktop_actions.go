@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"cohert/internal/agent"
 	"cohert/internal/desktop"
@@ -22,6 +23,7 @@ const (
 const (
 	desktopActionSnapshotDepth = 12
 	desktopActionSnapshotNodes = 500
+	maxDesktopTypeTextRunes    = 2000
 )
 
 // DesktopAXPress 对一个刚刚发现且语义仍匹配的 AX 节点执行 AXPress。
@@ -497,4 +499,111 @@ func desktopActionError(code string, message string, hint string) agent.Outcome 
 		Data:       agent.NewToolError(code, message, hint),
 		NextPrompt: "\n",
 	}
+}
+
+type DesktopTypeText struct {
+	driver desktop.Driver
+}
+
+func NewDesktopTypeText(driver desktop.Driver) *DesktopTypeText {
+	return &DesktopTypeText{driver: driver}
+}
+
+func (t *DesktopTypeText) Name() string { return ToolNameDesktopTypeText }
+
+func (t *DesktopTypeText) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Type text into the currently focused editable desktop field for the frontmost target PID. This is for drafting only and never sends the message. The tool refuses empty or overly long text, does not return the typed content, and send/submit must be handled separately with desktop_press_key plus confirmation.",
+		Parameters: objectSchema(map[string]any{
+			"pid":    intProp("Target application PID from desktop_windows. The helper refuses to type unless this PID is frontmost.", 0),
+			"text":   stringProp("Text to type into the current focused editable field. The tool result will not echo this text."),
+			"reason": stringProp("Concrete user-facing reason for typing this draft."),
+		}, "pid", "text", "reason"),
+	}}
+}
+
+func (t *DesktopTypeText) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	pid := asInt(call.Args["pid"], 0)
+	if pid <= 0 {
+		return desktopBadPIDOutcome(t.Name()), nil
+	}
+	text, textErr := requiredDesktopTypeText(call.Args)
+	if textErr != nil {
+		return agent.Outcome{Data: *textErr, NextPrompt: "\n"}, nil
+	}
+	reason, reasonErr := requiredDesktopActionString(call.Args, "reason")
+	if reasonErr != nil {
+		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
+	}
+
+	result, err := t.driver.TypeText(ctx, desktop.TypeTextRequest{PID: pid, Text: text})
+	if err != nil {
+		return desktopToolError(err), nil
+	}
+	verified := result.Performed && result.ActiveBefore && result.ActiveAfter
+	data := map[string]any{
+		"status":            agent.ToolStatusSuccess,
+		"pid":               result.PID,
+		"action":            result.Action,
+		"reason":            reason,
+		"text_length":       result.TextLength,
+		"line_count":        result.LineCount,
+		"focus_role":        result.FocusRole,
+		"focus_title":       result.FocusTitle,
+		"focus_description": result.FocusDescription,
+		"performed":         result.Performed,
+		"active_before":     result.ActiveBefore,
+		"active_after":      result.ActiveAfter,
+		"verified":          verified,
+		"content_returned":  false,
+	}
+	if !verified {
+		data["status"] = agent.ToolStatusError
+		data["code"] = "desktop_type_text_unverified"
+		data["message"] = "desktop text was typed but target foreground state was not verified"
+		data["hint"] = "请停止继续输入或发送，重新调用 desktop_windows 和 desktop_activate 确认目标应用状态。"
+	}
+	return agent.Outcome{
+		Data:       data,
+		NextPrompt: "\n",
+	}, nil
+}
+
+func requiredDesktopTypeText(args map[string]any) (string, *agent.ToolErrorData) {
+	raw, present := args["text"]
+	if !present {
+		err := agent.NewToolError(
+			"desktop_type_text_bad_request",
+			"missing required field: text",
+			"请提供需要起草的文本；发送动作必须单独使用 desktop_press_key。",
+		)
+		return "", &err
+	}
+	text, ok := raw.(string)
+	if !ok {
+		err := agent.NewToolError(
+			"desktop_type_text_bad_request",
+			"text must be a string",
+			"请提供字符串文本；工具结果不会回显完整内容。",
+		)
+		return "", &err
+	}
+	if text == "" {
+		err := agent.NewToolError(
+			"desktop_type_text_bad_request",
+			"text must be non-empty",
+			"空文本没有可执行动作；如需发送请使用 desktop_press_key 并确认。",
+		)
+		return "", &err
+	}
+	if utf8.RuneCountInString(text) > maxDesktopTypeTextRunes {
+		err := agent.NewToolError(
+			"desktop_type_text_too_long",
+			"desktop_type_text text exceeds the maximum length",
+			"请缩短单次输入文本，分段起草并在发送前让用户确认。",
+		)
+		return "", &err
+	}
+	return text, nil
 }

@@ -86,6 +86,11 @@ func (d *PythonDriver) PressKey(ctx context.Context, req PressKeyRequest) (Press
 	return result, d.call(ctx, "press_key", req, &result)
 }
 
+func (d *PythonDriver) TypeText(ctx context.Context, req TypeTextRequest) (TypeTextResult, error) {
+	var result TypeTextResult
+	return result, d.call(ctx, "type_text", req, &result)
+}
+
 type helperEnvelope struct {
 	Status  string          `json:"status"`
 	Code    string          `json:"code"`

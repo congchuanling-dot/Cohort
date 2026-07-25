@@ -133,6 +133,24 @@ type PressKeyResult struct {
 	ActiveAfter  bool   `json:"active_after"`
 }
 
+type TypeTextRequest struct {
+	PID  int    `json:"pid"`
+	Text string `json:"text"`
+}
+
+type TypeTextResult struct {
+	PID              int    `json:"pid"`
+	Action           string `json:"action"`
+	Performed        bool   `json:"performed"`
+	ActiveBefore     bool   `json:"active_before"`
+	ActiveAfter      bool   `json:"active_after"`
+	TextLength       int    `json:"text_length"`
+	LineCount        int    `json:"line_count"`
+	FocusRole        string `json:"focus_role"`
+	FocusTitle       string `json:"focus_title"`
+	FocusDescription string `json:"focus_description"`
+}
+
 // Driver 抽象平台相关的桌面感知和受限 AX 语义动作能力。
 type Driver interface {
 	Permissions(ctx context.Context) (PermissionsResult, error)
@@ -142,4 +160,5 @@ type Driver interface {
 	AXSnapshot(ctx context.Context, req AXSnapshotRequest) (AXSnapshotResult, error)
 	AXPress(ctx context.Context, req AXPressRequest) (AXPressResult, error)
 	PressKey(ctx context.Context, req PressKeyRequest) (PressKeyResult, error)
+	TypeText(ctx context.Context, req TypeTextRequest) (TypeTextResult, error)
 }

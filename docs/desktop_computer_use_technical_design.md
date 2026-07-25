@@ -537,13 +537,24 @@ M2.2 已实现。用途：对前台 PID 发送受限桌面按键。
 
 ### desktop_type_text
 
-M2 后续工具。用途：真实文本输入。
+M2.3 已实现。用途：向前台 PID 的当前焦点可编辑输入框起草文本。
+
+参数：
+
+```json
+{
+  "pid": 888,
+  "text": "这是一段待发送前确认的草稿",
+  "reason": "起草微信回复"
+}
+```
 
 要求：
 
-- 必须绑定 PID。
-- 输入前确认焦点窗口。
-- 敏感字段不在日志中明文输出。
+- 必须绑定 PID，helper 在输入前确认目标 PID 为前台。
+- 输入前通过 AX 读取 focused UI element；焦点不是 `AXTextField`、`AXTextArea`、`AXSearchField`、`AXComboBox` 或其他可编辑文本角色时拒绝。
+- 工具结果不回显完整文本，只返回 `text_length`、`line_count` 和焦点摘要。
+- 只负责起草，不负责发送、提交或确认。发送必须拆成 `desktop_press_key` 并按风险确认。
 - 不能通过多次 `desktop_press_key` 模拟文本输入。
 
 ## 执行链路
@@ -681,16 +692,16 @@ M2.1 验收：
 
 ### M2：受限真实输入
 
-状态：M2.1 已完成 `desktop_ax_press`、风险确认和 AX 结果验证；M2.2 已完成受限 `desktop_press_key`。坐标点击与文本输入尚未开始。
+状态：M2.1 已完成 `desktop_ax_press`、风险确认和 AX 结果验证；M2.2 已完成受限 `desktop_press_key`；M2.3 已完成 `desktop_type_text` 文本起草。坐标点击尚未开始。
 
 交付：
 
 - `desktop_ax_press`（已完成）
 - `desktop_press_key`（已完成）
+- `desktop_type_text`（已完成）
 - `desktop_click`
-- `desktop_type_text`
 - 风险分类和 `ask_user` 确认策略。（AXPress / PressKey 已完成）
-- 动作后验证机制。（AXPress / PressKey 已完成）
+- 动作后验证机制。（AXPress / PressKey / TypeText 已完成）
 
 ### M3：视觉控件候选
 

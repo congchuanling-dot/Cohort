@@ -59,7 +59,7 @@ La configuración predeterminada está en [`configs/config.yaml`](../../configs/
 | Agent Loop | Chat streaming compatible con OpenAI, tool calling, control de turnos |
 | Herramientas locales | Lectura/escritura/patch de archivos, shell, preguntas al usuario, errores estructurados |
 | Navegador | Chrome bridge, escaneo de página, JS, snapshot de elementos, click/type/key/wait/screenshot/OCR |
-| Desktop Computer Use | Permisos macOS, ventanas, activación por PID, capturas, árbol AX, OCR de escritorio, `AXPress` controlado, teclas restringidas |
+| Desktop Computer Use | Permisos macOS, ventanas, activación por PID, capturas, árbol AX, OCR de escritorio, `AXPress` controlado, teclas restringidas, borradores de texto |
 | Sesiones | `history.jsonl`, metadatos, lista, reanudación, auditoría local |
 | Context Manager | Compactación de resultados, recorte seguro, session memory, full compact |
 | SOP Runtime | Índice SOP, pistas por tarea, working checkpoint |
@@ -129,9 +129,10 @@ desktop_permissions
   -> desktop_ocr
   -> desktop_ax_press
   -> desktop_press_key
+  -> desktop_type_text
 ```
 
-Accessibility / AX tiene prioridad sobre OCR. `desktop_ax_press` requiere PID en primer plano, metadata AX reciente, revalidación antes de actuar y verificación AX después. `desktop_press_key` solo acepta una allowlist de teclas; las teclas de navegación de bajo riesgo pueden ejecutarse directamente, mientras Enter, Cmd+Enter, Delete, Backspace y similares requieren confirmación.
+Accessibility / AX tiene prioridad sobre OCR. `desktop_ax_press` requiere PID en primer plano, metadata AX reciente, revalidación antes de actuar y verificación AX después. `desktop_press_key` solo acepta una allowlist de teclas; las teclas de navegación de bajo riesgo pueden ejecutarse directamente, mientras Enter, Cmd+Enter, Delete, Backspace y similares requieren confirmación. `desktop_type_text` solo redacta texto en el campo editable enfocado y no lo envía.
 
 Política de riesgo:
 
@@ -139,7 +140,7 @@ Política de riesgo:
 - R2 efectos externos requieren token de confirmación de un solo uso emitido por `ask_user`.
 - R3 acciones de alto riesgo como pago, aprobación, autorización, verificación de login o eliminación se rechazan para ejecución manual.
 
-Todavía no hay click por coordenadas ni entrada de texto de escritorio.
+Todavía no hay click por coordenadas.
 
 Dependencias del helper macOS:
 
