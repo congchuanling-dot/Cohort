@@ -69,7 +69,7 @@ func Run(args []string) error {
 	case "mcp":
 		return runMCPCommand(context.Background(), args[1:])
 	case "skill":
-		return runSkillCommand(cfg, args[1:])
+		return runSkillCommand(context.Background(), args[1:])
 	}
 
 	// 真正执行任务前才创建 Runner，此时会检查 API Key、工作区、日志目录等。
@@ -125,15 +125,21 @@ func runMCPCommand(ctx context.Context, args []string) error {
 	}
 }
 
-func runSkillCommand(cfg app.Config, args []string) error {
+func runSkillCommand(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: cohert skill list | cohert skill show <id> | cohert skill reload")
+		return errors.New("usage: cohert skill install|list|show|reload ...")
 	}
-	store, err := app.LoadSkillStore(cfg.Workspace)
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	store, err := app.LoadSkillStore(projectRoot)
 	if err != nil {
 		return err
 	}
 	switch args[0] {
+	case "install":
+		return installSkill(ctx, projectRoot, args[1:])
 	case "list":
 		if len(args) != 1 {
 			return errors.New("usage: cohert skill list")
@@ -156,6 +162,58 @@ func runSkillCommand(cfg app.Config, args []string) error {
 	default:
 		return fmt.Errorf("unknown skill command %q", args[0])
 	}
+}
+
+func installSkill(ctx context.Context, projectRoot string, args []string) error {
+	opts := skill.InstallOptions{ProjectRoot: projectRoot, Scope: skill.ScopeProject}
+	for len(args) > 0 {
+		arg := args[0]
+		args = args[1:]
+		switch arg {
+		case "--scope":
+			if len(args) < 1 {
+				return errors.New("--scope requires project or user")
+			}
+			scope, err := skill.ParseScope(args[0])
+			if err != nil {
+				return err
+			}
+			opts.Scope = scope
+			args = args[1:]
+		case "--name":
+			if len(args) < 1 {
+				return errors.New("--name requires a skill name")
+			}
+			opts.Name = args[0]
+			args = args[1:]
+		case "--force":
+			opts.Force = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return fmt.Errorf("unknown skill install option %q", arg)
+			}
+			if opts.Source != "" {
+				return errors.New("usage: cohert skill install [--scope project|user] [--name name] [--force] <path-or-git-url>")
+			}
+			opts.Source = arg
+		}
+	}
+	if opts.Source == "" {
+		return errors.New("usage: cohert skill install [--scope project|user] [--name name] [--force] <path-or-git-url>")
+	}
+	result, err := skill.Install(ctx, opts)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("installed skill %s\n", result.Skill.ID)
+	fmt.Printf("  name:        %s\n", result.Skill.Name)
+	fmt.Printf("  source:      %s\n", result.Source)
+	fmt.Printf("  destination: %s\n", result.Destination)
+	fmt.Printf("  files:       %d\n", result.Files)
+	if result.Replaced {
+		fmt.Println("  replaced:    true")
+	}
+	return nil
 }
 
 func printSkillList(skills []skill.Skill) error {
@@ -496,6 +554,8 @@ Usage:
   cohert mcp tools <name> inspect an MCP server's tools
   cohert mcp probe <name> verify an MCP server
   cohert mcp remove <name>
+  cohert skill install <path-or-git-url>
+                          install a Skill into .cohort/skills
   cohert skill list       list discovered Skills
   cohert skill show <id>  show one Skill's SKILL.md
   cohert skill reload     rescan Skills

@@ -66,7 +66,7 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 		_ = mcpManager.Close()
 		return nil, err
 	}
-	skillStore, err := LoadSkillStore(workspace)
+	skillStore, err := LoadSkillStore(cwd)
 	if err != nil {
 		_ = mcpManager.Close()
 		return nil, err
@@ -110,7 +110,7 @@ func ToolSchemas(cfg Config) ([]llm.ToolSchema, error) {
 	if err != nil {
 		return nil, err
 	}
-	skillStore, err := LoadSkillStore(normalizeWorkspace(cfg.Workspace))
+	skillStore, err := LoadSkillStore(cwd)
 	if err != nil {
 		return nil, err
 	}
@@ -192,8 +192,8 @@ func newRegistry(
 }
 
 // LoadSkillStore 扫描项目级和用户级 Skill，并返回可运行中 reload 的 Store。
-func LoadSkillStore(workspace string) (*skill.Store, error) {
-	store := skill.NewStore(workspace, "")
+func LoadSkillStore(projectRoot string) (*skill.Store, error) {
+	store := skill.NewStore(projectRoot, "")
 	if err := store.Reload(); err != nil {
 		return nil, err
 	}

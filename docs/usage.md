@@ -697,6 +697,36 @@ Skill 是可按需读取的任务工作流包，和 MCP 工具分开管理。Coh
 ~/.cohert/skills/<skill_name>/SKILL.md
 ```
 
+安装本地 Skill 目录：
+
+```bash
+go run . skill install ./path/to/skill
+```
+
+安装 git 仓库里的 Skill：
+
+```bash
+go run . skill install https://example.com/org/skill-repo.git
+```
+
+默认安装到项目级 `.cohort/skills`。安装到用户全局目录：
+
+```bash
+go run . skill install --scope user ./path/to/skill
+```
+
+如果一个仓库里有多个 `SKILL.md`，需要指定目录名：
+
+```bash
+go run . skill install --name go-test https://example.com/org/skills.git
+```
+
+同名 Skill 已存在时不会覆盖；确认替换时显式加：
+
+```bash
+go run . skill install --force ./path/to/skill
+```
+
 当任务匹配某个 Skill 时，模型应先调用：
 
 ```text
@@ -716,6 +746,7 @@ skill_read({"skill_id":"project/<skill_name>"})
 外部 CLI 也支持：
 
 ```bash
+go run . skill install ./path/to/skill
 go run . skill list
 go run . skill show project/<skill_name>
 go run . skill reload

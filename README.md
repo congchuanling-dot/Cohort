@@ -145,6 +145,7 @@ go run . config
 go run . tools
 go run . mcp list
 go run . mcp status
+go run . skill install ./path/to/skill
 go run . skill list
 go run . session list
 ```
@@ -170,7 +171,7 @@ go build -o cohert ./cmd/cohert
 | Context Manager | 工具结果压缩、消息组裁剪、session memory、full compact | 让长任务不被上下文拖死 |
 | Session Store | `meta.json`、`history.jsonl`、resume、local audit trail | 让任务可以中断后继续 |
 | SOP Runtime | SOP 索引、任务路由、工作 checkpoint | 把稳定流程固化成可复用约束 |
-| Skill Runtime | `.cohort/skills`、`~/.cohert/skills`、`skill_read`、`/skill` | 像 Claude Code 一样按需加载可复用工作流 |
+| Skill Runtime | `skill install`、`.cohort/skills`、`~/.cohert/skills`、`skill_read`、`/skill` | 像 Claude Code 一样安装并按需加载可复用工作流 |
 | Evolution Memory | 证据约束、去重、项目记忆、审计日志 | 让“长期记忆”从摘要变成资产 |
 
 ## 一个完整任务是怎么跑起来的

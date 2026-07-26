@@ -2,9 +2,12 @@ package cli
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"cohert/internal/mcp"
+	"cohert/internal/skill"
 )
 
 func TestPrintMCPStatusAllowsEmptyUserAssembly(t *testing.T) {
@@ -56,5 +59,31 @@ func TestAddMCPServerWritesHTTPProjectConfig(t *testing.T) {
 	server := config.Servers["docs"]
 	if server.Type != mcp.TransportHTTP || server.URL != "https://example.com/mcp" {
 		t.Fatalf("server = %#v", server)
+	}
+}
+
+func TestInstallSkillCommandWritesProjectSkill_BitsUT(t *testing.T) {
+	projectRoot := t.TempDir()
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(projectRoot); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	source := filepath.Join(t.TempDir(), "source")
+	if err := os.MkdirAll(source, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, skill.SkillFileName), []byte("# Installed Skill\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installSkill(context.Background(), projectRoot, []string{"--name", "cli-skill", source}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(projectRoot, ".cohort", "skills", "cli-skill", skill.SkillFileName)); err != nil {
+		t.Fatal(err)
 	}
 }
