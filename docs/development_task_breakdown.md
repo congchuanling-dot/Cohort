@@ -34,7 +34,7 @@
 ### 延后项
 
 - 内置常用 Skill 包、`SKILL.md permissions` 和 `/skill run` active policy：在 FinishGuard 与事件流稳定后开始。
-- 人类级跨 OS 操作执行层：先按 `docs/human_os_operation_technical_design.md` 建统一协议和 macOS M0/M1，再扩展 Windows / Linux driver。
+- Computer Use 跨 OS 操作层：先按 `docs/human_os_operation_technical_design.md` 建 `computer_see/find` 和 target cache，再做 `computer_click/type` 起草消息 MVP，之后接 `computer_press/check/wait` 的确认发送链路。
 - Plugin manifest、LSP、多模型 fallback：在 Project/Plan Mode 的最小形态稳定后开始。
 - Marketplace、daemon、Gateway、Cohort 作为 MCP Server：在权限、审计、运行事件和真实 MCP 验收稳定后开始。
 - 自动反射、L4 会话挖掘：在生命周期事件和质量门禁完成后开始。

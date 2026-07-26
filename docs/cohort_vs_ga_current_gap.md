@@ -408,7 +408,7 @@ Cohort 缺：
 
 | GA 能力 | 直接照搬的风险 | Cohort 应取的路线 |
 | --- | --- | --- |
-| 任意 OS 鼠标键盘输入 | 裸 `click/type/key` 容易越过用户意图和 UI 安全边界 | 作为长期目标推进“人类级 OS 操作执行层”：跨 OS 观察、定位、计划、键鼠输入和后验验证；底层输入 API 不直接暴露给模型，动作必须绑定目标窗口、风险等级、可中断控制和审计日志 |
+| 任意 OS 鼠标键盘输入 | 裸 `click/type/key` 容易越过用户意图和 UI 安全边界 | 作为长期目标推进 Computer Use 跨 OS 操作层：对模型暴露 `computer_see/find/click/type/press/check/wait`，底层输入 API 不直接暴露给模型，动作必须绑定目标窗口、风险等级、可中断控制和审计日志 |
 | 普通任务暴露 cookie/extension management | 高敏感权限 | 仅诊断模式或显式授权 |
 | 自动安装复杂依赖 | 跨平台和供应链风险 | doctor 提示，用户确认后安装 |
 | 先做全量 IM 前端 | 维护面大，偏离内核稳定 | 先 TUI/local API/daemon |
@@ -416,7 +416,7 @@ Cohort 缺：
 | 直接自动晋级 Skill | 错误经验会污染未来任务 | 保持 SOP candidate + 人工 promote |
 | 后台自动改代码 | 难审计，容易破坏工作区 | 后台只产 report/candidate |
 
-这里的关键调整是：Cohort 的最终目标可以是模拟人类操作电脑，完成一切人类可以通过 GUI 完成的操作；但实现方式不能是把任意键鼠原语直接交给模型自由组合，而应建设可观测、可验证、可中断、可审计的人类级 OS 操作执行层。独立方案见 [human_os_operation_technical_design.md](human_os_operation_technical_design.md)。
+这里的关键调整是：Cohort 的最终目标可以是模拟人类操作电脑，完成一切人类可以通过 GUI 完成的操作；但实现方式不能是把任意键鼠原语直接交给模型自由组合，而应建设可观测、可验证、可中断、可审计的 Computer Use 操作层。独立方案见 [human_os_operation_technical_design.md](human_os_operation_technical_design.md)。
 
 ## 5. 建议的补齐优先级
 
@@ -456,7 +456,7 @@ Cohort 缺：
 
 1. MCP import/export、旧 SSE 兼容和真实服务矩阵验收。
 2. LSP tools，先接 `gopls`。
-3. 人类级 OS 操作执行层 M0/M1：跨 OS driver interface、窗口/屏幕观察、动作计划和受控输入协议。
+3. Computer Use 跨 OS 操作层 M0/M1：先落 `computer_see`、`computer_find`、`computer_click`、`computer_type`，再接确认后的 `computer_press`、`computer_check`、`computer_wait`。
 4. Plugin manifest。
 5. 只读 subagent / explorer。
 6. TUI。
