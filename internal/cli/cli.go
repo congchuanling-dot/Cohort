@@ -14,6 +14,7 @@ import (
 	"cohert/internal/mcp"
 	"cohert/internal/repl"
 	"cohert/internal/session"
+	"cohert/internal/skill"
 )
 
 const mcpProbeTimeout = 90 * time.Second
@@ -67,6 +68,8 @@ func Run(args []string) error {
 		return nil
 	case "mcp":
 		return runMCPCommand(context.Background(), args[1:])
+	case "skill":
+		return runSkillCommand(cfg, args[1:])
 	}
 
 	// 真正执行任务前才创建 Runner，此时会检查 API Key、工作区、日志目录等。
@@ -120,6 +123,66 @@ func runMCPCommand(ctx context.Context, args []string) error {
 	default:
 		return fmt.Errorf("unknown mcp command %q", args[0])
 	}
+}
+
+func runSkillCommand(cfg app.Config, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: cohert skill list | cohert skill show <id> | cohert skill reload")
+	}
+	store, err := app.LoadSkillStore(cfg.Workspace)
+	if err != nil {
+		return err
+	}
+	switch args[0] {
+	case "list":
+		if len(args) != 1 {
+			return errors.New("usage: cohert skill list")
+		}
+		return printSkillList(store.Skills())
+	case "show":
+		if len(args) != 2 {
+			return errors.New("usage: cohert skill show <id>")
+		}
+		return printSkill(store, args[1])
+	case "reload":
+		if len(args) != 1 {
+			return errors.New("usage: cohert skill reload")
+		}
+		if err := store.Reload(); err != nil {
+			return err
+		}
+		fmt.Printf("skills reloaded: %d\n", len(store.Skills()))
+		return nil
+	default:
+		return fmt.Errorf("unknown skill command %q", args[0])
+	}
+}
+
+func printSkillList(skills []skill.Skill) error {
+	if len(skills) == 0 {
+		fmt.Println("no skills")
+		return nil
+	}
+	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(writer, "ID\tSCOPE\tNAME\tDESCRIPTION\tPATH")
+	for _, item := range skills {
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\n", item.ID, item.Scope, item.Name, item.Description, item.Path)
+	}
+	return writer.Flush()
+}
+
+func printSkill(store *skill.Store, id string) error {
+	result, err := store.Read(id)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("id:        %s\n", result.Skill.ID)
+	fmt.Printf("name:      %s\n", result.Skill.Name)
+	fmt.Printf("scope:     %s\n", result.Skill.Scope)
+	fmt.Printf("path:      %s\n", result.Skill.Path)
+	fmt.Printf("truncated: %t\n\n", result.Truncated)
+	fmt.Println(result.Content)
+	return nil
 }
 
 // printMCPStatus 尝试连接用户已经显式配置的 MCP Server，并输出运行状态。
@@ -433,6 +496,9 @@ Usage:
   cohert mcp tools <name> inspect an MCP server's tools
   cohert mcp probe <name> verify an MCP server
   cohert mcp remove <name>
+  cohert skill list       list discovered Skills
+  cohert skill show <id>  show one Skill's SKILL.md
+  cohert skill reload     rescan Skills
   cohert session list     list local sessions
   cohert session resume <id>
                           resume a local session and enter REPL
@@ -449,6 +515,9 @@ Interactive slash commands:
   /mcp status             check MCP server availability
   /mcp tools <server>     inspect MCP server tools
   /mcp probe <server>     verify MCP server connectivity
+  /skill list             list discovered Skills
+  /skill show <id>        show one Skill's SKILL.md
+  /skill reload           rescan Skills and refresh system prompt
   /session list           list local sessions
   /resume <id>            resume a session
   /compact                reserved for Context Manager

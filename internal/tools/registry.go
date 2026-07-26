@@ -21,6 +21,8 @@ const (
 	ToolNameCodeRun = "code_run"
 	// ToolNameAskUser 在命令行向用户提问。
 	ToolNameAskUser = "ask_user"
+	// ToolNameSkillRead 读取已发现 Skill 的 SKILL.md 正文。
+	ToolNameSkillRead = "skill_read"
 	// ToolNameUpdateWorkingCheckpoint 更新短期工作记忆。
 	ToolNameUpdateWorkingCheckpoint = "update_working_checkpoint"
 	// ToolNameStartLongTermUpdate 启动受控长期记忆沉淀流程。
@@ -157,6 +159,7 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameDesktopVisualClick,
 		ToolNameDesktopPressKey,
 		ToolNameDesktopTypeText,
+		ToolNameSkillRead,
 		ToolNameUpdateWorkingCheckpoint,
 		ToolNameStartLongTermUpdate,
 		ToolNameMemoryProposeUpdate,

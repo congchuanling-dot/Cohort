@@ -13,6 +13,7 @@ import (
 	"cohert/internal/evolution"
 	"cohert/internal/llm"
 	"cohert/internal/session"
+	"cohert/internal/skill"
 )
 
 const (
@@ -71,6 +72,8 @@ type WorkingCheckpoint struct {
 	KeyInfo string
 	// RelatedSOP 记录本任务关联的 SOP 路径，便于后续不确定时重读。
 	RelatedSOP string
+	// RelatedSkill 记录本任务关联的 Skill ID，便于后续不确定时重读。
+	RelatedSkill string
 	// UpdatedAtTurn 记录 checkpoint 最后一次更新发生在哪个 Agent turn。
 	UpdatedAtTurn int
 }
@@ -81,6 +84,15 @@ type pendingSOPRead struct {
 	// Path 是最近一次通过 file_read 读取到的 SOP 路径。
 	Path string
 	// ReminderSet 表示是否已经为这次 SOP 读取注入过 checkpoint 提醒。
+	ReminderSet bool
+}
+
+// pendingSkillRead 防止模型读完 Skill 后忽略其中的工作流约束。
+// 它只在当前任务的相邻轮次中有效，checkpoint 更新后会被清空。
+type pendingSkillRead struct {
+	// ID 是最近一次通过 skill_read 读取到的 Skill ID 或 alias。
+	ID string
+	// ReminderSet 表示是否已经为这次 Skill 读取注入过 checkpoint 提醒。
 	ReminderSet bool
 }
 
@@ -130,6 +142,8 @@ type Runner struct {
 	// CloseFunc 由应用装配层注入，用于关闭 MCP 子进程等 Runner 持有的资源。
 	// Runner 本身不依赖具体实现，因此测试可留空。
 	CloseFunc func() error
+	// SkillStore 保存启动时发现的 Skill 索引，并支持 REPL 中 reload。
+	SkillStore *skill.Store
 	// WorkingCheckpoint 保存当前任务的短期关键约束，避免读过 SOP 后在多轮执行中遗忘。
 	WorkingCheckpoint WorkingCheckpoint
 
@@ -142,6 +156,8 @@ type Runner struct {
 	pendingHints []string
 	// pendingSOPRead 记录最近一次读取的 SOP。若下一轮没有 checkpoint，会再提醒一次。
 	pendingSOPRead pendingSOPRead
+	// pendingSkillRead 记录最近一次读取的 Skill。若下一轮没有 checkpoint，会再提醒一次。
+	pendingSkillRead pendingSkillRead
 }
 
 // Run 执行一次用户任务。流程是：用户输入 -> 调模型 -> 执行工具 -> 工具结果回灌 -> 继续调模型。
@@ -193,6 +209,10 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 		if r.pendingSOPRead.Path != "" && !containsToolCall(resp.ToolCalls, "update_working_checkpoint") && !r.pendingSOPRead.ReminderSet {
 			r.addPendingHint(fmt.Sprintf("[SYSTEM HINT] 上一轮读取了 SOP：%s。如果决定按它执行，本轮应调用 update_working_checkpoint 保存 [任务]/[关键约束]/[禁止事项]/[当前进度]/[下一步]。", r.pendingSOPRead.Path))
 			r.pendingSOPRead.ReminderSet = true
+		}
+		if r.pendingSkillRead.ID != "" && !containsToolCall(resp.ToolCalls, "update_working_checkpoint") && !r.pendingSkillRead.ReminderSet {
+			r.addPendingHint(fmt.Sprintf("[SYSTEM HINT] 上一轮读取了 Skill：%s。如果决定按它执行，本轮应调用 update_working_checkpoint 保存 [任务]/[关键约束]/[禁止事项]/[当前进度]/[下一步] 和 related_skill。", r.pendingSkillRead.ID))
+			r.pendingSkillRead.ReminderSet = true
 		}
 
 		// 没有 tool_calls 表示模型已经给出最终回答，任务可以结束。
@@ -266,6 +286,9 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			if err == nil && call.Function.Name == "file_read" {
 				r.rememberSOPRead(args)
 			}
+			if err == nil && call.Function.Name == "skill_read" {
+				r.rememberSkillRead(args)
+			}
 			r.recordLongTermMemorySignal(&memorySignals, call.Function.Name, args, outcome)
 			evidenceLedger = append(evidenceLedger, newToolEvidence(call, turn, i, outcome))
 			r.logToolRun(call, args, turn, i, outcome, time.Since(toolStartedAt))
@@ -322,8 +345,12 @@ func (r *Runner) updateWorkingCheckpoint(args map[string]any, turn int) {
 	if value := strings.TrimSpace(fmt.Sprint(args["related_sop"])); value != "" && value != "<nil>" {
 		r.WorkingCheckpoint.RelatedSOP = value
 	}
+	if value := strings.TrimSpace(fmt.Sprint(args["related_skill"])); value != "" && value != "<nil>" {
+		r.WorkingCheckpoint.RelatedSkill = value
+	}
 	r.WorkingCheckpoint.UpdatedAtTurn = turn
 	r.pendingSOPRead = pendingSOPRead{}
+	r.pendingSkillRead = pendingSkillRead{}
 }
 
 // rememberSOPRead 仅记录真正位于 SOP 目录或名称包含 sop 的读取操作。
@@ -334,6 +361,15 @@ func (r *Runner) rememberSOPRead(args map[string]any) {
 		return
 	}
 	r.pendingSOPRead = pendingSOPRead{Path: path}
+}
+
+// rememberSkillRead 记录最近一次 Skill 读取，用于下一轮提醒模型落 checkpoint。
+func (r *Runner) rememberSkillRead(args map[string]any) {
+	id := strings.TrimSpace(fmt.Sprint(args["skill_id"]))
+	if id == "" || id == "<nil>" {
+		return
+	}
+	r.pendingSkillRead = pendingSkillRead{ID: id}
 }
 
 // containsToolCall 判断本轮模型是否已经调用指定工具。
@@ -386,6 +422,8 @@ func (r *Runner) recordLongTermMemorySignal(signals *longTermMemorySignals, name
 		signals.successfulCodeRun = true
 	case strings.HasPrefix(name, "browser_"):
 		// 浏览器工具返回的成功状态可以作为页面状态已验证的候选信号。
+		signals.readReusableReference = true
+	case name == "skill_read":
 		signals.readReusableReference = true
 	case name == "file_read" && isReusableReferencePath(fmt.Sprint(args["path"])):
 		signals.readReusableReference = true
@@ -596,7 +634,9 @@ func (r *Runner) addSOPRouteHint(input string) {
 // workingCheckpointPrompt 将内存中的短期状态编码为下一轮可见的提示文本。
 // 空 checkpoint 不生成消息，以免为每轮请求增加无意义 token。
 func (r *Runner) workingCheckpointPrompt() string {
-	if strings.TrimSpace(r.WorkingCheckpoint.KeyInfo) == "" && strings.TrimSpace(r.WorkingCheckpoint.RelatedSOP) == "" {
+	if strings.TrimSpace(r.WorkingCheckpoint.KeyInfo) == "" &&
+		strings.TrimSpace(r.WorkingCheckpoint.RelatedSOP) == "" &&
+		strings.TrimSpace(r.WorkingCheckpoint.RelatedSkill) == "" {
 		return ""
 	}
 	var b strings.Builder
@@ -610,6 +650,11 @@ func (r *Runner) workingCheckpointPrompt() string {
 		b.WriteString("related_sop: ")
 		b.WriteString(r.WorkingCheckpoint.RelatedSOP)
 		b.WriteString("\nIf unsure, re-read related_sop before continuing.\n")
+	}
+	if r.WorkingCheckpoint.RelatedSkill != "" {
+		b.WriteString("related_skill: ")
+		b.WriteString(r.WorkingCheckpoint.RelatedSkill)
+		b.WriteString("\nIf unsure, call skill_read for related_skill before continuing.\n")
 	}
 	return strings.TrimSpace(b.String())
 }

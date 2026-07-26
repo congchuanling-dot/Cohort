@@ -196,6 +196,82 @@ func TestRunnerRemindsCheckpointAfterSOPRead_BitsUT(t *testing.T) {
 	}
 }
 
+func TestRunnerInjectsRelatedSkillCheckpoint_BitsUT(t *testing.T) {
+	client := &contextRecordingClient{
+		responses: []llm.Response{
+			{ToolCalls: []llm.ToolCall{{
+				ID:   "call-1",
+				Type: "function",
+				Function: llm.ToolFunction{
+					Name:      "update_working_checkpoint",
+					Arguments: `{"key_info":"按 Go Test Skill 先跑 focused tests","related_skill":"project/go-test"}`,
+				},
+			}}},
+			{Content: "ok"},
+		},
+	}
+	runner := &Runner{
+		Client:   client,
+		Tools:    contextFakeTools{result: `{"status":"success"}`},
+		MaxTurns: 2,
+	}
+
+	result, err := runner.Run(context.Background(), "测试 skill checkpoint", NewConsoleSink(&bytes.Buffer{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != RunStatusDone {
+		t.Fatalf("status = %q, want done", result.Status)
+	}
+	last := client.requests[1].Messages[len(client.requests[1].Messages)-1]
+	if !strings.Contains(last.Content, "related_skill: project/go-test") ||
+		!strings.Contains(last.Content, "skill_read") {
+		t.Fatalf("checkpoint content = %q", last.Content)
+	}
+}
+
+func TestRunnerRemindsCheckpointAfterSkillRead_BitsUT(t *testing.T) {
+	client := &contextRecordingClient{
+		responses: []llm.Response{
+			{ToolCalls: []llm.ToolCall{{
+				ID:   "call-1",
+				Type: "function",
+				Function: llm.ToolFunction{
+					Name:      "skill_read",
+					Arguments: `{"skill_id":"project/go-test"}`,
+				},
+			}}},
+			{ToolCalls: []llm.ToolCall{{
+				ID:   "call-2",
+				Type: "function",
+				Function: llm.ToolFunction{
+					Name:      "code_run",
+					Arguments: `{}`,
+				},
+			}}},
+			{Content: "ok"},
+		},
+	}
+	runner := &Runner{
+		Client:   client,
+		Tools:    contextFakeTools{result: `{"status":"success"}`},
+		MaxTurns: 3,
+	}
+
+	result, err := runner.Run(context.Background(), "按 skill 执行测试", NewConsoleSink(&bytes.Buffer{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != RunStatusDone {
+		t.Fatalf("status = %q, want done", result.Status)
+	}
+	last := client.requests[2].Messages[len(client.requests[2].Messages)-1]
+	if !strings.Contains(last.Content, "上一轮读取了 Skill") ||
+		!strings.Contains(last.Content, "related_skill") {
+		t.Fatalf("skill reminder = %q", last.Content)
+	}
+}
+
 func TestRunnerPromptsLongTermMemoryAfterSuccessfulCodeRun_BitsUT(t *testing.T) {
 	client := &contextRecordingClient{
 		responses: []llm.Response{

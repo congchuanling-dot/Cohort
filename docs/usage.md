@@ -686,6 +686,41 @@ memory/reflection/sop_candidates.md
 
 索引更新会写入 `memory/audit.jsonl`，记录确认来源。
 
+### 9.4 Skill Runtime
+
+Skill 是可按需读取的任务工作流包，和 MCP 工具分开管理。Cohert 启动时只扫描并注入 Skill 摘要索引，不把完整 `SKILL.md` 默认塞进系统提示词。
+
+当前扫描目录：
+
+```text
+.cohort/skills/<skill_name>/SKILL.md
+~/.cohert/skills/<skill_name>/SKILL.md
+```
+
+当任务匹配某个 Skill 时，模型应先调用：
+
+```text
+skill_read({"skill_id":"project/<skill_name>"})
+```
+
+读完后如果决定采用该工作流，应调用 `update_working_checkpoint` 保存关键约束和 `related_skill`，后续不确定时再重读对应 Skill。
+
+交互模式内查看和刷新 Skill：
+
+```text
+/skill list
+/skill show <skill_id>
+/skill reload
+```
+
+外部 CLI 也支持：
+
+```bash
+go run . skill list
+go run . skill show project/<skill_name>
+go run . skill reload
+```
+
 查看当前配置：
 
 ```text

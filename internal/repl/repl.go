@@ -20,6 +20,7 @@ import (
 	"cohert/internal/evolution"
 	"cohert/internal/mcp"
 	"cohert/internal/session"
+	"cohert/internal/skill"
 )
 
 const (
@@ -37,6 +38,7 @@ const (
 	commandFullCompact = "full-compact"
 	commandMemory      = "memory"
 	commandSOP         = "sop"
+	commandSkill       = "skill"
 	commandMCP         = "mcp"
 	commandClear       = "clear"
 
@@ -46,6 +48,10 @@ const (
 
 	sopCommandCandidates = "candidates"
 	sopCommandPromote    = "promote"
+
+	skillCommandList   = "list"
+	skillCommandShow   = "show"
+	skillCommandReload = "reload"
 
 	mcpCommandList   = "list"
 	mcpCommandStatus = "status"
@@ -231,6 +237,11 @@ func slashCompleter() *readline.PrefixCompleter {
 			readline.PcItem("candidates"),
 			readline.PcItem("promote"),
 		),
+		readline.PcItem("/skill",
+			readline.PcItem("list"),
+			readline.PcItem("show"),
+			readline.PcItem("reload"),
+		),
 		readline.PcItem("/clear"),
 		readline.PcItem("/exit"),
 	)
@@ -341,6 +352,16 @@ func selectSlashCommand(opts Options) (SlashCommand, bool, error) {
 			Command:     SlashCommand{Raw: "/sop candidates", Name: commandSOP, Args: []string{sopCommandCandidates}},
 		},
 		{
+			Usage:       "/skill list",
+			Description: "列出当前发现的 Skills",
+			Command:     SlashCommand{Raw: "/skill list", Name: commandSkill, Args: []string{skillCommandList}},
+		},
+		{
+			Usage:       "/skill reload",
+			Description: "重新扫描 Skills 并刷新系统提示词",
+			Command:     SlashCommand{Raw: "/skill reload", Name: commandSkill, Args: []string{skillCommandReload}},
+		},
+		{
 			Usage:       "/clear",
 			Description: "清空当前内存上下文，下一次输入创建新 session",
 			Command:     SlashCommand{Raw: "/clear", Name: commandClear},
@@ -446,6 +467,8 @@ func handleSlashCommand(opts Options, cmd SlashCommand) (bool, error) {
 		return false, printSessionMemory(opts.Out, opts.Runner)
 	case commandSOP:
 		return false, handleSOPCommand(opts, cmd.Args)
+	case commandSkill:
+		return false, handleSkillCommand(opts, cmd.Args)
 	case commandClear:
 		opts.Runner.Reset()
 		fmt.Fprintln(opts.Out, "current in-memory session cleared; next task will create a new session")
@@ -679,6 +702,9 @@ func printSlashHelp(out io.Writer) {
   /memory                  查看当前 session memory.md
   /sop candidates          列出可升级为正式 SOP 的候选
   /sop promote <id>        生成 sops/*.md；确认后更新 sops/index.md
+  /skill list              列出当前发现的 Skills
+  /skill show <id>         查看一个 Skill 的 SKILL.md
+  /skill reload            重新扫描 Skills 并刷新系统提示词
   /clear                   清空当前内存上下文，下一次输入会创建新 session
   /exit                    退出 Cohert
 
@@ -703,6 +729,9 @@ func printCommandPalette(out io.Writer) {
   /memory               查看 session memory
   /sop candidates       列出 SOP 候选
   /sop promote <id>     升级候选 SOP；--confirm-index 显式更新索引
+  /skill list           列出 Skills
+  /skill show <id>      查看 Skill 正文
+  /skill reload         重新扫描 Skills
   /clear                清空当前内存上下文
   /exit                 退出
 
@@ -858,6 +887,65 @@ func handleSOPCommand(opts Options, args []string) error {
 	default:
 		return fmt.Errorf("unknown sop command %q, use /sop candidates or /sop promote <id>", args[0])
 	}
+}
+
+func handleSkillCommand(opts Options, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: /skill list | /skill show <id> | /skill reload")
+	}
+	if opts.Runner.SkillStore == nil {
+		return fmt.Errorf("skill store is not configured")
+	}
+	switch strings.ToLower(args[0]) {
+	case skillCommandList:
+		return printSkillList(opts.Out, opts.Runner.SkillStore.Skills())
+	case skillCommandShow:
+		if len(args) < 2 {
+			return fmt.Errorf("usage: /skill show <id>")
+		}
+		return printSkill(opts.Out, opts.Runner.SkillStore, args[1])
+	case skillCommandReload:
+		if len(args) != 1 {
+			return fmt.Errorf("usage: /skill reload")
+		}
+		if err := opts.Runner.SkillStore.Reload(); err != nil {
+			return err
+		}
+		opts.Runner.SystemPrompt = app.BuildSystemPrompt(opts.Config, opts.Runner.SkillStore)
+		fmt.Fprintf(opts.Out, "skills reloaded: %d\n", len(opts.Runner.SkillStore.Skills()))
+		return nil
+	default:
+		return fmt.Errorf("unknown skill command %q, use /skill list, /skill show <id>, or /skill reload", args[0])
+	}
+}
+
+func printSkillList(out io.Writer, skills []skill.Skill) error {
+	fmt.Fprintln(out, "skills:")
+	if len(skills) == 0 {
+		fmt.Fprintln(out, "  status: no skills")
+		return nil
+	}
+	writer := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(writer, "ID\tSCOPE\tNAME\tDESCRIPTION\tPATH")
+	for _, item := range skills {
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\n", item.ID, item.Scope, item.Name, item.Description, item.Path)
+	}
+	return writer.Flush()
+}
+
+func printSkill(out io.Writer, store *skill.Store, id string) error {
+	result, err := store.Read(id)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "skill:")
+	fmt.Fprintf(out, "  id:          %s\n", result.Skill.ID)
+	fmt.Fprintf(out, "  name:        %s\n", result.Skill.Name)
+	fmt.Fprintf(out, "  scope:       %s\n", result.Skill.Scope)
+	fmt.Fprintf(out, "  path:        %s\n", result.Skill.Path)
+	fmt.Fprintf(out, "  truncated:   %t\n\n", result.Truncated)
+	fmt.Fprintln(out, result.Content)
+	return nil
 }
 
 func printSOPCandidates(out io.Writer, manager evolution.Manager) error {

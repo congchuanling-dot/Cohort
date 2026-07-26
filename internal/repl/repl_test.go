@@ -15,6 +15,7 @@ import (
 	"cohert/internal/llm"
 	"cohert/internal/mcp"
 	"cohert/internal/session"
+	"cohert/internal/skill"
 )
 
 type fakeClient struct {
@@ -411,6 +412,54 @@ func TestStartHandlesSOPPromotionCommandsLocally_BitsUT(t *testing.T) {
 	if !strings.Contains(string(indexData), "sops/local_sop_promotion.md") ||
 		!strings.Contains(string(indexData), "explicit slash command") {
 		t.Fatalf("index was not updated with confirmation:\n%s", indexData)
+	}
+}
+
+func TestStartHandlesSkillCommandsLocally_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	skillPath := filepath.Join(workspace, ".cohort", "skills", "go-test", skill.SkillFileName)
+	if err := os.MkdirAll(filepath.Dir(skillPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(skillPath, []byte("# Go Test\n\nRun focused tests.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	store := skill.NewStore(workspace, t.TempDir())
+	if err := store.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeClient{}
+	runner := &agent.Runner{
+		Client:     client,
+		Tools:      fakeTools{},
+		SkillStore: store,
+	}
+	cfg := testConfig()
+	cfg.Workspace = workspace
+
+	var out bytes.Buffer
+	startErr := Start(context.Background(), Options{
+		Config:       cfg,
+		Runner:       runner,
+		SessionStore: session.NewStore(t.TempDir()),
+		In:           strings.NewReader("/skill list\n/skill show project/go-test\n/skill reload\n/exit\n"),
+		Out:          &out,
+		Err:          &out,
+	})
+	if startErr != nil {
+		t.Fatal(startErr)
+	}
+	if client.calls != 0 {
+		t.Fatalf("model calls = %d, want 0", client.calls)
+	}
+	output := out.String()
+	for _, want := range []string{"skills:", "project/go-test", "skill:", "Run focused tests.", "skills reloaded: 1"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output does not contain %q:\n%s", want, output)
+		}
+	}
+	if !strings.Contains(runner.SystemPrompt, "[Skill Index]") {
+		t.Fatalf("system prompt was not refreshed:\n%s", runner.SystemPrompt)
 	}
 }
 

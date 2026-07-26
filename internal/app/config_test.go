@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"cohert/internal/skill"
 )
 
 func TestLoadConfigParsesContextSection_BitsUT(t *testing.T) {
@@ -106,5 +108,38 @@ func TestBuildSystemPromptRequiresToolNarration_BitsUT(t *testing.T) {
 		if !strings.Contains(enPrompt, want) {
 			t.Fatalf("en prompt does not contain %q:\n%s", want, enPrompt)
 		}
+	}
+}
+
+func TestBuildSystemPromptInjectsSkillIndexOnly_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, ".cohort", "skills", "go-test", skill.SkillFileName)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := `---
+name: Go Test
+description: Run focused Go tests.
+---
+
+# Go Test
+
+SECRET FULL BODY SHOULD NOT ENTER SYSTEM PROMPT.
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	store := skill.NewStore(workspace, t.TempDir())
+	if err := store.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	prompt := BuildSystemPrompt(Config{Language: "zh"}, store)
+	for _, want := range []string{"[Skill Index]", "project/go-test", "Run focused Go tests.", "skill_read"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "SECRET FULL BODY") {
+		t.Fatalf("system prompt leaked full skill body:\n%s", prompt)
 	}
 }
