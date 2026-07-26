@@ -703,6 +703,14 @@ Skill 是可按需读取的任务工作流包，和 MCP 工具分开管理。Coh
 go run . skill install ./path/to/skill
 ```
 
+安装前预览，不写入目标目录：
+
+```bash
+go run . skill install --dry-run ./path/to/skill
+```
+
+`--dry-run` 会解析来源、定位候选 `SKILL.md`、计算将安装的文件数和内容 SHA256，并显示目标路径；不会创建 `.cohort/skills/<skill_name>` 或 `~/.cohert/skills/<skill_name>`。
+
 安装 git 仓库里的 Skill：
 
 ```bash
@@ -727,6 +735,21 @@ go run . skill install --name go-test https://example.com/org/skills.git
 go run . skill install --force ./path/to/skill
 ```
 
+正式安装会写入 `.cohert-skill.json`，记录：
+
+```json
+{
+  "source": "./path/to/skill",
+  "source_type": "local-dir",
+  "scope": "project",
+  "alias": "skill-name",
+  "installed_at": "2026-07-26T12:00:00+08:00",
+  "content_hash": "sha256..."
+}
+```
+
+其中 `content_hash` 覆盖 Skill 包内普通文件，不包含 `.cohert-skill.json` 本身。
+
 更新和删除已安装 Skill：
 
 ```bash
@@ -736,6 +759,21 @@ go run . skill uninstall project/<skill_name>
 ```
 
 `skill update` 默认使用安装时记录的 source；如果旧 Skill 没有安装元数据，可以手动传入新的本地路径或 git URL。
+
+诊断已安装 Skill：
+
+```bash
+go run . skill doctor project/<skill_name>
+```
+
+`skill doctor` 会检查：
+
+- Skill 路径是否仍在 project/user scope 根目录下。
+- `SKILL.md` 是否可读、是否为空。
+- frontmatter 名称和描述是否足够用于路由。
+- `.cohert-skill.json` 是否存在且 JSON 可读。
+- manifest 中的 source/source_type 是否完整。
+- 当前文件内容 hash 是否和安装时记录一致。
 
 当任务匹配某个 Skill 时，模型应先调用：
 
@@ -748,6 +786,8 @@ skill_read({"skill_id":"project/<skill_name>"})
 交互模式内查看和刷新 Skill：
 
 ```text
+/skill install [--dry-run] <path-or-git-url>
+/skill doctor <skill_id>
 /skill list
 /skill show <skill_id>
 /skill run <skill_id> [arguments...]
@@ -762,7 +802,9 @@ skill_read({"skill_id":"project/<skill_name>"})
 外部 CLI 也支持：
 
 ```bash
+go run . skill install --dry-run ./path/to/skill
 go run . skill install ./path/to/skill
+go run . skill doctor project/<skill_name>
 go run . skill update project/<skill_name>
 go run . skill uninstall project/<skill_name>
 go run . skill list

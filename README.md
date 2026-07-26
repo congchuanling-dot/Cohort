@@ -145,7 +145,9 @@ go run . config
 go run . tools
 go run . mcp list
 go run . mcp status
+go run . skill install --dry-run ./path/to/skill
 go run . skill install ./path/to/skill
+go run . skill doctor project/<skill_name>
 go run . skill update project/<skill_name>
 go run . skill uninstall project/<skill_name>
 go run . skill list
@@ -173,7 +175,7 @@ go build -o cohert ./cmd/cohert
 | Context Manager | 工具结果压缩、消息组裁剪、session memory、full compact | 让长任务不被上下文拖死 |
 | Session Store | `meta.json`、`history.jsonl`、resume、local audit trail | 让任务可以中断后继续 |
 | SOP Runtime | SOP 索引、任务路由、工作 checkpoint | 把稳定流程固化成可复用约束 |
-| Skill Runtime | `skill install/update/uninstall`、`.cohort/skills`、`~/.cohert/skills`、`skill_read`、`/skill run`、`/<skill-alias>` | 像 Claude Code 一样安装并按需加载可复用工作流 |
+| Skill Runtime | `skill install --dry-run`、`skill doctor`、manifest hash、`.cohort/skills`、`~/.cohert/skills`、`skill_read`、`/skill run`、`/<skill-alias>` | 像 Claude Code 一样安装、校验并按需加载可复用工作流 |
 | Evolution Memory | 证据约束、去重、项目记忆、审计日志 | 让“长期记忆”从摘要变成资产 |
 
 ## 一个完整任务是怎么跑起来的
@@ -538,4 +540,19 @@ go vet ./...
 
 这正是它和普通 Agent Demo 拉开差距的地方。
 
-<!-- TODO: 补充 Skill 系统的使用文档 -->
+## Skill 系统
+
+Cohert 的 Skill 是可安装、可发现、可按需读取的工作流包。启动时只把 Skill 摘要注入系统提示词；真正命中任务后，模型再通过 `skill_read` 读取完整 `SKILL.md`。
+
+常用命令：
+
+```bash
+go run . skill install --dry-run ./path/to/skill
+go run . skill install ./path/to/skill
+go run . skill doctor project/<skill_name>
+go run . skill update project/<skill_name>
+go run . skill uninstall project/<skill_name>
+go run . skill list
+```
+
+`install --dry-run` 会解析来源、定位 `SKILL.md`、计算文件数和内容 SHA256，但不会写入 `.cohort/skills`。正式安装会写入 `.cohert-skill.json`，记录 `source`、`source_type`、`scope`、`alias`、`installed_at` 和 `content_hash`。`skill doctor` 会检查路径边界、Skill 正文、manifest 和 hash 漂移，适合在更新或手工编辑后做健康检查。

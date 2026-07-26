@@ -80,6 +80,13 @@ func TestInstallSkillCommandWritesProjectSkill_BitsUT(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if err := installSkill(context.Background(), projectRoot, []string{"--dry-run", "--name", "cli-skill", source}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(projectRoot, ".cohort", "skills", "cli-skill")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run wrote skill directory or stat failed differently: %v", err)
+	}
+
 	if err := installSkill(context.Background(), projectRoot, []string{"--name", "cli-skill", source}); err != nil {
 		t.Fatal(err)
 	}

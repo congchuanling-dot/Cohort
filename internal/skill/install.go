@@ -2,9 +2,12 @@ package skill
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"os/exec"
@@ -23,17 +26,22 @@ type InstallOptions struct {
 	Scope       Scope
 	Name        string
 	Force       bool
+	DryRun      bool
 	ProjectRoot string
 	HomeDir     string
 }
 
 // InstallResult 描述安装后的本地 Skill。
 type InstallResult struct {
-	Skill       Skill
-	Source      string
-	Destination string
-	Replaced    bool
-	Files       int
+	Skill        Skill
+	Source       string
+	SourceType   string
+	Destination  string
+	Replaced     bool
+	WouldReplace bool
+	DryRun       bool
+	Files        int
+	ContentHash  string
 }
 
 // UninstallResult 描述删除一个本地 Skill 的结果。
@@ -50,14 +58,17 @@ type UpdateResult struct {
 
 type manifest struct {
 	Source      string `json:"source"`
+	SourceType  string `json:"source_type"`
 	Scope       Scope  `json:"scope"`
 	Alias       string `json:"alias"`
 	InstalledAt string `json:"installed_at"`
+	ContentHash string `json:"content_hash"`
 }
 
 type installCandidate struct {
-	sourceDir string
-	alias     string
+	sourceDir  string
+	alias      string
+	sourceType string
 }
 
 // ParseScope 解析 CLI 传入的 Skill 安装范围。
@@ -114,31 +125,27 @@ func Install(ctx context.Context, opts InstallOptions) (InstallResult, error) {
 		return InstallResult{}, err
 	}
 	dest := filepath.Join(destRoot, alias)
+	files, contentHash, err := hashSkillDir(candidate.sourceDir)
+	if err != nil {
+		return InstallResult{}, err
+	}
 	replaced := false
+	wouldReplace := false
 	if _, err := os.Stat(dest); err == nil {
-		if !opts.Force {
+		wouldReplace = opts.Force
+		if !opts.Force && !opts.DryRun {
 			return InstallResult{}, fmt.Errorf("skill %s/%s already exists; use --force to replace it", scope, alias)
 		}
-		replaced = true
-		if err := os.RemoveAll(dest); err != nil {
-			return InstallResult{}, err
+		if opts.Force && !opts.DryRun {
+			replaced = true
+			if err := os.RemoveAll(dest); err != nil {
+				return InstallResult{}, err
+			}
 		}
 	} else if !os.IsNotExist(err) {
 		return InstallResult{}, err
 	}
-	files, err := copySkillDir(candidate.sourceDir, dest)
-	if err != nil {
-		return InstallResult{}, err
-	}
-	if err := writeManifest(dest, manifest{
-		Source:      source,
-		Scope:       scope,
-		Alias:       alias,
-		InstalledAt: timeNowRFC3339(),
-	}); err != nil {
-		return InstallResult{}, err
-	}
-	data, err := os.ReadFile(filepath.Join(dest, SkillFileName))
+	data, err := os.ReadFile(filepath.Join(candidate.sourceDir, SkillFileName))
 	if err != nil {
 		return InstallResult{}, err
 	}
@@ -153,12 +160,40 @@ func Install(ctx context.Context, opts InstallOptions) (InstallResult, error) {
 		Scope:         scope,
 		Path:          filepath.Join(dest, SkillFileName),
 	}
-	return InstallResult{
-		Skill:       item,
+	if opts.DryRun {
+		return InstallResult{
+			Skill:        item,
+			Source:       source,
+			SourceType:   candidate.sourceType,
+			Destination:  dest,
+			WouldReplace: wouldReplace,
+			DryRun:       true,
+			Files:        files,
+			ContentHash:  contentHash,
+		}, nil
+	}
+	if _, err := copySkillDir(candidate.sourceDir, dest); err != nil {
+		return InstallResult{}, err
+	}
+	if err := writeManifest(dest, manifest{
 		Source:      source,
-		Destination: dest,
-		Replaced:    replaced,
-		Files:       files,
+		SourceType:  candidate.sourceType,
+		Scope:       scope,
+		Alias:       alias,
+		InstalledAt: timeNowRFC3339(),
+		ContentHash: contentHash,
+	}); err != nil {
+		return InstallResult{}, err
+	}
+	return InstallResult{
+		Skill:        item,
+		Source:       source,
+		SourceType:   candidate.sourceType,
+		Destination:  dest,
+		Replaced:     replaced,
+		WouldReplace: wouldReplace,
+		Files:        files,
+		ContentHash:  contentHash,
 	}, nil
 }
 
@@ -213,6 +248,11 @@ func (s *Store) Update(ctx context.Context, id string, source string) (UpdateRes
 func resolveInstallCandidate(ctx context.Context, source, requestedName string) (installCandidate, func(), error) {
 	if info, err := os.Stat(source); err == nil {
 		candidate, err := localInstallCandidate(source, info, requestedName)
+		if info.IsDir() {
+			candidate.sourceType = "local-dir"
+		} else {
+			candidate.sourceType = "local-file"
+		}
 		return candidate, nil, err
 	}
 	if !looksLikeGitSource(source) {
@@ -239,6 +279,7 @@ func resolveInstallCandidate(ctx context.Context, source, requestedName string) 
 		cleanup()
 		return installCandidate{}, nil, err
 	}
+	candidate.sourceType = "git"
 	return candidate, cleanup, nil
 }
 
@@ -321,6 +362,9 @@ func copySkillDir(src, dest string) (int, error) {
 		if entry.IsDir() && shouldSkipInstallDir(entry.Name()) {
 			return filepath.SkipDir
 		}
+		if !entry.IsDir() && entry.Name() == manifestFileName {
+			return nil
+		}
 		info, err := entry.Info()
 		if err != nil {
 			return err
@@ -363,6 +407,80 @@ func copyFile(src, dest string) error {
 	return err
 }
 
+func hashSkillDir(src string) (int, string, error) {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return 0, "", err
+	}
+	if !srcInfo.IsDir() {
+		return 0, "", fmt.Errorf("skill source must be a directory")
+	}
+	if !hasSkillFile(src) {
+		return 0, "", fmt.Errorf("skill source missing %s", SkillFileName)
+	}
+	h := sha256.New()
+	files := 0
+	err = filepath.WalkDir(src, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		if entry.IsDir() && shouldSkipInstallDir(entry.Name()) {
+			return filepath.SkipDir
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if entry.Name() == manifestFileName {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing to install symlink %s", path)
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		if err := hashFile(h, src, path); err != nil {
+			return err
+		}
+		files++
+		return nil
+	})
+	if err != nil {
+		return 0, "", err
+	}
+	return files, hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func hashFile(h hash.Hash, root, path string) error {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return err
+	}
+	rel = filepath.ToSlash(rel)
+	fmt.Fprintf(h, "file:%s\n", rel)
+	in, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	if _, err := io.Copy(h, in); err != nil {
+		return err
+	}
+	_, err = h.Write([]byte("\n"))
+	return err
+}
+
 func installRoot(scope Scope, projectRoot, homeDir string) (string, error) {
 	switch scope {
 	case ScopeProject:
@@ -401,21 +519,29 @@ func (s *Store) manifestSource(item Skill) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(filepath.Join(dir, manifestFileName))
+	meta, err := readManifest(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", fmt.Errorf("skill %s has no install source metadata; pass a source explicitly", item.ID)
 		}
 		return "", err
 	}
-	var meta manifest
-	if err := json.Unmarshal(data, &meta); err != nil {
-		return "", err
-	}
 	if strings.TrimSpace(meta.Source) == "" {
 		return "", fmt.Errorf("skill %s install source metadata is empty; pass a source explicitly", item.ID)
 	}
 	return meta.Source, nil
+}
+
+func readManifest(dir string) (manifest, error) {
+	data, err := os.ReadFile(filepath.Join(dir, manifestFileName))
+	if err != nil {
+		return manifest{}, err
+	}
+	var meta manifest
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return manifest{}, err
+	}
+	return meta, nil
 }
 
 func writeManifest(dir string, meta manifest) error {

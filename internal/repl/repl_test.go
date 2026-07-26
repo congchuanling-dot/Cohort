@@ -444,7 +444,7 @@ func TestStartHandlesSkillCommandsLocally_BitsUT(t *testing.T) {
 		Config:       cfg,
 		Runner:       runner,
 		SessionStore: session.NewStore(t.TempDir()),
-		In:           strings.NewReader("/skill list\n/skill show project/go-test\n/skill reload\n/exit\n"),
+		In:           strings.NewReader("/skill list\n/skill show project/go-test\n/skill doctor project/go-test\n/skill reload\n/exit\n"),
 		Out:          &out,
 		Err:          &out,
 	})
@@ -455,7 +455,7 @@ func TestStartHandlesSkillCommandsLocally_BitsUT(t *testing.T) {
 		t.Fatalf("model calls = %d, want 0", client.calls)
 	}
 	output := out.String()
-	for _, want := range []string{"skills:", "project/go-test", "skill:", "Run focused tests.", "skills reloaded: 1"} {
+	for _, want := range []string{"skills:", "project/go-test", "skill:", "Run focused tests.", "skill doctor project/go-test", "skills reloaded: 1"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output does not contain %q:\n%s", want, output)
 		}
@@ -521,6 +521,63 @@ argument-hint: "[file]"
 		if !strings.Contains(task, want) || !strings.Contains(task, "skill_read") {
 			t.Fatalf("request %d task = %q", index, task)
 		}
+	}
+}
+
+func TestStartDryRunsSkillInstallLocally_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	source := filepath.Join(t.TempDir(), "repl-skill")
+	if err := os.MkdirAll(source, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, skill.SkillFileName), []byte("# REPL Skill\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	store := skill.NewStore(workspace, t.TempDir())
+	if err := store.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeClient{}
+	runner := &agent.Runner{
+		Client:     client,
+		Tools:      fakeTools{},
+		SkillStore: store,
+	}
+	cfg := testConfig()
+	cfg.Workspace = workspace
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(workspace); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	var out bytes.Buffer
+	startErr := Start(context.Background(), Options{
+		Config:       cfg,
+		Runner:       runner,
+		SessionStore: session.NewStore(t.TempDir()),
+		In:           strings.NewReader("/skill install --dry-run --name repl-skill " + source + "\n/exit\n"),
+		Out:          &out,
+		Err:          &out,
+	})
+	if startErr != nil {
+		t.Fatal(startErr)
+	}
+	if client.calls != 0 {
+		t.Fatalf("model calls = %d, want 0", client.calls)
+	}
+	output := out.String()
+	for _, want := range []string{"dry-run skill project/repl-skill", "dry_run:     true"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output does not contain %q:\n%s", want, output)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(workspace, ".cohort", "skills", "repl-skill")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run wrote skill directory or stat failed differently: %v", err)
 	}
 }
 

@@ -2,6 +2,7 @@ package skill
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,6 +128,52 @@ func TestInstallUserScopeUsesHomeDir_BitsUT(t *testing.T) {
 	}
 }
 
+func TestInstallDryRunDoesNotWriteAndInstallRecordsHash_BitsUT(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "preview-me")
+	writeSkill(t, filepath.Join(source, SkillFileName), "# Preview Me\n")
+	if err := os.WriteFile(filepath.Join(source, "asset.txt"), []byte("asset"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	projectRoot := t.TempDir()
+
+	preview, err := Install(context.Background(), InstallOptions{
+		Source:      source,
+		ProjectRoot: projectRoot,
+		DryRun:      true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !preview.DryRun || preview.Files != 2 || preview.ContentHash == "" || preview.SourceType != "local-dir" {
+		t.Fatalf("preview = %#v", preview)
+	}
+	if _, err := os.Stat(filepath.Join(projectRoot, ".cohort", "skills", "preview-me")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run wrote destination or stat failed differently: %v", err)
+	}
+
+	result, err := Install(context.Background(), InstallOptions{
+		Source:      source,
+		ProjectRoot: projectRoot,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ContentHash != preview.ContentHash {
+		t.Fatalf("install hash = %s, preview hash = %s", result.ContentHash, preview.ContentHash)
+	}
+	data, err := os.ReadFile(filepath.Join(projectRoot, ".cohort", "skills", "preview-me", manifestFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var meta manifest
+	if err := json.Unmarshal(data, &meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta.ContentHash != preview.ContentHash || meta.SourceType != "local-dir" || meta.Source != source {
+		t.Fatalf("manifest = %#v", meta)
+	}
+}
+
 func TestStoreUninstallRemovesSkillDirectory_BitsUT(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "remove-me")
 	writeSkill(t, filepath.Join(source, SkillFileName), "# Remove Me\n")
@@ -180,5 +227,51 @@ func TestStoreUpdateUsesInstallManifestSource_BitsUT(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "Second") {
 		t.Fatalf("updated content = %s", data)
+	}
+}
+
+func TestStoreDoctorDetectsContentHashDrift_BitsUT(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "doctor-me")
+	writeSkill(t, filepath.Join(source, SkillFileName), `---
+name: Doctor Me
+description: Diagnose me.
+---
+
+# Doctor Me
+`)
+	projectRoot := t.TempDir()
+	store := NewStore(projectRoot, t.TempDir())
+	if _, err := Install(context.Background(), InstallOptions{Source: source, ProjectRoot: projectRoot}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	result, err := store.Doctor("doctor-me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Healthy || result.ErrorCount() != 0 || result.Manifest == nil || result.Manifest.ContentHash == "" {
+		t.Fatalf("initial doctor result = %#v", result)
+	}
+	installed := filepath.Join(projectRoot, ".cohort", "skills", "doctor-me", SkillFileName)
+	if err := os.WriteFile(installed, []byte("# Changed\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	result, err = store.Doctor("doctor-me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Healthy || result.ErrorCount() == 0 {
+		t.Fatalf("doctor did not detect drift: %#v", result)
+	}
+	foundHashError := false
+	for _, check := range result.Checks {
+		if check.Code == "content_hash" && check.Severity == DiagnosticError {
+			foundHashError = true
+		}
+	}
+	if !foundHashError {
+		t.Fatalf("doctor checks missing content_hash error: %#v", result.Checks)
 	}
 }

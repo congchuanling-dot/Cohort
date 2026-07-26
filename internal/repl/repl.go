@@ -49,12 +49,14 @@ const (
 	sopCommandCandidates = "candidates"
 	sopCommandPromote    = "promote"
 
-	skillCommandList   = "list"
-	skillCommandShow   = "show"
-	skillCommandReload = "reload"
-	skillCommandRun    = "run"
-	skillCommandUpdate = "update"
-	skillCommandRemove = "uninstall"
+	skillCommandList    = "list"
+	skillCommandShow    = "show"
+	skillCommandInstall = "install"
+	skillCommandDoctor  = "doctor"
+	skillCommandReload  = "reload"
+	skillCommandRun     = "run"
+	skillCommandUpdate  = "update"
+	skillCommandRemove  = "uninstall"
 
 	mcpCommandList   = "list"
 	mcpCommandStatus = "status"
@@ -241,6 +243,8 @@ func slashCompleter() *readline.PrefixCompleter {
 			readline.PcItem("promote"),
 		),
 		readline.PcItem("/skill",
+			readline.PcItem("install"),
+			readline.PcItem("doctor"),
 			readline.PcItem("list"),
 			readline.PcItem("show"),
 			readline.PcItem("run"),
@@ -711,6 +715,9 @@ func printSlashHelp(out io.Writer) {
   /memory                  查看当前 session memory.md
   /sop candidates          列出可升级为正式 SOP 的候选
   /sop promote <id>        生成 sops/*.md；确认后更新 sops/index.md
+  /skill install [--dry-run] <source>
+                           安装或预览安装一个 Skill
+  /skill doctor <id>       诊断一个已安装 Skill
   /skill list              列出当前发现的 Skills
   /skill show <id>         查看一个 Skill 的 SKILL.md
   /skill run <id> [args]   直接按指定 Skill 执行任务
@@ -742,6 +749,8 @@ func printCommandPalette(out io.Writer) {
   /memory               查看 session memory
   /sop candidates       列出 SOP 候选
   /sop promote <id>     升级候选 SOP；--confirm-index 显式更新索引
+  /skill install <src>  安装 Skill；可加 --dry-run
+  /skill doctor <id>    诊断 Skill
   /skill list           列出 Skills
   /skill show <id>      查看 Skill 正文
   /skill run <id>       运行 Skill
@@ -907,12 +916,27 @@ func handleSOPCommand(opts Options, args []string) error {
 
 func handleSkillCommand(opts Options, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: /skill list | /skill show <id> | /skill run <id> [arguments...] | /skill update <id> [source] | /skill uninstall <id> | /skill reload")
+		return fmt.Errorf("usage: /skill install [options] <source> | /skill doctor <id> | /skill list | /skill show <id> | /skill run <id> [arguments...] | /skill update <id> [source] | /skill uninstall <id> | /skill reload")
 	}
 	if opts.Runner.SkillStore == nil {
 		return fmt.Errorf("skill store is not configured")
 	}
 	switch strings.ToLower(args[0]) {
+	case skillCommandInstall:
+		return installSkillFromREPL(opts, args[1:])
+	case skillCommandDoctor:
+		if len(args) != 2 {
+			return fmt.Errorf("usage: /skill doctor <id>")
+		}
+		result, err := opts.Runner.SkillStore.Doctor(args[1])
+		if err != nil {
+			return err
+		}
+		printSkillDoctor(opts.Out, result)
+		if result.ErrorCount() > 0 {
+			return fmt.Errorf("skill doctor found %d error(s)", result.ErrorCount())
+		}
+		return nil
 	case skillCommandList:
 		return printSkillList(opts.Out, opts.Runner.SkillStore.Skills())
 	case skillCommandShow:
@@ -940,7 +964,9 @@ func handleSkillCommand(opts Options, args []string) error {
 		opts.Runner.SystemPrompt = app.BuildSystemPrompt(opts.Config, opts.Runner.SkillStore)
 		fmt.Fprintf(opts.Out, "updated skill %s\n", result.Skill.ID)
 		fmt.Fprintf(opts.Out, "  source:      %s\n", result.Source)
+		fmt.Fprintf(opts.Out, "  source_type: %s\n", result.SourceType)
 		fmt.Fprintf(opts.Out, "  destination: %s\n", result.Destination)
+		fmt.Fprintf(opts.Out, "  hash:        %s\n", result.ContentHash)
 		return nil
 	case skillCommandRemove, "remove", "rm":
 		if len(args) != 2 {
@@ -965,8 +991,66 @@ func handleSkillCommand(opts Options, args []string) error {
 		fmt.Fprintf(opts.Out, "skills reloaded: %d\n", len(opts.Runner.SkillStore.Skills()))
 		return nil
 	default:
-		return fmt.Errorf("unknown skill command %q, use /skill list, /skill show <id>, /skill run <id>, /skill update <id>, /skill uninstall <id>, or /skill reload", args[0])
+		return fmt.Errorf("unknown skill command %q, use /skill install, /skill doctor <id>, /skill list, /skill show <id>, /skill run <id>, /skill update <id>, /skill uninstall <id>, or /skill reload", args[0])
 	}
+}
+
+func installSkillFromREPL(opts Options, args []string) error {
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	installOpts := skill.InstallOptions{ProjectRoot: projectRoot, Scope: skill.ScopeProject}
+	for len(args) > 0 {
+		arg := args[0]
+		args = args[1:]
+		switch arg {
+		case "--scope":
+			if len(args) < 1 {
+				return fmt.Errorf("--scope requires project or user")
+			}
+			scope, err := skill.ParseScope(args[0])
+			if err != nil {
+				return err
+			}
+			installOpts.Scope = scope
+			args = args[1:]
+		case "--name":
+			if len(args) < 1 {
+				return fmt.Errorf("--name requires a skill name")
+			}
+			installOpts.Name = args[0]
+			args = args[1:]
+		case "--force":
+			installOpts.Force = true
+		case "--dry-run":
+			installOpts.DryRun = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return fmt.Errorf("unknown skill install option %q", arg)
+			}
+			if installOpts.Source != "" {
+				return fmt.Errorf("usage: /skill install [--scope project|user] [--name name] [--force] [--dry-run] <path-or-git-url>")
+			}
+			installOpts.Source = arg
+		}
+	}
+	if installOpts.Source == "" {
+		return fmt.Errorf("usage: /skill install [--scope project|user] [--name name] [--force] [--dry-run] <path-or-git-url>")
+	}
+	result, err := skill.Install(opts.Context, installOpts)
+	if err != nil {
+		return err
+	}
+	printSkillInstallResult(opts.Out, result)
+	if result.DryRun {
+		return nil
+	}
+	if err := opts.Runner.SkillStore.Reload(); err != nil {
+		return err
+	}
+	opts.Runner.SystemPrompt = app.BuildSystemPrompt(opts.Config, opts.Runner.SkillStore)
+	return nil
 }
 
 func runInvocableSkillAlias(opts Options, cmd SlashCommand) (bool, error) {
@@ -1037,6 +1121,53 @@ func printSkill(out io.Writer, store *skill.Store, id string) error {
 	fmt.Fprintf(out, "  truncated:   %t\n\n", result.Truncated)
 	fmt.Fprintln(out, result.Content)
 	return nil
+}
+
+func printSkillInstallResult(out io.Writer, result skill.InstallResult) {
+	if result.DryRun {
+		fmt.Fprintf(out, "dry-run skill %s\n", result.Skill.ID)
+	} else {
+		fmt.Fprintf(out, "installed skill %s\n", result.Skill.ID)
+	}
+	fmt.Fprintf(out, "  name:        %s\n", result.Skill.Name)
+	fmt.Fprintf(out, "  source:      %s\n", result.Source)
+	fmt.Fprintf(out, "  source_type: %s\n", result.SourceType)
+	fmt.Fprintf(out, "  destination: %s\n", result.Destination)
+	fmt.Fprintf(out, "  files:       %d\n", result.Files)
+	fmt.Fprintf(out, "  hash:        %s\n", result.ContentHash)
+	if result.DryRun {
+		fmt.Fprintln(out, "  dry_run:     true")
+	}
+	if result.Replaced {
+		fmt.Fprintln(out, "  replaced:    true")
+	}
+	if result.WouldReplace {
+		fmt.Fprintln(out, "  would_replace: true")
+	}
+}
+
+func printSkillDoctor(out io.Writer, result skill.DoctorResult) {
+	fmt.Fprintf(out, "skill doctor %s\n", result.Skill.ID)
+	fmt.Fprintf(out, "  path:     %s\n", result.Path)
+	fmt.Fprintf(out, "  healthy:  %t\n", result.Healthy)
+	fmt.Fprintf(out, "  warnings: %d\n", result.WarningCount())
+	fmt.Fprintf(out, "  errors:   %d\n", result.ErrorCount())
+	if result.Manifest != nil {
+		fmt.Fprintln(out, "manifest:")
+		fmt.Fprintf(out, "  source:      %s\n", result.Manifest.Source)
+		fmt.Fprintf(out, "  source_type: %s\n", result.Manifest.SourceType)
+		fmt.Fprintf(out, "  scope:       %s\n", result.Manifest.Scope)
+		fmt.Fprintf(out, "  alias:       %s\n", result.Manifest.Alias)
+		fmt.Fprintf(out, "  installed:   %s\n", result.Manifest.InstalledAt)
+		fmt.Fprintf(out, "  hash:        %s\n", result.Manifest.ContentHash)
+	}
+	fmt.Fprintln(out, "checks:")
+	for _, check := range result.Checks {
+		fmt.Fprintf(out, "  [%s] %s: %s\n", check.Severity, check.Code, check.Message)
+		if check.Detail != "" {
+			fmt.Fprintf(out, "        %s\n", check.Detail)
+		}
+	}
 }
 
 func printSOPCandidates(out io.Writer, manager evolution.Manager) error {

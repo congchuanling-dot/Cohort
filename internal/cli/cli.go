@@ -127,7 +127,7 @@ func runMCPCommand(ctx context.Context, args []string) error {
 
 func runSkillCommand(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: cohert skill install|list|show|reload ...")
+		return errors.New("usage: cohert skill install|doctor|list|show|reload ...")
 	}
 	projectRoot, err := os.Getwd()
 	if err != nil {
@@ -140,6 +140,19 @@ func runSkillCommand(ctx context.Context, args []string) error {
 	switch args[0] {
 	case "install":
 		return installSkill(ctx, projectRoot, args[1:])
+	case "doctor":
+		if len(args) != 2 {
+			return errors.New("usage: cohert skill doctor <id>")
+		}
+		result, err := store.Doctor(args[1])
+		if err != nil {
+			return err
+		}
+		printSkillDoctor(result)
+		if result.ErrorCount() > 0 {
+			return fmt.Errorf("skill doctor found %d error(s)", result.ErrorCount())
+		}
+		return nil
 	case "uninstall":
 		if len(args) != 2 {
 			return errors.New("usage: cohert skill uninstall <id>")
@@ -165,8 +178,10 @@ func runSkillCommand(ctx context.Context, args []string) error {
 		}
 		fmt.Printf("updated skill %s\n", result.Skill.ID)
 		fmt.Printf("  source:      %s\n", result.Source)
+		fmt.Printf("  source_type: %s\n", result.SourceType)
 		fmt.Printf("  destination: %s\n", result.Destination)
 		fmt.Printf("  files:       %d\n", result.Files)
+		fmt.Printf("  hash:        %s\n", result.ContentHash)
 		return nil
 	case "list":
 		if len(args) != 1 {
@@ -216,30 +231,44 @@ func installSkill(ctx context.Context, projectRoot string, args []string) error 
 			args = args[1:]
 		case "--force":
 			opts.Force = true
+		case "--dry-run":
+			opts.DryRun = true
 		default:
 			if strings.HasPrefix(arg, "-") {
 				return fmt.Errorf("unknown skill install option %q", arg)
 			}
 			if opts.Source != "" {
-				return errors.New("usage: cohert skill install [--scope project|user] [--name name] [--force] <path-or-git-url>")
+				return errors.New("usage: cohert skill install [--scope project|user] [--name name] [--force] [--dry-run] <path-or-git-url>")
 			}
 			opts.Source = arg
 		}
 	}
 	if opts.Source == "" {
-		return errors.New("usage: cohert skill install [--scope project|user] [--name name] [--force] <path-or-git-url>")
+		return errors.New("usage: cohert skill install [--scope project|user] [--name name] [--force] [--dry-run] <path-or-git-url>")
 	}
 	result, err := skill.Install(ctx, opts)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("installed skill %s\n", result.Skill.ID)
+	if result.DryRun {
+		fmt.Printf("dry-run skill %s\n", result.Skill.ID)
+	} else {
+		fmt.Printf("installed skill %s\n", result.Skill.ID)
+	}
 	fmt.Printf("  name:        %s\n", result.Skill.Name)
 	fmt.Printf("  source:      %s\n", result.Source)
+	fmt.Printf("  source_type: %s\n", result.SourceType)
 	fmt.Printf("  destination: %s\n", result.Destination)
 	fmt.Printf("  files:       %d\n", result.Files)
+	fmt.Printf("  hash:        %s\n", result.ContentHash)
+	if result.DryRun {
+		fmt.Println("  dry_run:     true")
+	}
 	if result.Replaced {
 		fmt.Println("  replaced:    true")
+	}
+	if result.WouldReplace {
+		fmt.Println("  would_replace: true")
 	}
 	return nil
 }
@@ -280,6 +309,30 @@ func printSkill(store *skill.Store, id string) error {
 	fmt.Printf("truncated: %t\n\n", result.Truncated)
 	fmt.Println(result.Content)
 	return nil
+}
+
+func printSkillDoctor(result skill.DoctorResult) {
+	fmt.Printf("skill doctor %s\n", result.Skill.ID)
+	fmt.Printf("  path:     %s\n", result.Path)
+	fmt.Printf("  healthy:  %t\n", result.Healthy)
+	fmt.Printf("  warnings: %d\n", result.WarningCount())
+	fmt.Printf("  errors:   %d\n", result.ErrorCount())
+	if result.Manifest != nil {
+		fmt.Println("manifest:")
+		fmt.Printf("  source:      %s\n", result.Manifest.Source)
+		fmt.Printf("  source_type: %s\n", result.Manifest.SourceType)
+		fmt.Printf("  scope:       %s\n", result.Manifest.Scope)
+		fmt.Printf("  alias:       %s\n", result.Manifest.Alias)
+		fmt.Printf("  installed:   %s\n", result.Manifest.InstalledAt)
+		fmt.Printf("  hash:        %s\n", result.Manifest.ContentHash)
+	}
+	fmt.Println("checks:")
+	for _, check := range result.Checks {
+		fmt.Printf("  [%s] %s: %s\n", check.Severity, check.Code, check.Message)
+		if check.Detail != "" {
+			fmt.Printf("        %s\n", check.Detail)
+		}
+	}
 }
 
 // printMCPStatus 尝试连接用户已经显式配置的 MCP Server，并输出运行状态。
@@ -593,8 +646,10 @@ Usage:
   cohert mcp tools <name> inspect an MCP server's tools
   cohert mcp probe <name> verify an MCP server
   cohert mcp remove <name>
-  cohert skill install <path-or-git-url>
+  cohert skill install [--dry-run] <path-or-git-url>
                           install a Skill into .cohort/skills
+  cohert skill doctor <id>
+                          diagnose an installed Skill
   cohert skill update <id> [path-or-git-url]
                           update an installed Skill
   cohert skill uninstall <id>
@@ -618,6 +673,9 @@ Interactive slash commands:
   /mcp status             check MCP server availability
   /mcp tools <server>     inspect MCP server tools
   /mcp probe <server>     verify MCP server connectivity
+  /skill install [--dry-run] <path-or-git-url>
+                          install or preview a Skill
+  /skill doctor <id>      diagnose an installed Skill
   /skill list             list discovered Skills
   /skill show <id>        show one Skill's SKILL.md
   /skill reload           rescan Skills and refresh system prompt
