@@ -126,3 +126,59 @@ func TestInstallUserScopeUsesHomeDir_BitsUT(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestStoreUninstallRemovesSkillDirectory_BitsUT(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "remove-me")
+	writeSkill(t, filepath.Join(source, SkillFileName), "# Remove Me\n")
+	projectRoot := t.TempDir()
+	store := NewStore(projectRoot, t.TempDir())
+
+	if _, err := Install(context.Background(), InstallOptions{Source: source, ProjectRoot: projectRoot}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	result, err := store.Uninstall("remove-me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Skill.ID != "project/remove-me" {
+		t.Fatalf("result = %#v", result)
+	}
+	if _, err := os.Stat(result.Path); !os.IsNotExist(err) {
+		t.Fatalf("skill dir still exists or stat failed differently: %v", err)
+	}
+	if _, err := store.Find("remove-me"); err == nil {
+		t.Fatal("removed skill still found")
+	}
+}
+
+func TestStoreUpdateUsesInstallManifestSource_BitsUT(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "update-me")
+	writeSkill(t, filepath.Join(source, SkillFileName), "# First\n")
+	projectRoot := t.TempDir()
+	store := NewStore(projectRoot, t.TempDir())
+
+	if _, err := Install(context.Background(), InstallOptions{Source: source, ProjectRoot: projectRoot}); err != nil {
+		t.Fatal(err)
+	}
+	writeSkill(t, filepath.Join(source, SkillFileName), "# Second\n")
+	if err := store.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	result, err := store.Update(context.Background(), "update-me", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Skill.Name != "Second" || result.Previous.Name != "First" {
+		t.Fatalf("result = %#v", result)
+	}
+	data, err := os.ReadFile(filepath.Join(projectRoot, ".cohort", "skills", "update-me", SkillFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "Second") {
+		t.Fatalf("updated content = %s", data)
+	}
+}

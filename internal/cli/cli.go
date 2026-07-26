@@ -140,6 +140,34 @@ func runSkillCommand(ctx context.Context, args []string) error {
 	switch args[0] {
 	case "install":
 		return installSkill(ctx, projectRoot, args[1:])
+	case "uninstall":
+		if len(args) != 2 {
+			return errors.New("usage: cohert skill uninstall <id>")
+		}
+		result, err := store.Uninstall(args[1])
+		if err != nil {
+			return err
+		}
+		fmt.Printf("uninstalled skill %s\n", result.Skill.ID)
+		fmt.Printf("  path: %s\n", result.Path)
+		return nil
+	case "update":
+		if len(args) < 2 || len(args) > 3 {
+			return errors.New("usage: cohert skill update <id> [path-or-git-url]")
+		}
+		source := ""
+		if len(args) == 3 {
+			source = args[2]
+		}
+		result, err := store.Update(ctx, args[1], source)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("updated skill %s\n", result.Skill.ID)
+		fmt.Printf("  source:      %s\n", result.Source)
+		fmt.Printf("  destination: %s\n", result.Destination)
+		fmt.Printf("  files:       %d\n", result.Files)
+		return nil
 	case "list":
 		if len(args) != 1 {
 			return errors.New("usage: cohert skill list")
@@ -222,9 +250,16 @@ func printSkillList(skills []skill.Skill) error {
 		return nil
 	}
 	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(writer, "ID\tSCOPE\tNAME\tDESCRIPTION\tPATH")
+	fmt.Fprintln(writer, "ID\tSCOPE\tINVOKE\tNAME\tDESCRIPTION\tPATH")
 	for _, item := range skills {
-		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\n", item.ID, item.Scope, item.Name, item.Description, item.Path)
+		invoke := "-"
+		if item.UserInvocable {
+			invoke = "/" + item.Alias
+			if item.ArgumentHint != "" {
+				invoke += " " + item.ArgumentHint
+			}
+		}
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n", item.ID, item.Scope, invoke, item.Name, item.Description, item.Path)
 	}
 	return writer.Flush()
 }
@@ -237,6 +272,10 @@ func printSkill(store *skill.Store, id string) error {
 	fmt.Printf("id:        %s\n", result.Skill.ID)
 	fmt.Printf("name:      %s\n", result.Skill.Name)
 	fmt.Printf("scope:     %s\n", result.Skill.Scope)
+	fmt.Printf("invocable: %t\n", result.Skill.UserInvocable)
+	if result.Skill.ArgumentHint != "" {
+		fmt.Printf("hint:      %s\n", result.Skill.ArgumentHint)
+	}
 	fmt.Printf("path:      %s\n", result.Skill.Path)
 	fmt.Printf("truncated: %t\n\n", result.Truncated)
 	fmt.Println(result.Content)
@@ -556,6 +595,10 @@ Usage:
   cohert mcp remove <name>
   cohert skill install <path-or-git-url>
                           install a Skill into .cohort/skills
+  cohert skill update <id> [path-or-git-url]
+                          update an installed Skill
+  cohert skill uninstall <id>
+                          remove an installed Skill
   cohert skill list       list discovered Skills
   cohert skill show <id>  show one Skill's SKILL.md
   cohert skill reload     rescan Skills

@@ -20,11 +20,13 @@ import (
 
 type fakeClient struct {
 	// calls 记录测试过程中模型客户端被调用的次数。
-	calls int
+	calls    int
+	requests []llm.ChatRequest
 }
 
 func (c *fakeClient) Chat(ctx context.Context, req llm.ChatRequest) (<-chan llm.Event, error) {
 	c.calls++
+	c.requests = append(c.requests, req)
 	out := make(chan llm.Event, 2)
 	out <- llm.Event{Type: llm.EventText, Text: "ok"}
 	out <- llm.Event{Type: llm.EventDone, Response: &llm.Response{Content: "ok"}}
@@ -460,6 +462,65 @@ func TestStartHandlesSkillCommandsLocally_BitsUT(t *testing.T) {
 	}
 	if !strings.Contains(runner.SystemPrompt, "[Skill Index]") {
 		t.Fatalf("system prompt was not refreshed:\n%s", runner.SystemPrompt)
+	}
+}
+
+func TestStartRunsSkillByCommandAndInvocableAlias_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	skillPath := filepath.Join(workspace, ".cohort", "skills", "commit", skill.SkillFileName)
+	if err := os.MkdirAll(filepath.Dir(skillPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(skillPath, []byte(`---
+name: commit
+description: Commit workflow.
+user-invocable: true
+argument-hint: "[file]"
+---
+
+# Commit
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	store := skill.NewStore(workspace, t.TempDir())
+	if err := store.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeClient{}
+	runner := &agent.Runner{
+		Client:     client,
+		Tools:      fakeTools{},
+		SkillStore: store,
+	}
+	cfg := testConfig()
+	cfg.Workspace = workspace
+
+	var out bytes.Buffer
+	startErr := Start(context.Background(), Options{
+		Config:       cfg,
+		Runner:       runner,
+		SessionStore: session.NewStore(t.TempDir()),
+		In:           strings.NewReader("/skill run commit README.md\n/commit docs/usage.md\n/exit\n"),
+		Out:          &out,
+		Err:          &out,
+	})
+	if startErr != nil {
+		t.Fatal(startErr)
+	}
+	if client.calls != 2 {
+		t.Fatalf("model calls = %d, want 2; output:\n%s", client.calls, out.String())
+	}
+	for index, want := range []string{"README.md", "docs/usage.md"} {
+		messages := client.requests[index].Messages
+		var task string
+		for _, message := range messages {
+			if message.Role == llm.RoleUser && strings.Contains(message.Content, "project/commit") {
+				task = message.Content
+			}
+		}
+		if !strings.Contains(task, want) || !strings.Contains(task, "skill_read") {
+			t.Fatalf("request %d task = %q", index, task)
+		}
 	}
 }
 

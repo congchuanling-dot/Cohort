@@ -52,6 +52,9 @@ const (
 	skillCommandList   = "list"
 	skillCommandShow   = "show"
 	skillCommandReload = "reload"
+	skillCommandRun    = "run"
+	skillCommandUpdate = "update"
+	skillCommandRemove = "uninstall"
 
 	mcpCommandList   = "list"
 	mcpCommandStatus = "status"
@@ -240,6 +243,9 @@ func slashCompleter() *readline.PrefixCompleter {
 		readline.PcItem("/skill",
 			readline.PcItem("list"),
 			readline.PcItem("show"),
+			readline.PcItem("run"),
+			readline.PcItem("update"),
+			readline.PcItem("uninstall"),
 			readline.PcItem("reload"),
 		),
 		readline.PcItem("/clear"),
@@ -473,6 +479,9 @@ func handleSlashCommand(opts Options, cmd SlashCommand) (bool, error) {
 		opts.Runner.Reset()
 		fmt.Fprintln(opts.Out, "current in-memory session cleared; next task will create a new session")
 	default:
+		if handled, err := runInvocableSkillAlias(opts, cmd); handled || err != nil {
+			return false, err
+		}
 		return false, fmt.Errorf("unknown slash command %q, use /help", cmd.Raw)
 	}
 	return false, nil
@@ -704,6 +713,10 @@ func printSlashHelp(out io.Writer) {
   /sop promote <id>        生成 sops/*.md；确认后更新 sops/index.md
   /skill list              列出当前发现的 Skills
   /skill show <id>         查看一个 Skill 的 SKILL.md
+  /skill run <id> [args]   直接按指定 Skill 执行任务
+  /<skill-alias> [args]    运行 user-invocable Skill 的快捷形式
+  /skill update <id>       更新已安装 Skill
+  /skill uninstall <id>    删除已安装 Skill
   /skill reload            重新扫描 Skills 并刷新系统提示词
   /clear                   清空当前内存上下文，下一次输入会创建新 session
   /exit                    退出 Cohert
@@ -731,6 +744,9 @@ func printCommandPalette(out io.Writer) {
   /sop promote <id>     升级候选 SOP；--confirm-index 显式更新索引
   /skill list           列出 Skills
   /skill show <id>      查看 Skill 正文
+  /skill run <id>       运行 Skill
+  /skill update <id>    更新 Skill
+  /skill uninstall <id> 删除 Skill
   /skill reload         重新扫描 Skills
   /clear                清空当前内存上下文
   /exit                 退出
@@ -891,7 +907,7 @@ func handleSOPCommand(opts Options, args []string) error {
 
 func handleSkillCommand(opts Options, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: /skill list | /skill show <id> | /skill reload")
+		return fmt.Errorf("usage: /skill list | /skill show <id> | /skill run <id> [arguments...] | /skill update <id> [source] | /skill uninstall <id> | /skill reload")
 	}
 	if opts.Runner.SkillStore == nil {
 		return fmt.Errorf("skill store is not configured")
@@ -904,6 +920,40 @@ func handleSkillCommand(opts Options, args []string) error {
 			return fmt.Errorf("usage: /skill show <id>")
 		}
 		return printSkill(opts.Out, opts.Runner.SkillStore, args[1])
+	case skillCommandRun:
+		if len(args) < 2 {
+			return fmt.Errorf("usage: /skill run <id> [arguments...]")
+		}
+		return runSkill(opts, args[1], args[2:])
+	case skillCommandUpdate:
+		if len(args) < 2 || len(args) > 3 {
+			return fmt.Errorf("usage: /skill update <id> [path-or-git-url]")
+		}
+		source := ""
+		if len(args) == 3 {
+			source = args[2]
+		}
+		result, err := opts.Runner.SkillStore.Update(opts.Context, args[1], source)
+		if err != nil {
+			return err
+		}
+		opts.Runner.SystemPrompt = app.BuildSystemPrompt(opts.Config, opts.Runner.SkillStore)
+		fmt.Fprintf(opts.Out, "updated skill %s\n", result.Skill.ID)
+		fmt.Fprintf(opts.Out, "  source:      %s\n", result.Source)
+		fmt.Fprintf(opts.Out, "  destination: %s\n", result.Destination)
+		return nil
+	case skillCommandRemove, "remove", "rm":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: /skill uninstall <id>")
+		}
+		result, err := opts.Runner.SkillStore.Uninstall(args[1])
+		if err != nil {
+			return err
+		}
+		opts.Runner.SystemPrompt = app.BuildSystemPrompt(opts.Config, opts.Runner.SkillStore)
+		fmt.Fprintf(opts.Out, "uninstalled skill %s\n", result.Skill.ID)
+		fmt.Fprintf(opts.Out, "  path: %s\n", result.Path)
+		return nil
 	case skillCommandReload:
 		if len(args) != 1 {
 			return fmt.Errorf("usage: /skill reload")
@@ -915,8 +965,38 @@ func handleSkillCommand(opts Options, args []string) error {
 		fmt.Fprintf(opts.Out, "skills reloaded: %d\n", len(opts.Runner.SkillStore.Skills()))
 		return nil
 	default:
-		return fmt.Errorf("unknown skill command %q, use /skill list, /skill show <id>, or /skill reload", args[0])
+		return fmt.Errorf("unknown skill command %q, use /skill list, /skill show <id>, /skill run <id>, /skill update <id>, /skill uninstall <id>, or /skill reload", args[0])
 	}
+}
+
+func runInvocableSkillAlias(opts Options, cmd SlashCommand) (bool, error) {
+	if opts.Runner.SkillStore == nil {
+		return false, nil
+	}
+	item, err := opts.Runner.SkillStore.Find(cmd.Name)
+	if err != nil {
+		return false, nil
+	}
+	if !item.UserInvocable {
+		return false, nil
+	}
+	return true, runSkill(opts, item.ID, cmd.Args)
+}
+
+func runSkill(opts Options, id string, args []string) error {
+	item, err := opts.Runner.SkillStore.Find(id)
+	if err != nil {
+		return err
+	}
+	arguments := strings.Join(args, " ")
+	task := fmt.Sprintf("使用 Skill `%s` 执行。请先调用 skill_read 读取该 Skill，按其流程行动，并把 related_skill 设为 `%s`。", item.ID, item.ID)
+	if arguments == "" {
+		task += " $ARGUMENTS 为空；如果流程需要用户决策，请调用 ask_user。"
+	} else {
+		task += " $ARGUMENTS: " + arguments
+	}
+	_, err = opts.Runner.Run(opts.Context, task, agent.NewConsoleSink(opts.Out))
+	return err
 }
 
 func printSkillList(out io.Writer, skills []skill.Skill) error {
@@ -926,9 +1006,16 @@ func printSkillList(out io.Writer, skills []skill.Skill) error {
 		return nil
 	}
 	writer := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(writer, "ID\tSCOPE\tNAME\tDESCRIPTION\tPATH")
+	fmt.Fprintln(writer, "ID\tSCOPE\tINVOKE\tNAME\tDESCRIPTION\tPATH")
 	for _, item := range skills {
-		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\n", item.ID, item.Scope, item.Name, item.Description, item.Path)
+		invoke := "-"
+		if item.UserInvocable {
+			invoke = "/" + item.Alias
+			if item.ArgumentHint != "" {
+				invoke += " " + item.ArgumentHint
+			}
+		}
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n", item.ID, item.Scope, invoke, item.Name, item.Description, item.Path)
 	}
 	return writer.Flush()
 }
@@ -942,6 +1029,10 @@ func printSkill(out io.Writer, store *skill.Store, id string) error {
 	fmt.Fprintf(out, "  id:          %s\n", result.Skill.ID)
 	fmt.Fprintf(out, "  name:        %s\n", result.Skill.Name)
 	fmt.Fprintf(out, "  scope:       %s\n", result.Skill.Scope)
+	fmt.Fprintf(out, "  invocable:   %t\n", result.Skill.UserInvocable)
+	if result.Skill.ArgumentHint != "" {
+		fmt.Fprintf(out, "  hint:        %s\n", result.Skill.ArgumentHint)
+	}
 	fmt.Fprintf(out, "  path:        %s\n", result.Skill.Path)
 	fmt.Fprintf(out, "  truncated:   %t\n\n", result.Truncated)
 	fmt.Fprintln(out, result.Content)

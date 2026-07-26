@@ -33,12 +33,14 @@ const (
 // Skill 是一个可按需读取的工作流包摘要。
 // 摘要会进入系统提示词；正文只有模型显式调用 skill_read 后才进入上下文。
 type Skill struct {
-	ID          string `json:"id"`
-	Alias       string `json:"alias"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Scope       Scope  `json:"scope"`
-	Path        string `json:"path"`
+	ID            string `json:"id"`
+	Alias         string `json:"alias"`
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	UserInvocable bool   `json:"user_invocable"`
+	ArgumentHint  string `json:"argument_hint"`
+	Scope         Scope  `json:"scope"`
+	Path          string `json:"path"`
 }
 
 // ReadResult 是 skill_read 返回给模型的结构化内容。
@@ -233,24 +235,35 @@ func scanRoot(scope Scope, root string) ([]Skill, error) {
 			}
 			return nil, err
 		}
-		name, description := parseSummary(data, entry.Name())
+		metadata := parseMetadata(data, entry.Name())
 		skills = append(skills, Skill{
-			ID:          string(scope) + "/" + alias,
-			Alias:       alias,
-			Name:        name,
-			Description: description,
-			Scope:       scope,
-			Path:        filepath.Clean(path),
+			ID:            string(scope) + "/" + alias,
+			Alias:         alias,
+			Name:          metadata.Name,
+			Description:   metadata.Description,
+			UserInvocable: metadata.UserInvocable,
+			ArgumentHint:  metadata.ArgumentHint,
+			Scope:         scope,
+			Path:          filepath.Clean(path),
 		})
 	}
 	return skills, nil
 }
 
-func parseSummary(data []byte, fallbackName string) (string, string) {
+type Metadata struct {
+	Name          string
+	Description   string
+	UserInvocable bool
+	ArgumentHint  string
+}
+
+func parseMetadata(data []byte, fallbackName string) Metadata {
 	text := string(data)
 	frontMatter := parseFrontMatter(text)
 	name := strings.TrimSpace(frontMatter["name"])
 	description := strings.TrimSpace(frontMatter["description"])
+	argumentHint := strings.TrimSpace(frontMatter["argument-hint"])
+	userInvocable := parseBool(frontMatter["user-invocable"])
 	if name == "" {
 		name = firstMarkdownHeading(text)
 	}
@@ -263,7 +276,17 @@ func parseSummary(data []byte, fallbackName string) (string, string) {
 	if description == "" {
 		description = "No description provided."
 	}
-	return name, truncateRunes(strings.Join(strings.Fields(description), " "), maxSkillDescriptionRunes)
+	return Metadata{
+		Name:          name,
+		Description:   truncateRunes(strings.Join(strings.Fields(description), " "), maxSkillDescriptionRunes),
+		UserInvocable: userInvocable,
+		ArgumentHint:  argumentHint,
+	}
+}
+
+func parseSummary(data []byte, fallbackName string) (string, string) {
+	metadata := parseMetadata(data, fallbackName)
+	return metadata.Name, metadata.Description
 }
 
 func parseFrontMatter(text string) map[string]string {
@@ -275,7 +298,8 @@ func parseFrontMatter(text string) map[string]string {
 	if strings.TrimSpace(lines[0]) != "---" {
 		return result
 	}
-	for _, line := range lines[1:] {
+	for index := 1; index < len(lines); index++ {
+		line := lines[index]
 		if strings.TrimSpace(line) == "---" {
 			return result
 		}
@@ -285,11 +309,59 @@ func parseFrontMatter(text string) map[string]string {
 		}
 		key = strings.ToLower(strings.TrimSpace(key))
 		value = strings.Trim(strings.TrimSpace(value), `"'`)
-		if key == "name" || key == "description" {
-			result[key] = value
+		if !isMetadataKey(key) {
+			continue
 		}
+		if value == ">" || value == "|" {
+			var block []string
+			for index+1 < len(lines) {
+				next := lines[index+1]
+				if strings.TrimSpace(next) == "---" {
+					break
+				}
+				if strings.TrimSpace(next) != "" && !strings.HasPrefix(next, " ") && !strings.HasPrefix(next, "\t") {
+					break
+				}
+				block = append(block, strings.TrimSpace(next))
+				index++
+			}
+			if value == ">" {
+				value = strings.Join(nonEmptyLines(block), " ")
+			} else {
+				value = strings.Join(block, "\n")
+			}
+		}
+		result[key] = strings.Trim(strings.TrimSpace(value), `"'`)
 	}
 	return map[string]string{}
+}
+
+func isMetadataKey(key string) bool {
+	switch key {
+	case "name", "description", "user-invocable", "argument-hint":
+		return true
+	default:
+		return false
+	}
+}
+
+func nonEmptyLines(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+func parseBool(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true", "yes", "y", "1", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func firstMarkdownHeading(text string) string {

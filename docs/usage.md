@@ -727,6 +727,16 @@ go run . skill install --name go-test https://example.com/org/skills.git
 go run . skill install --force ./path/to/skill
 ```
 
+更新和删除已安装 Skill：
+
+```bash
+go run . skill update project/<skill_name>
+go run . skill update project/<skill_name> ./path/to/new-skill
+go run . skill uninstall project/<skill_name>
+```
+
+`skill update` 默认使用安装时记录的 source；如果旧 Skill 没有安装元数据，可以手动传入新的本地路径或 git URL。
+
 当任务匹配某个 Skill 时，模型应先调用：
 
 ```text
@@ -740,13 +750,21 @@ skill_read({"skill_id":"project/<skill_name>"})
 ```text
 /skill list
 /skill show <skill_id>
+/skill run <skill_id> [arguments...]
+/<skill_alias> [arguments...]
+/skill update <skill_id> [path-or-git-url]
+/skill uninstall <skill_id>
 /skill reload
 ```
+
+`/<skill_alias>` 只对 `SKILL.md` frontmatter 里声明 `user-invocable: true` 的 Skill 生效。`argument-hint` 会在列表里展示，用来提示快捷命令参数。
 
 外部 CLI 也支持：
 
 ```bash
 go run . skill install ./path/to/skill
+go run . skill update project/<skill_name>
+go run . skill uninstall project/<skill_name>
 go run . skill list
 go run . skill show project/<skill_name>
 go run . skill reload

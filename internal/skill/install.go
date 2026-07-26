@@ -2,6 +2,7 @@ package skill
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,8 +11,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 )
+
+const manifestFileName = ".cohert-skill.json"
 
 // InstallOptions 描述一次 Skill 安装请求。
 type InstallOptions struct {
@@ -30,6 +34,25 @@ type InstallResult struct {
 	Destination string
 	Replaced    bool
 	Files       int
+}
+
+// UninstallResult 描述删除一个本地 Skill 的结果。
+type UninstallResult struct {
+	Skill Skill
+	Path  string
+}
+
+// UpdateResult 描述更新一个本地 Skill 的结果。
+type UpdateResult struct {
+	InstallResult
+	Previous Skill
+}
+
+type manifest struct {
+	Source      string `json:"source"`
+	Scope       Scope  `json:"scope"`
+	Alias       string `json:"alias"`
+	InstalledAt string `json:"installed_at"`
 }
 
 type installCandidate struct {
@@ -107,18 +130,28 @@ func Install(ctx context.Context, opts InstallOptions) (InstallResult, error) {
 	if err != nil {
 		return InstallResult{}, err
 	}
+	if err := writeManifest(dest, manifest{
+		Source:      source,
+		Scope:       scope,
+		Alias:       alias,
+		InstalledAt: timeNowRFC3339(),
+	}); err != nil {
+		return InstallResult{}, err
+	}
 	data, err := os.ReadFile(filepath.Join(dest, SkillFileName))
 	if err != nil {
 		return InstallResult{}, err
 	}
-	name, description := parseSummary(data, alias)
+	metadata := parseMetadata(data, alias)
 	item := Skill{
-		ID:          string(scope) + "/" + alias,
-		Alias:       alias,
-		Name:        name,
-		Description: description,
-		Scope:       scope,
-		Path:        filepath.Join(dest, SkillFileName),
+		ID:            string(scope) + "/" + alias,
+		Alias:         alias,
+		Name:          metadata.Name,
+		Description:   metadata.Description,
+		UserInvocable: metadata.UserInvocable,
+		ArgumentHint:  metadata.ArgumentHint,
+		Scope:         scope,
+		Path:          filepath.Join(dest, SkillFileName),
 	}
 	return InstallResult{
 		Skill:       item,
@@ -127,6 +160,54 @@ func Install(ctx context.Context, opts InstallOptions) (InstallResult, error) {
 		Replaced:    replaced,
 		Files:       files,
 	}, nil
+}
+
+// Uninstall 删除一个已发现的 Skill 目录，并刷新 Store。
+func (s *Store) Uninstall(id string) (UninstallResult, error) {
+	item, err := s.Find(id)
+	if err != nil {
+		return UninstallResult{}, err
+	}
+	dir, err := s.skillDir(item)
+	if err != nil {
+		return UninstallResult{}, err
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return UninstallResult{}, err
+	}
+	if err := s.Reload(); err != nil {
+		return UninstallResult{}, err
+	}
+	return UninstallResult{Skill: item, Path: dir}, nil
+}
+
+// Update 用新的来源替换一个已安装 Skill。source 为空时读取安装 manifest。
+func (s *Store) Update(ctx context.Context, id string, source string) (UpdateResult, error) {
+	item, err := s.Find(id)
+	if err != nil {
+		return UpdateResult{}, err
+	}
+	if strings.TrimSpace(source) == "" {
+		source, err = s.manifestSource(item)
+		if err != nil {
+			return UpdateResult{}, err
+		}
+	}
+	result, err := Install(ctx, InstallOptions{
+		Source:      source,
+		Scope:       item.Scope,
+		Name:        item.Alias,
+		Force:       true,
+		ProjectRoot: s.workspace,
+		HomeDir:     s.homeDir,
+	})
+	if err != nil {
+		return UpdateResult{}, err
+	}
+	if err := s.Reload(); err != nil {
+		return UpdateResult{}, err
+	}
+	return UpdateResult{InstallResult: result, Previous: item}, nil
 }
 
 func resolveInstallCandidate(ctx context.Context, source, requestedName string) (installCandidate, func(), error) {
@@ -294,6 +375,60 @@ func installRoot(scope Scope, projectRoot, homeDir string) (string, error) {
 	default:
 		return "", fmt.Errorf("invalid skill scope %q", scope)
 	}
+}
+
+func (s *Store) skillDir(item Skill) (string, error) {
+	dir := filepath.Dir(item.Path)
+	root, err := installRoot(item.Scope, s.workspace, s.homeDir)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(root, dir)
+	if err != nil {
+		return "", err
+	}
+	if rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("refusing to modify skill outside %s: %s", root, dir)
+	}
+	if filepath.Base(item.Path) != SkillFileName {
+		return "", fmt.Errorf("refusing to modify invalid skill path %s", item.Path)
+	}
+	return dir, nil
+}
+
+func (s *Store) manifestSource(item Skill) (string, error) {
+	dir, err := s.skillDir(item)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(filepath.Join(dir, manifestFileName))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("skill %s has no install source metadata; pass a source explicitly", item.ID)
+		}
+		return "", err
+	}
+	var meta manifest
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(meta.Source) == "" {
+		return "", fmt.Errorf("skill %s install source metadata is empty; pass a source explicitly", item.ID)
+	}
+	return meta.Source, nil
+}
+
+func writeManifest(dir string, meta manifest) error {
+	data, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(filepath.Join(dir, manifestFileName), data, 0644)
+}
+
+func timeNowRFC3339() string {
+	return time.Now().Format(time.RFC3339)
 }
 
 func looksLikeGitSource(source string) bool {

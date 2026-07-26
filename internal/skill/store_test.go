@@ -76,6 +76,36 @@ func TestStoreReadRejectsAmbiguousAlias_BitsUT(t *testing.T) {
 	}
 }
 
+func TestStoreParsesFoldedFrontMatterAndInvocationMetadata_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	writeSkill(t, filepath.Join(workspace, ".cohort", "skills", "commit", SkillFileName), `---
+name: commit
+description: >
+  Atomic git commit with conventional message.
+  Use when the user wants to create a git commit.
+user-invocable: true
+argument-hint: "[file1] [file2]"
+---
+
+# Commit
+`)
+
+	store := NewStore(workspace, t.TempDir())
+	if err := store.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	item, err := store.Find("commit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.Description != "Atomic git commit with conventional message. Use when the user wants to create a git commit." {
+		t.Fatalf("description = %q", item.Description)
+	}
+	if !item.UserInvocable || item.ArgumentHint != "[file1] [file2]" {
+		t.Fatalf("invocation metadata = %#v", item)
+	}
+}
+
 func writeSkill(t *testing.T, path string, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
