@@ -52,6 +52,10 @@ type ComputerState struct {
 	AXRoot                desktop.AXNode   `json:"ax_root,omitempty"`
 	AXNodeCount           int              `json:"ax_node_count,omitempty"`
 	AXTruncated           bool             `json:"ax_truncated,omitempty"`
+	OCRStatus             string           `json:"ocr_status,omitempty"`
+	OCRText               string           `json:"ocr_text,omitempty"`
+	OCRLineCount          int              `json:"ocr_line_count,omitempty"`
+	OCRError              string           `json:"ocr_error,omitempty"`
 	Candidates            []ComputerTarget `json:"candidates"`
 	CreatedAt             time.Time        `json:"created_at"`
 	ExpiresAt             time.Time        `json:"expires_at"`

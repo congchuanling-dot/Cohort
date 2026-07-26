@@ -102,6 +102,10 @@ const (
 	ToolNameComputerClick = "computer_click"
 	// ToolNameComputerType 向缓存输入目标起草文本。
 	ToolNameComputerType = "computer_type"
+	// ToolNameComputerPress 对最近 computer_see 的目标窗口发送受限按键。
+	ToolNameComputerPress = "computer_press"
+	// ToolNameComputerWait 等待最近 computer_see 的目标窗口出现指定状态。
+	ToolNameComputerWait = "computer_wait"
 	// ToolNameComputerCheck 验证当前 GUI 状态。
 	ToolNameComputerCheck = "computer_check"
 )
@@ -173,6 +177,8 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameComputerFind,
 		ToolNameComputerClick,
 		ToolNameComputerType,
+		ToolNameComputerPress,
+		ToolNameComputerWait,
 		ToolNameComputerCheck,
 		ToolNameSkillRead,
 		ToolNameUpdateWorkingCheckpoint,

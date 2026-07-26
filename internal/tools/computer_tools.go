@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,26 +15,37 @@ import (
 	"cohert/internal/computeruse"
 	"cohert/internal/desktop"
 	"cohert/internal/llm"
+	"cohert/internal/vision"
 )
 
 const (
 	defaultComputerFindLimit = 5
 	maxComputerFindLimit     = 20
+	defaultComputerWaitMS    = 5000
+	maxComputerWaitMS        = 30000
+	defaultComputerPollMS    = 250
+	minComputerPollMS        = 100
 )
 
 // ComputerSee 返回当前电脑窗口、截图和 AX 候选目标，是 computer_* 闭环入口。
 type ComputerSee struct {
 	driver desktop.Driver
 	store  *computeruse.Store
+	runner vision.OCRRunner
 	workspaceTool
 }
 
 // NewComputerSee 创建电脑状态观察工具。
 func NewComputerSee(driver desktop.Driver, store *computeruse.Store, workspace string) *ComputerSee {
+	return NewComputerSeeWithOCRRunner(driver, store, workspace, newComputerOCRRunner(workspace))
+}
+
+// NewComputerSeeWithOCRRunner 允许测试注入 OCR runner；runner 为 nil 时只返回 AX 候选。
+func NewComputerSeeWithOCRRunner(driver desktop.Driver, store *computeruse.Store, workspace string, runner vision.OCRRunner) *ComputerSee {
 	if store == nil {
 		store = computeruse.NewStore(computeruse.DefaultTargetTTL)
 	}
-	return &ComputerSee{driver: driver, store: store, workspaceTool: newWorkspaceTool(workspace)}
+	return &ComputerSee{driver: driver, store: store, runner: runner, workspaceTool: newWorkspaceTool(workspace)}
 }
 
 func (t *ComputerSee) Name() string { return ToolNameComputerSee }
@@ -98,6 +110,12 @@ func (t *ComputerSee) Run(ctx context.Context, call agent.ToolCallContext) (agen
 		state.AXNodeCount = ax.NodeCount
 		state.AXTruncated = ax.Truncated
 		state.Candidates = collectComputerAXTargets(ax.Root, state.ActiveWindow, state.ScreenshotRef, state.ScreenshotManifestRef)
+		ocrTargets, ocrStatus, ocrText, ocrLineCount, ocrErr := t.collectOCRTargets(ctx, state.ActiveWindow, state.ScreenshotRef, state.ScreenshotManifestRef)
+		state.OCRStatus = ocrStatus
+		state.OCRText = ocrText
+		state.OCRLineCount = ocrLineCount
+		state.OCRError = ocrErr
+		state.Candidates = append(state.Candidates, ocrTargets...)
 	}
 
 	state = t.store.SaveState(state)
@@ -117,7 +135,10 @@ func (t *ComputerSee) Run(ctx context.Context, call agent.ToolCallContext) (agen
 			"screenshot_height":       state.ScreenshotHeight,
 			"ax_node_count":           state.AXNodeCount,
 			"ax_truncated":            state.AXTruncated,
-			"candidates":              summarizeComputerTargets(state.Candidates, 30),
+			"ocr_status":              state.OCRStatus,
+			"ocr_line_count":          state.OCRLineCount,
+			"ocr_error":               state.OCRError,
+			"candidates":              summarizeComputerTargets(state.Candidates, 40),
 			"candidate_count":         len(state.Candidates),
 			"expires_at":              state.ExpiresAt.Format(time.RFC3339Nano),
 		},
@@ -170,6 +191,26 @@ func (t *ComputerSee) captureScreenshot(ctx context.Context, window desktop.Wind
 		return computerScreenshotCapture{}, err
 	}
 	return computerScreenshotCapture{imagePath: outputPath, manifestPath: manifestPath, result: result}, nil
+}
+
+func (t *ComputerSee) collectOCRTargets(ctx context.Context, window computeruse.WindowRef, imagePath string, manifestPath string) ([]computeruse.ComputerTarget, string, string, int, string) {
+	if t.runner == nil || imagePath == "" {
+		return nil, "skipped", "", 0, ""
+	}
+	result, err := t.runner.Run(ctx, vision.OCRRequest{
+		ImagePath:     imagePath,
+		MinConfidence: defaultDesktopOCRMinConfidence,
+		Enhance:       false,
+	})
+	if err != nil {
+		var ocrErr *vision.ToolError
+		if errors.As(err, &ocrErr) {
+			return nil, "error", "", 0, strings.Replace(ocrErr.Code, "browser_ocr_", "desktop_ocr_", 1) + ": " + ocrErr.Message
+		}
+		return nil, "error", "", 0, err.Error()
+	}
+	targets := collectComputerOCRTargets(result.Lines, window, imagePath, manifestPath)
+	return targets, "success", result.Text, len(result.Lines), ""
 }
 
 // ComputerFind 在最近一次 computer_see 的候选中查找目标，并返回 target_id。
@@ -366,6 +407,70 @@ func collectComputerAXTargets(root desktop.AXNode, window computeruse.WindowRef,
 	return targets
 }
 
+func collectComputerOCRTargets(lines []vision.OCRLine, window computeruse.WindowRef, screenshotRef string, manifestRef string) []computeruse.ComputerTarget {
+	targets := []computeruse.ComputerTarget{}
+	for _, line := range lines {
+		if strings.TrimSpace(line.Text) == "" || len(line.BBox) != 4 {
+			continue
+		}
+		bbox := [4]int{line.BBox[0], line.BBox[1], line.BBox[2], line.BBox[3]}
+		if bbox[2] <= bbox[0] || bbox[3] <= bbox[1] {
+			continue
+		}
+		confidence := line.Confidence
+		if confidence <= 0 {
+			confidence = 0.5
+		}
+		risk := classifyDesktopVisualClickRisk(line.Text, "")
+		targets = append(targets, computeruse.ComputerTarget{
+			Label:              line.Text,
+			Role:               "OCRText",
+			Confidence:         confidence,
+			Source:             computeruse.SourceOCR,
+			Bounds:             desktop.Bounds{X: bbox[0], Y: bbox[1], Width: bbox[2] - bbox[0], Height: bbox[3] - bbox[1]},
+			CoordinateSpace:    desktop.CoordinateSpaceScreenshotLocal,
+			Window:             window,
+			SuggestedAction:    computeruse.SuggestedActionClick,
+			RiskHint:           string(risk),
+			ScreenshotRef:      screenshotRef,
+			ScreenshotManifest: manifestRef,
+			BBox:               bbox,
+		})
+		if action, ok := classifyComputerVisionAction(line.Text); ok {
+			targets = append(targets, computeruse.ComputerTarget{
+				Label:              line.Text,
+				Role:               "VisualCandidate",
+				Description:        "heuristic visual target from OCR text",
+				Confidence:         confidence * 0.85,
+				Source:             computeruse.SourceVision,
+				Bounds:             desktop.Bounds{X: bbox[0], Y: bbox[1], Width: bbox[2] - bbox[0], Height: bbox[3] - bbox[1]},
+				CoordinateSpace:    desktop.CoordinateSpaceScreenshotLocal,
+				Window:             window,
+				SuggestedAction:    action,
+				RiskHint:           string(risk),
+				ScreenshotRef:      screenshotRef,
+				ScreenshotManifest: manifestRef,
+				BBox:               bbox,
+			})
+		}
+	}
+	return targets
+}
+
+func classifyComputerVisionAction(text string) (string, bool) {
+	normalized := normalizeComputerText(text)
+	if shouldIssueDesktopVisualFocusToken(normalized, "") {
+		return computeruse.SuggestedActionType, true
+	}
+	if containsAny(normalized, []string{
+		"按钮", "打开", "保存", "发送", "提交", "搜索", "下一步", "继续", "取消", "关闭",
+		"button", "open", "save", "send", "submit", "search", "next", "continue", "cancel", "close",
+	}) {
+		return computeruse.SuggestedActionClick, true
+	}
+	return "", false
+}
+
 func computerTargetFromAXNode(node desktop.AXNode, window computeruse.WindowRef, screenshotRef string, manifestRef string) (computeruse.ComputerTarget, bool) {
 	label := firstNonEmpty(node.Title, node.Description, node.Value)
 	action := computeruse.SuggestedActionInspect
@@ -453,7 +558,8 @@ func scoreComputerTarget(query string, target computeruse.ComputerTarget) float6
 			score += 0.2
 		}
 	}
-	if computerQueryWantsInput(q) && (target.SuggestedAction == computeruse.SuggestedActionType || strings.Contains(strings.ToLower(target.Role), "text")) {
+	axTextRole := target.Source == computeruse.SourceAX && strings.Contains(strings.ToLower(target.Role), "text")
+	if computerQueryWantsInput(q) && (target.SuggestedAction == computeruse.SuggestedActionType || axTextRole) {
 		score += 0.8
 	}
 	if computerQueryWantsClick(q) && target.SuggestedAction == computeruse.SuggestedActionClick {
@@ -514,6 +620,17 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func newComputerOCRRunner(workspace string) vision.OCRRunner {
+	workspaceRoot := newWorkspaceTool(workspace).workspace
+	scriptPath := filepath.Join("scripts", "browser_ocr.py")
+	if root := findGitRoot(workspaceRoot); root != "" {
+		scriptPath = filepath.Join(root, "scripts", "browser_ocr.py")
+	} else if absolutePath, err := filepath.Abs(scriptPath); err == nil {
+		scriptPath = absolutePath
+	}
+	return vision.NewPythonOCRRunner("python3", scriptPath, vision.DefaultOCRTimeout)
 }
 
 func computerToolError(code string, message string, hint string) agent.Outcome {
