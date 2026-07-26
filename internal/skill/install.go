@@ -82,6 +82,7 @@ type UpdateCheckResult struct {
 	ManifestHash  string
 	CandidateHash string
 	Files         int
+	Requires      Requires
 	UpToDate      bool
 }
 
@@ -194,6 +195,7 @@ func Install(ctx context.Context, opts InstallOptions) (InstallResult, error) {
 		Description:   metadata.Description,
 		UserInvocable: metadata.UserInvocable,
 		ArgumentHint:  metadata.ArgumentHint,
+		Requires:      metadata.Requires,
 		Scope:         scope,
 		Path:          filepath.Join(dest, SkillFileName),
 	}
@@ -338,6 +340,7 @@ func (s *Store) CheckUpdate(ctx context.Context, opts UpdateOptions) (UpdateChec
 		ManifestHash:  manifestHash,
 		CandidateHash: candidate.ContentHash,
 		Files:         candidate.Files,
+		Requires:      candidate.Skill.Requires,
 		UpToDate:      currentHash == candidate.ContentHash,
 	}, nil
 }

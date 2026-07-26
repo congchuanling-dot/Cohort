@@ -301,6 +301,7 @@ func printSkillInstallResult(result skill.InstallResult) {
 		fmt.Printf("installed skill %s\n", result.Skill.ID)
 	}
 	fmt.Printf("  name:        %s\n", result.Skill.Name)
+	fmt.Printf("  requires:    %s\n", result.Skill.Requires.Summary())
 	fmt.Printf("  source:      %s\n", result.Source)
 	fmt.Printf("  source_type: %s\n", result.SourceType)
 	printSkillRefFields(result.SourceRef, result.RequestedRef, result.ResolvedRef, result.Pinned)
@@ -320,6 +321,7 @@ func printSkillInstallResult(result skill.InstallResult) {
 
 func printSkillUpdateResult(result skill.UpdateResult) {
 	fmt.Printf("updated skill %s\n", result.Skill.ID)
+	fmt.Printf("  requires:    %s\n", result.Skill.Requires.Summary())
 	fmt.Printf("  source:      %s\n", result.Source)
 	fmt.Printf("  source_type: %s\n", result.SourceType)
 	printSkillRefFields(result.SourceRef, result.RequestedRef, result.ResolvedRef, result.Pinned)
@@ -338,6 +340,7 @@ func printSkillUpdateCheck(result skill.UpdateCheckResult) {
 	}
 	fmt.Printf("skill update check %s\n", result.Skill.ID)
 	fmt.Printf("  status:         %s\n", status)
+	fmt.Printf("  requires:       %s\n", result.Requires.Summary())
 	fmt.Printf("  source:         %s\n", result.Source)
 	fmt.Printf("  source_type:    %s\n", result.SourceType)
 	printSkillRefFields(result.SourceRef, result.RequestedRef, result.ResolvedRef, result.Pinned)
@@ -371,7 +374,7 @@ func printSkillList(skills []skill.Skill) error {
 		return nil
 	}
 	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(writer, "ID\tSCOPE\tINVOKE\tNAME\tDESCRIPTION\tPATH")
+	fmt.Fprintln(writer, "ID\tSCOPE\tINVOKE\tREQUIRES\tNAME\tDESCRIPTION\tPATH")
 	for _, item := range skills {
 		invoke := "-"
 		if item.UserInvocable {
@@ -380,7 +383,7 @@ func printSkillList(skills []skill.Skill) error {
 				invoke += " " + item.ArgumentHint
 			}
 		}
-		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n", item.ID, item.Scope, invoke, item.Name, item.Description, item.Path)
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", item.ID, item.Scope, invoke, item.Requires.Summary(), item.Name, item.Description, item.Path)
 	}
 	return writer.Flush()
 }
@@ -394,6 +397,7 @@ func printSkill(store *skill.Store, id string) error {
 	fmt.Printf("name:      %s\n", result.Skill.Name)
 	fmt.Printf("scope:     %s\n", result.Skill.Scope)
 	fmt.Printf("invocable: %t\n", result.Skill.UserInvocable)
+	fmt.Printf("requires:  %s\n", result.Skill.Requires.Summary())
 	if result.Skill.ArgumentHint != "" {
 		fmt.Printf("hint:      %s\n", result.Skill.ArgumentHint)
 	}

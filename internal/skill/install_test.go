@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"cohert/internal/mcp"
 )
 
 func TestInstallCopiesLocalSkillToProjectScope_BitsUT(t *testing.T) {
@@ -172,6 +174,35 @@ func TestInstallDryRunDoesNotWriteAndInstallRecordsHash_BitsUT(t *testing.T) {
 	}
 	if meta.ContentHash != preview.ContentHash || meta.SourceType != "local-dir" || meta.Source != source {
 		t.Fatalf("manifest = %#v", meta)
+	}
+}
+
+func TestInstallDryRunReportsRequires_BitsUT(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "preview-deps")
+	writeSkill(t, filepath.Join(source, SkillFileName), `---
+name: Preview Deps
+requires:
+  mcp:
+    - docs
+  env:
+    - COHORT_PREVIEW_TOKEN
+  commands:
+    - git
+---
+
+# Preview Deps
+`)
+
+	preview, err := Install(context.Background(), InstallOptions{
+		Source:      source,
+		ProjectRoot: t.TempDir(),
+		DryRun:      true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := preview.Skill.Requires.Summary(); got != "mcp:docs env:COHORT_PREVIEW_TOKEN commands:git" {
+		t.Fatalf("requires summary = %q", got)
 	}
 }
 
@@ -359,6 +390,112 @@ description: Diagnose me.
 	if !foundHashError {
 		t.Fatalf("doctor checks missing content_hash error: %#v", result.Checks)
 	}
+}
+
+func TestStoreDoctorChecksDeclaredRequires_BitsUT(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "doctor-deps")
+	writeSkill(t, filepath.Join(source, SkillFileName), `---
+name: Doctor Deps
+description: Diagnose declared dependencies.
+requires:
+  mcp:
+    - docs
+  env:
+    - COHORT_DOCTOR_TOKEN
+  commands:
+    - cohort-test-command
+---
+
+# Doctor Deps
+`)
+	projectRoot := t.TempDir()
+	home := t.TempDir()
+	binDir := t.TempDir()
+	commandPath := filepath.Join(binDir, "cohort-test-command")
+	if err := os.WriteFile(commandPath, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("COHORT_DOCTOR_TOKEN", "")
+
+	mcpStore := mcp.NewStore(projectRoot)
+	mcpStore.HomeDir = func() (string, error) { return home, nil }
+	if err := mcpStore.Add(mcp.ScopeProject, mcp.ServerConfig{
+		Name: "docs",
+		Type: mcp.TransportHTTP,
+		URL:  "https://example.com/mcp",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(projectRoot, home)
+	if _, err := Install(context.Background(), InstallOptions{Source: source, ProjectRoot: projectRoot, HomeDir: home}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	result, err := store.Doctor("doctor-deps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ErrorCount() != 0 {
+		t.Fatalf("doctor result has errors: %#v", result.Checks)
+	}
+	for _, code := range []string{"requires_env", "requires_command", "requires_mcp"} {
+		if !hasDiagnostic(result.Checks, code, DiagnosticOK) {
+			t.Fatalf("doctor checks missing ok %s: %#v", code, result.Checks)
+		}
+	}
+}
+
+func TestStoreDoctorReportsMissingRequires_BitsUT(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "doctor-missing-deps")
+	writeSkill(t, filepath.Join(source, SkillFileName), `---
+name: Doctor Missing Deps
+description: Diagnose missing dependencies.
+requires:
+  mcp:
+    - missing-docs
+  env:
+    - COHORT_MISSING_DOCTOR_TOKEN
+  commands:
+    - cohort-definitely-missing-command
+---
+
+# Doctor Missing Deps
+`)
+	projectRoot := t.TempDir()
+	store := NewStore(projectRoot, t.TempDir())
+	if _, err := Install(context.Background(), InstallOptions{Source: source, ProjectRoot: projectRoot}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COHORT_MISSING_DOCTOR_TOKEN", "")
+	os.Unsetenv("COHORT_MISSING_DOCTOR_TOKEN")
+
+	result, err := store.Doctor("doctor-missing-deps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, code := range []string{"requires_env", "requires_command", "requires_mcp"} {
+		if !hasDiagnostic(result.Checks, code, DiagnosticError) {
+			t.Fatalf("doctor checks missing error %s: %#v", code, result.Checks)
+		}
+	}
+	if result.ErrorCount() < 3 {
+		t.Fatalf("error count = %d, checks = %#v", result.ErrorCount(), result.Checks)
+	}
+}
+
+func hasDiagnostic(checks []Diagnostic, code string, severity DiagnosticSeverity) bool {
+	for _, check := range checks {
+		if check.Code == code && check.Severity == severity {
+			return true
+		}
+	}
+	return false
 }
 
 func newGitSkillRepo(t *testing.T) string {

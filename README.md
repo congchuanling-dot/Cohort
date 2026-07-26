@@ -560,4 +560,21 @@ go run . skill uninstall project/<skill_name>
 go run . skill list
 ```
 
-`install --dry-run` 会解析来源、定位 `SKILL.md`、计算文件数和内容 SHA256，但不会写入 `.cohort/skills`。正式安装会写入 `.cohert-skill.json`，记录 `source`、`source_type`、`source_ref`、`requested_ref`、`resolved_ref`、`pinned`、`scope`、`alias`、`installed_at` 和 `content_hash`。`--pin <git-ref>` 会把 git Skill 锁到解析后的 commit；后续不带参数的 `skill update` 和 `skill update --check` 会继续使用这个 commit，除非再次传 `--pin <new-ref>`。`skill doctor` 会检查路径边界、Skill 正文、manifest 和 hash 漂移，适合在更新或手工编辑后做健康检查。
+`install --dry-run` 会解析来源、定位 `SKILL.md`、计算文件数、内容 SHA256 和 `requires` 依赖摘要，但不会写入 `.cohort/skills`。正式安装会写入 `.cohert-skill.json`，记录 `source`、`source_type`、`source_ref`、`requested_ref`、`resolved_ref`、`pinned`、`scope`、`alias`、`installed_at` 和 `content_hash`。`--pin <git-ref>` 会把 git Skill 锁到解析后的 commit；后续不带参数的 `skill update` 和 `skill update --check` 会继续使用这个 commit，除非再次传 `--pin <new-ref>`。`skill doctor` 会检查路径边界、Skill 正文、manifest、hash 漂移和 `requires` 声明的 MCP/env/commands 依赖，适合在更新或手工编辑后做健康检查。
+
+Skill 可以在 `SKILL.md` frontmatter 中声明运行前依赖。Cohert 只解析、展示和诊断这些依赖，不会自动安装命令、添加 MCP Server、申请授权或输出环境变量值。
+
+```yaml
+---
+name: lark-doc-helper
+description: Work with Lark documents.
+requires:
+  mcp:
+    - lark
+  env:
+    - LARK_APP_ID
+    - LARK_APP_SECRET
+  commands:
+    - npx
+---
+```

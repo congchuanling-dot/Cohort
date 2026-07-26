@@ -33,14 +33,46 @@ const (
 // Skill 是一个可按需读取的工作流包摘要。
 // 摘要会进入系统提示词；正文只有模型显式调用 skill_read 后才进入上下文。
 type Skill struct {
-	ID            string `json:"id"`
-	Alias         string `json:"alias"`
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	UserInvocable bool   `json:"user_invocable"`
-	ArgumentHint  string `json:"argument_hint"`
-	Scope         Scope  `json:"scope"`
-	Path          string `json:"path"`
+	ID            string   `json:"id"`
+	Alias         string   `json:"alias"`
+	Name          string   `json:"name"`
+	Description   string   `json:"description"`
+	UserInvocable bool     `json:"user_invocable"`
+	ArgumentHint  string   `json:"argument_hint"`
+	Requires      Requires `json:"requires,omitempty"`
+	Scope         Scope    `json:"scope"`
+	Path          string   `json:"path"`
+}
+
+// Requires 描述 Skill 在运行前需要用户显式准备的外部依赖。
+// Cohert 只负责解析和诊断，不会自动安装命令、配置 MCP 或读取环境变量值。
+type Requires struct {
+	MCP      []string `json:"mcp,omitempty"`
+	Env      []string `json:"env,omitempty"`
+	Commands []string `json:"commands,omitempty"`
+}
+
+// Empty 返回该 Skill 是否没有声明外部依赖。
+func (r Requires) Empty() bool {
+	return len(r.MCP) == 0 && len(r.Env) == 0 && len(r.Commands) == 0
+}
+
+// Summary 返回适合 CLI/REPL 单行展示的依赖摘要，不包含环境变量值。
+func (r Requires) Summary() string {
+	if r.Empty() {
+		return "-"
+	}
+	parts := make([]string, 0, 3)
+	if len(r.MCP) > 0 {
+		parts = append(parts, "mcp:"+strings.Join(r.MCP, ","))
+	}
+	if len(r.Env) > 0 {
+		parts = append(parts, "env:"+strings.Join(r.Env, ","))
+	}
+	if len(r.Commands) > 0 {
+		parts = append(parts, "commands:"+strings.Join(r.Commands, ","))
+	}
+	return strings.Join(parts, " ")
 }
 
 // ReadResult 是 skill_read 返回给模型的结构化内容。
@@ -175,7 +207,7 @@ func (s *Store) IndexPrompt() string {
 	b.WriteString("\n\n[Skill Index]\n")
 	b.WriteString("Skill 是可按需读取的任务工作流包，不是 MCP 工具。只有摘要在这里；命中任务场景时先调用 skill_read(skill_id) 读取完整 SKILL.md，再按其中规则执行，并调用 update_working_checkpoint 保存 related_skill 和关键约束。\n")
 	for _, item := range skills {
-		fmt.Fprintf(&b, "- id: `%s`; name: %s; scope: %s; description: %s\n", item.ID, item.Name, item.Scope, item.Description)
+		fmt.Fprintf(&b, "- id: `%s`; name: %s; scope: %s; requires: %s; description: %s\n", item.ID, item.Name, item.Scope, item.Requires.Summary(), item.Description)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -243,6 +275,7 @@ func scanRoot(scope Scope, root string) ([]Skill, error) {
 			Description:   metadata.Description,
 			UserInvocable: metadata.UserInvocable,
 			ArgumentHint:  metadata.ArgumentHint,
+			Requires:      metadata.Requires,
 			Scope:         scope,
 			Path:          filepath.Clean(path),
 		})
@@ -255,11 +288,13 @@ type Metadata struct {
 	Description   string
 	UserInvocable bool
 	ArgumentHint  string
+	Requires      Requires
 }
 
 func parseMetadata(data []byte, fallbackName string) Metadata {
 	text := string(data)
-	frontMatter := parseFrontMatter(text)
+	frontMatterData := parseFrontMatterData(text)
+	frontMatter := frontMatterData.Values
 	name := strings.TrimSpace(frontMatter["name"])
 	description := strings.TrimSpace(frontMatter["description"])
 	argumentHint := strings.TrimSpace(frontMatter["argument-hint"])
@@ -281,6 +316,7 @@ func parseMetadata(data []byte, fallbackName string) Metadata {
 		Description:   truncateRunes(strings.Join(strings.Fields(description), " "), maxSkillDescriptionRunes),
 		UserInvocable: userInvocable,
 		ArgumentHint:  argumentHint,
+		Requires:      frontMatterData.Requires,
 	}
 }
 
@@ -290,18 +326,38 @@ func parseSummary(data []byte, fallbackName string) (string, string) {
 }
 
 func parseFrontMatter(text string) map[string]string {
+	return parseFrontMatterData(text).Values
+}
+
+type frontMatterData struct {
+	Values   map[string]string
+	Requires Requires
+}
+
+func parseFrontMatterData(text string) frontMatterData {
 	result := map[string]string{}
 	if !strings.HasPrefix(text, "---") {
-		return result
+		return frontMatterData{Values: result}
 	}
 	lines := strings.Split(text, "\n")
 	if strings.TrimSpace(lines[0]) != "---" {
-		return result
+		return frontMatterData{Values: result}
 	}
+	end := -1
 	for index := 1; index < len(lines); index++ {
+		if strings.TrimSpace(lines[index]) == "---" {
+			end = index
+			break
+		}
+	}
+	if end == -1 {
+		return frontMatterData{Values: map[string]string{}}
+	}
+	data := frontMatterData{Values: result}
+	for index := 1; index < end; index++ {
 		line := lines[index]
-		if strings.TrimSpace(line) == "---" {
-			return result
+		if strings.TrimSpace(line) == "" || leadingWhitespace(line) > 0 {
+			continue
 		}
 		key, value, ok := strings.Cut(line, ":")
 		if !ok {
@@ -309,6 +365,15 @@ func parseFrontMatter(text string) map[string]string {
 		}
 		key = strings.ToLower(strings.TrimSpace(key))
 		value = strings.Trim(strings.TrimSpace(value), `"'`)
+		if key == "requires" {
+			requires, next := parseRequires(lines, index+1, end)
+			index = next - 1
+			if value != "" && value != ">" && value != "|" {
+				requires = mergeRequires(requires, Requires{Commands: splitRequirementValue(value)})
+			}
+			data.Requires = mergeRequires(data.Requires, requires)
+			continue
+		}
 		if !isMetadataKey(key) {
 			continue
 		}
@@ -333,7 +398,122 @@ func parseFrontMatter(text string) map[string]string {
 		}
 		result[key] = strings.Trim(strings.TrimSpace(value), `"'`)
 	}
-	return map[string]string{}
+	return data
+}
+
+func parseRequires(lines []string, start, end int) (Requires, int) {
+	var requires Requires
+	category := ""
+	index := start
+	for ; index < end; index++ {
+		line := lines[index]
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if leadingWhitespace(line) == 0 {
+			break
+		}
+		if strings.HasPrefix(trimmed, "- ") {
+			if category != "" {
+				requires.add(category, strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
+			}
+			continue
+		}
+		key, value, ok := strings.Cut(trimmed, ":")
+		if !ok {
+			continue
+		}
+		category = normalizeRequirementCategory(key)
+		if category == "" {
+			category = ""
+			continue
+		}
+		for _, item := range splitRequirementValue(value) {
+			requires.add(category, item)
+		}
+	}
+	return requires, index
+}
+
+func normalizeRequirementCategory(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "mcp", "mcps", "mcp-server", "mcp-servers", "mcp_servers":
+		return "mcp"
+	case "env", "envs", "environment", "environment-variables", "environment_variables":
+		return "env"
+	case "command", "commands", "cmd", "cmds":
+		return "commands"
+	default:
+		return ""
+	}
+}
+
+func splitRequirementValue(value string) []string {
+	value = strings.Trim(strings.TrimSpace(value), `"'`)
+	if value == "" {
+		return nil
+	}
+	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
+		value = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(value, "["), "]"))
+	}
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		item := strings.Trim(strings.TrimSpace(part), `"'`)
+		if item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func (r *Requires) add(category, value string) {
+	value = strings.Trim(strings.TrimSpace(value), `"'`)
+	if value == "" {
+		return
+	}
+	switch category {
+	case "mcp":
+		r.MCP = appendUnique(r.MCP, value)
+	case "env":
+		r.Env = appendUnique(r.Env, value)
+	case "commands":
+		r.Commands = appendUnique(r.Commands, value)
+	}
+}
+
+func mergeRequires(left, right Requires) Requires {
+	for _, item := range right.MCP {
+		left.add("mcp", item)
+	}
+	for _, item := range right.Env {
+		left.add("env", item)
+	}
+	for _, item := range right.Commands {
+		left.add("commands", item)
+	}
+	return left
+}
+
+func appendUnique(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func leadingWhitespace(value string) int {
+	count := 0
+	for _, r := range value {
+		if r != ' ' && r != '\t' {
+			break
+		}
+		count++
+	}
+	return count
 }
 
 func isMetadataKey(key string) bool {

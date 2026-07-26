@@ -3,8 +3,11 @@ package skill
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"cohert/internal/mcp"
 )
 
 // DiagnosticSeverity 表示 Skill doctor 的单项检查严重程度。
@@ -107,6 +110,7 @@ func (s *Store) Doctor(id string) (DoctorResult, error) {
 	} else {
 		result.add(DiagnosticOK, "metadata_description", "Skill description is available", metadata.Description)
 	}
+	s.addRequirementChecks(&result, metadata.Requires)
 
 	meta, err := readManifest(dir)
 	if err != nil {
@@ -166,6 +170,72 @@ func (s *Store) Doctor(id string) (DoctorResult, error) {
 		result.add(DiagnosticOK, "content_hash", "Installed Skill content matches manifest hash", fmt.Sprintf("%s files=%d", currentHash, files))
 	}
 	return result.finish(), nil
+}
+
+func (s *Store) addRequirementChecks(result *DoctorResult, requires Requires) {
+	if requires.Empty() {
+		result.add(DiagnosticOK, "requires", "Skill declares no external dependencies", "")
+		return
+	}
+	for _, name := range requires.Env {
+		if _, ok := os.LookupEnv(name); ok {
+			result.add(DiagnosticOK, "requires_env", "Required environment variable is present", name)
+		} else {
+			result.add(DiagnosticError, "requires_env", "Required environment variable is missing", name)
+		}
+	}
+	for _, command := range requires.Commands {
+		executable := commandExecutable(command)
+		if executable == "" {
+			result.add(DiagnosticError, "requires_command", "Required command declaration is empty", command)
+			continue
+		}
+		path, err := exec.LookPath(executable)
+		if err != nil {
+			result.add(DiagnosticError, "requires_command", "Required command is not available in PATH", executable)
+		} else {
+			result.add(DiagnosticOK, "requires_command", "Required command is available in PATH", fmt.Sprintf("%s -> %s", executable, path))
+		}
+	}
+	if len(requires.MCP) > 0 {
+		configured, err := s.configuredMCPServers()
+		if err != nil {
+			result.add(DiagnosticError, "requires_mcp_config", "Cannot read MCP configuration", err.Error())
+			return
+		}
+		for _, name := range requires.MCP {
+			if configured[name] {
+				result.add(DiagnosticOK, "requires_mcp", "Required MCP server is configured", name)
+			} else {
+				result.add(DiagnosticError, "requires_mcp", "Required MCP server is not configured", name)
+			}
+		}
+	}
+}
+
+func (s *Store) configuredMCPServers() (map[string]bool, error) {
+	store := mcp.NewStore(s.workspace)
+	if s.homeDir != "" {
+		homeDir := s.homeDir
+		store.HomeDir = func() (string, error) { return homeDir, nil }
+	}
+	servers, err := store.LoadEffectiveWithScopes()
+	if err != nil {
+		return nil, err
+	}
+	configured := map[string]bool{}
+	for _, entry := range servers {
+		configured[entry.Server.Name] = true
+	}
+	return configured, nil
+}
+
+func commandExecutable(command string) string {
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
 }
 
 func (r *DoctorResult) add(severity DiagnosticSeverity, code, message, detail string) {

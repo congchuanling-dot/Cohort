@@ -709,7 +709,7 @@ go run . skill install ./path/to/skill
 go run . skill install --dry-run ./path/to/skill
 ```
 
-`--dry-run` 会解析来源、定位候选 `SKILL.md`、计算将安装的文件数和内容 SHA256，并显示目标路径；不会创建 `.cohort/skills/<skill_name>` 或 `~/.cohert/skills/<skill_name>`。
+`--dry-run` 会解析来源、定位候选 `SKILL.md`、计算将安装的文件数和内容 SHA256，并显示目标路径和 `requires` 依赖摘要；不会创建 `.cohort/skills/<skill_name>` 或 `~/.cohert/skills/<skill_name>`。
 
 安装 git 仓库里的 Skill：
 
@@ -762,6 +762,31 @@ go run . skill install --force ./path/to/skill
 
 其中 `content_hash` 覆盖 Skill 包内普通文件，不包含 `.cohert-skill.json` 本身。
 
+Skill 可以在 `SKILL.md` frontmatter 中声明运行前依赖：
+
+```yaml
+---
+name: lark-doc-helper
+description: Work with Lark documents.
+requires:
+  mcp:
+    - lark
+  env:
+    - LARK_APP_ID
+    - LARK_APP_SECRET
+  commands:
+    - npx
+---
+```
+
+支持的 `requires` 分类：
+
+- `mcp`：需要用户已通过 `cohert mcp add ...` 显式配置的 MCP Server 名称。
+- `env`：需要存在的环境变量名。doctor 只检查是否存在，不会输出变量值。
+- `commands`：需要能在 `PATH` 中找到的命令名。
+
+Cohert 不会根据 `requires` 自动安装命令、添加 MCP Server、申请授权或写入环境变量；这些依赖只用于 `install --dry-run`、`skill list/show` 和 `skill doctor` 的展示与诊断。
+
 更新和删除已安装 Skill：
 
 ```bash
@@ -793,6 +818,9 @@ go run . skill doctor project/<skill_name>
 - Skill 路径是否仍在 project/user scope 根目录下。
 - `SKILL.md` 是否可读、是否为空。
 - frontmatter 名称和描述是否足够用于路由。
+- `requires` 声明的 MCP Server 是否已配置。
+- `requires` 声明的环境变量是否存在，且不展示变量值。
+- `requires` 声明的命令是否能在 `PATH` 中找到。
 - `.cohert-skill.json` 是否存在且 JSON 可读。
 - manifest 中的 source/source_type 是否完整。
 - 当前文件内容 hash 是否和安装时记录一致。

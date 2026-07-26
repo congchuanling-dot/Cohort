@@ -1132,7 +1132,7 @@ func printSkillList(out io.Writer, skills []skill.Skill) error {
 		return nil
 	}
 	writer := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(writer, "ID\tSCOPE\tINVOKE\tNAME\tDESCRIPTION\tPATH")
+	fmt.Fprintln(writer, "ID\tSCOPE\tINVOKE\tREQUIRES\tNAME\tDESCRIPTION\tPATH")
 	for _, item := range skills {
 		invoke := "-"
 		if item.UserInvocable {
@@ -1141,7 +1141,7 @@ func printSkillList(out io.Writer, skills []skill.Skill) error {
 				invoke += " " + item.ArgumentHint
 			}
 		}
-		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n", item.ID, item.Scope, invoke, item.Name, item.Description, item.Path)
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", item.ID, item.Scope, invoke, item.Requires.Summary(), item.Name, item.Description, item.Path)
 	}
 	return writer.Flush()
 }
@@ -1156,6 +1156,7 @@ func printSkill(out io.Writer, store *skill.Store, id string) error {
 	fmt.Fprintf(out, "  name:        %s\n", result.Skill.Name)
 	fmt.Fprintf(out, "  scope:       %s\n", result.Skill.Scope)
 	fmt.Fprintf(out, "  invocable:   %t\n", result.Skill.UserInvocable)
+	fmt.Fprintf(out, "  requires:    %s\n", result.Skill.Requires.Summary())
 	if result.Skill.ArgumentHint != "" {
 		fmt.Fprintf(out, "  hint:        %s\n", result.Skill.ArgumentHint)
 	}
@@ -1172,6 +1173,7 @@ func printSkillInstallResult(out io.Writer, result skill.InstallResult) {
 		fmt.Fprintf(out, "installed skill %s\n", result.Skill.ID)
 	}
 	fmt.Fprintf(out, "  name:        %s\n", result.Skill.Name)
+	fmt.Fprintf(out, "  requires:    %s\n", result.Skill.Requires.Summary())
 	fmt.Fprintf(out, "  source:      %s\n", result.Source)
 	fmt.Fprintf(out, "  source_type: %s\n", result.SourceType)
 	printSkillRefFields(out, result.SourceRef, result.RequestedRef, result.ResolvedRef, result.Pinned)
@@ -1191,6 +1193,7 @@ func printSkillInstallResult(out io.Writer, result skill.InstallResult) {
 
 func printSkillUpdateResult(out io.Writer, result skill.UpdateResult) {
 	fmt.Fprintf(out, "updated skill %s\n", result.Skill.ID)
+	fmt.Fprintf(out, "  requires:    %s\n", result.Skill.Requires.Summary())
 	fmt.Fprintf(out, "  source:      %s\n", result.Source)
 	fmt.Fprintf(out, "  source_type: %s\n", result.SourceType)
 	printSkillRefFields(out, result.SourceRef, result.RequestedRef, result.ResolvedRef, result.Pinned)
@@ -1209,6 +1212,7 @@ func printSkillUpdateCheck(out io.Writer, result skill.UpdateCheckResult) {
 	}
 	fmt.Fprintf(out, "skill update check %s\n", result.Skill.ID)
 	fmt.Fprintf(out, "  status:         %s\n", status)
+	fmt.Fprintf(out, "  requires:       %s\n", result.Requires.Summary())
 	fmt.Fprintf(out, "  source:         %s\n", result.Source)
 	fmt.Fprintf(out, "  source_type:    %s\n", result.SourceType)
 	printSkillRefFields(out, result.SourceRef, result.RequestedRef, result.ResolvedRef, result.Pinned)
