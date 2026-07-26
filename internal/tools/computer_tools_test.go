@@ -89,6 +89,40 @@ func TestComputerSeeAndFindCachesOCRVisionTargets_BitsUT(t *testing.T) {
 	}
 }
 
+func TestComputerSeeAddsHeuristicChatInputForWebView_BitsUT(t *testing.T) {
+	store := computeruse.NewStore(time.Minute)
+	driver := fakeComputerDriver(computerOffscreenTextFieldRoot())
+
+	seeOutcome, err := NewComputerSeeWithOCRRunner(driver, store, t.TempDir(), nil).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"app_name": "WeChat"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seeData := seeOutcome.Data.(map[string]any)
+	if seeData["candidate_count"].(int) == 0 {
+		t.Fatalf("see outcome = %#v", seeData)
+	}
+
+	findOutcome, err := NewComputerFind(store).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"query": "聊天输入框 底部 输入消息"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := findOutcome.Data.(map[string]any)["targets"].([]computerTargetMatch)
+	if len(targets) == 0 {
+		t.Fatalf("expected heuristic visual input target")
+	}
+	top := targets[0]
+	if top.Source != computeruse.SourceVision || top.Role != "VisualInputRegion" || top.SuggestedAction != computeruse.SuggestedActionType {
+		t.Fatalf("top target = %#v", top)
+	}
+	if top.BBox != [4]int{224, 491, 768, 579} {
+		t.Fatalf("bbox = %#v", top.BBox)
+	}
+}
+
 func TestComputerClickUsesCachedTargetMapping_BitsUT(t *testing.T) {
 	store := computeruse.NewStore(time.Minute)
 	driver := fakeComputerDriver(computerAXRoot(""))
@@ -452,6 +486,29 @@ func computerAXRoot(inputValue string) desktop.AXNode {
 				Description: "输入消息",
 				Enabled:     &enabled,
 				Bounds:      desktop.Bounds{X: 20, Y: 500, Width: 500, Height: 80},
+			},
+			{
+				ID:      "ax:0/1",
+				Role:    "AXButton",
+				Title:   "打开表情",
+				Enabled: &enabled,
+				Bounds:  desktop.Bounds{X: 400, Y: 20, Width: 70, Height: 50},
+			},
+		},
+	}
+}
+
+func computerOffscreenTextFieldRoot() desktop.AXNode {
+	enabled := true
+	return desktop.AXNode{
+		ID:   "ax:0",
+		Role: "AXApplication",
+		Children: []desktop.AXNode{
+			{
+				ID:      "ax:0/0",
+				Role:    "AXTextField",
+				Enabled: &enabled,
+				Bounds:  desktop.Bounds{X: -2, Y: 900, Width: 684, Height: 52},
 			},
 			{
 				ID:      "ax:0/1",

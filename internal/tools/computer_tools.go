@@ -116,6 +116,15 @@ func (t *ComputerSee) Run(ctx context.Context, call agent.ToolCallContext) (agen
 		state.OCRLineCount = ocrLineCount
 		state.OCRError = ocrErr
 		state.Candidates = append(state.Candidates, ocrTargets...)
+		state.Candidates = append(state.Candidates, collectComputerHeuristicVisionTargets(
+			state.ActiveWindow,
+			state.ScreenshotRef,
+			state.ScreenshotManifestRef,
+			state.ScreenshotWidth,
+			state.ScreenshotHeight,
+			state.Candidates,
+			state.OCRText,
+		)...)
 	}
 
 	state = t.store.SaveState(state)
@@ -316,8 +325,8 @@ func (t *ComputerCheck) Run(ctx context.Context, call agent.ToolCallContext) (ag
 	if pid <= 0 {
 		return computerToolError("computer_check_no_target_window", "latest computer state has no active target window", "请先调用 computer_see 选择一个可见窗口。"), nil
 	}
-	if err := activateDesktopTarget(ctx, t.driver, pid); err != nil {
-		return desktopToolError(err), nil
+	if activateErr := activateDesktopTarget(ctx, t.driver, pid); activateErr != nil {
+		return desktopToolError(activateErr), nil
 	}
 	ax, err := t.driver.AXSnapshot(ctx, desktop.AXSnapshotRequest{
 		PID:             pid,
@@ -457,6 +466,89 @@ func collectComputerOCRTargets(lines []vision.OCRLine, window computeruse.Window
 	return targets
 }
 
+func collectComputerHeuristicVisionTargets(window computeruse.WindowRef, screenshotRef string, manifestRef string, screenshotWidth int, screenshotHeight int, existing []computeruse.ComputerTarget, ocrText string) []computeruse.ComputerTarget {
+	if screenshotRef == "" || manifestRef == "" || screenshotWidth <= 0 || screenshotHeight <= 0 {
+		return nil
+	}
+	if !computerWindowLooksLikeChat(window, ocrText) {
+		return nil
+	}
+	if hasVisibleEditableAXTarget(existing, window) {
+		return nil
+	}
+	bbox, ok := heuristicChatInputBBox(screenshotWidth, screenshotHeight)
+	if !ok {
+		return nil
+	}
+	return []computeruse.ComputerTarget{{
+		Label:              "底部聊天输入框 消息输入框",
+		Role:               "VisualInputRegion",
+		Description:        "heuristic bottom input region for WebView or self-rendered chat apps; use for drafting messages only",
+		Confidence:         0.66,
+		Source:             computeruse.SourceVision,
+		Bounds:             desktop.Bounds{X: bbox[0], Y: bbox[1], Width: bbox[2] - bbox[0], Height: bbox[3] - bbox[1]},
+		CoordinateSpace:    desktop.CoordinateSpaceScreenshotLocal,
+		Window:             window,
+		SuggestedAction:    computeruse.SuggestedActionType,
+		RiskHint:           string(desktopRiskReversible),
+		ScreenshotRef:      screenshotRef,
+		ScreenshotManifest: manifestRef,
+		BBox:               bbox,
+	}}
+}
+
+func computerWindowLooksLikeChat(window computeruse.WindowRef, ocrText string) bool {
+	appText := normalizeComputerText(strings.Join([]string{
+		window.AppName,
+		window.Title,
+	}, " "))
+	if containsAny(appText, []string{
+		"微信", "wechat", "weixin",
+		"飞书", "lark", "slack", "teams", "discord",
+		"qq", "tim", "messages", "message", "chat", "聊天",
+	}) {
+		return true
+	}
+	ocr := normalizeComputerText(ocrText)
+	return containsAny(strings.Join([]string{
+		appText,
+		ocr,
+	}, " "), []string{"聊天", "发送消息", "输入消息", "发消息"})
+}
+
+func hasVisibleEditableAXTarget(targets []computeruse.ComputerTarget, window computeruse.WindowRef) bool {
+	for _, target := range targets {
+		if target.Source != computeruse.SourceAX {
+			continue
+		}
+		if target.SuggestedAction != computeruse.SuggestedActionType && !strings.Contains(strings.ToLower(target.Role), "text") {
+			continue
+		}
+		if computerTargetVisibleInWindow(target, window) {
+			return true
+		}
+	}
+	return false
+}
+
+func heuristicChatInputBBox(width int, height int) ([4]int, bool) {
+	if width < 240 || height < 180 {
+		return [4]int{}, false
+	}
+	x1Ratio := 0.28
+	if width >= 1000 {
+		x1Ratio = 0.36
+	}
+	x1 := int(float64(width) * x1Ratio)
+	y1 := int(float64(height) * 0.82)
+	x2 := int(float64(width) * 0.96)
+	y2 := int(float64(height) * 0.965)
+	if x2-x1 < 120 || y2-y1 < 40 {
+		return [4]int{}, false
+	}
+	return [4]int{x1, y1, x2, y2}, true
+}
+
 func classifyComputerVisionAction(text string) (string, bool) {
 	normalized := normalizeComputerText(text)
 	if shouldIssueDesktopVisualFocusToken(normalized, "") {
@@ -539,6 +631,9 @@ func rankComputerTargets(query string, targets []computeruse.ComputerTarget) []c
 }
 
 func scoreComputerTarget(query string, target computeruse.ComputerTarget) float64 {
+	if !computerTargetVisibleInWindow(target, target.Window) {
+		return 0
+	}
 	q := normalizeComputerText(query)
 	haystack := normalizeComputerText(strings.Join([]string{
 		target.Label,
@@ -566,6 +661,36 @@ func scoreComputerTarget(query string, target computeruse.ComputerTarget) float6
 		score += 0.4
 	}
 	return score * target.Confidence
+}
+
+func computerTargetVisibleInWindow(target computeruse.ComputerTarget, window computeruse.WindowRef) bool {
+	if target.Bounds.Width <= 0 || target.Bounds.Height <= 0 {
+		return true
+	}
+	switch target.CoordinateSpace {
+	case desktop.CoordinateSpaceScreenPhysical:
+		return boundsIntersect(target.Bounds, window.Bounds)
+	case desktop.CoordinateSpaceScreenshotLocal:
+		if window.Bounds.Width <= 0 || window.Bounds.Height <= 0 {
+			return true
+		}
+		return target.Bounds.X < window.Bounds.Width &&
+			target.Bounds.Y < window.Bounds.Height &&
+			target.Bounds.X+target.Bounds.Width > 0 &&
+			target.Bounds.Y+target.Bounds.Height > 0
+	default:
+		return true
+	}
+}
+
+func boundsIntersect(a desktop.Bounds, b desktop.Bounds) bool {
+	if b.Width <= 0 || b.Height <= 0 {
+		return true
+	}
+	return a.X < b.X+b.Width &&
+		a.X+a.Width > b.X &&
+		a.Y < b.Y+b.Height &&
+		a.Y+a.Height > b.Y
 }
 
 func normalizeComputerText(value string) string {
