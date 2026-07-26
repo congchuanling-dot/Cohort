@@ -82,8 +82,14 @@ func TestInstallSkillCommandWritesProjectSkill_BitsUT(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := installSkill(context.Background(), projectRoot, []string{"--dry-run", "--name", "cli-skill", source}); err != nil {
+	var dryRunOut strings.Builder
+	if err := installSkillWithConfirmation(context.Background(), projectRoot, []string{"--dry-run", "--name", "cli-skill", source}, strings.NewReader(""), &dryRunOut); err != nil {
 		t.Fatal(err)
+	}
+	for _, want := range []string{"preview skill project/cli-skill", "security review:", "# Installed Skill"} {
+		if !strings.Contains(dryRunOut.String(), want) {
+			t.Fatalf("dry-run output does not contain %q:\n%s", want, dryRunOut.String())
+		}
 	}
 	if _, err := os.Stat(filepath.Join(projectRoot, ".cohort", "skills", "cli-skill")); !os.IsNotExist(err) {
 		t.Fatalf("dry-run wrote skill directory or stat failed differently: %v", err)

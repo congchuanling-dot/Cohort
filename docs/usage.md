@@ -721,7 +721,15 @@ go run . skill install --yes ./path/to/skill
 go run . skill install --dry-run ./path/to/skill
 ```
 
-安装预览会解析来源、定位候选 `SKILL.md`、计算将安装的文件数和内容 SHA256，并显示目标路径和 `requires` 依赖摘要。`--dry-run` 使用同一套预览逻辑，但不会进入确认和安装阶段，也不会创建 `.cohort/skills/<skill_name>` 或 `~/.cohert/skills/<skill_name>`。
+安装预览会解析来源、定位候选 `SKILL.md`、计算将安装的文件数和内容 SHA256，并显示目标路径、`requires` 依赖摘要和候选 `SKILL.md` 指令内容。`--dry-run` 使用同一套预览逻辑，但不会进入确认和安装阶段，也不会创建 `.cohort/skills/<skill_name>` 或 `~/.cohert/skills/<skill_name>`。
+
+预览阶段的安全边界：
+
+- 让用户确认来源、git commit、目标目录、是否覆盖和内容 hash。
+- 让用户在确认前看到完整或截断后的 `SKILL.md` 指令，理解这个 Skill 之后会让 Agent 做什么。
+- 终端输出会过滤控制字符，避免远程内容用转义序列污染终端。
+- Cohert 不会在安装阶段自动运行 Skill、安装依赖、授权 MCP、写入环境变量或执行命令。
+- 这不是自动安全审计器；第三方 Skill 是否可信仍需要用户根据来源和指令内容判断。
 
 安装 git 仓库里的 Skill：
 

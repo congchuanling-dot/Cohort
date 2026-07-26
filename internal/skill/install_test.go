@@ -150,6 +150,9 @@ func TestInstallDryRunDoesNotWriteAndInstallRecordsHash_BitsUT(t *testing.T) {
 	if !preview.DryRun || preview.Files != 2 || preview.ContentHash == "" || preview.SourceType != "local-dir" {
 		t.Fatalf("preview = %#v", preview)
 	}
+	if preview.SkillFile != "# Preview Me\n" || preview.Truncated {
+		t.Fatalf("skill file preview = %q truncated=%t", preview.SkillFile, preview.Truncated)
+	}
 	if _, err := os.Stat(filepath.Join(projectRoot, ".cohort", "skills", "preview-me")); !os.IsNotExist(err) {
 		t.Fatalf("dry-run wrote destination or stat failed differently: %v", err)
 	}

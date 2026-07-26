@@ -571,7 +571,7 @@ func TestStartDryRunsSkillInstallLocally_BitsUT(t *testing.T) {
 		t.Fatalf("model calls = %d, want 0", client.calls)
 	}
 	output := out.String()
-	for _, want := range []string{"preview skill project/repl-skill", "dry_run:     true"} {
+	for _, want := range []string{"preview skill project/repl-skill", "dry_run:     true", "security review:", "# REPL Skill"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output does not contain %q:\n%s", want, output)
 		}
@@ -624,7 +624,7 @@ func TestStartConfirmsSkillInstallWithYesFlag_BitsUT(t *testing.T) {
 		t.Fatal(startErr)
 	}
 	output := out.String()
-	for _, want := range []string{"preview skill project/repl-install-skill", "install_confirmed: true", "installed skill project/repl-install-skill"} {
+	for _, want := range []string{"preview skill project/repl-install-skill", "security review:", "# REPL Install Skill", "install_confirmed: true", "installed skill project/repl-install-skill"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output does not contain %q:\n%s", want, output)
 		}

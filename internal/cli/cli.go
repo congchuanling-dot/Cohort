@@ -365,6 +365,42 @@ func printSkillInstallResultTo(out io.Writer, result skill.InstallResult) {
 	if result.WouldReplace {
 		fmt.Fprintln(out, "  would_replace: true")
 	}
+	if result.DryRun {
+		printSkillInstallSecurityReview(out, result)
+	}
+}
+
+func printSkillInstallSecurityReview(out io.Writer, result skill.InstallResult) {
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "security review:")
+	fmt.Fprintln(out, "  - Installing a Skill lets the agent load and follow this SKILL.md as task instructions.")
+	fmt.Fprintln(out, "  - Review the instructions below before confirming install.")
+	fmt.Fprintln(out, "  - Cohert does not auto-install dependencies, grant permissions, or run commands during install.")
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "SKILL.md preview:")
+	fmt.Fprintln(out, "```markdown")
+	if strings.TrimSpace(result.SkillFile) == "" {
+		fmt.Fprintln(out, "(empty)")
+	} else {
+		fmt.Fprintln(out, sanitizeTerminalText(result.SkillFile))
+	}
+	if result.Truncated {
+		fmt.Fprintf(out, "\n... truncated after %d bytes ...\n", len(result.SkillFile))
+	}
+	fmt.Fprintln(out, "```")
+}
+
+func sanitizeTerminalText(value string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\r' || r == '\t':
+			return r
+		case r < 0x20 || r == 0x7f:
+			return '?'
+		default:
+			return r
+		}
+	}, value)
 }
 
 func printSkillUpdateResult(result skill.UpdateResult) {

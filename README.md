@@ -561,7 +561,9 @@ go run . skill uninstall project/<skill_name>
 go run . skill list
 ```
 
-`skill install` 默认会先解析来源、定位 `SKILL.md`、计算文件数、内容 SHA256 和 `requires` 依赖摘要，然后提示确认；确认后才写入 `.cohort/skills`。`--yes` 用于脚本或自动化场景，表示预览后直接安装；`--dry-run` 只预览不安装。正式安装会写入 `.cohert-skill.json`，记录 `source`、`source_type`、`source_ref`、`requested_ref`、`resolved_ref`、`pinned`、`scope`、`alias`、`installed_at` 和 `content_hash`。`--pin <git-ref>` 会把 git Skill 锁到解析后的 commit；后续不带参数的 `skill update` 和 `skill update --check` 会继续使用这个 commit，除非再次传 `--pin <new-ref>`。`skill doctor` 会检查路径边界、Skill 正文、manifest、hash 漂移和 `requires` 声明的 MCP/env/commands 依赖，适合在更新或手工编辑后做健康检查。
+`skill install` 默认会先解析来源、定位 `SKILL.md`、计算文件数、内容 SHA256 和 `requires` 依赖摘要，并展示候选 `SKILL.md` 指令内容，然后提示确认；确认后才写入 `.cohort/skills`。这一步的安全边界是让用户在安装前看到“即将允许 Agent 读取并遵循的指令”，同时确认来源、commit、目标目录、覆盖行为和依赖声明。它不是自动安全审计器，不会替用户判断第三方 Skill 是否可信。
+
+`--yes` 用于脚本或自动化场景，表示预览后直接安装；`--dry-run` 只预览不安装。正式安装会写入 `.cohert-skill.json`，记录 `source`、`source_type`、`source_ref`、`requested_ref`、`resolved_ref`、`pinned`、`scope`、`alias`、`installed_at` 和 `content_hash`。`--pin <git-ref>` 会把 git Skill 锁到解析后的 commit；后续不带参数的 `skill update` 和 `skill update --check` 会继续使用这个 commit，除非再次传 `--pin <new-ref>`。`skill doctor` 会检查路径边界、Skill 正文、manifest、hash 漂移和 `requires` 声明的 MCP/env/commands 依赖，适合在更新或手工编辑后做健康检查。
 
 Skill 可以在 `SKILL.md` frontmatter 中声明运行前依赖。Cohert 只解析、展示和诊断这些依赖，不会自动安装命令、添加 MCP Server、申请授权或输出环境变量值。
 

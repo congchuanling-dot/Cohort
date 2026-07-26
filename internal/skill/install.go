@@ -20,6 +20,8 @@ import (
 
 const manifestFileName = ".cohert-skill.json"
 
+const maxInstallPreviewBytes = 20_000
+
 // InstallOptions 描述一次 Skill 安装请求。
 type InstallOptions struct {
 	Source      string
@@ -47,6 +49,8 @@ type InstallResult struct {
 	DryRun       bool
 	Files        int
 	ContentHash  string
+	SkillFile    string
+	Truncated    bool
 }
 
 // UninstallResult 描述删除一个本地 Skill 的结果。
@@ -187,6 +191,7 @@ func Install(ctx context.Context, opts InstallOptions) (InstallResult, error) {
 	if err != nil {
 		return InstallResult{}, err
 	}
+	skillFile, truncated := installPreviewContent(data)
 	metadata := parseMetadata(data, alias)
 	item := Skill{
 		ID:            string(scope) + "/" + alias,
@@ -213,6 +218,8 @@ func Install(ctx context.Context, opts InstallOptions) (InstallResult, error) {
 			DryRun:       true,
 			Files:        files,
 			ContentHash:  contentHash,
+			SkillFile:    skillFile,
+			Truncated:    truncated,
 		}, nil
 	}
 	if _, err := copySkillDir(candidate.sourceDir, dest); err != nil {
@@ -245,7 +252,16 @@ func Install(ctx context.Context, opts InstallOptions) (InstallResult, error) {
 		WouldReplace: wouldReplace,
 		Files:        files,
 		ContentHash:  contentHash,
+		SkillFile:    skillFile,
+		Truncated:    truncated,
 	}, nil
+}
+
+func installPreviewContent(data []byte) (string, bool) {
+	if len(data) <= maxInstallPreviewBytes {
+		return string(data), false
+	}
+	return string(data[:maxInstallPreviewBytes]), true
 }
 
 // Uninstall 删除一个已发现的 Skill 目录，并刷新 Store。
