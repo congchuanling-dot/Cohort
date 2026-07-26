@@ -10,6 +10,7 @@ import (
 
 	"cohert/internal/agent"
 	"cohert/internal/browser"
+	"cohert/internal/computeruse"
 	"cohert/internal/contextmgr"
 	"cohert/internal/desktop"
 	"cohert/internal/llm"
@@ -137,6 +138,7 @@ func newRegistry(
 	desktopDriver := newDesktopDriver(workspace)
 	confirmations := tools.NewConfirmationStore()
 	visualFocuses := tools.NewVisualFocusStore()
+	computerStore := computeruse.NewStore(computeruse.DefaultTargetTTL)
 	if mcpPermissions == nil {
 		mcpPermissions = tools.NewMCPPermissionStore()
 	}
@@ -174,6 +176,11 @@ func newRegistry(
 	registry.Register(tools.NewDesktopVisualClick(desktopDriver, confirmations, workspace, visualFocuses))
 	registry.Register(tools.NewDesktopPressKey(desktopDriver, confirmations))
 	registry.Register(tools.NewDesktopTypeText(desktopDriver, visualFocuses))
+	registry.Register(tools.NewComputerSee(desktopDriver, computerStore, workspace))
+	registry.Register(tools.NewComputerFind(computerStore))
+	registry.Register(tools.NewComputerClick(desktopDriver, computerStore, confirmations))
+	registry.Register(tools.NewComputerType(desktopDriver, computerStore))
+	registry.Register(tools.NewComputerCheck(desktopDriver, computerStore))
 	registry.Register(tools.NewUpdateWorkingCheckpoint())
 	registry.Register(tools.NewStartLongTermUpdate(workspace))
 	registry.Register(tools.NewMemoryProposeUpdate(workspace))

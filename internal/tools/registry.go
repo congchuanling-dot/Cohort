@@ -94,6 +94,16 @@ const (
 	ToolNameDesktopPressKey = "desktop_press_key"
 	// ToolNameDesktopTypeText 对前台目标 PID 的当前输入焦点起草文本。
 	ToolNameDesktopTypeText = "desktop_type_text"
+	// ToolNameComputerSee 观察当前电脑状态并缓存候选目标。
+	ToolNameComputerSee = "computer_see"
+	// ToolNameComputerFind 从最近一次 computer_see 中查找可操作目标。
+	ToolNameComputerFind = "computer_find"
+	// ToolNameComputerClick 点击缓存的 computer target。
+	ToolNameComputerClick = "computer_click"
+	// ToolNameComputerType 向缓存输入目标起草文本。
+	ToolNameComputerType = "computer_type"
+	// ToolNameComputerCheck 验证当前 GUI 状态。
+	ToolNameComputerCheck = "computer_check"
 )
 
 // Tool 是所有本地工具必须实现的接口。
@@ -159,6 +169,11 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameDesktopVisualClick,
 		ToolNameDesktopPressKey,
 		ToolNameDesktopTypeText,
+		ToolNameComputerSee,
+		ToolNameComputerFind,
+		ToolNameComputerClick,
+		ToolNameComputerType,
+		ToolNameComputerCheck,
 		ToolNameSkillRead,
 		ToolNameUpdateWorkingCheckpoint,
 		ToolNameStartLongTermUpdate,
