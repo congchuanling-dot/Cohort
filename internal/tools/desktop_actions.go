@@ -1027,10 +1027,25 @@ func classifyDesktopVisualClickRisk(expectedText string, reason string) desktopA
 
 // shouldIssueDesktopVisualFocusToken 仅在目标看起来是输入或搜索区域时允许后续起草。
 func shouldIssueDesktopVisualFocusToken(expectedText string, reason string) bool {
-	text := strings.ToLower(strings.Join([]string{expectedText, reason}, " "))
-	return containsAny(text, []string{
+	targetText := strings.ToLower(expectedText)
+	reasonText := strings.ToLower(reason)
+	combined := strings.Join([]string{targetText, reasonText}, " ")
+	targetLooksInput := containsAny(targetText, []string{
 		"输入", "发消息", "搜索", "编辑", "聚焦", "光标", "文本框", "输入框",
 		"message", "input", "search", "edit", "focus", "cursor", "textbox", "text field",
+	})
+	if targetLooksInput {
+		return true
+	}
+	if containsAny(combined, []string{
+		"搜索结果", "结果中的", "联系人", "会话", "聊天列表",
+		"search result", "result", "contact", "conversation", "chat list",
+	}) {
+		return false
+	}
+	return containsAny(reasonText, []string{
+		"消息输入框", "输入框", "搜索框", "文本框", "编辑框", "聚焦输入", "光标",
+		"message input", "input box", "search box", "text box", "textbox", "text field", "focus input", "cursor",
 	})
 }
 

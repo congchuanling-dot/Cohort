@@ -769,6 +769,52 @@ func TestDesktopVisualClickMapsScreenshotBBoxAndActivates_BitsUT(t *testing.T) {
 	}
 }
 
+func TestDesktopVisualClickSearchResultDoesNotIssueVisualFocusToken_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	imagePath, manifestPath := writeDesktopVisualFixture(t, workspace, desktopScreenshotManifest{
+		Version:               1,
+		PID:                   123,
+		WindowID:              "12",
+		Width:                 200,
+		Height:                100,
+		WindowBounds:          desktop.Bounds{X: 100, Y: 200, Width: 400, Height: 200},
+		CoordinateSpace:       desktop.CoordinateSpaceScreenshotLocal,
+		ScreenCoordinateSpace: desktop.CoordinateSpaceScreenPhysical,
+	})
+	driver := &fakeDesktopDriver{
+		visualClick: desktop.VisualClickResult{
+			PID:             123,
+			Action:          "VisualClick",
+			Performed:       true,
+			ActiveBefore:    true,
+			ActiveAfter:     true,
+			X:               200,
+			Y:               260,
+			CoordinateSpace: desktop.CoordinateSpaceScreenPhysical,
+		},
+	}
+	outcome, err := NewDesktopVisualClick(driver, NewConfirmationStore(), workspace).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{
+			"pid":           123,
+			"image_path":    imagePath,
+			"manifest_path": manifestPath,
+			"bbox":          []any{40, 20, 60, 40},
+			"expected_text": "梁亚琦",
+			"reason":        "点击搜索结果中的「梁亚琦」打开对话窗口",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["verified"] != true {
+		t.Fatalf("outcome = %#v", data)
+	}
+	if _, exists := data["visual_focus_token"]; exists {
+		t.Fatalf("search result click must not issue visual focus token: %#v", data)
+	}
+}
+
 func TestDesktopVisualClickRequiresConfirmationForSendText_BitsUT(t *testing.T) {
 	workspace := t.TempDir()
 	imagePath, manifestPath := writeDesktopVisualFixture(t, workspace, desktopScreenshotManifest{
