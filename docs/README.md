@@ -17,11 +17,13 @@
 
 当前优先级以 [开发任务拆解表](development_task_breakdown.md) 顶部的“当前开发路径”为准：
 
-1. `[部分完成]` 用官方飞书 MCP 完成 OAuth、只读和受控写操作的真实端到端验收。
-2. `[规划]` 实现 `NoToolPolicy`，处理模型空回复、未落盘代码和过早结束。
-3. `[部分完成]` 将现有 `run.log` 扩展为完整 Runner 生命周期事件流，再抽取内部 Hook 接口。
-4. `[规划]` 实现交互式 diff、变更审阅与回滚边界。
-5. `[规划]` 再推进 Project/Plan Mode、Plugin、LSP、多模型和 daemon。
+1. `[下一步]` 实现 `FinishGuard` / `NoToolPolicy`，保持无工具默认结束，只处理空回复、截断回复、大代码块误输出和 plan 未验证完成等强异常。
+2. `[规划]` 增加严格文本 `<tool_use>` 兜底，降低不同模型或中转服务的 tool calling 波动。
+3. `[部分完成]` 将现有工具级 `run.log` 扩展为完整 Runner 生命周期事件流，再抽取内部 Hook 接口。
+4. `[规划]` 实现 `cohert doctor` 总入口，统一检查配置、模型、MCP、Skill、浏览器和桌面环境。
+5. `[规划]` 实现交互式 diff、变更审阅与回滚边界。
+6. `[规划]` 再推进 Project/Plan Mode、内置 Skill 包、Plugin、LSP、多模型和 daemon。
+7. `[验收支线]` 用官方飞书 MCP 完成 OAuth、只读和受控写操作的真实端到端验收。
 
 ## 运行与使用
 
@@ -39,7 +41,7 @@
 | `[维护]` | [development_task_breakdown.md](development_task_breakdown.md) | 当前优先级和历史任务档案。 |
 | `[部分完成]` | [cohort_mcp_integration_design.md](cohort_mcp_integration_design.md) | add/list/status/tools/probe/remove 与 P1 权限审计基础已完成；导入导出、飞书真实验收、OAuth 体验和 Plugin 尚待完成。 |
 | `[规划]` | [cohort_future_development_opportunities.md](cohort_future_development_opportunities.md) | Claude Code/OpenClaw 对标能力池；以顶部状态表判断实际进度。 |
-| `[部分完成]` | [cohort_vs_ga_current_gap.md](cohort_vs_ga_current_gap.md) | 当前差距分析；`run.log` 基础已补齐，NoToolPolicy、Hook、Project/Plan Mode 等仍未完成。 |
+| `[部分完成]` | [cohort_vs_ga_current_gap.md](cohort_vs_ga_current_gap.md) | 当前差距分析；MCP 和渐进式 Skill Runtime 基础已补齐，NoToolPolicy、Hook、Project/Plan Mode、长期自治和前端生态仍未完成。 |
 | `[历史]` | [cohert_vs_ga_gap.md](cohert_vs_ga_gap.md) | 早期 MVP 差距快照，已由 `cohort_vs_ga_current_gap.md` 取代。 |
 
 ## 核心能力设计
@@ -51,6 +53,7 @@
 | `[部分完成]` | [browser_operation_design.md](browser_operation_design.md) | Chrome bridge、DOM、点击、输入、等待、截图已落地；扩展桥与持续监控仍为后续。 |
 | `[部分完成]` | [browser_ocr_real_input_fallback_design.md](browser_ocr_real_input_fallback_design.md) | DOM 摘要、OCR 和 macOS 受控输入已落地；视觉候选和 Windows 支持未完成。 |
 | `[部分完成]` | [desktop_computer_use_technical_design.md](desktop_computer_use_technical_design.md) | M1、M2 受控桌面链路已完成；M3 视觉候选和更强后验验证待完成。 |
+| `[规划]` | [human_os_operation_technical_design.md](human_os_operation_technical_design.md) | 人类级跨 OS 操作执行层方案；目标是模拟人类观察和键鼠输入完成 GUI 可完成任务，但底层输入必须绑定窗口、风险等级、验证和审计。 |
 | `[部分完成]` | [self_evolution_technical_design.md](self_evolution_technical_design.md) | 受控长期记忆、证据和 SOP candidate 已完成；后台反射、L4 归档和质量闭环未完成。 |
 | `[部分完成]` | [cohort_self_evolution_research.md](cohort_self_evolution_research.md) | 自进化调研及后续路线，P1-P3 仍为规划。 |
 

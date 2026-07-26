@@ -16,21 +16,26 @@
 | 浏览器与桌面 | `[完成]` | Chrome bridge、DOM/OCR、受控点击输入，以及 macOS AX/OCR 受控输入链路已实现。 |
 | MCP 核心链路 | `[部分完成]` | `.mcp.json` scope、stdio/HTTP、发现、调用、分页、status/probe、REPL `/mcp` 已实现；导入导出与旧 SSE 待补。 |
 | MCP P1 基础 | `[完成]` | 精确参数授权、R3 拒绝、外部结果裁剪、MCP 审计和零默认 Server 已实现。 |
+| Skill Runtime | `[部分完成]` | 本地/Git 安装、安装预览、版本锁定、manifest hash、`skill doctor`、`skill_read`、`/skill run` 和快捷 alias 已实现；运行时权限拦截、内置 Skill 包和自动候选挖掘待补。 |
 | `run.log` 基础 | `[部分完成]` | 已记录工具完成事件、脱敏参数摘要和 MCP 元数据；尚未覆盖完整 LLM/生命周期事件。 |
 
 ### 当前优先级
 
 | 顺序 | 任务 | 状态 | 完成条件 |
 | --- | --- | --- | --- |
-| 1 | 飞书 MCP 真实端到端验收 | `[进行中]` | 用户显式装配官方 Server 后，完成 OAuth、只读文档、R2 写操作确认和 `run.log` 检查。 |
-| 2 | `NoToolPolicy` 与早停治理 | `[规划]` | 模型空回复、未调用工具的写入任务、大代码块未落盘和未验证 final 均能受控重试。 |
-| 3 | Runner 生命周期事件 | `[规划]` | 将 `run.log`、权限、evidence、compact 等收敛为内部事件接口，避免继续堆入 Runner。 |
-| 4 | 交互式 diff 与变更审阅 | `[规划]` | 提供 `/diff`、变更摘要、接受/拒绝与受限回滚边界。 |
-| 5 | Project / Plan Mode | `[规划]` | 项目 bootstrap、计划状态和验证关口可在 session 中恢复。 |
+| 1 | `FinishGuard` / `NoToolPolicy` 与早停治理 | `[下一步]` | 保持“无 tool_calls 默认结束”的 Agent Loop 语义，只对空回复、流式中断、max_tokens 截断、plan 未验证完成、大代码块误输出等强异常做一次性守卫；目标文件：`internal/agent/runner.go`、新增 `internal/agent/finish_guard.go`、`internal/agent/*test.go`。 |
+| 2 | 严格文本 `<tool_use>` 兜底 | `[规划]` | OpenAI-compatible 原生 tool_calls 缺失时，严格解析 `<tool_use>{...}</tool_use>`；解析失败走 bad JSON 自修复；正文展示剥离工具块。 |
+| 3 | Runner 生命周期事件与 `run.log` 事件流 | `[规划]` | 将 LLM、tool、permission、evidence、compact、session start/end 等统一成内部 event，并把现有工具级 `run.log` 扩展为 JSONL 事件流。 |
+| 4 | `cohert doctor` 总入口 | `[规划]` | 一键检查配置、API key、模型连通性、MCP、Skill、browser bridge、desktop helper、workspace/session/log 可写性。 |
+| 5 | 交互式 diff 与变更审阅 | `[规划]` | 提供 `/diff`、变更摘要、接受/拒绝与受限回滚边界，避免模型修改后用户不可见。 |
+| 6 | Project / Plan Mode | `[规划]` | 项目 bootstrap、计划状态和验证关口可在 session 中恢复。 |
+| 7 | 飞书 MCP 真实端到端验收 | `[验收支线]` | 用户显式装配官方 Server 后，完成 OAuth、只读文档、R2 写操作确认和 `run.log` 检查；不阻塞 NoToolPolicy 主线。 |
 
 ### 延后项
 
-- Plugin/Skill manifest、LSP、多模型 fallback：在 Project/Plan Mode 的最小形态稳定后开始。
+- 内置常用 Skill 包、`SKILL.md permissions` 和 `/skill run` active policy：在 FinishGuard 与事件流稳定后开始。
+- 人类级跨 OS 操作执行层：先按 `docs/human_os_operation_technical_design.md` 建统一协议和 macOS M0/M1，再扩展 Windows / Linux driver。
+- Plugin manifest、LSP、多模型 fallback：在 Project/Plan Mode 的最小形态稳定后开始。
 - Marketplace、daemon、Gateway、Cohort 作为 MCP Server：在权限、审计、运行事件和真实 MCP 验收稳定后开始。
 - 自动反射、L4 会话挖掘：在生命周期事件和质量门禁完成后开始。
 
