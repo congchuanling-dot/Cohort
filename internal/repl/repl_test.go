@@ -571,13 +571,66 @@ func TestStartDryRunsSkillInstallLocally_BitsUT(t *testing.T) {
 		t.Fatalf("model calls = %d, want 0", client.calls)
 	}
 	output := out.String()
-	for _, want := range []string{"dry-run skill project/repl-skill", "dry_run:     true"} {
+	for _, want := range []string{"preview skill project/repl-skill", "dry_run:     true"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output does not contain %q:\n%s", want, output)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(workspace, ".cohort", "skills", "repl-skill")); !os.IsNotExist(err) {
 		t.Fatalf("dry-run wrote skill directory or stat failed differently: %v", err)
+	}
+}
+
+func TestStartConfirmsSkillInstallWithYesFlag_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	source := filepath.Join(t.TempDir(), "repl-install-skill")
+	if err := os.MkdirAll(source, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, skill.SkillFileName), []byte("# REPL Install Skill\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	store := skill.NewStore(workspace, t.TempDir())
+	if err := store.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	runner := &agent.Runner{
+		Client:     &fakeClient{},
+		Tools:      fakeTools{},
+		SkillStore: store,
+	}
+	cfg := testConfig()
+	cfg.Workspace = workspace
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(workspace); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	var out bytes.Buffer
+	startErr := Start(context.Background(), Options{
+		Config:       cfg,
+		Runner:       runner,
+		SessionStore: session.NewStore(t.TempDir()),
+		In:           strings.NewReader("/skill install --yes --name repl-install-skill " + source + "\n/exit\n"),
+		Out:          &out,
+		Err:          &out,
+	})
+	if startErr != nil {
+		t.Fatal(startErr)
+	}
+	output := out.String()
+	for _, want := range []string{"preview skill project/repl-install-skill", "install_confirmed: true", "installed skill project/repl-install-skill"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output does not contain %q:\n%s", want, output)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(workspace, ".cohort", "skills", "repl-install-skill", skill.SkillFileName)); err != nil {
+		t.Fatal(err)
 	}
 }
 

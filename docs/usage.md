@@ -703,13 +703,25 @@ Skill 是可按需读取的任务工作流包，和 MCP 工具分开管理。Coh
 go run . skill install ./path/to/skill
 ```
 
-安装前预览，不写入目标目录：
+`skill install` 会先打印安装预览，再提示确认：
+
+```text
+Install this skill? [y/N]
+```
+
+输入 `y` 或 `yes` 后才会写入目标目录。脚本或自动化场景可以显式跳过人工确认：
+
+```bash
+go run . skill install --yes ./path/to/skill
+```
+
+只预览，不写入目标目录：
 
 ```bash
 go run . skill install --dry-run ./path/to/skill
 ```
 
-`--dry-run` 会解析来源、定位候选 `SKILL.md`、计算将安装的文件数和内容 SHA256，并显示目标路径和 `requires` 依赖摘要；不会创建 `.cohort/skills/<skill_name>` 或 `~/.cohert/skills/<skill_name>`。
+安装预览会解析来源、定位候选 `SKILL.md`、计算将安装的文件数和内容 SHA256，并显示目标路径和 `requires` 依赖摘要。`--dry-run` 使用同一套预览逻辑，但不会进入确认和安装阶段，也不会创建 `.cohort/skills/<skill_name>` 或 `~/.cohert/skills/<skill_name>`。
 
 安装 git 仓库里的 Skill：
 
@@ -785,7 +797,7 @@ requires:
 - `env`：需要存在的环境变量名。doctor 只检查是否存在，不会输出变量值。
 - `commands`：需要能在 `PATH` 中找到的命令名。
 
-Cohert 不会根据 `requires` 自动安装命令、添加 MCP Server、申请授权或写入环境变量；这些依赖只用于 `install --dry-run`、`skill list/show` 和 `skill doctor` 的展示与诊断。
+Cohert 不会根据 `requires` 自动安装命令、添加 MCP Server、申请授权或写入环境变量；这些依赖只用于安装预览、`skill list/show` 和 `skill doctor` 的展示与诊断。
 
 更新和删除已安装 Skill：
 
@@ -836,7 +848,7 @@ skill_read({"skill_id":"project/<skill_name>"})
 交互模式内查看和刷新 Skill：
 
 ```text
-/skill install [--dry-run] <path-or-git-url>
+/skill install [--yes] [--dry-run] <path-or-git-url>
 /skill install [--pin git-ref] <git-url>
 /skill doctor <skill_id>
 /skill list
@@ -855,9 +867,10 @@ skill_read({"skill_id":"project/<skill_name>"})
 外部 CLI 也支持：
 
 ```bash
+go run . skill install ./path/to/skill
+go run . skill install --yes ./path/to/skill
 go run . skill install --dry-run ./path/to/skill
 go run . skill install --pin v1.2.3 https://example.com/org/skill-repo.git
-go run . skill install ./path/to/skill
 go run . skill doctor project/<skill_name>
 go run . skill update --check project/<skill_name>
 go run . skill update project/<skill_name>

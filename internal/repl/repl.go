@@ -715,8 +715,8 @@ func printSlashHelp(out io.Writer) {
   /memory                  查看当前 session memory.md
   /sop candidates          列出可升级为正式 SOP 的候选
   /sop promote <id>        生成 sops/*.md；确认后更新 sops/index.md
-  /skill install [--dry-run] [--pin ref] <source>
-                           安装或预览安装一个 Skill
+  /skill install [--yes] [--dry-run] [--pin ref] <source>
+                           预览、确认并安装一个 Skill
   /skill doctor <id>       诊断一个已安装 Skill
   /skill list              列出当前发现的 Skills
   /skill show <id>         查看一个 Skill 的 SKILL.md
@@ -750,7 +750,7 @@ func printCommandPalette(out io.Writer) {
   /memory               查看 session memory
   /sop candidates       列出 SOP 候选
   /sop promote <id>     升级候选 SOP；--confirm-index 显式更新索引
-  /skill install <src>  安装 Skill；可加 --dry-run/--pin
+  /skill install <src>  预览确认后安装 Skill；可加 --yes/--dry-run/--pin
   /skill doctor <id>    诊断 Skill
   /skill list           列出 Skills
   /skill show <id>      查看 Skill 正文
@@ -1003,6 +1003,7 @@ func installSkillFromREPL(opts Options, args []string) error {
 		return err
 	}
 	installOpts := skill.InstallOptions{ProjectRoot: projectRoot, Scope: skill.ScopeProject}
+	assumeYes := false
 	for len(args) > 0 {
 		arg := args[0]
 		args = args[1:]
@@ -1027,6 +1028,8 @@ func installSkillFromREPL(opts Options, args []string) error {
 			installOpts.Force = true
 		case "--dry-run":
 			installOpts.DryRun = true
+		case "--yes", "-y":
+			assumeYes = true
 		case "--pin":
 			if len(args) < 1 {
 				return fmt.Errorf("--pin requires a git ref")
@@ -1038,27 +1041,59 @@ func installSkillFromREPL(opts Options, args []string) error {
 				return fmt.Errorf("unknown skill install option %q", arg)
 			}
 			if installOpts.Source != "" {
-				return fmt.Errorf("usage: /skill install [--scope project|user] [--name name] [--force] [--dry-run] [--pin git-ref] <path-or-git-url>")
+				return fmt.Errorf("usage: /skill install [--scope project|user] [--name name] [--force] [--yes] [--dry-run] [--pin git-ref] <path-or-git-url>")
 			}
 			installOpts.Source = arg
 		}
 	}
 	if installOpts.Source == "" {
-		return fmt.Errorf("usage: /skill install [--scope project|user] [--name name] [--force] [--dry-run] [--pin git-ref] <path-or-git-url>")
+		return fmt.Errorf("usage: /skill install [--scope project|user] [--name name] [--force] [--yes] [--dry-run] [--pin git-ref] <path-or-git-url>")
+	}
+	previewOpts := installOpts
+	previewOpts.DryRun = true
+	preview, err := skill.Install(opts.Context, previewOpts)
+	if err != nil {
+		return err
+	}
+	printSkillInstallResult(opts.Out, preview)
+	if installOpts.DryRun {
+		return nil
+	}
+	confirmed, err := confirmSkillInstall(opts.In, opts.Out, assumeYes)
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		fmt.Fprintln(opts.Out, "install cancelled")
+		return nil
 	}
 	result, err := skill.Install(opts.Context, installOpts)
 	if err != nil {
 		return err
 	}
 	printSkillInstallResult(opts.Out, result)
-	if result.DryRun {
-		return nil
-	}
 	if err := opts.Runner.SkillStore.Reload(); err != nil {
 		return err
 	}
 	opts.Runner.SystemPrompt = app.BuildSystemPrompt(opts.Config, opts.Runner.SkillStore)
 	return nil
+}
+
+func confirmSkillInstall(in io.Reader, out io.Writer, assumeYes bool) (bool, error) {
+	if assumeYes {
+		fmt.Fprintln(out, "install_confirmed: true")
+		return true, nil
+	}
+	fmt.Fprint(out, "Install this skill? [y/N] ")
+	scanner := bufio.NewScanner(in)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+	answer := strings.ToLower(strings.TrimSpace(scanner.Text()))
+	return answer == "y" || answer == "yes", nil
 }
 
 func parseSkillUpdateArgs(args []string) (skill.UpdateOptions, bool, error) {
@@ -1168,7 +1203,7 @@ func printSkill(out io.Writer, store *skill.Store, id string) error {
 
 func printSkillInstallResult(out io.Writer, result skill.InstallResult) {
 	if result.DryRun {
-		fmt.Fprintf(out, "dry-run skill %s\n", result.Skill.ID)
+		fmt.Fprintf(out, "preview skill %s\n", result.Skill.ID)
 	} else {
 		fmt.Fprintf(out, "installed skill %s\n", result.Skill.ID)
 	}

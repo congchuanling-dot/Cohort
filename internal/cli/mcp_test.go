@@ -2,8 +2,10 @@ package cli
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"cohert/internal/mcp"
@@ -87,7 +89,7 @@ func TestInstallSkillCommandWritesProjectSkill_BitsUT(t *testing.T) {
 		t.Fatalf("dry-run wrote skill directory or stat failed differently: %v", err)
 	}
 
-	if err := installSkill(context.Background(), projectRoot, []string{"--name", "cli-skill", source}); err != nil {
+	if err := installSkillWithConfirmation(context.Background(), projectRoot, []string{"--name", "cli-skill", source}, strings.NewReader("y\n"), io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(projectRoot, ".cohort", "skills", "cli-skill", skill.SkillFileName)); err != nil {

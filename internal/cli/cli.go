@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -242,7 +244,12 @@ func parseSkillUpdateArgs(args []string) (skill.UpdateOptions, bool, error) {
 }
 
 func installSkill(ctx context.Context, projectRoot string, args []string) error {
+	return installSkillWithConfirmation(ctx, projectRoot, args, os.Stdin, os.Stdout)
+}
+
+func installSkillWithConfirmation(ctx context.Context, projectRoot string, args []string, in io.Reader, out io.Writer) error {
 	opts := skill.InstallOptions{ProjectRoot: projectRoot, Scope: skill.ScopeProject}
+	assumeYes := false
 	for len(args) > 0 {
 		arg := args[0]
 		args = args[1:]
@@ -267,6 +274,8 @@ func installSkill(ctx context.Context, projectRoot string, args []string) error 
 			opts.Force = true
 		case "--dry-run":
 			opts.DryRun = true
+		case "--yes", "-y":
+			assumeYes = true
 		case "--pin":
 			if len(args) < 1 {
 				return errors.New("--pin requires a git ref")
@@ -278,44 +287,83 @@ func installSkill(ctx context.Context, projectRoot string, args []string) error 
 				return fmt.Errorf("unknown skill install option %q", arg)
 			}
 			if opts.Source != "" {
-				return errors.New("usage: cohert skill install [--scope project|user] [--name name] [--force] [--dry-run] [--pin git-ref] <path-or-git-url>")
+				return errors.New("usage: cohert skill install [--scope project|user] [--name name] [--force] [--yes] [--dry-run] [--pin git-ref] <path-or-git-url>")
 			}
 			opts.Source = arg
 		}
 	}
 	if opts.Source == "" {
-		return errors.New("usage: cohert skill install [--scope project|user] [--name name] [--force] [--dry-run] [--pin git-ref] <path-or-git-url>")
+		return errors.New("usage: cohert skill install [--scope project|user] [--name name] [--force] [--yes] [--dry-run] [--pin git-ref] <path-or-git-url>")
+	}
+	previewOpts := opts
+	previewOpts.DryRun = true
+	preview, err := skill.Install(ctx, previewOpts)
+	if err != nil {
+		return err
+	}
+	printSkillInstallResultTo(out, preview)
+	if opts.DryRun {
+		return nil
+	}
+	confirmed, err := confirmSkillInstall(in, out, assumeYes)
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		fmt.Fprintln(out, "install cancelled")
+		return nil
 	}
 	result, err := skill.Install(ctx, opts)
 	if err != nil {
 		return err
 	}
-	printSkillInstallResult(result)
+	printSkillInstallResultTo(out, result)
 	return nil
 }
 
-func printSkillInstallResult(result skill.InstallResult) {
-	if result.DryRun {
-		fmt.Printf("dry-run skill %s\n", result.Skill.ID)
-	} else {
-		fmt.Printf("installed skill %s\n", result.Skill.ID)
+func confirmSkillInstall(in io.Reader, out io.Writer, assumeYes bool) (bool, error) {
+	if assumeYes {
+		fmt.Fprintln(out, "install_confirmed: true")
+		return true, nil
 	}
-	fmt.Printf("  name:        %s\n", result.Skill.Name)
-	fmt.Printf("  requires:    %s\n", result.Skill.Requires.Summary())
-	fmt.Printf("  source:      %s\n", result.Source)
-	fmt.Printf("  source_type: %s\n", result.SourceType)
-	printSkillRefFields(result.SourceRef, result.RequestedRef, result.ResolvedRef, result.Pinned)
-	fmt.Printf("  destination: %s\n", result.Destination)
-	fmt.Printf("  files:       %d\n", result.Files)
-	fmt.Printf("  hash:        %s\n", result.ContentHash)
+	fmt.Fprint(out, "Install this skill? [y/N] ")
+	scanner := bufio.NewScanner(in)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+	answer := strings.ToLower(strings.TrimSpace(scanner.Text()))
+	return answer == "y" || answer == "yes", nil
+}
+
+func printSkillInstallResult(result skill.InstallResult) {
+	printSkillInstallResultTo(os.Stdout, result)
+}
+
+func printSkillInstallResultTo(out io.Writer, result skill.InstallResult) {
 	if result.DryRun {
-		fmt.Println("  dry_run:     true")
+		fmt.Fprintf(out, "preview skill %s\n", result.Skill.ID)
+	} else {
+		fmt.Fprintf(out, "installed skill %s\n", result.Skill.ID)
+	}
+	fmt.Fprintf(out, "  name:        %s\n", result.Skill.Name)
+	fmt.Fprintf(out, "  requires:    %s\n", result.Skill.Requires.Summary())
+	fmt.Fprintf(out, "  source:      %s\n", result.Source)
+	fmt.Fprintf(out, "  source_type: %s\n", result.SourceType)
+	printSkillRefFieldsTo(out, result.SourceRef, result.RequestedRef, result.ResolvedRef, result.Pinned)
+	fmt.Fprintf(out, "  destination: %s\n", result.Destination)
+	fmt.Fprintf(out, "  files:       %d\n", result.Files)
+	fmt.Fprintf(out, "  hash:        %s\n", result.ContentHash)
+	if result.DryRun {
+		fmt.Fprintln(out, "  dry_run:     true")
 	}
 	if result.Replaced {
-		fmt.Println("  replaced:    true")
+		fmt.Fprintln(out, "  replaced:    true")
 	}
 	if result.WouldReplace {
-		fmt.Println("  would_replace: true")
+		fmt.Fprintln(out, "  would_replace: true")
 	}
 }
 
@@ -354,17 +402,21 @@ func printSkillUpdateCheck(result skill.UpdateCheckResult) {
 }
 
 func printSkillRefFields(sourceRef, requestedRef, resolvedRef string, pinned bool) {
+	printSkillRefFieldsTo(os.Stdout, sourceRef, requestedRef, resolvedRef, pinned)
+}
+
+func printSkillRefFieldsTo(out io.Writer, sourceRef, requestedRef, resolvedRef string, pinned bool) {
 	if requestedRef != "" {
-		fmt.Printf("  requested_ref: %s\n", requestedRef)
+		fmt.Fprintf(out, "  requested_ref: %s\n", requestedRef)
 	}
 	if sourceRef != "" {
-		fmt.Printf("  source_ref:   %s\n", sourceRef)
+		fmt.Fprintf(out, "  source_ref:   %s\n", sourceRef)
 	}
 	if resolvedRef != "" {
-		fmt.Printf("  resolved_ref: %s\n", resolvedRef)
+		fmt.Fprintf(out, "  resolved_ref: %s\n", resolvedRef)
 	}
 	if pinned {
-		fmt.Println("  pinned:       true")
+		fmt.Fprintln(out, "  pinned:       true")
 	}
 }
 
@@ -743,8 +795,8 @@ Usage:
   cohert mcp tools <name> inspect an MCP server's tools
   cohert mcp probe <name> verify an MCP server
   cohert mcp remove <name>
-  cohert skill install [--dry-run] [--pin git-ref] <path-or-git-url>
-                          install a Skill into .cohort/skills
+  cohert skill install [--yes] [--dry-run] [--pin git-ref] <path-or-git-url>
+                          preview, confirm, then install a Skill
   cohert skill doctor <id>
                           diagnose an installed Skill
   cohert skill update [--check] [--pin git-ref] <id> [path-or-git-url]
@@ -770,8 +822,8 @@ Interactive slash commands:
   /mcp status             check MCP server availability
   /mcp tools <server>     inspect MCP server tools
   /mcp probe <server>     verify MCP server connectivity
-  /skill install [--dry-run] [--pin git-ref] <path-or-git-url>
-                          install or preview a Skill
+  /skill install [--yes] [--dry-run] [--pin git-ref] <path-or-git-url>
+                          preview, confirm, then install a Skill
   /skill doctor <id>      diagnose an installed Skill
   /skill list             list discovered Skills
   /skill show <id>        show one Skill's SKILL.md
