@@ -715,14 +715,15 @@ func printSlashHelp(out io.Writer) {
   /memory                  查看当前 session memory.md
   /sop candidates          列出可升级为正式 SOP 的候选
   /sop promote <id>        生成 sops/*.md；确认后更新 sops/index.md
-  /skill install [--dry-run] <source>
+  /skill install [--dry-run] [--pin ref] <source>
                            安装或预览安装一个 Skill
   /skill doctor <id>       诊断一个已安装 Skill
   /skill list              列出当前发现的 Skills
   /skill show <id>         查看一个 Skill 的 SKILL.md
   /skill run <id> [args]   直接按指定 Skill 执行任务
   /<skill-alias> [args]    运行 user-invocable Skill 的快捷形式
-  /skill update <id>       更新已安装 Skill
+  /skill update [--check] [--pin ref] <id>
+                           更新或检查已安装 Skill
   /skill uninstall <id>    删除已安装 Skill
   /skill reload            重新扫描 Skills 并刷新系统提示词
   /clear                   清空当前内存上下文，下一次输入会创建新 session
@@ -749,12 +750,12 @@ func printCommandPalette(out io.Writer) {
   /memory               查看 session memory
   /sop candidates       列出 SOP 候选
   /sop promote <id>     升级候选 SOP；--confirm-index 显式更新索引
-  /skill install <src>  安装 Skill；可加 --dry-run
+  /skill install <src>  安装 Skill；可加 --dry-run/--pin
   /skill doctor <id>    诊断 Skill
   /skill list           列出 Skills
   /skill show <id>      查看 Skill 正文
   /skill run <id>       运行 Skill
-  /skill update <id>    更新 Skill
+  /skill update <id>    更新 Skill；可加 --check/--pin
   /skill uninstall <id> 删除 Skill
   /skill reload         重新扫描 Skills
   /clear                清空当前内存上下文
@@ -950,23 +951,24 @@ func handleSkillCommand(opts Options, args []string) error {
 		}
 		return runSkill(opts, args[1], args[2:])
 	case skillCommandUpdate:
-		if len(args) < 2 || len(args) > 3 {
-			return fmt.Errorf("usage: /skill update <id> [path-or-git-url]")
+		updateOpts, check, err := parseSkillUpdateArgs(args[1:])
+		if err != nil {
+			return err
 		}
-		source := ""
-		if len(args) == 3 {
-			source = args[2]
+		if check {
+			result, err := opts.Runner.SkillStore.CheckUpdate(opts.Context, updateOpts)
+			if err != nil {
+				return err
+			}
+			printSkillUpdateCheck(opts.Out, result)
+			return nil
 		}
-		result, err := opts.Runner.SkillStore.Update(opts.Context, args[1], source)
+		result, err := opts.Runner.SkillStore.UpdateWithOptions(opts.Context, updateOpts)
 		if err != nil {
 			return err
 		}
 		opts.Runner.SystemPrompt = app.BuildSystemPrompt(opts.Config, opts.Runner.SkillStore)
-		fmt.Fprintf(opts.Out, "updated skill %s\n", result.Skill.ID)
-		fmt.Fprintf(opts.Out, "  source:      %s\n", result.Source)
-		fmt.Fprintf(opts.Out, "  source_type: %s\n", result.SourceType)
-		fmt.Fprintf(opts.Out, "  destination: %s\n", result.Destination)
-		fmt.Fprintf(opts.Out, "  hash:        %s\n", result.ContentHash)
+		printSkillUpdateResult(opts.Out, result)
 		return nil
 	case skillCommandRemove, "remove", "rm":
 		if len(args) != 2 {
@@ -1025,18 +1027,24 @@ func installSkillFromREPL(opts Options, args []string) error {
 			installOpts.Force = true
 		case "--dry-run":
 			installOpts.DryRun = true
+		case "--pin":
+			if len(args) < 1 {
+				return fmt.Errorf("--pin requires a git ref")
+			}
+			installOpts.Pin = args[0]
+			args = args[1:]
 		default:
 			if strings.HasPrefix(arg, "-") {
 				return fmt.Errorf("unknown skill install option %q", arg)
 			}
 			if installOpts.Source != "" {
-				return fmt.Errorf("usage: /skill install [--scope project|user] [--name name] [--force] [--dry-run] <path-or-git-url>")
+				return fmt.Errorf("usage: /skill install [--scope project|user] [--name name] [--force] [--dry-run] [--pin git-ref] <path-or-git-url>")
 			}
 			installOpts.Source = arg
 		}
 	}
 	if installOpts.Source == "" {
-		return fmt.Errorf("usage: /skill install [--scope project|user] [--name name] [--force] [--dry-run] <path-or-git-url>")
+		return fmt.Errorf("usage: /skill install [--scope project|user] [--name name] [--force] [--dry-run] [--pin git-ref] <path-or-git-url>")
 	}
 	result, err := skill.Install(opts.Context, installOpts)
 	if err != nil {
@@ -1051,6 +1059,40 @@ func installSkillFromREPL(opts Options, args []string) error {
 	}
 	opts.Runner.SystemPrompt = app.BuildSystemPrompt(opts.Config, opts.Runner.SkillStore)
 	return nil
+}
+
+func parseSkillUpdateArgs(args []string) (skill.UpdateOptions, bool, error) {
+	updateOpts := skill.UpdateOptions{}
+	check := false
+	for len(args) > 0 {
+		arg := args[0]
+		args = args[1:]
+		switch arg {
+		case "--check":
+			check = true
+		case "--pin":
+			if len(args) < 1 {
+				return updateOpts, false, fmt.Errorf("--pin requires a git ref")
+			}
+			updateOpts.Pin = args[0]
+			args = args[1:]
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return updateOpts, false, fmt.Errorf("unknown skill update option %q", arg)
+			}
+			if updateOpts.ID == "" {
+				updateOpts.ID = arg
+			} else if updateOpts.Source == "" {
+				updateOpts.Source = arg
+			} else {
+				return updateOpts, false, fmt.Errorf("usage: /skill update [--check] [--pin git-ref] <id> [path-or-git-url]")
+			}
+		}
+	}
+	if updateOpts.ID == "" {
+		return updateOpts, false, fmt.Errorf("usage: /skill update [--check] [--pin git-ref] <id> [path-or-git-url]")
+	}
+	return updateOpts, check, nil
 }
 
 func runInvocableSkillAlias(opts Options, cmd SlashCommand) (bool, error) {
@@ -1132,6 +1174,7 @@ func printSkillInstallResult(out io.Writer, result skill.InstallResult) {
 	fmt.Fprintf(out, "  name:        %s\n", result.Skill.Name)
 	fmt.Fprintf(out, "  source:      %s\n", result.Source)
 	fmt.Fprintf(out, "  source_type: %s\n", result.SourceType)
+	printSkillRefFields(out, result.SourceRef, result.RequestedRef, result.ResolvedRef, result.Pinned)
 	fmt.Fprintf(out, "  destination: %s\n", result.Destination)
 	fmt.Fprintf(out, "  files:       %d\n", result.Files)
 	fmt.Fprintf(out, "  hash:        %s\n", result.ContentHash)
@@ -1146,6 +1189,53 @@ func printSkillInstallResult(out io.Writer, result skill.InstallResult) {
 	}
 }
 
+func printSkillUpdateResult(out io.Writer, result skill.UpdateResult) {
+	fmt.Fprintf(out, "updated skill %s\n", result.Skill.ID)
+	fmt.Fprintf(out, "  source:      %s\n", result.Source)
+	fmt.Fprintf(out, "  source_type: %s\n", result.SourceType)
+	printSkillRefFields(out, result.SourceRef, result.RequestedRef, result.ResolvedRef, result.Pinned)
+	fmt.Fprintf(out, "  destination: %s\n", result.Destination)
+	fmt.Fprintf(out, "  files:       %d\n", result.Files)
+	fmt.Fprintf(out, "  hash:        %s\n", result.ContentHash)
+	if result.Replaced {
+		fmt.Fprintln(out, "  replaced:    true")
+	}
+}
+
+func printSkillUpdateCheck(out io.Writer, result skill.UpdateCheckResult) {
+	status := "update-available"
+	if result.UpToDate {
+		status = "up-to-date"
+	}
+	fmt.Fprintf(out, "skill update check %s\n", result.Skill.ID)
+	fmt.Fprintf(out, "  status:         %s\n", status)
+	fmt.Fprintf(out, "  source:         %s\n", result.Source)
+	fmt.Fprintf(out, "  source_type:    %s\n", result.SourceType)
+	printSkillRefFields(out, result.SourceRef, result.RequestedRef, result.ResolvedRef, result.Pinned)
+	fmt.Fprintf(out, "  destination:    %s\n", result.Destination)
+	fmt.Fprintf(out, "  files:          %d\n", result.Files)
+	fmt.Fprintf(out, "  current_hash:   %s\n", result.CurrentHash)
+	if result.ManifestHash != "" {
+		fmt.Fprintf(out, "  manifest_hash:  %s\n", result.ManifestHash)
+	}
+	fmt.Fprintf(out, "  candidate_hash: %s\n", result.CandidateHash)
+}
+
+func printSkillRefFields(out io.Writer, sourceRef, requestedRef, resolvedRef string, pinned bool) {
+	if requestedRef != "" {
+		fmt.Fprintf(out, "  requested_ref: %s\n", requestedRef)
+	}
+	if sourceRef != "" {
+		fmt.Fprintf(out, "  source_ref:   %s\n", sourceRef)
+	}
+	if resolvedRef != "" {
+		fmt.Fprintf(out, "  resolved_ref: %s\n", resolvedRef)
+	}
+	if pinned {
+		fmt.Fprintln(out, "  pinned:       true")
+	}
+}
+
 func printSkillDoctor(out io.Writer, result skill.DoctorResult) {
 	fmt.Fprintf(out, "skill doctor %s\n", result.Skill.ID)
 	fmt.Fprintf(out, "  path:     %s\n", result.Path)
@@ -1156,6 +1246,7 @@ func printSkillDoctor(out io.Writer, result skill.DoctorResult) {
 		fmt.Fprintln(out, "manifest:")
 		fmt.Fprintf(out, "  source:      %s\n", result.Manifest.Source)
 		fmt.Fprintf(out, "  source_type: %s\n", result.Manifest.SourceType)
+		printSkillRefFields(out, result.Manifest.SourceRef, result.Manifest.RequestedRef, result.Manifest.ResolvedRef, result.Manifest.Pinned)
 		fmt.Fprintf(out, "  scope:       %s\n", result.Manifest.Scope)
 		fmt.Fprintf(out, "  alias:       %s\n", result.Manifest.Alias)
 		fmt.Fprintf(out, "  installed:   %s\n", result.Manifest.InstalledAt)

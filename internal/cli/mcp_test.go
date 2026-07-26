@@ -94,3 +94,13 @@ func TestInstallSkillCommandWritesProjectSkill_BitsUT(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestParseSkillUpdateArgsAcceptsCheckAndPin_BitsUT(t *testing.T) {
+	opts, check, err := parseSkillUpdateArgs([]string{"--check", "--pin", "v1.2.3", "project/demo", "https://example.com/demo.git"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !check || opts.ID != "project/demo" || opts.Source != "https://example.com/demo.git" || opts.Pin != "v1.2.3" {
+		t.Fatalf("opts = %#v, check = %t", opts, check)
+	}
+}

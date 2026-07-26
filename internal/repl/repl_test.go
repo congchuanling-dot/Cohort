@@ -581,6 +581,64 @@ func TestStartDryRunsSkillInstallLocally_BitsUT(t *testing.T) {
 	}
 }
 
+func TestStartChecksSkillUpdateLocally_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	source := filepath.Join(t.TempDir(), "check-skill")
+	if err := os.MkdirAll(source, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, skill.SkillFileName), []byte("# First\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := skill.Install(context.Background(), skill.InstallOptions{Source: source, ProjectRoot: workspace}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, skill.SkillFileName), []byte("# Second\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	store := skill.NewStore(workspace, t.TempDir())
+	if err := store.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeClient{}
+	runner := &agent.Runner{
+		Client:     client,
+		Tools:      fakeTools{},
+		SkillStore: store,
+	}
+	cfg := testConfig()
+	cfg.Workspace = workspace
+
+	var out bytes.Buffer
+	startErr := Start(context.Background(), Options{
+		Config:       cfg,
+		Runner:       runner,
+		SessionStore: session.NewStore(t.TempDir()),
+		In:           strings.NewReader("/skill update --check check-skill\n/exit\n"),
+		Out:          &out,
+		Err:          &out,
+	})
+	if startErr != nil {
+		t.Fatal(startErr)
+	}
+	if client.calls != 0 {
+		t.Fatalf("model calls = %d, want 0", client.calls)
+	}
+	output := out.String()
+	for _, want := range []string{"skill update check project/check-skill", "status:         update-available"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output does not contain %q:\n%s", want, output)
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(workspace, ".cohort", "skills", "check-skill", skill.SkillFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "First") {
+		t.Fatalf("check wrote installed skill: %s", data)
+	}
+}
+
 func testConfig() app.Config {
 	return app.Config{
 		Language:  "zh",

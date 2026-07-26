@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -230,6 +231,90 @@ func TestStoreUpdateUsesInstallManifestSource_BitsUT(t *testing.T) {
 	}
 }
 
+func TestStoreCheckUpdateDoesNotWrite_BitsUT(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "check-me")
+	writeSkill(t, filepath.Join(source, SkillFileName), "# First\n")
+	projectRoot := t.TempDir()
+	store := NewStore(projectRoot, t.TempDir())
+
+	if _, err := Install(context.Background(), InstallOptions{Source: source, ProjectRoot: projectRoot}); err != nil {
+		t.Fatal(err)
+	}
+	writeSkill(t, filepath.Join(source, SkillFileName), "# Second\n")
+	if err := store.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	result, err := store.CheckUpdate(context.Background(), UpdateOptions{ID: "check-me"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.UpToDate || result.CurrentHash == result.CandidateHash {
+		t.Fatalf("check result = %#v, want update available", result)
+	}
+	data, err := os.ReadFile(filepath.Join(projectRoot, ".cohort", "skills", "check-me", SkillFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "First") {
+		t.Fatalf("check update wrote installed skill: %s", data)
+	}
+}
+
+func TestGitInstallPinLocksResolvedCommit_BitsUT(t *testing.T) {
+	repo := newGitSkillRepo(t)
+	writeSkill(t, filepath.Join(repo, SkillFileName), "# First\n")
+	commit1 := gitCommitAll(t, repo, "first")
+	writeSkill(t, filepath.Join(repo, SkillFileName), "# Second\n")
+	commit2 := gitCommitAll(t, repo, "second")
+
+	projectRoot := t.TempDir()
+	store := NewStore(projectRoot, t.TempDir())
+	source := "file://" + repo
+	result, err := Install(context.Background(), InstallOptions{
+		Source:      source,
+		Name:        "repo",
+		Pin:         commit1,
+		ProjectRoot: projectRoot,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Pinned || result.SourceRef != commit1 || result.ResolvedRef != commit1 || result.RequestedRef != commit1 {
+		t.Fatalf("install result = %#v", result)
+	}
+	if err := store.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	check, err := store.CheckUpdate(context.Background(), UpdateOptions{ID: "repo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !check.UpToDate || !check.Pinned || check.SourceRef != commit1 {
+		t.Fatalf("pinned check = %#v, want up-to-date at commit1", check)
+	}
+	check, err = store.CheckUpdate(context.Background(), UpdateOptions{ID: "repo", Pin: commit2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if check.UpToDate || check.SourceRef != commit2 || check.ResolvedRef != commit2 {
+		t.Fatalf("repin check = %#v, want update available at commit2", check)
+	}
+	update, err := store.UpdateWithOptions(context.Background(), UpdateOptions{ID: "repo", Pin: commit2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !update.Pinned || update.SourceRef != commit2 || update.ResolvedRef != commit2 {
+		t.Fatalf("update = %#v", update)
+	}
+	data, err := os.ReadFile(filepath.Join(projectRoot, ".cohort", "skills", "repo", SkillFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "Second") {
+		t.Fatalf("updated content = %s", data)
+	}
+}
+
 func TestStoreDoctorDetectsContentHashDrift_BitsUT(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "doctor-me")
 	writeSkill(t, filepath.Join(source, SkillFileName), `---
@@ -274,4 +359,34 @@ description: Diagnose me.
 	if !foundHashError {
 		t.Fatalf("doctor checks missing content_hash error: %#v", result.Checks)
 	}
+}
+
+func newGitSkillRepo(t *testing.T) string {
+	t.Helper()
+	repo := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(repo, 0755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "init", "-q")
+	runGit(t, repo, "config", "user.email", "cohert@example.com")
+	runGit(t, repo, "config", "user.name", "Cohert Test")
+	return repo
+}
+
+func gitCommitAll(t *testing.T, repo, message string) string {
+	t.Helper()
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-q", "-m", message)
+	out := runGit(t, repo, "rev-parse", "HEAD")
+	return strings.TrimSpace(out)
+}
+
+func runGit(t *testing.T, repo string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, strings.TrimSpace(string(output)))
+	}
+	return string(output)
 }

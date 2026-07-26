@@ -27,6 +27,7 @@ type InstallOptions struct {
 	Name        string
 	Force       bool
 	DryRun      bool
+	Pin         string
 	ProjectRoot string
 	HomeDir     string
 }
@@ -36,6 +37,10 @@ type InstallResult struct {
 	Skill        Skill
 	Source       string
 	SourceType   string
+	SourceRef    string
+	RequestedRef string
+	ResolvedRef  string
+	Pinned       bool
 	Destination  string
 	Replaced     bool
 	WouldReplace bool
@@ -56,19 +61,51 @@ type UpdateResult struct {
 	Previous Skill
 }
 
+// UpdateOptions 描述 Skill 更新请求。
+type UpdateOptions struct {
+	ID     string
+	Source string
+	Pin    string
+}
+
+// UpdateCheckResult 描述一次不落盘的更新检查。
+type UpdateCheckResult struct {
+	Skill         Skill
+	Source        string
+	SourceType    string
+	SourceRef     string
+	RequestedRef  string
+	ResolvedRef   string
+	Pinned        bool
+	Destination   string
+	CurrentHash   string
+	ManifestHash  string
+	CandidateHash string
+	Files         int
+	UpToDate      bool
+}
+
 type manifest struct {
-	Source      string `json:"source"`
-	SourceType  string `json:"source_type"`
-	Scope       Scope  `json:"scope"`
-	Alias       string `json:"alias"`
-	InstalledAt string `json:"installed_at"`
-	ContentHash string `json:"content_hash"`
+	Source       string `json:"source"`
+	SourceType   string `json:"source_type"`
+	SourceRef    string `json:"source_ref"`
+	RequestedRef string `json:"requested_ref"`
+	ResolvedRef  string `json:"resolved_ref"`
+	Pinned       bool   `json:"pinned"`
+	Scope        Scope  `json:"scope"`
+	Alias        string `json:"alias"`
+	InstalledAt  string `json:"installed_at"`
+	ContentHash  string `json:"content_hash"`
 }
 
 type installCandidate struct {
-	sourceDir  string
-	alias      string
-	sourceType string
+	sourceDir    string
+	alias        string
+	sourceType   string
+	sourceRef    string
+	requestedRef string
+	resolvedRef  string
+	pinned       bool
 }
 
 // ParseScope 解析 CLI 传入的 Skill 安装范围。
@@ -109,7 +146,7 @@ func Install(ctx context.Context, opts InstallOptions) (InstallResult, error) {
 		}
 	}
 
-	candidate, cleanup, err := resolveInstallCandidate(ctx, source, opts.Name)
+	candidate, cleanup, err := resolveInstallCandidate(ctx, source, opts.Name, opts.Pin)
 	if cleanup != nil {
 		defer cleanup()
 	}
@@ -165,6 +202,10 @@ func Install(ctx context.Context, opts InstallOptions) (InstallResult, error) {
 			Skill:        item,
 			Source:       source,
 			SourceType:   candidate.sourceType,
+			SourceRef:    candidate.sourceRef,
+			RequestedRef: candidate.requestedRef,
+			ResolvedRef:  candidate.resolvedRef,
+			Pinned:       candidate.pinned,
 			Destination:  dest,
 			WouldReplace: wouldReplace,
 			DryRun:       true,
@@ -176,12 +217,16 @@ func Install(ctx context.Context, opts InstallOptions) (InstallResult, error) {
 		return InstallResult{}, err
 	}
 	if err := writeManifest(dest, manifest{
-		Source:      source,
-		SourceType:  candidate.sourceType,
-		Scope:       scope,
-		Alias:       alias,
-		InstalledAt: timeNowRFC3339(),
-		ContentHash: contentHash,
+		Source:       source,
+		SourceType:   candidate.sourceType,
+		SourceRef:    candidate.sourceRef,
+		RequestedRef: candidate.requestedRef,
+		ResolvedRef:  candidate.resolvedRef,
+		Pinned:       candidate.pinned,
+		Scope:        scope,
+		Alias:        alias,
+		InstalledAt:  timeNowRFC3339(),
+		ContentHash:  contentHash,
 	}); err != nil {
 		return InstallResult{}, err
 	}
@@ -189,6 +234,10 @@ func Install(ctx context.Context, opts InstallOptions) (InstallResult, error) {
 		Skill:        item,
 		Source:       source,
 		SourceType:   candidate.sourceType,
+		SourceRef:    candidate.sourceRef,
+		RequestedRef: candidate.requestedRef,
+		ResolvedRef:  candidate.resolvedRef,
+		Pinned:       candidate.pinned,
 		Destination:  dest,
 		Replaced:     replaced,
 		WouldReplace: wouldReplace,
@@ -218,21 +267,21 @@ func (s *Store) Uninstall(id string) (UninstallResult, error) {
 
 // Update 用新的来源替换一个已安装 Skill。source 为空时读取安装 manifest。
 func (s *Store) Update(ctx context.Context, id string, source string) (UpdateResult, error) {
-	item, err := s.Find(id)
+	return s.UpdateWithOptions(ctx, UpdateOptions{ID: id, Source: source})
+}
+
+// UpdateWithOptions 用新的来源替换一个已安装 Skill，并可锁定到指定 git ref。
+func (s *Store) UpdateWithOptions(ctx context.Context, opts UpdateOptions) (UpdateResult, error) {
+	item, source, pin, err := s.resolveUpdateSource(opts.ID, opts.Source, opts.Pin)
 	if err != nil {
 		return UpdateResult{}, err
-	}
-	if strings.TrimSpace(source) == "" {
-		source, err = s.manifestSource(item)
-		if err != nil {
-			return UpdateResult{}, err
-		}
 	}
 	result, err := Install(ctx, InstallOptions{
 		Source:      source,
 		Scope:       item.Scope,
 		Name:        item.Alias,
 		Force:       true,
+		Pin:         pin,
 		ProjectRoot: s.workspace,
 		HomeDir:     s.homeDir,
 	})
@@ -245,8 +294,83 @@ func (s *Store) Update(ctx context.Context, id string, source string) (UpdateRes
 	return UpdateResult{InstallResult: result, Previous: item}, nil
 }
 
-func resolveInstallCandidate(ctx context.Context, source, requestedName string) (installCandidate, func(), error) {
+// CheckUpdate 检查 Skill 来源是否有新内容，不写入目标目录。
+func (s *Store) CheckUpdate(ctx context.Context, opts UpdateOptions) (UpdateCheckResult, error) {
+	item, source, pin, err := s.resolveUpdateSource(opts.ID, opts.Source, opts.Pin)
+	if err != nil {
+		return UpdateCheckResult{}, err
+	}
+	dir, err := s.skillDir(item)
+	if err != nil {
+		return UpdateCheckResult{}, err
+	}
+	_, currentHash, err := hashSkillDir(dir)
+	if err != nil {
+		return UpdateCheckResult{}, err
+	}
+	manifestHash := ""
+	if meta, err := readManifest(dir); err == nil {
+		manifestHash = meta.ContentHash
+	}
+	candidate, err := Install(ctx, InstallOptions{
+		Source:      source,
+		Scope:       item.Scope,
+		Name:        item.Alias,
+		Force:       true,
+		DryRun:      true,
+		Pin:         pin,
+		ProjectRoot: s.workspace,
+		HomeDir:     s.homeDir,
+	})
+	if err != nil {
+		return UpdateCheckResult{}, err
+	}
+	return UpdateCheckResult{
+		Skill:         item,
+		Source:        candidate.Source,
+		SourceType:    candidate.SourceType,
+		SourceRef:     candidate.SourceRef,
+		RequestedRef:  candidate.RequestedRef,
+		ResolvedRef:   candidate.ResolvedRef,
+		Pinned:        candidate.Pinned,
+		Destination:   candidate.Destination,
+		CurrentHash:   currentHash,
+		ManifestHash:  manifestHash,
+		CandidateHash: candidate.ContentHash,
+		Files:         candidate.Files,
+		UpToDate:      currentHash == candidate.ContentHash,
+	}, nil
+}
+
+func (s *Store) resolveUpdateSource(id, source, pin string) (Skill, string, string, error) {
+	item, err := s.Find(id)
+	if err != nil {
+		return Skill{}, "", "", err
+	}
+	source = strings.TrimSpace(source)
+	pin = strings.TrimSpace(pin)
+	if strings.TrimSpace(source) == "" {
+		meta, err := s.manifestForSkill(item)
+		if err != nil {
+			return Skill{}, "", "", err
+		}
+		source = strings.TrimSpace(meta.Source)
+		if pin == "" && meta.Pinned {
+			pin = strings.TrimSpace(meta.SourceRef)
+		}
+	}
+	if source == "" {
+		return Skill{}, "", "", fmt.Errorf("skill %s install source metadata is empty; pass a source explicitly", item.ID)
+	}
+	return item, source, pin, nil
+}
+
+func resolveInstallCandidate(ctx context.Context, source, requestedName, pin string) (installCandidate, func(), error) {
+	pin = strings.TrimSpace(pin)
 	if info, err := os.Stat(source); err == nil {
+		if pin != "" {
+			return installCandidate{}, nil, fmt.Errorf("--pin is only supported for git skill sources")
+		}
 		candidate, err := localInstallCandidate(source, info, requestedName)
 		if info.IsDir() {
 			candidate.sourceType = "local-dir"
@@ -269,6 +393,11 @@ func resolveInstallCandidate(ctx context.Context, source, requestedName string) 
 		cleanup()
 		return installCandidate{}, nil, fmt.Errorf("git clone failed: %w\n%s", err, strings.TrimSpace(string(output)))
 	}
+	requestedRef, sourceRef, resolvedRef, pinned, err := checkoutGitPin(ctx, tempDir, pin)
+	if err != nil {
+		cleanup()
+		return installCandidate{}, nil, err
+	}
 	info, err := os.Stat(tempDir)
 	if err != nil {
 		cleanup()
@@ -280,6 +409,10 @@ func resolveInstallCandidate(ctx context.Context, source, requestedName string) 
 		return installCandidate{}, nil, err
 	}
 	candidate.sourceType = "git"
+	candidate.requestedRef = requestedRef
+	candidate.sourceRef = sourceRef
+	candidate.resolvedRef = resolvedRef
+	candidate.pinned = pinned
 	return candidate, cleanup, nil
 }
 
@@ -407,6 +540,41 @@ func copyFile(src, dest string) error {
 	return err
 }
 
+func checkoutGitPin(ctx context.Context, repoDir, pin string) (string, string, string, bool, error) {
+	pin = strings.TrimSpace(pin)
+	if pin != "" {
+		fetch := exec.CommandContext(ctx, "git", "-C", repoDir, "fetch", "--depth", "1", "origin", pin)
+		if output, err := fetch.CombinedOutput(); err != nil {
+			checkout := exec.CommandContext(ctx, "git", "-C", repoDir, "checkout", "--detach", pin)
+			if checkoutOutput, checkoutErr := checkout.CombinedOutput(); checkoutErr != nil {
+				return "", "", "", false, fmt.Errorf("git fetch pin %q failed: %w\n%s\ngit checkout pin failed: %v\n%s", pin, err, strings.TrimSpace(string(output)), checkoutErr, strings.TrimSpace(string(checkoutOutput)))
+			}
+		} else {
+			checkout := exec.CommandContext(ctx, "git", "-C", repoDir, "checkout", "--detach", "FETCH_HEAD")
+			if checkoutOutput, err := checkout.CombinedOutput(); err != nil {
+				return "", "", "", false, fmt.Errorf("git checkout pin %q failed: %w\n%s", pin, err, strings.TrimSpace(string(checkoutOutput)))
+			}
+		}
+	}
+	resolved, err := gitRevParse(ctx, repoDir, "HEAD")
+	if err != nil {
+		return "", "", "", false, err
+	}
+	if pin == "" {
+		return "", "", resolved, false, nil
+	}
+	return pin, resolved, resolved, true, nil
+}
+
+func gitRevParse(ctx context.Context, repoDir, rev string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", repoDir, "rev-parse", rev)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse %s failed: %w\n%s", rev, err, strings.TrimSpace(string(output)))
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
 func hashSkillDir(src string) (int, string, error) {
 	srcInfo, err := os.Stat(src)
 	if err != nil {
@@ -515,21 +683,29 @@ func (s *Store) skillDir(item Skill) (string, error) {
 }
 
 func (s *Store) manifestSource(item Skill) (string, error) {
-	dir, err := s.skillDir(item)
+	meta, err := s.manifestForSkill(item)
 	if err != nil {
 		return "", err
+	}
+	return meta.Source, nil
+}
+
+func (s *Store) manifestForSkill(item Skill) (manifest, error) {
+	dir, err := s.skillDir(item)
+	if err != nil {
+		return manifest{}, err
 	}
 	meta, err := readManifest(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("skill %s has no install source metadata; pass a source explicitly", item.ID)
+			return manifest{}, fmt.Errorf("skill %s has no install source metadata; pass a source explicitly", item.ID)
 		}
-		return "", err
+		return manifest{}, err
 	}
 	if strings.TrimSpace(meta.Source) == "" {
-		return "", fmt.Errorf("skill %s install source metadata is empty; pass a source explicitly", item.ID)
+		return manifest{}, fmt.Errorf("skill %s install source metadata is empty; pass a source explicitly", item.ID)
 	}
-	return meta.Source, nil
+	return meta, nil
 }
 
 func readManifest(dir string) (manifest, error) {
@@ -561,6 +737,7 @@ func looksLikeGitSource(source string) bool {
 	lower := strings.ToLower(source)
 	return strings.HasPrefix(lower, "http://") ||
 		strings.HasPrefix(lower, "https://") ||
+		strings.HasPrefix(lower, "file://") ||
 		strings.HasPrefix(lower, "ssh://") ||
 		strings.HasPrefix(lower, "git@") ||
 		strings.HasSuffix(lower, ".git")

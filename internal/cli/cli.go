@@ -165,23 +165,23 @@ func runSkillCommand(ctx context.Context, args []string) error {
 		fmt.Printf("  path: %s\n", result.Path)
 		return nil
 	case "update":
-		if len(args) < 2 || len(args) > 3 {
-			return errors.New("usage: cohert skill update <id> [path-or-git-url]")
-		}
-		source := ""
-		if len(args) == 3 {
-			source = args[2]
-		}
-		result, err := store.Update(ctx, args[1], source)
+		opts, check, err := parseSkillUpdateArgs(args[1:])
 		if err != nil {
 			return err
 		}
-		fmt.Printf("updated skill %s\n", result.Skill.ID)
-		fmt.Printf("  source:      %s\n", result.Source)
-		fmt.Printf("  source_type: %s\n", result.SourceType)
-		fmt.Printf("  destination: %s\n", result.Destination)
-		fmt.Printf("  files:       %d\n", result.Files)
-		fmt.Printf("  hash:        %s\n", result.ContentHash)
+		if check {
+			result, err := store.CheckUpdate(ctx, opts)
+			if err != nil {
+				return err
+			}
+			printSkillUpdateCheck(result)
+			return nil
+		}
+		result, err := store.UpdateWithOptions(ctx, opts)
+		if err != nil {
+			return err
+		}
+		printSkillUpdateResult(result)
 		return nil
 	case "list":
 		if len(args) != 1 {
@@ -205,6 +205,40 @@ func runSkillCommand(ctx context.Context, args []string) error {
 	default:
 		return fmt.Errorf("unknown skill command %q", args[0])
 	}
+}
+
+func parseSkillUpdateArgs(args []string) (skill.UpdateOptions, bool, error) {
+	opts := skill.UpdateOptions{}
+	check := false
+	for len(args) > 0 {
+		arg := args[0]
+		args = args[1:]
+		switch arg {
+		case "--check":
+			check = true
+		case "--pin":
+			if len(args) < 1 {
+				return opts, false, errors.New("--pin requires a git ref")
+			}
+			opts.Pin = args[0]
+			args = args[1:]
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return opts, false, fmt.Errorf("unknown skill update option %q", arg)
+			}
+			if opts.ID == "" {
+				opts.ID = arg
+			} else if opts.Source == "" {
+				opts.Source = arg
+			} else {
+				return opts, false, errors.New("usage: cohert skill update [--check] [--pin git-ref] <id> [path-or-git-url]")
+			}
+		}
+	}
+	if opts.ID == "" {
+		return opts, false, errors.New("usage: cohert skill update [--check] [--pin git-ref] <id> [path-or-git-url]")
+	}
+	return opts, check, nil
 }
 
 func installSkill(ctx context.Context, projectRoot string, args []string) error {
@@ -233,23 +267,34 @@ func installSkill(ctx context.Context, projectRoot string, args []string) error 
 			opts.Force = true
 		case "--dry-run":
 			opts.DryRun = true
+		case "--pin":
+			if len(args) < 1 {
+				return errors.New("--pin requires a git ref")
+			}
+			opts.Pin = args[0]
+			args = args[1:]
 		default:
 			if strings.HasPrefix(arg, "-") {
 				return fmt.Errorf("unknown skill install option %q", arg)
 			}
 			if opts.Source != "" {
-				return errors.New("usage: cohert skill install [--scope project|user] [--name name] [--force] [--dry-run] <path-or-git-url>")
+				return errors.New("usage: cohert skill install [--scope project|user] [--name name] [--force] [--dry-run] [--pin git-ref] <path-or-git-url>")
 			}
 			opts.Source = arg
 		}
 	}
 	if opts.Source == "" {
-		return errors.New("usage: cohert skill install [--scope project|user] [--name name] [--force] [--dry-run] <path-or-git-url>")
+		return errors.New("usage: cohert skill install [--scope project|user] [--name name] [--force] [--dry-run] [--pin git-ref] <path-or-git-url>")
 	}
 	result, err := skill.Install(ctx, opts)
 	if err != nil {
 		return err
 	}
+	printSkillInstallResult(result)
+	return nil
+}
+
+func printSkillInstallResult(result skill.InstallResult) {
 	if result.DryRun {
 		fmt.Printf("dry-run skill %s\n", result.Skill.ID)
 	} else {
@@ -258,6 +303,7 @@ func installSkill(ctx context.Context, projectRoot string, args []string) error 
 	fmt.Printf("  name:        %s\n", result.Skill.Name)
 	fmt.Printf("  source:      %s\n", result.Source)
 	fmt.Printf("  source_type: %s\n", result.SourceType)
+	printSkillRefFields(result.SourceRef, result.RequestedRef, result.ResolvedRef, result.Pinned)
 	fmt.Printf("  destination: %s\n", result.Destination)
 	fmt.Printf("  files:       %d\n", result.Files)
 	fmt.Printf("  hash:        %s\n", result.ContentHash)
@@ -270,7 +316,53 @@ func installSkill(ctx context.Context, projectRoot string, args []string) error 
 	if result.WouldReplace {
 		fmt.Println("  would_replace: true")
 	}
-	return nil
+}
+
+func printSkillUpdateResult(result skill.UpdateResult) {
+	fmt.Printf("updated skill %s\n", result.Skill.ID)
+	fmt.Printf("  source:      %s\n", result.Source)
+	fmt.Printf("  source_type: %s\n", result.SourceType)
+	printSkillRefFields(result.SourceRef, result.RequestedRef, result.ResolvedRef, result.Pinned)
+	fmt.Printf("  destination: %s\n", result.Destination)
+	fmt.Printf("  files:       %d\n", result.Files)
+	fmt.Printf("  hash:        %s\n", result.ContentHash)
+	if result.Replaced {
+		fmt.Println("  replaced:    true")
+	}
+}
+
+func printSkillUpdateCheck(result skill.UpdateCheckResult) {
+	status := "update-available"
+	if result.UpToDate {
+		status = "up-to-date"
+	}
+	fmt.Printf("skill update check %s\n", result.Skill.ID)
+	fmt.Printf("  status:         %s\n", status)
+	fmt.Printf("  source:         %s\n", result.Source)
+	fmt.Printf("  source_type:    %s\n", result.SourceType)
+	printSkillRefFields(result.SourceRef, result.RequestedRef, result.ResolvedRef, result.Pinned)
+	fmt.Printf("  destination:    %s\n", result.Destination)
+	fmt.Printf("  files:          %d\n", result.Files)
+	fmt.Printf("  current_hash:   %s\n", result.CurrentHash)
+	if result.ManifestHash != "" {
+		fmt.Printf("  manifest_hash:  %s\n", result.ManifestHash)
+	}
+	fmt.Printf("  candidate_hash: %s\n", result.CandidateHash)
+}
+
+func printSkillRefFields(sourceRef, requestedRef, resolvedRef string, pinned bool) {
+	if requestedRef != "" {
+		fmt.Printf("  requested_ref: %s\n", requestedRef)
+	}
+	if sourceRef != "" {
+		fmt.Printf("  source_ref:   %s\n", sourceRef)
+	}
+	if resolvedRef != "" {
+		fmt.Printf("  resolved_ref: %s\n", resolvedRef)
+	}
+	if pinned {
+		fmt.Println("  pinned:       true")
+	}
 }
 
 func printSkillList(skills []skill.Skill) error {
@@ -321,6 +413,7 @@ func printSkillDoctor(result skill.DoctorResult) {
 		fmt.Println("manifest:")
 		fmt.Printf("  source:      %s\n", result.Manifest.Source)
 		fmt.Printf("  source_type: %s\n", result.Manifest.SourceType)
+		printSkillRefFields(result.Manifest.SourceRef, result.Manifest.RequestedRef, result.Manifest.ResolvedRef, result.Manifest.Pinned)
 		fmt.Printf("  scope:       %s\n", result.Manifest.Scope)
 		fmt.Printf("  alias:       %s\n", result.Manifest.Alias)
 		fmt.Printf("  installed:   %s\n", result.Manifest.InstalledAt)
@@ -646,12 +739,12 @@ Usage:
   cohert mcp tools <name> inspect an MCP server's tools
   cohert mcp probe <name> verify an MCP server
   cohert mcp remove <name>
-  cohert skill install [--dry-run] <path-or-git-url>
+  cohert skill install [--dry-run] [--pin git-ref] <path-or-git-url>
                           install a Skill into .cohort/skills
   cohert skill doctor <id>
                           diagnose an installed Skill
-  cohert skill update <id> [path-or-git-url]
-                          update an installed Skill
+  cohert skill update [--check] [--pin git-ref] <id> [path-or-git-url]
+                          update or check an installed Skill
   cohert skill uninstall <id>
                           remove an installed Skill
   cohert skill list       list discovered Skills
@@ -673,11 +766,13 @@ Interactive slash commands:
   /mcp status             check MCP server availability
   /mcp tools <server>     inspect MCP server tools
   /mcp probe <server>     verify MCP server connectivity
-  /skill install [--dry-run] <path-or-git-url>
+  /skill install [--dry-run] [--pin git-ref] <path-or-git-url>
                           install or preview a Skill
   /skill doctor <id>      diagnose an installed Skill
   /skill list             list discovered Skills
   /skill show <id>        show one Skill's SKILL.md
+  /skill update [--check] [--pin git-ref] <id>
+                          update or check an installed Skill
   /skill reload           rescan Skills and refresh system prompt
   /session list           list local sessions
   /resume <id>            resume a session

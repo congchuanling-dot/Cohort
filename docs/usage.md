@@ -717,6 +717,14 @@ go run . skill install --dry-run ./path/to/skill
 go run . skill install https://example.com/org/skill-repo.git
 ```
 
+安装 git Skill 时锁定版本：
+
+```bash
+go run . skill install --pin v1.2.3 https://example.com/org/skill-repo.git
+```
+
+`--pin <git-ref>` 会先 checkout 指定 ref，再把解析后的 commit SHA 写入 manifest 的 `source_ref`。后续 `skill update` 和 `skill update --check` 默认继续使用这个 commit；要切到新版本，需要再次传 `--pin <new-ref>`。
+
 默认安装到项目级 `.cohort/skills`。安装到用户全局目录：
 
 ```bash
@@ -741,6 +749,10 @@ go run . skill install --force ./path/to/skill
 {
   "source": "./path/to/skill",
   "source_type": "local-dir",
+  "source_ref": "",
+  "requested_ref": "",
+  "resolved_ref": "",
+  "pinned": false,
   "scope": "project",
   "alias": "skill-name",
   "installed_at": "2026-07-26T12:00:00+08:00",
@@ -755,10 +767,20 @@ go run . skill install --force ./path/to/skill
 ```bash
 go run . skill update project/<skill_name>
 go run . skill update project/<skill_name> ./path/to/new-skill
+go run . skill update --check project/<skill_name>
+go run . skill update --pin v1.2.4 project/<skill_name>
 go run . skill uninstall project/<skill_name>
 ```
 
 `skill update` 默认使用安装时记录的 source；如果旧 Skill 没有安装元数据，可以手动传入新的本地路径或 git URL。
+
+`skill update --check` 只比较当前已安装内容和候选来源内容，不写入目标目录。输出里会包含：
+
+- `status: up-to-date` 或 `status: update-available`。
+- 当前已安装内容 hash。
+- manifest 记录的 hash。
+- 候选来源内容 hash。
+- git 来源的 requested/source/resolved ref。
 
 诊断已安装 Skill：
 
@@ -787,12 +809,15 @@ skill_read({"skill_id":"project/<skill_name>"})
 
 ```text
 /skill install [--dry-run] <path-or-git-url>
+/skill install [--pin git-ref] <git-url>
 /skill doctor <skill_id>
 /skill list
 /skill show <skill_id>
 /skill run <skill_id> [arguments...]
 /<skill_alias> [arguments...]
 /skill update <skill_id> [path-or-git-url]
+/skill update --check <skill_id>
+/skill update --pin <git-ref> <skill_id>
 /skill uninstall <skill_id>
 /skill reload
 ```
@@ -803,8 +828,10 @@ skill_read({"skill_id":"project/<skill_name>"})
 
 ```bash
 go run . skill install --dry-run ./path/to/skill
+go run . skill install --pin v1.2.3 https://example.com/org/skill-repo.git
 go run . skill install ./path/to/skill
 go run . skill doctor project/<skill_name>
+go run . skill update --check project/<skill_name>
 go run . skill update project/<skill_name>
 go run . skill uninstall project/<skill_name>
 go run . skill list

@@ -26,12 +26,16 @@ type Diagnostic struct {
 
 // ManifestInfo 是安装 manifest 中对用户有用的元数据。
 type ManifestInfo struct {
-	Source      string
-	SourceType  string
-	Scope       Scope
-	Alias       string
-	InstalledAt string
-	ContentHash string
+	Source       string
+	SourceType   string
+	SourceRef    string
+	RequestedRef string
+	ResolvedRef  string
+	Pinned       bool
+	Scope        Scope
+	Alias        string
+	InstalledAt  string
+	ContentHash  string
 }
 
 // DoctorResult 汇总一个 Skill 的健康检查结果。
@@ -114,12 +118,16 @@ func (s *Store) Doctor(id string) (DoctorResult, error) {
 		return result.finish(), nil
 	}
 	result.Manifest = &ManifestInfo{
-		Source:      meta.Source,
-		SourceType:  meta.SourceType,
-		Scope:       meta.Scope,
-		Alias:       meta.Alias,
-		InstalledAt: meta.InstalledAt,
-		ContentHash: meta.ContentHash,
+		Source:       meta.Source,
+		SourceType:   meta.SourceType,
+		SourceRef:    meta.SourceRef,
+		RequestedRef: meta.RequestedRef,
+		ResolvedRef:  meta.ResolvedRef,
+		Pinned:       meta.Pinned,
+		Scope:        meta.Scope,
+		Alias:        meta.Alias,
+		InstalledAt:  meta.InstalledAt,
+		ContentHash:  meta.ContentHash,
 	}
 	result.add(DiagnosticOK, "manifest", "Install manifest is readable", filepath.Join(dir, manifestFileName))
 	if meta.Scope != "" && meta.Scope != item.Scope {
@@ -137,6 +145,12 @@ func (s *Store) Doctor(id string) (DoctorResult, error) {
 		result.add(DiagnosticWarning, "manifest_source_type", "Manifest source type is empty", "reinstall to populate source_type")
 	} else {
 		result.add(DiagnosticOK, "manifest_source_type", "Manifest source type is available", meta.SourceType)
+	}
+	if meta.SourceType == "git" && strings.TrimSpace(meta.ResolvedRef) == "" {
+		result.add(DiagnosticWarning, "manifest_resolved_ref", "Git manifest has no resolved commit", "reinstall or update to populate resolved_ref")
+	}
+	if meta.Pinned && strings.TrimSpace(meta.SourceRef) == "" {
+		result.add(DiagnosticWarning, "manifest_pin", "Manifest is marked pinned but source_ref is empty", "rerun skill update --pin <ref>")
 	}
 
 	files, currentHash, err := hashSkillDir(dir)
