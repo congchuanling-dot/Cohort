@@ -220,7 +220,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			if err := r.appendMessage(llm.Message{Role: llm.RoleAssistant, Content: resp.Content}, ""); err != nil {
 				return RunResult{}, err
 			}
-			if r.maybeForceLongTermMemoryReview(&memorySignals, turn) {
+			if !awaitingUserInput(resp.Content) && r.maybeForceLongTermMemoryReview(&memorySignals, turn) {
 				messages = r.buildRequestMessages()
 				continue
 			}
@@ -459,6 +459,23 @@ func (r *Runner) maybeForceLongTermMemoryReview(signals *longTermMemorySignals, 
 	signals.finalReviewPrompted = true
 	r.addPendingHint("[LONG-TERM MEMORY FINAL REVIEW] 模型准备结束任务，但本轮存在长期记忆信号（" + strings.Join(reasons, "；") + "），且尚未启动经验沉淀。不要直接重复最终答复。请先调用 start_long_term_update 判断是否有可复用经验；如果没有值得保留的内容，在随后 memory_propose_update 使用 skip=true。只允许沉淀工具验证、已读文件、浏览器确认、用户稳定偏好或已有记忆支持的经验；不要沉淀一次性任务事实、联系人、消息正文、临时页面内容或敏感信息。")
 	return true
+}
+
+func awaitingUserInput(content string) bool {
+	lower := strings.ToLower(strings.TrimSpace(content))
+	if lower == "" {
+		return false
+	}
+	prompts := []string{
+		"你想", "你要", "是否", "哪几个", "哪一个", "哪个", "请选择", "请确认", "请提供", "请告诉", "请回答", "请决定",
+		"which", "what would you like", "do you want", "would you like", "please choose", "please confirm", "please provide", "please tell me",
+	}
+	for _, prompt := range prompts {
+		if strings.Contains(lower, prompt) {
+			return true
+		}
+	}
+	return strings.Contains(lower, "?") || strings.Contains(lower, "？")
 }
 
 // longTermMemoryReasons 将内部布尔状态转换成人和模型都可理解的触发原因。

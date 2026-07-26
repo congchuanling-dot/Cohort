@@ -473,6 +473,42 @@ func TestRunnerForcesLongTermMemoryReviewBeforeFinal_BitsUT(t *testing.T) {
 	}
 }
 
+func TestRunnerDoesNotForceLongTermMemoryReviewWhenAwaitingUserInput_BitsUT(t *testing.T) {
+	client := &contextRecordingClient{
+		responses: []llm.Response{
+			{ToolCalls: []llm.ToolCall{{
+				ID:   "call-status",
+				Type: "function",
+				Function: llm.ToolFunction{
+					Name:      "code_run",
+					Arguments: `{"script":"git status"}`,
+				},
+			}}},
+			{Content: "目前有两个文件可提交。你想把哪几个文件纳入这次 commit？"},
+		},
+	}
+	runner := &Runner{
+		Client:   client,
+		Tools:    contextFakeTools{result: `{"status":"success","exit_code":0}`},
+		MaxTurns: 4,
+	}
+
+	var out bytes.Buffer
+	result, err := runner.Run(context.Background(), "按 commit skill 演示", NewConsoleSink(&out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != RunStatusDone {
+		t.Fatalf("status = %q, want done", result.Status)
+	}
+	if len(client.requests) != 2 {
+		t.Fatalf("requests = %d, want 2; final review should not run while waiting for user input", len(client.requests))
+	}
+	if strings.Contains(out.String(), "[LONG-TERM MEMORY FINAL REVIEW]") {
+		t.Fatalf("output unexpectedly contains final review prompt:\n%s", out.String())
+	}
+}
+
 func TestRunnerUsesContextManagerForModelRequest_BitsUT(t *testing.T) {
 	client := &contextRecordingClient{
 		responses: []llm.Response{{Content: "ok"}},

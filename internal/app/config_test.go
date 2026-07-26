@@ -143,3 +143,19 @@ SECRET FULL BODY SHOULD NOT ENTER SYSTEM PROMPT.
 		t.Fatalf("system prompt leaked full skill body:\n%s", prompt)
 	}
 }
+
+func TestBuildSystemPromptRequiresAskUserForBlockingQuestions_BitsUT(t *testing.T) {
+	zhPrompt := BuildSystemPrompt(Config{Language: "zh"}, nil)
+	for _, want := range []string{"必须调用 ask_user", "不要只用普通文本提问后结束"} {
+		if !strings.Contains(zhPrompt, want) {
+			t.Fatalf("zh prompt missing %q:\n%s", want, zhPrompt)
+		}
+	}
+
+	enPrompt := BuildSystemPrompt(Config{Language: "en"}, nil)
+	for _, want := range []string{"call ask_user", "plain-text question"} {
+		if !strings.Contains(enPrompt, want) {
+			t.Fatalf("en prompt missing %q:\n%s", want, enPrompt)
+		}
+	}
+}
