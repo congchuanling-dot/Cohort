@@ -8,6 +8,9 @@ CONFIG_PATH="${COHERT_CONFIG:-"$CONFIG_DIR/config.yaml"}"
 WORKSPACE_DIR="${COHERT_WORKSPACE:-"$CONFIG_DIR/workspace"}"
 LOG_DIR="${COHERT_LOG_DIR:-"$CONFIG_DIR/logs/model_responses"}"
 GO_BIN="${GO_BIN:-go}"
+REPO_URL="${COHERT_REPO_URL:-}"
+REPO_REF="${COHERT_REPO_REF:-}"
+UPDATE_SHELL="${COHERT_UPDATE_SHELL:-auto}"
 
 info() {
   printf '%s\n' "$*"
@@ -20,6 +23,95 @@ fail() {
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "$1 is required but was not found in PATH"
+}
+
+usage() {
+  cat <<EOF
+Cohert macOS installer
+
+Usage:
+  ./scripts/install.sh [options]
+  curl -fsSL <install.sh-url> | sh -s -- --repo <git-url>
+
+Options:
+  --repo <git-url>      Clone and install from a git repository when not running inside the repo.
+  --ref <git-ref>       Checkout a branch, tag, or commit before building.
+  --install-dir <dir>   Install binary to this directory. Default: ~/.cohert/bin
+  --config <file>       Initialize config at this path. Default: ~/.cohert/config.yaml
+  --no-shell            Do not append PATH setup to ~/.zshrc.
+  --help                Show this help.
+
+Environment:
+  COHERT_REPO_URL       Same as --repo.
+  COHERT_REPO_REF       Same as --ref.
+  COHERT_INSTALL_DIR    Same as --install-dir.
+  COHERT_CONFIG         Same as --config.
+  COHERT_UPDATE_SHELL   auto|never. Default: auto.
+EOF
+}
+
+parse_args() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --repo)
+        [ "$#" -ge 2 ] || fail "--repo requires a git URL"
+        REPO_URL="$2"
+        shift 2
+        ;;
+      --repo=*)
+        REPO_URL="${1#--repo=}"
+        shift
+        ;;
+      --ref)
+        [ "$#" -ge 2 ] || fail "--ref requires a git ref"
+        REPO_REF="$2"
+        shift 2
+        ;;
+      --ref=*)
+        REPO_REF="${1#--ref=}"
+        shift
+        ;;
+      --install-dir)
+        [ "$#" -ge 2 ] || fail "--install-dir requires a directory"
+        INSTALL_DIR="$2"
+        shift 2
+        ;;
+      --install-dir=*)
+        INSTALL_DIR="${1#--install-dir=}"
+        shift
+        ;;
+      --config)
+        [ "$#" -ge 2 ] || fail "--config requires a file path"
+        CONFIG_PATH="$2"
+        shift 2
+        ;;
+      --config=*)
+        CONFIG_PATH="${1#--config=}"
+        shift
+        ;;
+      --no-shell)
+        UPDATE_SHELL="never"
+        shift
+        ;;
+      --help|-h)
+        usage
+        exit 0
+        ;;
+      *)
+        fail "unknown option: $1"
+        ;;
+    esac
+  done
+}
+
+check_macos() {
+  os=$(uname -s 2>/dev/null || true)
+  arch=$(uname -m 2>/dev/null || true)
+  [ "$os" = "Darwin" ] || fail "this installer currently supports macOS only; detected: ${os:-unknown}"
+  case "$arch" in
+    arm64|x86_64) ;;
+    *) fail "unsupported macOS architecture: ${arch:-unknown}" ;;
+  esac
 }
 
 find_source_dir() {
@@ -37,14 +129,17 @@ find_source_dir() {
     fi
   fi
 
-  if [ -n "${COHERT_REPO_URL:-}" ]; then
+  if [ -n "$REPO_URL" ]; then
     need_cmd git
-    git clone --depth 1 "$COHERT_REPO_URL" "$BUILD_TMP/repo" >/dev/null 2>&1 || fail "failed to clone COHERT_REPO_URL=$COHERT_REPO_URL"
+    git clone --depth 1 "$REPO_URL" "$BUILD_TMP/repo" >/dev/null 2>&1 || fail "failed to clone repo: $REPO_URL"
+    if [ -n "$REPO_REF" ]; then
+      (cd "$BUILD_TMP/repo" && git fetch --depth 1 origin "$REPO_REF" >/dev/null 2>&1 && git checkout FETCH_HEAD >/dev/null 2>&1) || fail "failed to checkout ref: $REPO_REF"
+    fi
     printf '%s\n' "$BUILD_TMP/repo"
     return 0
   fi
 
-  fail "run this script from the Cohert repository, or set COHERT_REPO_URL for remote install"
+  fail "run this script from the Cohert repository, or pass --repo <git-url> for one-line remote install"
 }
 
 write_default_config() {
@@ -111,6 +206,39 @@ EOF
   info "created config: $CONFIG_PATH"
 }
 
+update_shell_path() {
+  case "$UPDATE_SHELL" in
+    never) return 0 ;;
+    auto|"") ;;
+    *) fail "COHERT_UPDATE_SHELL must be auto or never" ;;
+  esac
+
+  case ":$PATH:" in
+    *":$INSTALL_DIR:"*) return 0 ;;
+  esac
+
+  shell_name=$(basename "${SHELL:-}")
+  if [ "$shell_name" != "zsh" ]; then
+    info "PATH not updated automatically for shell: ${shell_name:-unknown}"
+    return 0
+  fi
+
+  zshrc="$HOME/.zshrc"
+  line="export PATH=\"$INSTALL_DIR:\$PATH\""
+  mkdir -p "$(dirname "$zshrc")"
+  if [ -f "$zshrc" ] && grep -F "$INSTALL_DIR" "$zshrc" >/dev/null 2>&1; then
+    info "PATH already configured in $zshrc"
+    return 0
+  fi
+  {
+    printf '\n# Cohert CLI\n'
+    printf '%s\n' "$line"
+  } >>"$zshrc"
+  info "updated PATH in $zshrc"
+}
+
+parse_args "$@"
+check_macos
 BUILD_TMP=$(mktemp -d "${TMPDIR:-/tmp}/cohert-build.XXXXXX")
 trap 'rm -rf "$BUILD_TMP"' EXIT INT TERM
 need_cmd "$GO_BIN"
@@ -123,6 +251,7 @@ mkdir -p "$INSTALL_DIR"
 cp "$BUILD_TMP/$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
 chmod 0755 "$INSTALL_DIR/$BIN_NAME"
 write_default_config
+update_shell_path
 
 info "installed: $INSTALL_DIR/$BIN_NAME"
 info "config:    $CONFIG_PATH"

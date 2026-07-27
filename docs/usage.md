@@ -15,6 +15,12 @@ cd /Users/bytedance/Desktop/myOwnProject/Cohort
 也可以安装成用户级命令：
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/congchuanling-dot/Cohort/master/scripts/install.sh | sh -s -- --repo https://github.com/congchuanling-dot/Cohort.git
+```
+
+如果已经在仓库根目录：
+
+```bash
 ./scripts/install.sh
 export PATH="$HOME/.cohert/bin:$PATH"
 cohert config
@@ -22,7 +28,20 @@ cohert doctor
 ```
 
 安装脚本默认把二进制写入 `~/.cohert/bin/cohert`，把用户级配置写入
-`~/.cohert/config.yaml`。它不会写入 API key，也不会自动修改 shell 启动文件。
+`~/.cohert/config.yaml`。它不会写入 API key。macOS zsh 下会自动把
+`~/.cohert/bin` 写入 `~/.zshrc`；不希望修改 shell 配置时使用：
+
+```bash
+./scripts/install.sh --no-shell
+```
+
+私有仓库或非默认分支可以显式传参：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/congchuanling-dot/Cohort/master/scripts/install.sh | sh -s -- \
+  --repo git@github.com:congchuanling-dot/Cohort.git \
+  --ref master
+```
 
 Cohert 配置文件查找顺序：
 
