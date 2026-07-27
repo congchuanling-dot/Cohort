@@ -179,6 +179,9 @@ func (e httpStatusError) Error() string {
 
 // isRetryable 判断一次请求失败是否值得重试。
 func isRetryable(err error) bool {
+	if hasModelProgress(err) {
+		return false
+	}
 	var httpErr httpStatusError
 	if errors.As(err, &httpErr) {
 		return httpErr.Code == 408 || httpErr.Code == 429 || httpErr.Code >= 500
@@ -230,6 +233,9 @@ func parseOpenAISSE(r io.Reader, out chan<- Event) (*Response, error) {
 
 		var chunk openAIStreamChunk
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			if content.Len() > 0 || len(toolCalls) > 0 {
+				return nil, markModelProgress(err)
+			}
 			return nil, err
 		}
 		if len(chunk.Choices) == 0 {
@@ -262,6 +268,9 @@ func parseOpenAISSE(r io.Reader, out chan<- Event) (*Response, error) {
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		if content.Len() > 0 || len(toolCalls) > 0 {
+			return nil, markModelProgress(err)
+		}
 		return nil, err
 	}
 

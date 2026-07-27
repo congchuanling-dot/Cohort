@@ -5,6 +5,7 @@ max_turns: 100
 
 llm:
   active_profile: deepseek
+  # fallback_profiles: [local]
   profiles:
     deepseek:
       provider: openai

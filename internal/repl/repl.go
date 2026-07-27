@@ -779,6 +779,9 @@ func printModel(out io.Writer, cfg app.Config) {
 	if cfg.LLM.ActiveProfile != "" {
 		fmt.Fprintf(out, "  active_profile: %s\n", cfg.LLM.ActiveProfile)
 	}
+	if len(cfg.LLM.FallbackProfiles) > 0 {
+		fmt.Fprintf(out, "  fallback_profiles: %s\n", strings.Join(cfg.LLM.FallbackProfiles, ","))
+	}
 	fmt.Fprintf(out, "  provider: %s\n", active.Provider)
 	fmt.Fprintf(out, "  name:     %s\n", active.Name)
 	fmt.Fprintf(out, "  model:    %s\n", active.Model)

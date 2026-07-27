@@ -36,6 +36,8 @@ type Config struct {
 type LLMConfig struct {
 	// ActiveProfile 是 profiles 中当前启用的模型配置 ID。
 	ActiveProfile string
+	// FallbackProfiles 是 active profile 失败且尚未产生模型增量时按顺序尝试的备用 profile ID。
+	FallbackProfiles []string
 	// Profiles 保存多个显式模型/API 配置。
 	Profiles map[string]LLMProfile
 	// Provider 是旧版单模型配置里的模型供应商标识。
@@ -230,6 +232,15 @@ func normalizeLLMConfig(cfg *LLMConfig) error {
 		if !ok {
 			return fmt.Errorf("llm.active_profile %q does not exist in llm.profiles", cfg.ActiveProfile)
 		}
+		cfg.FallbackProfiles = normalizeProfileList(cfg.FallbackProfiles)
+		for _, id := range cfg.FallbackProfiles {
+			if id == cfg.ActiveProfile {
+				return fmt.Errorf("llm.fallback_profiles must not include active profile %q", id)
+			}
+			if _, ok := cfg.Profiles[id]; !ok {
+				return fmt.Errorf("llm.fallback_profiles %q does not exist in llm.profiles", id)
+			}
+		}
 		active = normalizeLLMProfile(active)
 		cfg.Profiles[cfg.ActiveProfile] = active
 		for id, profile := range cfg.Profiles {
@@ -350,6 +361,8 @@ func applyLLMValue(cfg *LLMConfig, key, val string) {
 	switch key {
 	case "active_profile":
 		cfg.ActiveProfile = val
+	case "fallback_profiles":
+		cfg.FallbackProfiles = parseStringList(val)
 	case "provider":
 		cfg.Provider = val
 	case "name":
@@ -369,6 +382,40 @@ func applyLLMValue(cfg *LLMConfig, key, val string) {
 	case "max_retries":
 		cfg.MaxRetries = atoiDefault(val, cfg.MaxRetries)
 	}
+}
+
+func parseStringList(value string) []string {
+	value = strings.TrimSpace(value)
+	value = strings.Trim(value, "[]")
+	if value == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		item := strings.Trim(strings.TrimSpace(part), `"'`)
+		if item != "" {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func normalizeProfileList(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	return result
 }
 
 func ensureLLMProfile(cfg *LLMConfig, id string) {

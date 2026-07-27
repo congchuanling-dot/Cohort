@@ -46,6 +46,9 @@ func Run(args []string) error {
 		if cfg.LLM.ActiveProfile != "" {
 			fmt.Printf("active_profile: %s\n", cfg.LLM.ActiveProfile)
 		}
+		if len(cfg.LLM.FallbackProfiles) > 0 {
+			fmt.Printf("fallback_profiles: %s\n", strings.Join(cfg.LLM.FallbackProfiles, ","))
+		}
 		fmt.Printf("provider: %s\n", active.Provider)
 		fmt.Printf("model: %s\napi_base: %s\nworkspace: %s\n", cfg.LLM.Model, cfg.LLM.APIBase, cfg.Workspace)
 		fmt.Printf("context.resolved_window_tokens: %d\n", cfg.Context.ContextWindowTokens)

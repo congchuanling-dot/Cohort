@@ -44,6 +44,17 @@ func NewClient(cfg ProviderConfig) (Client, error) {
 			ReadTimeout:    cfg.ReadTimeout,
 			MaxRetries:     cfg.MaxRetries,
 		}), nil
+	case "anthropic":
+		return NewAnthropicClient(AnthropicConfig{
+			Name:           cfg.Name,
+			APIKey:         cfg.APIKey,
+			APIBase:        cfg.APIBase,
+			Model:          cfg.Model,
+			Stream:         cfg.Stream,
+			ConnectTimeout: cfg.ConnectTimeout,
+			ReadTimeout:    cfg.ReadTimeout,
+			MaxRetries:     cfg.MaxRetries,
+		}), nil
 	default:
 		profile := strings.TrimSpace(cfg.ProfileID)
 		if profile == "" {
@@ -57,6 +68,8 @@ func normalizeProvider(provider string) string {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "", "openai", "openai-compatible", "openai_compatible":
 		return "openai"
+	case "anthropic", "claude":
+		return "anthropic"
 	default:
 		return strings.ToLower(strings.TrimSpace(provider))
 	}

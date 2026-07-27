@@ -44,15 +44,44 @@ func TestNewClientCreatesOpenAIClient_BitsUT(t *testing.T) {
 func TestNewClientRejectsUnknownProvider_BitsUT(t *testing.T) {
 	_, err := NewClient(ProviderConfig{
 		ProfileID: "claude",
-		Provider:  "anthropic",
-		Name:      "claude-direct",
+		Provider:  "gemini",
+		Name:      "gemini-direct",
 	})
 	if err == nil {
 		t.Fatal("NewClient error = nil, want unsupported provider error")
 	}
-	for _, want := range []string{`unsupported llm provider "anthropic"`, `profile "claude"`} {
+	for _, want := range []string{`unsupported llm provider "gemini"`, `profile "claude"`} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error = %q, want contains %q", err.Error(), want)
 		}
+	}
+}
+
+func TestNewClientCreatesAnthropicClient_BitsUT(t *testing.T) {
+	client, err := NewClient(ProviderConfig{
+		ProfileID:      "claude",
+		Provider:       "anthropic",
+		Name:           "claude",
+		APIKey:         "test-key",
+		APIBase:        "https://api.anthropic.com",
+		Model:          "claude-3-5-sonnet-latest",
+		Stream:         true,
+		ConnectTimeout: 10 * time.Second,
+		ReadTimeout:    120 * time.Second,
+		MaxRetries:     2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	anthropic, ok := client.(*AnthropicClient)
+	if !ok {
+		t.Fatalf("client type = %T, want *AnthropicClient", client)
+	}
+	if anthropic.cfg.Model != "claude-3-5-sonnet-latest" {
+		t.Fatalf("model = %q, want claude-3-5-sonnet-latest", anthropic.cfg.Model)
+	}
+	if !anthropic.cfg.Stream {
+		t.Fatal("stream = false, want true")
 	}
 }

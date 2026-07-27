@@ -93,6 +93,7 @@ llm:
 
 func TestLoadConfigParsesLLMProfiles_BitsUT(t *testing.T) {
 	t.Setenv("LOCAL_OPENAI_API_KEY", "local-key")
+	t.Setenv("DEEPSEEK_API_KEY", "deepseek-key")
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	content := `language: zh
 workspace: ./workspace
@@ -101,6 +102,7 @@ max_turns: 7
 
 llm:
   active_profile: local
+  fallback_profiles: [deepseek, deepseek]
   profiles:
     deepseek:
       provider: openai
@@ -133,6 +135,9 @@ llm:
 	if cfg.LLM.ActiveProfile != "local" {
 		t.Fatalf("active profile = %q, want local", cfg.LLM.ActiveProfile)
 	}
+	if len(cfg.LLM.FallbackProfiles) != 1 || cfg.LLM.FallbackProfiles[0] != "deepseek" {
+		t.Fatalf("fallback profiles = %#v, want [deepseek]", cfg.LLM.FallbackProfiles)
+	}
 	if len(cfg.LLM.Profiles) != 2 {
 		t.Fatalf("profiles count = %d, want 2", len(cfg.LLM.Profiles))
 	}
@@ -160,6 +165,31 @@ llm:
 	}
 	if cfg.LLM.Model != active.Model || cfg.LLM.APIBase != active.APIBase || cfg.LLM.APIKey != active.APIKey {
 		t.Fatalf("legacy fields were not backfilled from active profile: llm=%#v active=%#v", cfg.LLM, active)
+	}
+}
+
+func TestLoadConfigRejectsMissingFallbackProfile_BitsUT(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := `llm:
+  active_profile: deepseek
+  fallback_profiles: [missing]
+  profiles:
+    deepseek:
+      provider: openai
+      api_key: test-key
+      api_base: https://api.deepseek.com
+      model: deepseek-v4-pro
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadConfig(path)
+	if err == nil {
+		t.Fatal("LoadConfig error = nil, want missing fallback profile error")
+	}
+	if !strings.Contains(err.Error(), `llm.fallback_profiles "missing" does not exist`) {
+		t.Fatalf("LoadConfig error = %v, want missing fallback profile message", err)
 	}
 }
 

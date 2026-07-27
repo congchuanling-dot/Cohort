@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,9 +32,6 @@ const (
 // 这里是应用装配层：负责把 LLM Client、工具注册器、系统提示词组合到一起。
 func NewRunner(cfg Config) (*agent.Runner, error) {
 	active := cfg.LLM.Active()
-	if active.APIKey == "" {
-		return nil, errors.New("missing API key: set environment variable or configs/config.yaml llm.api_key / llm.profiles.<active>.api_key")
-	}
 	workspace := normalizeWorkspace(cfg.Workspace)
 	// workspace 是文件和命令工具默认工作的目录。
 	if err := os.MkdirAll(workspace, 0755); err != nil {
@@ -45,18 +42,7 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 		return nil, err
 	}
 
-	client, err := llm.NewClient(llm.ProviderConfig{
-		ProfileID:      active.ID,
-		Provider:       active.Provider,
-		Name:           active.Name,
-		APIKey:         active.APIKey,
-		APIBase:        active.APIBase,
-		Model:          active.Model,
-		Stream:         active.Stream,
-		ConnectTimeout: time.Duration(active.ConnectTimeoutSeconds) * time.Second,
-		ReadTimeout:    time.Duration(active.ReadTimeoutSeconds) * time.Second,
-		MaxRetries:     active.MaxRetries,
-	})
+	client, err := buildLLMClient(cfg.LLM)
 	if err != nil {
 		return nil, err
 	}
@@ -101,6 +87,43 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 		CloseFunc:      mcpManager.Close,
 		SkillStore:     skillStore,
 	}, nil
+}
+
+func buildLLMClient(cfg LLMConfig) (llm.Client, error) {
+	active := cfg.Active()
+	chain := []LLMProfile{active}
+	if len(cfg.Profiles) > 0 {
+		for _, id := range cfg.FallbackProfiles {
+			chain = append(chain, cfg.Profiles[id])
+		}
+	}
+	clients := make([]llm.NamedClient, 0, len(chain))
+	for _, profile := range chain {
+		name := profile.ID
+		if name == "" {
+			name = profile.Name
+		}
+		if profile.APIKey == "" {
+			return nil, fmt.Errorf("missing API key for llm profile %q: set environment variable or configs/config.yaml llm.api_key / llm.profiles.%s.api_key", name, name)
+		}
+		client, err := llm.NewClient(llm.ProviderConfig{
+			ProfileID:      profile.ID,
+			Provider:       profile.Provider,
+			Name:           profile.Name,
+			APIKey:         profile.APIKey,
+			APIBase:        profile.APIBase,
+			Model:          profile.Model,
+			Stream:         profile.Stream,
+			ConnectTimeout: time.Duration(profile.ConnectTimeoutSeconds) * time.Second,
+			ReadTimeout:    time.Duration(profile.ReadTimeoutSeconds) * time.Second,
+			MaxRetries:     profile.MaxRetries,
+		})
+		if err != nil {
+			return nil, err
+		}
+		clients = append(clients, llm.NamedClient{Name: name, Client: client})
+	}
+	return llm.NewFallbackClient(clients)
 }
 
 // ToolSchemas 给 CLI 的 tools 命令使用，只列工具 schema，不初始化 LLM。
