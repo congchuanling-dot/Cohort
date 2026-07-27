@@ -21,9 +21,18 @@ import (
 
 const mcpProbeTimeout = 90 * time.Second
 
+type globalOptions struct {
+	ConfigPath string
+}
+
 // Run 是命令行入口的主分发函数。
 // 它只负责解析用户输入的子命令，真正的 Agent 执行交给 agent.Runner。
 func Run(args []string) error {
+	opts, remaining, err := parseGlobalOptions(args)
+	if err != nil {
+		return err
+	}
+	args = remaining
 	// 不带参数时默认进入交互模式，方便开发阶段直接 go run .
 	if len(args) == 0 {
 		args = []string{"run"}
@@ -33,8 +42,11 @@ func Run(args []string) error {
 		return nil
 	}
 
-	// 当前 MVP 先从项目根目录的 configs/config.yaml 读取配置。
-	cfg, err := app.LoadConfig("configs/config.yaml")
+	configPath, err := app.ResolveConfigPath(opts.ConfigPath)
+	if err != nil {
+		return err
+	}
+	cfg, err := app.LoadConfig(configPath)
 	if err != nil {
 		return err
 	}
@@ -42,6 +54,7 @@ func Run(args []string) error {
 	// config/tools 是轻量命令，不需要初始化 LLM Client，也不需要 API Key。
 	switch args[0] {
 	case "config":
+		fmt.Printf("config_path: %s\n", configPath)
 		active := cfg.LLM.Active()
 		if cfg.LLM.ActiveProfile != "" {
 			fmt.Printf("active_profile: %s\n", cfg.LLM.ActiveProfile)
@@ -102,6 +115,30 @@ func Run(args []string) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func parseGlobalOptions(args []string) (globalOptions, []string, error) {
+	var opts globalOptions
+	remaining := append([]string(nil), args...)
+	for len(remaining) > 0 {
+		arg := remaining[0]
+		switch {
+		case arg == "--":
+			return opts, remaining[1:], nil
+		case arg == "--config" || arg == "-c":
+			if len(remaining) < 2 {
+				return opts, nil, fmt.Errorf("%s requires a config file path", arg)
+			}
+			opts.ConfigPath = remaining[1]
+			remaining = remaining[2:]
+		case strings.HasPrefix(arg, "--config="):
+			opts.ConfigPath = strings.TrimPrefix(arg, "--config=")
+			remaining = remaining[1:]
+		default:
+			return opts, remaining, nil
+		}
+	}
+	return opts, remaining, nil
 }
 
 func runMCPCommand(ctx context.Context, args []string) error {
@@ -829,10 +866,10 @@ func printHelp() {
 	fmt.Print(`Cohert
 
 Usage:
-  cohert                  start interactive CLI
-  cohert ask "task"       run one task without entering REPL
-  cohert tools            list mounted tools
-  cohert config           show effective config
+  cohert [--config file]  start interactive CLI
+  cohert [--config file] ask "task"
+                          run one task without entering REPL
+  cohert config           show effective config and config path
   cohert mcp list         list configured MCP servers
   cohert mcp status       check configured MCP server availability
   cohert mcp add ...      add an MCP server
@@ -881,6 +918,7 @@ Interactive slash commands:
   /exit                   exit
 
 Environment:
-  DEEPSEEK_API_KEY       required unless configs/config.yaml contains api_key
+  COHERT_CONFIG          optional config file path
+  DEEPSEEK_API_KEY       required unless active config contains api_key
 `)
 }

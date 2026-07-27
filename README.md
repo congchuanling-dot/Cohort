@@ -123,7 +123,23 @@ Cohert 的判断很明确:
 
 ## 快速开始
 
-### 1. 运行交互式 Agent
+### 1. 一键安装到用户目录
+
+在仓库根目录执行：
+
+```bash
+./scripts/install.sh
+export PATH="$HOME/.cohert/bin:$PATH"
+export DEEPSEEK_API_KEY="sk-xxx"
+cohert config
+cohert
+```
+
+安装脚本会构建 `cohert`，安装到 `~/.cohert/bin/cohert`，并在
+`~/.cohert/config.yaml` 初始化用户级配置。脚本不会写入 API key，也不会修改
+shell 启动文件。
+
+### 2. 本地开发运行
 
 ```bash
 git clone <repo-url>
@@ -132,13 +148,13 @@ export DEEPSEEK_API_KEY="sk-xxx"
 go run .
 ```
 
-### 2. 执行一次性任务
+### 3. 执行一次性任务
 
 ```bash
 go run . ask "读取 README.md，并总结当前 runtime 的核心能力"
 ```
 
-### 3. 查看当前运行状态
+### 4. 查看当前运行状态
 
 ```bash
 go run . config
@@ -156,14 +172,14 @@ go run . skill list
 go run . session list
 ```
 
-### 4. 构建二进制
+### 5. 构建二进制
 
 ```bash
 go build -o cohert ./cmd/cohert
 ./cohert
 ```
 
-默认配置见 [configs/config.yaml](/Users/bytedance/Desktop/myOwnProject/Cohort/configs/config.yaml)。更完整的命令和 REPL 说明见 [docs/usage.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/usage.md)。
+默认项目配置见 [configs/config.yaml](/Users/bytedance/Desktop/myOwnProject/Cohort/configs/config.yaml)。全局运行时会按 `--config`、`COHERT_CONFIG`、项目配置、`~/.cohert/config.yaml` 的顺序查找配置。更完整的命令和 REPL 说明见 [docs/usage.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/usage.md)。
 
 ## 能力矩阵
 

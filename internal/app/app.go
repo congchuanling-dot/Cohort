@@ -104,7 +104,7 @@ func buildLLMClient(cfg LLMConfig) (llm.Client, error) {
 			name = profile.Name
 		}
 		if profile.APIKey == "" {
-			return nil, fmt.Errorf("missing API key for llm profile %q: set environment variable or configs/config.yaml llm.api_key / llm.profiles.%s.api_key", name, name)
+			return nil, fmt.Errorf("missing API key for llm profile %q: set environment variable or active config llm.api_key / llm.profiles.%s.api_key", name, name)
 		}
 		client, err := llm.NewClient(llm.ProviderConfig{
 			ProfileID:      profile.ID,

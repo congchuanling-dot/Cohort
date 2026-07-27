@@ -4,10 +4,37 @@
 
 这份文档说明当前 Cohert 怎么启动、有哪些命令、怎么恢复 session。
 
-当前阶段只说明项目根目录内的本地启动方式，不说明全局安装。所有命令都默认在 Cohert 项目根目录执行：
+## 0. 安装和配置路径
+
+开发阶段可以继续在 Cohert 项目根目录运行：
 
 ```bash
 cd /Users/bytedance/Desktop/myOwnProject/Cohort
+```
+
+也可以安装成用户级命令：
+
+```bash
+./scripts/install.sh
+export PATH="$HOME/.cohert/bin:$PATH"
+cohert config
+```
+
+安装脚本默认把二进制写入 `~/.cohert/bin/cohert`，把用户级配置写入
+`~/.cohert/config.yaml`。它不会写入 API key，也不会自动修改 shell 启动文件。
+
+Cohert 配置文件查找顺序：
+
+1. `--config <file>` 或 `-c <file>`
+2. `COHERT_CONFIG`
+3. 当前目录的 `configs/config.yaml`
+4. `~/.cohert/config.yaml`
+
+例如：
+
+```bash
+cohert --config ~/.cohert/config.yaml config
+COHERT_CONFIG=~/.cohert/config.yaml cohert ask "用一句话介绍 Cohert"
 ```
 
 ## 1. 准备 API Key
@@ -907,24 +934,32 @@ go run . config
 ```bash
 # 查看帮助
 go run . help
+cohert help
 
 # 进入交互模式
 go run .
+cohert
 
 # 执行单次任务
 go run . ask "任务内容"
+cohert ask "任务内容"
 
 # 查看工具
 go run . tools
+cohert tools
 
 # 查看配置
 go run . config
+cohert config
+cohert --config ~/.cohert/config.yaml config
 
 # 查看 session 列表，兼容入口
 go run . session list
+cohert session list
 
 # 恢复 session，兼容入口
 go run . session resume <session_id>
+cohert session resume <session_id>
 
 # 构建本地二进制
 go build -o cohert ./cmd/cohert
