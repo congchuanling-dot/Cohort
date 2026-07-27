@@ -86,6 +86,17 @@ llm:
       read_timeout_seconds: 120
       max_retries: 1
 
+    claude:
+      provider: anthropic
+      name: claude
+      api_key: \${ANTHROPIC_API_KEY}
+      api_base: https://api.anthropic.com
+      model: claude-3-5-sonnet-latest
+      stream: true
+      connect_timeout_seconds: 10
+      read_timeout_seconds: 120
+      max_retries: 2
+
 context:
   max_history_messages: 40
   keep_recent_tool_results: 2

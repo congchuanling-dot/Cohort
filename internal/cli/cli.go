@@ -41,12 +41,18 @@ func Run(args []string) error {
 		printHelp()
 		return nil
 	}
+	if args[0] == "init" {
+		return runInitCommand(opts, args[1:], os.Stdout)
+	}
 
 	configPath, err := app.ResolveConfigPath(opts.ConfigPath)
 	if err != nil {
 		return err
 	}
 	cfg, err := app.LoadConfig(configPath)
+	if args[0] == "doctor" {
+		return runDoctorCommand(context.Background(), args[1:], configPath, cfg, err, os.Stdout)
+	}
 	if err != nil {
 		return err
 	}
@@ -870,6 +876,10 @@ Usage:
   cohert [--config file] ask "task"
                           run one task without entering REPL
   cohert config           show effective config and config path
+  cohert init [--provider deepseek|local|anthropic] [--force]
+                          create a user config at ~/.cohert/config.yaml
+  cohert doctor [--connect]
+                          check config, API key, provider, and local paths
   cohert mcp list         list configured MCP servers
   cohert mcp status       check configured MCP server availability
   cohert mcp add ...      add an MCP server

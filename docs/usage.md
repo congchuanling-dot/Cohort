@@ -18,6 +18,7 @@ cd /Users/bytedance/Desktop/myOwnProject/Cohort
 ./scripts/install.sh
 export PATH="$HOME/.cohert/bin:$PATH"
 cohert config
+cohert doctor
 ```
 
 安装脚本默认把二进制写入 `~/.cohert/bin/cohert`，把用户级配置写入
@@ -36,6 +37,23 @@ Cohert 配置文件查找顺序：
 cohert --config ~/.cohert/config.yaml config
 COHERT_CONFIG=~/.cohert/config.yaml cohert ask "用一句话介绍 Cohert"
 ```
+
+初始化或覆盖用户级配置：
+
+```bash
+cohert init
+cohert init --provider anthropic --force
+cohert --config ./my-cohert.yaml init --provider local
+```
+
+诊断当前环境：
+
+```bash
+cohert doctor
+cohert doctor --connect
+```
+
+`doctor` 默认检查配置解析、API key、provider、api_base 格式、workspace 和 log 目录可写性。`--connect` 会额外访问 `api_base` 检查网络可达性，但不会发起模型补全请求。
 
 ## 1. 准备 API Key
 
@@ -952,6 +970,15 @@ cohert tools
 go run . config
 cohert config
 cohert --config ~/.cohert/config.yaml config
+
+# 初始化配置
+cohert init
+cohert init --provider anthropic --force
+
+# 诊断环境
+go run . doctor
+cohert doctor
+cohert doctor --connect
 
 # 查看 session 列表，兼容入口
 go run . session list

@@ -132,12 +132,20 @@ Cohert 的判断很明确:
 export PATH="$HOME/.cohert/bin:$PATH"
 export DEEPSEEK_API_KEY="sk-xxx"
 cohert config
+cohert doctor
 cohert
 ```
 
 安装脚本会构建 `cohert`，安装到 `~/.cohert/bin/cohert`，并在
 `~/.cohert/config.yaml` 初始化用户级配置。脚本不会写入 API key，也不会修改
 shell 启动文件。
+
+也可以手动初始化或覆盖用户级配置：
+
+```bash
+cohert init --provider deepseek
+cohert init --provider anthropic --force
+```
 
 ### 2. 本地开发运行
 
@@ -158,6 +166,7 @@ go run . ask "读取 README.md，并总结当前 runtime 的核心能力"
 
 ```bash
 go run . config
+go run . doctor
 go run . tools
 go run . mcp list
 go run . mcp status
