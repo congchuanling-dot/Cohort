@@ -42,6 +42,11 @@ func Run(args []string) error {
 	// config/tools 是轻量命令，不需要初始化 LLM Client，也不需要 API Key。
 	switch args[0] {
 	case "config":
+		active := cfg.LLM.Active()
+		if cfg.LLM.ActiveProfile != "" {
+			fmt.Printf("active_profile: %s\n", cfg.LLM.ActiveProfile)
+		}
+		fmt.Printf("provider: %s\n", active.Provider)
 		fmt.Printf("model: %s\napi_base: %s\nworkspace: %s\n", cfg.LLM.Model, cfg.LLM.APIBase, cfg.Workspace)
 		fmt.Printf("context.resolved_window_tokens: %d\n", cfg.Context.ContextWindowTokens)
 		fmt.Printf("context.output_reserve_tokens: %d\n", cfg.Context.MaxOutputTokens)

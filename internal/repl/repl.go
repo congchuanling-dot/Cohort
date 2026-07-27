@@ -679,11 +679,12 @@ func printWelcome(out io.Writer, cfg app.Config, runner *agent.Runner) {
 		sessionID = "new session"
 	}
 	tools := len(runner.ToolSchemas())
+	active := cfg.LLM.Active()
 	fmt.Fprintln(out, "╭────────────────────────────────────────────────────────────╮")
 	fmt.Fprintln(out, "│ Cohert                                                     │")
 	fmt.Fprintln(out, "│ Command-line Agent Runtime                                │")
 	fmt.Fprintln(out, "├────────────────────────────────────────────────────────────┤")
-	fmt.Fprintf(out, "│ Model      %-47s │\n", shorten(cfg.LLM.Model, 47))
+	fmt.Fprintf(out, "│ Model      %-47s │\n", shorten(active.Model, 47))
 	fmt.Fprintf(out, "│ Workspace  %-47s │\n", shorten(cfg.Workspace, 47))
 	fmt.Fprintf(out, "│ Session    %-47s │\n", shorten(sessionID, 47))
 	fmt.Fprintf(out, "│ Tools      %-47d │\n", tools)
@@ -773,12 +774,16 @@ func printTools(out io.Writer, runner *agent.Runner) {
 }
 
 func printModel(out io.Writer, cfg app.Config) {
+	active := cfg.LLM.Active()
 	fmt.Fprintln(out, "model:")
-	fmt.Fprintf(out, "  provider: %s\n", cfg.LLM.Provider)
-	fmt.Fprintf(out, "  name:     %s\n", cfg.LLM.Name)
-	fmt.Fprintf(out, "  model:    %s\n", cfg.LLM.Model)
-	fmt.Fprintf(out, "  api_base: %s\n", cfg.LLM.APIBase)
-	fmt.Fprintf(out, "  stream:   %t\n", cfg.LLM.Stream)
+	if cfg.LLM.ActiveProfile != "" {
+		fmt.Fprintf(out, "  active_profile: %s\n", cfg.LLM.ActiveProfile)
+	}
+	fmt.Fprintf(out, "  provider: %s\n", active.Provider)
+	fmt.Fprintf(out, "  name:     %s\n", active.Name)
+	fmt.Fprintf(out, "  model:    %s\n", active.Model)
+	fmt.Fprintf(out, "  api_base: %s\n", active.APIBase)
+	fmt.Fprintf(out, "  stream:   %t\n", active.Stream)
 }
 
 func printConfig(out io.Writer, cfg app.Config) {

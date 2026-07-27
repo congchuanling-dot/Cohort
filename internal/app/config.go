@@ -2,6 +2,7 @@ package app
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -27,9 +28,17 @@ type Config struct {
 	Context contextmgr.Config
 }
 
-// LLMConfig 描述模型服务配置，当前默认使用 OpenAI-compatible 接口。
+// LLMConfig 描述模型服务配置。
+//
+// 旧版配置直接把 provider/api_key/api_base/model 放在 llm: 下；新版配置使用
+// active_profile + profiles。为了让旧调用点平滑迁移，finalizeConfig 会把当前
+// active profile 回填到旧字段。
 type LLMConfig struct {
-	// Provider 是模型供应商标识，当前主要保留给未来扩展。
+	// ActiveProfile 是 profiles 中当前启用的模型配置 ID。
+	ActiveProfile string
+	// Profiles 保存多个显式模型/API 配置。
+	Profiles map[string]LLMProfile
+	// Provider 是旧版单模型配置里的模型供应商标识。
 	Provider string
 	// Name 是配置展示用的模型服务名称。
 	Name string
@@ -49,14 +58,37 @@ type LLMConfig struct {
 	MaxRetries int
 }
 
+// LLMProfile 是一个可独立选择的模型/API 配置。
+type LLMProfile struct {
+	// ID 是 profile 在配置文件中的 key。
+	ID string
+	// Provider 是模型协议或供应商类型，例如 openai。
+	Provider string
+	// Name 是展示名，未配置时默认等于 ID。
+	Name string
+	// APIKey 是调用模型服务的鉴权密钥，支持环境变量展开。
+	APIKey string
+	// APIBase 是模型服务基础地址。
+	APIBase string
+	// Model 是该 profile 使用的模型名称。
+	Model string
+	// Stream 控制是否启用流式输出。
+	Stream bool
+	// ConnectTimeoutSeconds 是连接阶段超时秒数。
+	ConnectTimeoutSeconds int
+	// ReadTimeoutSeconds 是读取响应阶段超时秒数。
+	ReadTimeoutSeconds int
+	// MaxRetries 是模型请求遇到可重试错误时的重试次数。
+	MaxRetries int
+}
+
 // LoadConfig 读取项目根目录的配置文件，并用环境变量替换 ${VAR}。
 // 当前为了保持 MVP 简单，没有引入 YAML 第三方库，只解析本项目需要的简单 key/value。
 func LoadConfig(path string) (Config, error) {
 	cfg := defaultConfig()
 	if _, err := os.Stat(path); err != nil {
 		// 配置文件不存在时也能运行，使用默认值和环境变量。
-		cfg.LLM.APIKey = expandEnv(cfg.LLM.APIKey)
-		return finalizeConfig(cfg), nil
+		return finalizeConfig(cfg)
 	}
 
 	file, err := os.Open(path)
@@ -66,6 +98,8 @@ func LoadConfig(path string) (Config, error) {
 	defer file.Close()
 
 	section := ""
+	llmSubsection := ""
+	currentProfile := ""
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -75,11 +109,30 @@ func LoadConfig(path string) (Config, error) {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		// 只识别顶层字段和 llm: 下的一层字段。
+		// 只识别顶层字段、llm/context 一层字段，以及 llm.profiles 下的一层 profile 字段。
 		indent := len(line) - len(strings.TrimLeft(line, " "))
 		line = strings.TrimSpace(line)
-		if strings.HasSuffix(line, ":") && indent == 0 {
-			section = strings.TrimSuffix(line, ":")
+		if strings.HasSuffix(line, ":") {
+			key := strings.TrimSuffix(line, ":")
+			if indent == 0 {
+				section = key
+				llmSubsection = ""
+				currentProfile = ""
+				continue
+			}
+			if section == "llm" && indent == 2 && key == "profiles" {
+				llmSubsection = "profiles"
+				currentProfile = ""
+				if cfg.LLM.Profiles == nil {
+					cfg.LLM.Profiles = map[string]LLMProfile{}
+				}
+				continue
+			}
+			if section == "llm" && llmSubsection == "profiles" && indent == 4 {
+				currentProfile = key
+				ensureLLMProfile(&cfg.LLM, currentProfile)
+				continue
+			}
 			continue
 		}
 		parts := strings.SplitN(line, ":", 2)
@@ -91,7 +144,13 @@ func LoadConfig(path string) (Config, error) {
 		val = expandEnv(val)
 
 		if section == "llm" {
-			applyLLMValue(&cfg.LLM, key, val)
+			if llmSubsection == "profiles" && currentProfile != "" && indent >= 6 {
+				profile := cfg.LLM.Profiles[currentProfile]
+				applyLLMProfileValue(&profile, key, val)
+				cfg.LLM.Profiles[currentProfile] = profile
+			} else {
+				applyLLMValue(&cfg.LLM, key, val)
+			}
 		} else if section == "context" {
 			applyContextValue(&cfg.Context, key, val)
 		} else {
@@ -107,12 +166,16 @@ func LoadConfig(path string) (Config, error) {
 	if cfg.LogDir != "" {
 		cfg.LogDir = filepath.Clean(cfg.LogDir)
 	}
-	return finalizeConfig(cfg), nil
+	return finalizeConfig(cfg)
 }
 
-func finalizeConfig(cfg Config) Config {
-	cfg.Context.ContextWindowTokens = contextmgr.ResolveContextWindowTokens(cfg.LLM.Model)
-	return cfg
+func finalizeConfig(cfg Config) (Config, error) {
+	if err := normalizeLLMConfig(&cfg.LLM); err != nil {
+		return cfg, err
+	}
+	active := cfg.LLM.Active()
+	cfg.Context.ContextWindowTokens = contextmgr.ResolveContextWindowTokens(active.Model)
+	return cfg, nil
 }
 
 // defaultConfig 给出开箱即用的默认配置。
@@ -135,6 +198,108 @@ func defaultConfig() Config {
 			MaxRetries:            2,
 		},
 	}
+}
+
+// Active 返回当前生效的模型配置。调用前配置已经过 normalizeLLMConfig 归一化。
+func (cfg LLMConfig) Active() LLMProfile {
+	if len(cfg.Profiles) > 0 && cfg.ActiveProfile != "" {
+		if profile, ok := cfg.Profiles[cfg.ActiveProfile]; ok {
+			return profile
+		}
+	}
+	return LLMProfile{
+		ID:                    "default",
+		Provider:              cfg.Provider,
+		Name:                  cfg.Name,
+		APIKey:                cfg.APIKey,
+		APIBase:               cfg.APIBase,
+		Model:                 cfg.Model,
+		Stream:                cfg.Stream,
+		ConnectTimeoutSeconds: cfg.ConnectTimeoutSeconds,
+		ReadTimeoutSeconds:    cfg.ReadTimeoutSeconds,
+		MaxRetries:            cfg.MaxRetries,
+	}
+}
+
+func normalizeLLMConfig(cfg *LLMConfig) error {
+	if len(cfg.Profiles) > 0 {
+		if strings.TrimSpace(cfg.ActiveProfile) == "" {
+			return fmt.Errorf("llm.active_profile is required when llm.profiles is configured")
+		}
+		active, ok := cfg.Profiles[cfg.ActiveProfile]
+		if !ok {
+			return fmt.Errorf("llm.active_profile %q does not exist in llm.profiles", cfg.ActiveProfile)
+		}
+		active = normalizeLLMProfile(active)
+		cfg.Profiles[cfg.ActiveProfile] = active
+		for id, profile := range cfg.Profiles {
+			if id == cfg.ActiveProfile {
+				continue
+			}
+			cfg.Profiles[id] = normalizeLLMProfile(profile)
+		}
+		copyProfileToLegacyFields(cfg, active)
+		return nil
+	}
+
+	cfg.Provider = strings.TrimSpace(cfg.Provider)
+	if cfg.Provider == "" {
+		cfg.Provider = "openai"
+	}
+	cfg.Name = strings.TrimSpace(cfg.Name)
+	if cfg.Name == "" {
+		cfg.Name = cfg.Model
+	}
+	cfg.APIKey = expandEnv(cfg.APIKey)
+	cfg.APIBase = strings.TrimRight(strings.TrimSpace(cfg.APIBase), "/")
+	cfg.Model = strings.TrimSpace(cfg.Model)
+	if cfg.ConnectTimeoutSeconds <= 0 {
+		cfg.ConnectTimeoutSeconds = int((10 * time.Second).Seconds())
+	}
+	if cfg.ReadTimeoutSeconds <= 0 {
+		cfg.ReadTimeoutSeconds = int((120 * time.Second).Seconds())
+	}
+	if cfg.MaxRetries < 0 {
+		cfg.MaxRetries = 0
+	}
+	return nil
+}
+
+func normalizeLLMProfile(profile LLMProfile) LLMProfile {
+	profile.ID = strings.TrimSpace(profile.ID)
+	profile.Provider = strings.TrimSpace(profile.Provider)
+	if profile.Provider == "" {
+		profile.Provider = "openai"
+	}
+	profile.Name = strings.TrimSpace(profile.Name)
+	if profile.Name == "" {
+		profile.Name = profile.ID
+	}
+	profile.APIKey = expandEnv(profile.APIKey)
+	profile.APIBase = strings.TrimRight(strings.TrimSpace(profile.APIBase), "/")
+	profile.Model = strings.TrimSpace(profile.Model)
+	if profile.ConnectTimeoutSeconds <= 0 {
+		profile.ConnectTimeoutSeconds = int((10 * time.Second).Seconds())
+	}
+	if profile.ReadTimeoutSeconds <= 0 {
+		profile.ReadTimeoutSeconds = int((120 * time.Second).Seconds())
+	}
+	if profile.MaxRetries < 0 {
+		profile.MaxRetries = 0
+	}
+	return profile
+}
+
+func copyProfileToLegacyFields(cfg *LLMConfig, profile LLMProfile) {
+	cfg.Provider = profile.Provider
+	cfg.Name = profile.Name
+	cfg.APIKey = profile.APIKey
+	cfg.APIBase = profile.APIBase
+	cfg.Model = profile.Model
+	cfg.Stream = profile.Stream
+	cfg.ConnectTimeoutSeconds = profile.ConnectTimeoutSeconds
+	cfg.ReadTimeoutSeconds = profile.ReadTimeoutSeconds
+	cfg.MaxRetries = profile.MaxRetries
 }
 
 // applyRootValue 写入顶层配置字段。
@@ -183,6 +348,8 @@ func applyContextValue(cfg *contextmgr.Config, key, val string) {
 // applyLLMValue 写入 llm: 配置段里的字段。
 func applyLLMValue(cfg *LLMConfig, key, val string) {
 	switch key {
+	case "active_profile":
+		cfg.ActiveProfile = val
 	case "provider":
 		cfg.Provider = val
 	case "name":
@@ -201,6 +368,48 @@ func applyLLMValue(cfg *LLMConfig, key, val string) {
 		cfg.ReadTimeoutSeconds = atoiDefault(val, cfg.ReadTimeoutSeconds)
 	case "max_retries":
 		cfg.MaxRetries = atoiDefault(val, cfg.MaxRetries)
+	}
+}
+
+func ensureLLMProfile(cfg *LLMConfig, id string) {
+	if cfg.Profiles == nil {
+		cfg.Profiles = map[string]LLMProfile{}
+	}
+	if _, ok := cfg.Profiles[id]; ok {
+		return
+	}
+	cfg.Profiles[id] = LLMProfile{
+		ID:                    id,
+		Provider:              "openai",
+		Name:                  id,
+		Stream:                true,
+		ConnectTimeoutSeconds: int((10 * time.Second).Seconds()),
+		ReadTimeoutSeconds:    int((120 * time.Second).Seconds()),
+		MaxRetries:            2,
+	}
+}
+
+// applyLLMProfileValue 写入 llm.profiles.<id> 下的字段。
+func applyLLMProfileValue(profile *LLMProfile, key, val string) {
+	switch key {
+	case "provider":
+		profile.Provider = val
+	case "name":
+		profile.Name = val
+	case "api_key":
+		profile.APIKey = val
+	case "api_base":
+		profile.APIBase = strings.TrimRight(val, "/")
+	case "model":
+		profile.Model = val
+	case "stream":
+		profile.Stream = parseBoolDefault(val, profile.Stream)
+	case "connect_timeout_seconds":
+		profile.ConnectTimeoutSeconds = atoiDefault(val, profile.ConnectTimeoutSeconds)
+	case "read_timeout_seconds":
+		profile.ReadTimeoutSeconds = atoiDefault(val, profile.ReadTimeoutSeconds)
+	case "max_retries":
+		profile.MaxRetries = atoiDefault(val, profile.MaxRetries)
 	}
 }
 

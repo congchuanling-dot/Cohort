@@ -31,8 +31,9 @@ const (
 // NewRunner 根据配置创建完整的 Agent Runner。
 // 这里是应用装配层：负责把 LLM Client、工具注册器、系统提示词组合到一起。
 func NewRunner(cfg Config) (*agent.Runner, error) {
-	if cfg.LLM.APIKey == "" {
-		return nil, errors.New("missing API key: set DEEPSEEK_API_KEY or configs/config.yaml llm.api_key")
+	active := cfg.LLM.Active()
+	if active.APIKey == "" {
+		return nil, errors.New("missing API key: set environment variable or configs/config.yaml llm.api_key / llm.profiles.<active>.api_key")
 	}
 	workspace := normalizeWorkspace(cfg.Workspace)
 	// workspace 是文件和命令工具默认工作的目录。
@@ -44,17 +45,21 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 		return nil, err
 	}
 
-	// 当前 MVP 先支持 OpenAI-compatible 协议，DeepSeek 也走这套接口。
-	client := llm.NewOpenAIClient(llm.OpenAIConfig{
-		Name:           cfg.LLM.Name,
-		APIKey:         cfg.LLM.APIKey,
-		APIBase:        cfg.LLM.APIBase,
-		Model:          cfg.LLM.Model,
-		Stream:         cfg.LLM.Stream,
-		ConnectTimeout: time.Duration(cfg.LLM.ConnectTimeoutSeconds) * time.Second,
-		ReadTimeout:    time.Duration(cfg.LLM.ReadTimeoutSeconds) * time.Second,
-		MaxRetries:     cfg.LLM.MaxRetries,
+	client, err := llm.NewClient(llm.ProviderConfig{
+		ProfileID:      active.ID,
+		Provider:       active.Provider,
+		Name:           active.Name,
+		APIKey:         active.APIKey,
+		APIBase:        active.APIBase,
+		Model:          active.Model,
+		Stream:         active.Stream,
+		ConnectTimeout: time.Duration(active.ConnectTimeoutSeconds) * time.Second,
+		ReadTimeout:    time.Duration(active.ReadTimeoutSeconds) * time.Second,
+		MaxRetries:     active.MaxRetries,
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -92,7 +97,7 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 		ContextManager: contextManager,
 		SessionStore:   &sessionStore,
 		SessionCWD:     cwd,
-		SessionModel:   cfg.LLM.Model,
+		SessionModel:   active.Model,
 		CloseFunc:      mcpManager.Close,
 		SkillStore:     skillStore,
 	}, nil

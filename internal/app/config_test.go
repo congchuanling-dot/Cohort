@@ -83,6 +83,108 @@ llm:
 	if cfg.Context.EnableMicroCompact {
 		t.Fatal("enable micro compact = true, want false")
 	}
+	if cfg.LLM.ActiveProfile != "" {
+		t.Fatalf("active profile = %q, want empty legacy profile", cfg.LLM.ActiveProfile)
+	}
+	if active := cfg.LLM.Active(); active.Model != "test-model" || active.APIBase != "https://example.com/v1" {
+		t.Fatalf("legacy active profile = %#v, want model/api_base from legacy llm fields", active)
+	}
+}
+
+func TestLoadConfigParsesLLMProfiles_BitsUT(t *testing.T) {
+	t.Setenv("LOCAL_OPENAI_API_KEY", "local-key")
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := `language: zh
+workspace: ./workspace
+log_dir: ./temp/model_responses
+max_turns: 7
+
+llm:
+  active_profile: local
+  profiles:
+    deepseek:
+      provider: openai
+      name: deepseek
+      api_key: ${DEEPSEEK_API_KEY}
+      api_base: https://api.deepseek.com
+      model: deepseek-v4-pro
+      stream: true
+      connect_timeout_seconds: 10
+      read_timeout_seconds: 120
+      max_retries: 2
+    local:
+      provider: openai
+      name: qwen-local
+      api_key: ${LOCAL_OPENAI_API_KEY}
+      api_base: http://127.0.0.1:11434/v1/
+      model: qwen3-coder
+      stream: false
+      max_retries: 1
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.LLM.ActiveProfile != "local" {
+		t.Fatalf("active profile = %q, want local", cfg.LLM.ActiveProfile)
+	}
+	if len(cfg.LLM.Profiles) != 2 {
+		t.Fatalf("profiles count = %d, want 2", len(cfg.LLM.Profiles))
+	}
+	active := cfg.LLM.Active()
+	if active.ID != "local" {
+		t.Fatalf("active id = %q, want local", active.ID)
+	}
+	if active.Name != "qwen-local" {
+		t.Fatalf("active name = %q, want qwen-local", active.Name)
+	}
+	if active.APIKey != "local-key" {
+		t.Fatalf("active api key = %q, want expanded local-key", active.APIKey)
+	}
+	if active.APIBase != "http://127.0.0.1:11434/v1" {
+		t.Fatalf("active api base = %q, want trimmed base", active.APIBase)
+	}
+	if active.Model != "qwen3-coder" {
+		t.Fatalf("active model = %q, want qwen3-coder", active.Model)
+	}
+	if active.Stream {
+		t.Fatal("active stream = true, want false")
+	}
+	if active.ConnectTimeoutSeconds != 10 || active.ReadTimeoutSeconds != 120 {
+		t.Fatalf("active timeouts = %d/%d, want defaults 10/120", active.ConnectTimeoutSeconds, active.ReadTimeoutSeconds)
+	}
+	if cfg.LLM.Model != active.Model || cfg.LLM.APIBase != active.APIBase || cfg.LLM.APIKey != active.APIKey {
+		t.Fatalf("legacy fields were not backfilled from active profile: llm=%#v active=%#v", cfg.LLM, active)
+	}
+}
+
+func TestLoadConfigRejectsMissingActiveProfile_BitsUT(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := `llm:
+  active_profile: missing
+  profiles:
+    deepseek:
+      provider: openai
+      api_key: test-key
+      api_base: https://api.deepseek.com
+      model: deepseek-v4-pro
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadConfig(path)
+	if err == nil {
+		t.Fatal("LoadConfig error = nil, want missing active profile error")
+	}
+	if !strings.Contains(err.Error(), `llm.active_profile "missing" does not exist`) {
+		t.Fatalf("LoadConfig error = %v, want missing active profile message", err)
+	}
 }
 
 func TestNormalizeWorkspaceReturnsAbsolutePath_BitsUT(t *testing.T) {
