@@ -1,4 +1,4 @@
-# Cohert 开发任务拆解表
+# Cohort 开发任务拆解表
 
 > 文档状态：`[维护]`。状态基线为 2026-07-26；完整文档导航见 [docs/README.md](README.md)。
 >
@@ -26,7 +26,7 @@
 | 1 | `FinishGuard` / `NoToolPolicy` 与早停治理 | `[下一步]` | 保持“无 tool_calls 默认结束”的 Agent Loop 语义，只对空回复、流式中断、max_tokens 截断、plan 未验证完成、大代码块误输出等强异常做一次性守卫；目标文件：`internal/agent/runner.go`、新增 `internal/agent/finish_guard.go`、`internal/agent/*test.go`。 |
 | 2 | 严格文本 `<tool_use>` 兜底 | `[规划]` | OpenAI-compatible 原生 tool_calls 缺失时，严格解析 `<tool_use>{...}</tool_use>`；解析失败走 bad JSON 自修复；正文展示剥离工具块。 |
 | 3 | Runner 生命周期事件与 `run.log` 事件流 | `[规划]` | 将 LLM、tool、permission、evidence、compact、session start/end 等统一成内部 event，并把现有工具级 `run.log` 扩展为 JSONL 事件流。 |
-| 4 | `cohert doctor` 总入口 | `[规划]` | 一键检查配置、API key、模型连通性、MCP、Skill、browser bridge、desktop helper、workspace/session/log 可写性。 |
+| 4 | `cohort doctor` 总入口 | `[规划]` | 一键检查配置、API key、模型连通性、MCP、Skill、browser bridge、desktop helper、workspace/session/log 可写性。 |
 | 5 | 交互式 diff 与变更审阅 | `[规划]` | 提供 `/diff`、变更摘要、接受/拒绝与受限回滚边界，避免模型修改后用户不可见。 |
 | 6 | Project / Plan Mode | `[规划]` | 项目 bootstrap、计划状态和验证关口可在 session 中恢复。 |
 | 7 | 飞书 MCP 真实端到端验收 | `[验收支线]` | 用户显式装配官方 Server 后，完成 OAuth、只读文档、R2 写操作确认和 `run.log` 检查；不阻塞 NoToolPolicy 主线。 |
@@ -50,7 +50,7 @@
 以下内容是早期任务拆解和 GA 对比依据。它保留已完成任务、技术取舍和依赖关系，但
 其中的优先级与“待做”状态已经被“当前开发路径”取代。
 
-## 2. GA 经验对 Cohert 的影响
+## 2. GA 经验对 Cohort 的影响
 
 ### 2.1 code_run
 
@@ -72,7 +72,7 @@ GA 暴露出的不足：
 - 没有禁止大范围 `grep -r .`、`find /`。
 - timeout 结果主要写在 stdout 中，不够结构化。
 
-Cohert 的改进方向：
+Cohort 的改进方向：
 
 - 保留结构化结果。
 - 改掉 `bash -lc`，避免加载用户 `.bashrc`。
@@ -89,7 +89,7 @@ GA 的文件工具更成熟，主要体现在：
 - `file_patch` 强调唯一匹配。
 - 写入结果会尽量让模型知道下一步怎么修正。
 
-Cohert 的改进方向：
+Cohort 的改进方向：
 
 - 保留 `file_patch` 唯一匹配机制。
 - 增加路径不存在时的候选建议。
@@ -100,7 +100,7 @@ Cohert 的改进方向：
 
 GA 有 `update_working_checkpoint`、memory、SOP、长期经验沉淀等能力。
 
-Cohert 当前不急着做完整 memory 系统，但要保留方向：
+Cohort 当前不急着做完整 memory 系统，但要保留方向：
 
 - P0 先做 session 和 run.log。
 - P1 再做 memory/checkpoint。
@@ -110,7 +110,7 @@ Cohert 当前不急着做完整 memory 系统，但要保留方向：
 
 GA 有 Web、TUI、桌面、IM、浏览器工具等大量外围能力。
 
-Cohert 当前不优先做这些：
+Cohort 当前不优先做这些：
 
 - CLI 核心稳定前，不做 Web UI。
 - 浏览器工具先放 P1，只做只读能力。
@@ -122,7 +122,7 @@ Cohert 当前不优先做这些：
 
 目标：
 
-- Cohert 能作为最小命令行 Agent 跑通。
+- Cohort 能作为最小命令行 Agent 跑通。
 - 基础工具、错误格式、SSE 测试、session 写入具备雏形。
 
 已覆盖任务：
@@ -187,7 +187,7 @@ Cohert 当前不优先做这些：
 
 为什么优先：
 
-- Cohert 是编码 Agent，文件工具质量直接影响修改质量。
+- Cohort 是编码 Agent，文件工具质量直接影响修改质量。
 
 ### M5：工具调用和错误兜底
 
@@ -412,7 +412,7 @@ P1 只在 P0 核心稳定后推进。
 | ID | 任务 | 说明 | 依赖 | 预估 |
 | --- | --- | --- | --- | ---: |
 | P1-110 | 定义 Anthropic Client | 实现 `llm.Client` 接口 | P1-100 | 0.6 |
-| P1-111 | 消息格式转换 | Cohert Message -> Claude Messages | P1-110 | 0.6 |
+| P1-111 | 消息格式转换 | Cohort Message -> Claude Messages | P1-110 | 0.6 |
 | P1-112 | 工具 schema 转换 | OpenAI tool schema -> Claude tool schema | P1-111 | 0.6 |
 | P1-113 | 流式解析 | 解析 Claude text/tool_use delta | P1-112 | 0.8 |
 | P1-114 | tool result 回灌 | Claude 工具结果格式适配 | P1-113 | 0.5 |

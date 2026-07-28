@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"cohert/internal/llm"
+	"cohort/internal/llm"
 )
 
 func TestStoreCreateWritesMeta(t *testing.T) {
@@ -82,7 +82,7 @@ func TestStoreAppendHistoryWritesJSONL(t *testing.T) {
 	if writeErr != nil {
 		t.Fatal(writeErr)
 	}
-	writeErr = store.AppendHistory(sess.ID, llm.Message{Role: llm.RoleAssistant, Content: "你好，我是 Cohert"})
+	writeErr = store.AppendHistory(sess.ID, llm.Message{Role: llm.RoleAssistant, Content: "你好，我是 Cohort"})
 	if writeErr != nil {
 		t.Fatal(writeErr)
 	}
@@ -117,7 +117,7 @@ func TestStoreAppendHistoryWritesJSONL(t *testing.T) {
 	if entries[0].Role != llm.RoleUser || entries[0].Message.Content != "你好" {
 		t.Fatalf("first entry = %#v", entries[0])
 	}
-	if entries[1].Role != llm.RoleAssistant || entries[1].Message.Content != "你好，我是 Cohert" {
+	if entries[1].Role != llm.RoleAssistant || entries[1].Message.Content != "你好，我是 Cohort" {
 		t.Fatalf("second entry = %#v", entries[1])
 	}
 }

@@ -1,4 +1,4 @@
-# Cohert 上下文管理层技术方案
+# Cohort 上下文管理层技术方案
 
 > 文档状态：`[部分完成]`。状态基线为 2026-07-26；完整文档导航见 [docs/README.md](README.md)。
 >
@@ -6,13 +6,13 @@
 > relevant memory 注入和 context stats。未完成：自动触发 full compact、持久化
 > `context_state.json` 与连续失败熔断器。后续阶段以本文保留的方案为准。
 
-本文档描述 Cohert 后续实现 Context Manager 的完整技术方案。
+本文档描述 Cohort 后续实现 Context Manager 的完整技术方案。
 
-方案参考 Claude Code 上下文工程的四层压缩思路，并结合 Cohert 当前已经实现的 `history.jsonl`、`Runner.history`、工具调用协议和 session 恢复能力重新设计。
+方案参考 Claude Code 上下文工程的四层压缩思路，并结合 Cohort 当前已经实现的 `history.jsonl`、`Runner.history`、工具调用协议和 session 恢复能力重新设计。
 
 ## 1. 背景
 
-Cohert 当前已经具备基础会话能力：
+Cohort 当前已经具备基础会话能力：
 
 - 用户输入会进入 `Runner.history`。
 - 模型回复会进入 `Runner.history`。
@@ -41,7 +41,7 @@ history.jsonl
 - 一旦超过模型 context window，请求会失败。
 - 即使没失败，也会变慢、变贵，并干扰模型判断。
 
-所以 Cohert 需要把“完整历史”和“本轮模型可见上下文”拆开。
+所以 Cohort 需要把“完整历史”和“本轮模型可见上下文”拆开。
 
 目标链路应该变成：
 
@@ -90,7 +90,7 @@ Micro Compact 是零成本压缩。
 - 压缩较旧工具结果。
 - 保证工具调用协议不被破坏。
 
-它适合 Cohert 第一版落地，因为确定性强、容易测试、不会增加模型调用成本。
+它适合 Cohort 第一版落地，因为确定性强、容易测试、不会增加模型调用成本。
 
 ### 2.2 Session Memory Compact
 
@@ -118,7 +118,7 @@ Full Compact 是高成本模型摘要。
 
 摘要不能只写“总结一下对话”，应该强制按维度输出，避免漏掉任务状态。
 
-建议 Cohert 使用 9 个维度：
+建议 Cohort 使用 9 个维度：
 
 ```text
 1. Primary Request and Intent：用户主要请求和真实意图
@@ -143,7 +143,7 @@ Auto Compact 解决什么时候压缩。
 - 压缩失败后有熔断器。
 - 避免压缩流程本身递归触发压缩。
 
-对 Cohert 来说，Auto Compact 不建议第一版就做复杂。第一版先做请求前确定性裁剪；等稳定后再加入自动摘要和熔断器。
+对 Cohort 来说，Auto Compact 不建议第一版就做复杂。第一版先做请求前确定性裁剪；等稳定后再加入自动摘要和熔断器。
 
 当前实现采用“每次请求前评估，超过阈值才压缩”的策略：
 
@@ -157,7 +157,7 @@ estimated_input_tokens >= 可用输入预算的 70%
   -> 如仍超过预算，再做 Group Trim
 ```
 
-## 3. Cohert 设计目标
+## 3. Cohort 设计目标
 
 ### 3.1 第一阶段目标
 
@@ -229,7 +229,7 @@ context_delete
 context_compact
 ```
 
-模型不应该自己决定删除哪些上下文。上下文预算和协议完整性属于运行时控制逻辑，应由 Cohert 保证。
+模型不应该自己决定删除哪些上下文。上下文预算和协议完整性属于运行时控制逻辑，应由 Cohort 保证。
 
 ## 5. 总体架构
 
@@ -261,7 +261,7 @@ Runner 不应该自己写裁剪逻辑，只负责调用 Context Manager。
 
 ## 6. 当前消息结构
 
-Cohert 当前模型消息结构是：
+Cohort 当前模型消息结构是：
 
 ```go
 type Message struct {
@@ -320,7 +320,7 @@ tool       工具执行结果
 不能让请求里出现缺结果的 tool_calls，除非它是最新一轮正在等待工具执行的状态。
 ```
 
-Cohert 当前 Runner 是同步执行工具，所以正常历史里不应该存在“正在等待工具执行”的 assistant tool_calls。
+Cohort 当前 Runner 是同步执行工具，所以正常历史里不应该存在“正在等待工具执行”的 assistant tool_calls。
 
 因此第一版规则可以更简单：
 
@@ -379,7 +379,7 @@ context:
 
 OpenAI-compatible API 通常不会稳定返回模型最大 context window。
 
-因此 Cohert 不应该依赖自动获取，也不应该让用户手动配置模型窗口，而应该采用：
+因此 Cohort 不应该依赖自动获取，也不应该让用户手动配置模型窗口，而应该采用：
 
 ```text
 根据 llm.model 查内置模型表
@@ -593,7 +593,7 @@ Group 4: user
 第一版可以插入简单提示：
 
 ```text
-[earlier conversation omitted by Cohert Context Manager]
+[earlier conversation omitted by Cohort Context Manager]
 Some older messages were omitted from this request to fit the model context window.
 The full history remains stored in history.jsonl.
 ```
@@ -603,7 +603,7 @@ The full history remains stored in history.jsonl.
 ```go
 llm.Message{
     Role: llm.RoleAssistant,
-    Content: "[Cohert context notice] Earlier conversation messages were omitted from this request. Full history is preserved in history.jsonl.",
+    Content: "[Cohort context notice] Earlier conversation messages were omitted from this request. Full history is preserved in history.jsonl.",
 }
 ```
 
@@ -680,7 +680,7 @@ Context Manager 会读取并注入 `memory.md`。
 ```go
 llm.Message{
     Role: llm.RoleAssistant,
-    Content: "[Cohert session memory]\n\n" + memoryText,
+    Content: "[Cohort session memory]\n\n" + memoryText,
 }
 ```
 
@@ -896,7 +896,7 @@ temp/sessions/<session_id>/compact.md
 Context Manager 会读取并注入为一条 assistant 消息：
 
 ```text
-[Cohert compact summary]
+[Cohort compact summary]
 
 <compact.md 内容>
 ```
@@ -904,7 +904,7 @@ Context Manager 会读取并注入为一条 assistant 消息：
 如果 `compact.md` 超过 `MaxCompactSummaryChars`，只截断本轮请求副本，不修改磁盘文件，并追加：
 
 ```text
-[Cohert compact summary truncated]
+[Cohort compact summary truncated]
 ```
 
 ### 12.6 压缩请求本身过长
@@ -921,7 +921,7 @@ Context Manager 会读取并注入为一条 assistant 消息：
 
 ## 13. 第五层：Auto Compact 和熔断器
 
-虽然参考文章是四层，但 Cohert 实现时可以把自动触发和熔断器放在同一个模块。
+虽然参考文章是四层，但 Cohort 实现时可以把自动触发和熔断器放在同一个模块。
 
 ### 13.1 触发条件
 
@@ -1206,7 +1206,7 @@ max_request_chars: 100000
 
 - tokenizer 引入成本高。
 - 不同模型 tokenizer 不同。
-- Cohert 当前优先是稳定 MVP。
+- Cohort 当前优先是稳定 MVP。
 
 ## 18. 与 session 的关系
 
@@ -1252,14 +1252,14 @@ compact.md
 
 `docs/开发记录文档.md` 是人看的开发过程记录。
 
-它不应该进入模型上下文，除非用户明确让 Cohert 读取它。
+它不应该进入模型上下文，除非用户明确让 Cohort 读取它。
 
 Context Manager 管理的是 session 内部对话上下文，不管理项目文档。
 
 后续如果实现项目规则文件，可以新增：
 
 ```text
-COHERT.md
+COHORT.md
 ```
 
 类似 Claude Code 的 `CLAUDE.md`，用于保存项目规则、命令、约定。
@@ -1458,7 +1458,7 @@ P1-044：补充自动 compact 测试
 
 ## 24. 最终效果
 
-实现后，Cohert 的上下文行为会变成：
+实现后，Cohort 的上下文行为会变成：
 
 ```text
 完整历史：

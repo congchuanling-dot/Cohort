@@ -1,11 +1,11 @@
-# Cohert 自我进化能力技术方案
+# Cohort 自我进化能力技术方案
 
 > 文档状态：`[部分完成]`。状态基线为 2026-07-26；完整文档导航见 [docs/README.md](README.md)。
 >
 > 已完成：工作记忆、受控长期记忆、EvidenceLedger、项目/相关记忆注入、memory audit、
 > SOP candidate 和人工晋级。未完成：L4 会话归档、后台反射、跨会话候选挖掘和质量闭环。
 
-本文档描述 Cohert 后续实现“自我进化能力”的技术方案。
+本文档描述 Cohort 后续实现“自我进化能力”的技术方案。
 
 这里的“自我进化”不是让 Agent 无约束地修改自身代码，而是让 Agent 在完成任务后，能够把经过验证的经验沉淀为可复用资产，并在后续任务中自动检索、注入和执行。核心资产包括：
 
@@ -146,11 +146,11 @@ GA 的 `plugins/project_mode.py` 使用 hook 机制实现项目模式。
 - 模型根据当前任务自行判断是否读取详细记忆。
 - 收尾时要求判断本轮是否产生值得写入项目记忆的经验。
 
-这对 Cohert 很有参考价值：项目级记忆应该“可发现、可读取、少注入”，而不是每轮强行塞满上下文。
+这对 Cohort 很有参考价值：项目级记忆应该“可发现、可读取、少注入”，而不是每轮强行塞满上下文。
 
-## 2. Cohert 当前基础
+## 2. Cohort 当前基础
 
-Cohert 已经具备一些可复用基础：
+Cohort 已经具备一些可复用基础：
 
 - `Runner.history`：完整内存历史。
 - `history.jsonl`：本地会话历史落盘。
@@ -161,7 +161,7 @@ Cohert 已经具备一些可复用基础：
 - `sops/index.md`：SOP 路由入口。
 - `temp/model_responses/`：模型原始响应日志。
 
-所以 Cohert 不需要从零开始复制 GA，而应该在现有架构上补齐：
+所以 Cohort 不需要从零开始复制 GA，而应该在现有架构上补齐：
 
 ```text
 任务中：工作记忆
@@ -202,7 +202,7 @@ Runner
 
 ### 3.1 能力等级
 
-Cohert 不把所有经验都直接升级为 Skill，而是分级晋级：
+Cohort 不把所有经验都直接升级为 Skill，而是分级晋级：
 
 | 等级 | 资产 | 说明 | 自动化边界 |
 | --- | --- | --- | --- |
@@ -222,11 +222,11 @@ Cohert 不把所有经验都直接升级为 Skill，而是分级晋级：
 
 ## 4. 记忆分层设计
 
-建议 Cohert 使用四层记忆结构。
+建议 Cohort 使用四层记忆结构。
 
 运行时真实存储位置统一为配置项 `workspace` 下的 `memory/` 目录。工具参数和索引中的 `memory/...` 都是相对 `workspace` 的逻辑路径，例如 `memory/global.md` 实际落盘到 `<workspace>/memory/global.md`。Context Manager 也只从同一个 `<workspace>/memory/index.md` 注入长期记忆索引。
 
-请求模型前，Context Manager 会根据最近用户任务提取关键词，从 `memory/index.md` 指向的 `.md` 文件和项目 memory 中按 entry 匹配相关长期记忆。命中后只把最相关的若干条 entry 作为 `[Cohert relevant long-term memory]` 受保护前缀注入；未命中时只注入 `memory/index.md` 指针。
+请求模型前，Context Manager 会根据最近用户任务提取关键词，从 `memory/index.md` 指向的 `.md` 文件和项目 memory 中按 entry 匹配相关长期记忆。命中后只把最相关的若干条 entry 作为 `[Cohort relevant long-term memory]` 受保护前缀注入；未命中时只注入 `memory/index.md` 指针。
 
 ```text
 memory/
@@ -540,8 +540,8 @@ Schema：
 第一版可以先不做常驻 daemon，只做命令：
 
 ```bash
-cohert reflect once
-cohert reflect scheduler
+cohort reflect once
+cohort reflect scheduler
 ```
 
 ## 7. 后台反射设计
@@ -597,7 +597,7 @@ reflect trigger
 - 把失败假设当事实写入。
 - 覆盖整个记忆文件。
 
-## 9. 与现有 Cohert 架构的接入点
+## 9. 与现有 Cohort 架构的接入点
 
 ### 9.1 Runner
 
@@ -667,7 +667,7 @@ recent history
 
 ### P1：项目记忆与按需读取
 
-目标：让 Cohert 在项目内持续积累经验，但不撑爆上下文。
+目标：让 Cohort 在项目内持续积累经验，但不撑爆上下文。
 
 任务：
 
@@ -679,11 +679,11 @@ recent history
 
 ### P2：后台反射与历史归档
 
-目标：让 Cohert 能从历史会话中发现重复模式。
+目标：让 Cohort 能从历史会话中发现重复模式。
 
 任务：
 
-1. 新增 `cohert reflect once`。
+1. 新增 `cohort reflect once`。
 2. 实现 history 归档到 `memory/raw_sessions/`。
 3. 生成失败模式报告。
 4. 生成 SOP 候选报告。
@@ -703,7 +703,7 @@ recent history
 
 ### P4：代码级自我改进建议
 
-目标：让 Cohert 能提出自身代码改进方案，但不自动改核心代码。
+目标：让 Cohort 能提出自身代码改进方案，但不自动改核心代码。
 
 任务：
 
@@ -744,7 +744,7 @@ recent history
 
 ## 13. 结论
 
-Cohert 的自我进化应该走“记忆和 SOP 进化优先，代码自改延后”的路线。
+Cohort 的自我进化应该走“记忆和 SOP 进化优先，代码自改延后”的路线。
 
 推荐路线：
 
@@ -758,4 +758,4 @@ Cohert 的自我进化应该走“记忆和 SOP 进化优先，代码自改延�
   -> 用户批准后更新 SOP 或代码
 ```
 
-这个方案能够复用 GA 的核心经验，同时更适合 Cohert 当前 Go 架构：先把经验沉淀、检索和注入做好，再逐步加入后台反射和代码级改进建议。
+这个方案能够复用 GA 的核心经验，同时更适合 Cohort 当前 Go 架构：先把经验沉淀、检索和注入做好，再逐步加入后台反射和代码级改进建议。

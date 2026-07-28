@@ -3,7 +3,7 @@ package contextmgr
 import (
 	"strings"
 
-	"cohert/internal/llm"
+	"cohort/internal/llm"
 )
 
 const (
@@ -17,7 +17,7 @@ const (
 
 // modelContextWindows 是模型名到上下文窗口大小的内置表。
 //
-// Cohert 不让用户配置 context window，原因是窗口大小属于模型能力，而不是用户偏好。
+// Cohort 不让用户配置 context window，原因是窗口大小属于模型能力，而不是用户偏好。
 // 用户只选择 llm.model，运行时根据模型名查这里。
 var modelContextWindows = map[string]int{
 	"deepseek-v4-pro": 1000000,

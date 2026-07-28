@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"cohert/internal/agent"
-	"cohert/internal/computeruse"
-	"cohert/internal/desktop"
-	"cohert/internal/llm"
-	"cohert/internal/vision"
+	"cohort/internal/agent"
+	"cohort/internal/computeruse"
+	"cohort/internal/desktop"
+	"cohort/internal/llm"
+	"cohort/internal/vision"
 )
 
 const (
@@ -309,7 +309,7 @@ func (t *ComputerVisualSnapshot) Run(ctx context.Context, call agent.ToolCallCon
 		return computerCacheError("computer_visual_snapshot", err), nil
 	}
 	if state.ActivePID <= 0 || state.ScreenshotRef == "" || state.ScreenshotManifestRef == "" {
-		return computerToolError("computer_visual_snapshot_no_observation", "latest computer state has no screenshot-backed active window", "请先调用 computer_see，让 Cohert 捕获当前窗口截图和候选目标。"), nil
+		return computerToolError("computer_visual_snapshot_no_observation", "latest computer state has no screenshot-backed active window", "请先调用 computer_see，让 Cohort 捕获当前窗口截图和候选目标。"), nil
 	}
 	mode := strings.ToLower(strings.TrimSpace(asString(call.Args["mode"])))
 	if mode == "" {

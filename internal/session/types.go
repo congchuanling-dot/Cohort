@@ -5,17 +5,17 @@ import (
 	"encoding/hex"
 	"time"
 
-	"cohert/internal/llm"
+	"cohort/internal/llm"
 )
 
 const (
 	// DefaultRootDir 是本地会话默认保存目录。
 	// 后续每一次对话都会在这个目录下创建一个独立子目录。
 	//
-	// 这里先放在 temp/ 下，是因为当前 Cohert 还处在本地 MVP 阶段：
+	// 这里先放在 temp/ 下，是因为当前 Cohort 还处在本地 MVP 阶段：
 	// 1. 不依赖数据库，直接用文件就能观察和调试。
 	// 2. 不默认写入用户 HOME，避免早期开发时产生难清理的全局数据。
-	// 3. 后续如果要做全局安装，可以再把这个默认值迁到 ~/.cohert/sessions。
+	// 3. 后续如果要做全局安装，可以再把这个默认值迁到 ~/.cohort/sessions。
 	DefaultRootDir = "temp/sessions"
 
 	// MetaFileName 保存会话元信息。
@@ -36,16 +36,16 @@ const (
 // 真正的消息历史不放在这里，而是追加写入同目录下的 history.jsonl。
 //
 // 可以把 Session 理解成“会话目录的说明书”：
-// 它告诉 Cohert 这个目录属于哪次会话、会话发生在哪个工作目录、使用哪个模型。
+// 它告诉 Cohort 这个目录属于哪次会话、会话发生在哪个工作目录、使用哪个模型。
 // 但它不保存 user/assistant/tool 的每轮消息，这样会话列表读取会很轻。
 type Session struct {
 	// ID 是会话唯一标识，也会作为 temp/sessions/<id> 的目录名。
-	// 用 ID 做目录名可以避免标题重名，也方便后续通过 `cohert resume <id>` 精确恢复。
+	// 用 ID 做目录名可以避免标题重名，也方便后续通过 `cohort resume <id>` 精确恢复。
 	ID string `json:"id"`
 	// Title 是会话标题，第一版可以用用户第一条输入截断生成。
 	// 它只服务展示，不参与模型上下文，所以标题生成得不好也不会影响 Agent 行为。
 	Title string `json:"title"`
-	// CWD 记录用户启动 Cohert 时所在的工作目录，恢复会话时要回到这个上下文。
+	// CWD 记录用户启动 Cohort 时所在的工作目录，恢复会话时要回到这个上下文。
 	// 这对文件工具很重要：同一句 “读取 README” 在不同目录下会指向不同文件。
 	CWD string `json:"cwd"`
 	// Model 记录本会话使用的模型，后续做 resume 或排查问题时能知道请求过哪个模型。
@@ -75,7 +75,7 @@ type Summary struct {
 //
 // 为什么不直接只存 llm.Message：
 // 1. llm.Message 只关心模型协议，不应该背负本地存储字段。
-// 2. SessionID、Time、ParentID 属于 Cohert 本地运行时信息，放外层更清晰。
+// 2. SessionID、Time、ParentID 属于 Cohort 本地运行时信息，放外层更清晰。
 // 3. 后续如果做分支、回退、审计，可以只扩展 HistoryEntry，不破坏 LLM 类型。
 type HistoryEntry struct {
 	// ID 是单条历史记录的唯一标识。
@@ -88,7 +88,7 @@ type HistoryEntry struct {
 	// 虽然文件路径里已经有 sessionID，行内再存一份可以让单条记录脱离路径后仍可识别来源。
 	SessionID string `json:"session_id"`
 	// Time 是这条消息写入 history.jsonl 的时间。
-	// 它不是模型返回时间，而是 Cohert 本地落盘时间，用于排查执行顺序。
+	// 它不是模型返回时间，而是 Cohort 本地落盘时间，用于排查执行顺序。
 	Time time.Time `json:"time"`
 	// Role 冗余保存 message.role，方便不展开 Message 时快速筛选 user/assistant/tool。
 	// 这个字段是有意冗余：列表、统计、调试时不需要解析完整 Message。

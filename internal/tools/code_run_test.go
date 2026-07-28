@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"cohert/internal/agent"
+	"cohort/internal/agent"
 )
 
 func TestCodeRunDoesNotLoadBashStartupFiles(t *testing.T) {
@@ -28,7 +28,7 @@ func TestCodeRunDoesNotLoadBashStartupFiles(t *testing.T) {
 
 	outcome, err := NewCodeRun(workspace).Run(context.Background(), agent.ToolCallContext{
 		Args: map[string]any{
-			"script": "echo cohert_clean_shell",
+			"script": "echo cohort_clean_shell",
 		},
 	})
 	if err != nil {
@@ -39,7 +39,7 @@ func TestCodeRunDoesNotLoadBashStartupFiles(t *testing.T) {
 	if strings.Contains(stdout, "shell_startup_noise") {
 		t.Fatalf("stdout contains bash startup noise: %q", stdout)
 	}
-	if !strings.Contains(stdout, "cohert_clean_shell") {
+	if !strings.Contains(stdout, "cohort_clean_shell") {
 		t.Fatalf("stdout = %q, want command output", stdout)
 	}
 }

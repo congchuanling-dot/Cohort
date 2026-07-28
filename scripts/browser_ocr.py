@@ -23,7 +23,7 @@ def error(code, message, hint):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Cohert browser OCR helper")
+    parser = argparse.ArgumentParser(description="Cohort browser OCR helper")
     parser.add_argument("--image", required=True, help="Path to an image file")
     parser.add_argument(
         "--min-confidence",

@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"cohert/internal/agent"
-	"cohert/internal/mcp"
+	"cohort/internal/agent"
+	"cohort/internal/mcp"
 )
 
 type recordingMCPPrompter struct {

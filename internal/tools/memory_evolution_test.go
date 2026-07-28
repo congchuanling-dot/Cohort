@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"cohert/internal/agent"
-	"cohert/internal/evolution"
+	"cohort/internal/agent"
+	"cohort/internal/evolution"
 )
 
 func TestMemoryApplyUpdateReturnsReadBackConfirmation_BitsUT(t *testing.T) {

@@ -330,10 +330,10 @@ MCP 已经是 Agent 连接外部工具的事实标准之一。Cohort 如果要�
 **建议能力**
 
 ```text
-cohert mcp list
-cohert mcp add <name>
-cohert mcp tools <name>
-cohert mcp remove <name>
+cohort mcp list
+cohort mcp add <name>
+cohort mcp tools <name>
+cohort mcp remove <name>
 ```
 
 配置：
@@ -390,10 +390,10 @@ OpenClaw 的核心不是 CLI，而是常驻 gateway。Cohort 如果想承载定�
 **建议能力**
 
 ```text
-cohert daemon start
-cohert daemon stop
-cohert daemon status
-cohert api serve
+cohort daemon start
+cohort daemon stop
+cohort daemon status
+cohort api serve
 ```
 
 本地 API：
@@ -469,7 +469,7 @@ CLI：
 ```text
 /model switch local
 /model profiles
-cohert ask --model local "..."
+cohort ask --model local "..."
 ```
 
 增强：

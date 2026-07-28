@@ -1,12 +1,12 @@
-# Cohert
+# Cohort
 
 टूल कॉलिंग, ब्राउज़र ऑटोमेशन, डेस्कटॉप सेंसिंग, लंबे context, SOP और verified memory के लिए local-first command-line Agent Runtime.
 
 **भाषाएं:** [简体中文](../../README.md) · [English](README.en.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Español](README.es.md) · [Français](README.fr.md) · **हिन्दी**
 
-## Cohert क्या है
+## Cohort क्या है
 
-Cohert Go में लिखा गया local Agent Runtime है। यह OpenAI-compatible LLM, नियंत्रित tool layer, persistent sessions, browser automation, macOS desktop Computer Use, context compaction, SOP routing और verified long-term memory को जोड़ता है।
+Cohort Go में लिखा गया local Agent Runtime है। यह OpenAI-compatible LLM, नियंत्रित tool layer, persistent sessions, browser automation, macOS desktop Computer Use, context compaction, SOP routing और verified long-term memory को जोड़ता है।
 
 ```text
 User intent
@@ -46,8 +46,8 @@ go run . session list
 Build:
 
 ```bash
-go build -o cohert ./cmd/cohert
-./cohert
+go build -o cohort ./cmd/cohort
+./cohort
 ```
 
 Default config [`configs/config.yaml`](../../configs/config.yaml) में है। पूरा usage guide [`docs/usage.md`](../usage.md) में है।
@@ -68,12 +68,12 @@ Default config [`configs/config.yaml`](../../configs/config.yaml) में ह�
 ## CLI
 
 ```bash
-cohert                         # interactive mode
-cohert ask "task"              # one task run करके exit
-cohert tools                   # mounted tools list
-cohert config                  # effective config
-cohert session list            # local sessions
-cohert session resume <id>     # session resume
+cohort                         # interactive mode
+cohort ask "task"              # one task run करके exit
+cohort tools                   # mounted tools list
+cohort config                  # effective config
+cohort session list            # local sessions
+cohort session resume <id>     # session resume
 ```
 
 Interactive commands:
@@ -94,7 +94,7 @@ Interactive commands:
 
 ## Browser Automation
 
-Cohert local Browser Bridge से Chrome control करता है:
+Cohort local Browser Bridge से Chrome control करता है:
 
 ```text
 ws://127.0.0.1:18777/browser
@@ -114,11 +114,11 @@ Optional OCR dependencies:
 python3 -m pip install rapidocr-onnxruntime pillow numpy
 ```
 
-अगर `browser_not_connected` मिले, तो Chrome extension `assert/cohert_browser_bridge` से load करें।
+अगर `browser_not_connected` मिले, तो Chrome extension `assert/cohort_browser_bridge` से load करें।
 
 ## Desktop Computer Use
 
-Cohert generic macOS desktop sensing और controlled AX semantic actions देता है:
+Cohort generic macOS desktop sensing और controlled AX semantic actions देता है:
 
 ```text
 desktop_permissions
@@ -148,7 +148,7 @@ macOS helper dependencies:
 python3 -m pip install pyobjc-framework-Quartz pyobjc-framework-Cocoa pyobjc-framework-ApplicationServices
 ```
 
-Cohert चलाने वाले terminal या IDE को Accessibility और Screen Recording permissions दें।
+Cohort चलाने वाले terminal या IDE को Accessibility और Screen Recording permissions दें।
 
 ## Memory और SOP
 
@@ -162,7 +162,7 @@ start_long_term_update
 
 Memory writes को verified tool evidence reference करना होगा, sensitive या duplicate content reject होगा, और success से पहले read-back होगा।
 
-SOP lightweight operational constraints हैं। Cohert [`sops/index.md`](../../sops/index.md) को navigation की तरह inject करता है और relevant SOP पढ़कर action करता है।
+SOP lightweight operational constraints हैं। Cohort [`sops/index.md`](../../sops/index.md) को navigation की तरह inject करता है और relevant SOP पढ़कर action करता है।
 
 ## Development
 

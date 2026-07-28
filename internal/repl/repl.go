@@ -15,16 +15,16 @@ import (
 	"github.com/manifoldco/promptui"
 	"golang.org/x/term"
 
-	"cohert/internal/agent"
-	"cohert/internal/app"
-	"cohert/internal/evolution"
-	"cohert/internal/mcp"
-	"cohert/internal/session"
-	"cohert/internal/skill"
+	"cohort/internal/agent"
+	"cohort/internal/app"
+	"cohort/internal/evolution"
+	"cohort/internal/mcp"
+	"cohort/internal/session"
+	"cohort/internal/skill"
 )
 
 const (
-	promptText = "cohert › "
+	promptText = "cohort › "
 
 	commandExit        = "exit"
 	commandQuit        = "quit"
@@ -78,7 +78,7 @@ type Options struct {
 	// SessionStore 是 slash 命令读取和恢复本地 session 的存储器。
 	SessionStore session.Store
 	// MCPStore 是当前项目的 MCP 配置入口。为空时 REPL 使用当前工作目录，
-	// CLI 会显式注入启动目录，保证 /mcp 与外部 cohert mcp 命令看到同一份配置。
+	// CLI 会显式注入启动目录，保证 /mcp 与外部 cohort mcp 命令看到同一份配置。
 	MCPStore *mcp.Store
 	// In 是 REPL 读取用户输入的来源。
 	In io.Reader
@@ -88,7 +88,7 @@ type Options struct {
 	Err io.Writer
 }
 
-// Start 启动 Cohert 交互模式。
+// Start 启动 Cohort 交互模式。
 //
 // 普通输入会交给 Runner.Run；以 "/" 开头的输入会作为本地 slash 命令处理，
 // 不会发送给模型。这样 `/model`、`/session list`、`/compact` 这类运行时控制命令
@@ -378,7 +378,7 @@ func selectSlashCommand(opts Options) (SlashCommand, bool, error) {
 		},
 		{
 			Usage:       "/exit",
-			Description: "退出 Cohert",
+			Description: "退出 Cohort",
 			Command:     SlashCommand{Raw: "/exit", Name: commandExit},
 		},
 	}
@@ -681,7 +681,7 @@ func printWelcome(out io.Writer, cfg app.Config, runner *agent.Runner) {
 	tools := len(runner.ToolSchemas())
 	active := cfg.LLM.Active()
 	fmt.Fprintln(out, "╭────────────────────────────────────────────────────────────╮")
-	fmt.Fprintln(out, "│ Cohert                                                     │")
+	fmt.Fprintln(out, "│ Cohort                                                     │")
 	fmt.Fprintln(out, "│ Command-line Agent Runtime                                │")
 	fmt.Fprintln(out, "├────────────────────────────────────────────────────────────┤")
 	fmt.Fprintf(out, "│ Model      %-47s │\n", shorten(active.Model, 47))
@@ -695,7 +695,7 @@ func printWelcome(out io.Writer, cfg app.Config, runner *agent.Runner) {
 }
 
 func printSlashHelp(out io.Writer) {
-	fmt.Fprint(out, `Cohert slash commands
+	fmt.Fprint(out, `Cohort slash commands
 
   /help                    显示当前对话内命令
   /model                   查看当前模型配置摘要
@@ -728,7 +728,7 @@ func printSlashHelp(out io.Writer) {
   /skill uninstall <id>    删除已安装 Skill
   /skill reload            重新扫描 Skills 并刷新系统提示词
   /clear                   清空当前内存上下文，下一次输入会创建新 session
-  /exit                    退出 Cohert
+  /exit                    退出 Cohort
 
 普通输入不会走 slash 命令，会直接交给 Agent 执行。
 `)
@@ -1242,7 +1242,7 @@ func printSkillInstallSecurityReview(out io.Writer, result skill.InstallResult) 
 	fmt.Fprintln(out, "security review:")
 	fmt.Fprintln(out, "  - Installing a Skill lets the agent load and follow this SKILL.md as task instructions.")
 	fmt.Fprintln(out, "  - Review the instructions below before confirming install.")
-	fmt.Fprintln(out, "  - Cohert does not auto-install dependencies, grant permissions, or run commands during install.")
+	fmt.Fprintln(out, "  - Cohort does not auto-install dependencies, grant permissions, or run commands during install.")
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "SKILL.md preview:")
 	fmt.Fprintln(out, "```markdown")

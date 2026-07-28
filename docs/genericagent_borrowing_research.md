@@ -1,18 +1,18 @@
-# GenericAgent 调研与 Cohert 可借鉴能力清单
+# GenericAgent 调研与 Cohort 可借鉴能力清单
 
-> 文档状态：`[历史]`。这是对 GenericAgent 的调研快照，不直接描述 Cohert 当前实现。
+> 文档状态：`[历史]`。这是对 GenericAgent 的调研快照，不直接描述 Cohort 当前实现。
 > 当前开发优先级和已实现状态请看 [docs/README.md](README.md) 与
 > [development_task_breakdown.md](development_task_breakdown.md)。
 
 ## 目标
 
-本文档基于 `/Users/bytedance/Desktop/myOwnProject/GenericAgent` 的代码和记忆/SOP 文件，整理 GenericAgent 的功能结构、关键实现思路，以及 Cohert 后续还能借鉴哪些能力。
+本文档基于 `/Users/bytedance/Desktop/myOwnProject/GenericAgent` 的代码和记忆/SOP 文件，整理 GenericAgent 的功能结构、关键实现思路，以及 Cohort 后续还能借鉴哪些能力。
 
 结论先行：
 
 - GenericAgent 的强点不是某个单点工具，而是“极小核心 + 原子工具 + SOP/helper 自举 + 记忆分层 + 浏览器真实会话 + 桌面兜底”的组合。
-- Cohert 已经在 Go 架构里复刻并增强了一部分：工具注册、会话落盘、上下文管理、长期记忆候选、SOP 索引、Chrome 插件 bridge、CDP 高层动作和截图。
-- Cohert 下一步最值得借鉴的是工程机制：混合工具调用兜底、事件 hook、项目模式、计划/验证模式、浏览器高级路由的取舍、OS 视觉/输入 helper、诊断命令和前端/运行日志。
+- Cohort 已经在 Go 架构里复刻并增强了一部分：工具注册、会话落盘、上下文管理、长期记忆候选、SOP 索引、Chrome 插件 bridge、CDP 高层动作和截图。
+- Cohort 下一步最值得借鉴的是工程机制：混合工具调用兜底、事件 hook、项目模式、计划/验证模式、浏览器高级路由的取舍、OS 视觉/输入 helper、诊断命令和前端/运行日志。
 
 ## GA 总体架构
 
@@ -53,7 +53,7 @@ update_working_checkpoint
 start_long_term_update
 ```
 
-Cohert 当前已经有更结构化的 Go 版本工具集：
+Cohort 当前已经有更结构化的 Go 版本工具集：
 
 ```text
 file_read / file_write / file_patch / code_run / ask_user
@@ -66,7 +66,7 @@ browser_press_key / browser_snapshot
 browser_wait_for_* / browser_screenshot
 ```
 
-因此 Cohert 不需要照搬 GA 的工具数量，而应借鉴 GA 的“最小稳定面 + 用 SOP/helper 扩展复杂能力”的方法。
+因此 Cohort 不需要照搬 GA 的工具数量，而应借鉴 GA 的“最小稳定面 + 用 SOP/helper 扩展复杂能力”的方法。
 
 ## SOP / Skill 体系对齐结论
 
@@ -80,9 +80,9 @@ GA 的 Skill 不是独立插件市场式对象，而是由几层资产共同形�
   -> 反射和历史挖掘继续生成新候选
 ```
 
-Cohert 当前更适合把这套体系显式化为能力等级：
+Cohort 当前更适合把这套体系显式化为能力等级：
 
-| 等级 | Cohert 资产 | 对齐 GA 能力 | 说明 |
+| 等级 | Cohort 资产 | 对齐 GA 能力 | 说明 |
 | --- | --- | --- | --- |
 | C0 | Tool Registry | 9 个原子工具 | 文件、命令、浏览器、记忆等执行基座 |
 | C1 | `sops/*.md` | L3 SOP | 场景化约束，全文按需读 |
@@ -93,7 +93,7 @@ Cohert 当前更适合把这套体系显式化为能力等级：
 
 关键取舍：
 
-- Cohert 不让每次任务自动生成正式 Skill，而是先生成 SOP candidate。
+- Cohort 不让每次任务自动生成正式 Skill，而是先生成 SOP candidate。
 - `sops/index.md` 更新需要确认，避免错误经验变成每轮路由规则。
 - SOP 文档强调触发场景、禁止事项和验收标准，避免变成长教程。
 - `memory_sop.md` 作为长期记忆和 Skill 晋级的统一入口。
@@ -128,9 +128,9 @@ ga.py
 - `turn_end_callback` 是关键扩展点：更新 summary、工作记忆、轮数提醒、master 干预和 done hook。
 - 工具可以返回 `StepOutcome{data,next_prompt,should_exit}`，用 next_prompt 精确控制下一轮模型输入。
 
-### Cohert 当前状态
+### Cohort 当前状态
 
-Cohert 的 `internal/agent/runner.go` 已有更类型安全的 Runner：
+Cohort 的 `internal/agent/runner.go` 已有更类型安全的 Runner：
 
 ```text
 Runner.history
@@ -167,7 +167,7 @@ P1：
 
 不建议照搬：
 
-- 不要用 Python 式动态 `do_<tool>` 分发替代当前 Tool Registry。Cohert 当前注册方式更适合 Go 测试和维护。
+- 不要用 Python 式动态 `do_<tool>` 分发替代当前 Tool Registry。Cohort 当前注册方式更适合 Go 测试和维护。
 
 ## 2. 工具调用协议兜底
 
@@ -191,13 +191,13 @@ GA 同时支持两类模式：
 - JSON 解析失败时生成 `bad_json` 工具调用，让下一轮自修复。
 - 对 `file_write` 特殊处理：要求正文 `<file_content>` 承载内容，避免大内容塞进 JSON 参数。
 
-### Cohert 当前状态
+### Cohort 当前状态
 
-Cohert 当前主要依赖 OpenAI-compatible 原生 tool calling。`runner.go` 已能处理 tool args JSON 解析错误，并返回 `bad_json` 工具错误。
+Cohort 当前主要依赖 OpenAI-compatible 原生 tool calling。`runner.go` 已能处理 tool args JSON 解析错误，并返回 `bad_json` 工具错误。
 
 缺口：
 
-- 如果模型不触发原生 tool_calls，但在文本里写了工具意图，Cohert 不会解析。
+- 如果模型不触发原生 tool_calls，但在文本里写了工具意图，Cohort 不会解析。
 - 对大文件写入的协议约束主要靠 schema 和工具实现，没有类似 GA 的“正文承载大内容”协议。
 
 ### 建议借鉴
@@ -213,7 +213,7 @@ P1：
 
 不建议照搬：
 
-- 不要支持太多弱格式解析。GA 的弱解析适合探索型 Python agent，但 Cohert 应保持协议面收敛，避免误解析用户普通文本。
+- 不要支持太多弱格式解析。GA 的弱解析适合探索型 Python agent，但 Cohort 应保持协议面收敛，避免误解析用户普通文本。
 
 ## 3. 浏览器能力
 
@@ -250,12 +250,12 @@ GA 的高级点：
 - `batch` 能复用一次 debugger attach，并支持 `$N.path` 引用前序结果。
 - 扩展可操作 cookies、extension management、contentSettings、移除 CSP、下载弹窗策略。
 
-### Cohert 当前状态
+### Cohort 当前状态
 
-Cohert 已经有：
+Cohort 已经有：
 
 ```text
-assert/cohert_browser_bridge
+assert/cohort_browser_bridge
 internal/browser
 internal/tools/browser_tools.go
 browser_execute_js JSON command route
@@ -263,7 +263,7 @@ browser_cdp 内部调试能力
 browser_click/type/press_key/snapshot/wait/screenshot
 ```
 
-Cohert 相比 GA 更收敛：
+Cohort 相比 GA 更收敛：
 
 - 没有 cookies。
 - 没有 management。
@@ -335,9 +335,9 @@ GA 的设计顺序：
 - `Click` 后检查像素变化，0% 变化要停下诊断。
 - OCR 用 RapidOCR，ui_detect 用 YOLO + OCR。
 
-### Cohert 当前状态
+### Cohort 当前状态
 
-Cohert 已有 `browser_screenshot` 和 `browser_ocr`：
+Cohort 已有 `browser_screenshot` 和 `browser_ocr`：
 
 - `browser_ocr` 使用隔离的 Python RapidOCR helper，支持 workspace 图片或自动浏览器截图。
 - 返回低噪声文字和 `screenshot-local` bbox，不会执行点击。
@@ -357,7 +357,7 @@ Cohert 已有 `browser_screenshot` 和 `browser_ocr`：
 
 不建议照搬：
 
-- 不要把 GA 的 `macljqCtrl.py` / `ljqCtrl.py` 原样塞进 Cohert 核心。应作为 helper 脚本或可选扩展，Go 层只认稳定 JSON 协议。
+- 不要把 GA 的 `macljqCtrl.py` / `ljqCtrl.py` 原样塞进 Cohort 核心。应作为 helper 脚本或可选扩展，Go 层只认稳定 JSON 协议。
 
 ## 5. 记忆与自我进化
 
@@ -398,9 +398,9 @@ GA 还有一个重要模式：Project Mode。
 - `project_memory.md` 全文不每轮注入，模型按需读取。
 - 收尾时判断是否有值得写入项目记忆的信息。
 
-### Cohert 当前状态
+### Cohort 当前状态
 
-Cohert 已有：
+Cohort 已有：
 
 - `update_working_checkpoint`
 - `start_long_term_update`
@@ -421,7 +421,7 @@ Cohert 已有：
 
 P0：
 
-- 实现 Cohert Project Mode：`cohert project enter <name>` 或 REPL `/project <name>`。
+- 实现 Cohort Project Mode：`cohort project enter <name>` 或 REPL `/project <name>`。
 - 每轮只注入项目记忆指针，不全文注入。
 - 项目私域目录放 `workspace/memory/projects/<project_id>/`。
 
@@ -432,7 +432,7 @@ P1：
 
 不建议照搬：
 
-- 不要允许模型直接 patch 全局 memory。Cohert 现有 propose/apply 两阶段更安全，应保留。
+- 不要允许模型直接 patch 全局 memory。Cohort 现有 propose/apply 两阶段更安全，应保留。
 
 ## 6. 计划模式、验证模式与 Subagent
 
@@ -461,9 +461,9 @@ GA 的复杂任务流程：
 - 验证 subagent 不继承执行过程，降低确认偏误。
 - `plan.md` 作为外部状态机，不依赖模型记忆。
 
-### Cohert 当前状态
+### Cohort 当前状态
 
-Cohert 当前没有 subagent/plan mode。已有会话恢复和文件工具，可以支撑文件状态机，但没有并行 agent 运行器。
+Cohort 当前没有 subagent/plan mode。已有会话恢复和文件工具，可以支撑文件状态机，但没有并行 agent 运行器。
 
 ### 建议借鉴
 
@@ -486,7 +486,7 @@ P3：
 
 不建议照搬：
 
-- GA 的 Plan SOP 强制 subagent 探索，这依赖它成熟的 agentmain/task_dir 机制。Cohert 目前不应先做重型多 agent。
+- GA 的 Plan SOP 强制 subagent 探索，这依赖它成熟的 agentmain/task_dir 机制。Cohort 目前不应先做重型多 agent。
 
 ## 7. Hooks 与插件
 
@@ -516,9 +516,9 @@ tool_before / tool_after
 - Project Mode 注入。
 - 外部观察和调试。
 
-### Cohert 当前状态
+### Cohort 当前状态
 
-Cohert 暂无 hook 系统。日志主要是 raw model responses。
+Cohort 暂无 hook 系统。日志主要是 raw model responses。
 
 ### 建议借鉴
 
@@ -571,9 +571,9 @@ mykey.py / mykey.json
 - streaming parser。
 - prompt caching / thinking / context management 参数适配。
 
-### Cohert 当前状态
+### Cohort 当前状态
 
-Cohert 只有 OpenAI-compatible client，但已有 `provider` 字段预留。
+Cohort 只有 OpenAI-compatible client，但已有 `provider` 字段预留。
 
 ### 建议借鉴
 
@@ -601,7 +601,7 @@ P1：
 
 不建议照搬：
 
-- 不建议伪装 Claude Code native headers。Cohert 应走明确、可维护、合规的 provider 接口。
+- 不建议伪装 Claude Code native headers。Cohort 应走明确、可维护、合规的 provider 接口。
 
 ## 9. Context 与工具结果压缩
 
@@ -622,9 +622,9 @@ GA 通过几层降低上下文：
 - `file_read`、`web_scan`、`web_execute_js` 都按上下文倍率和工具数量动态限制输出。
 - `<summary>` 每轮进入 `history_info`，形成轻量工作历史。
 
-### Cohert 当前状态
+### Cohort 当前状态
 
-Cohert 的 `contextmgr` 更系统：
+Cohort 的 `contextmgr` 更系统：
 
 - 完整 `Runner.history` 不裁剪。
 - 请求副本里做 orphan tool 清理。
@@ -668,9 +668,9 @@ assets/code_run_header.py
 - `file_patch` 要求 old_content 唯一，否则拒绝。
 - `file_write` 支持 `<file_content>` 正文提取、append/prepend/overwrite。
 
-### Cohert 当前状态
+### Cohort 当前状态
 
-Cohert 已有 `code_run`、`file_read`、`file_patch`、`file_write`，并且有路径限制和测试。
+Cohort 已有 `code_run`、`file_read`、`file_patch`、`file_write`，并且有路径限制和测试。
 
 建议补充：
 
@@ -699,9 +699,9 @@ GA 支持：
 - Telegram/Discord/飞书/微信/QQ/钉钉等 IM。
 - 多会话、导出、继续、成本统计等前端命令。
 
-### Cohert 当前状态
+### Cohort 当前状态
 
-Cohert 只有 CLI/REPL。
+Cohort 只有 CLI/REPL。
 
 建议：
 
@@ -711,7 +711,7 @@ Cohert 只有 CLI/REPL。
 
 不建议照搬：
 
-- 不建议近期做多个 IM 前端。Cohert 当前价值在 Go 内核和工程可控性。
+- 不建议近期做多个 IM 前端。Cohort 当前价值在 Go 内核和工程可控性。
 
 ## 12. 自主行动与后台反射
 
@@ -732,9 +732,9 @@ GA 的自主行动不是无约束自动改代码，而是：
 - 写入 `autonomous_reports/`。
 - 需要人类审批的变更写报告待审。
 
-### Cohert 当前状态
+### Cohort 当前状态
 
-Cohert 暂无后台反射或定时任务。
+Cohort 暂无后台反射或定时任务。
 
 建议：
 
@@ -777,9 +777,9 @@ Cohert 暂无后台反射或定时任务。
 4. browser contentSettings。
 5. cookies/extension management，仅用户明确授权或开发诊断模式。
 
-## 不建议 Cohert 照搬的 GA 能力
+## 不建议 Cohort 照搬的 GA 能力
 
-| GA 能力 | 不建议照搬原因 | Cohert 建议 |
+| GA 能力 | 不建议照搬原因 | Cohort 建议 |
 | --- | --- | --- |
 | 默认移除 CSP | 改变网页安全边界，权限高 | 只做失败时内部 CDP fallback |
 | cookies 普通工具 | 敏感数据风险高 | 默认不公开，必要时用户授权 |
@@ -791,10 +791,10 @@ Cohert 暂无后台反射或定时任务。
 
 ## 最终建议
 
-Cohert 的路线不应是“把 GA 翻译成 Go”，而是：
+Cohort 的路线不应是“把 GA 翻译成 Go”，而是：
 
 ```text
-保留 Cohert 的 Go 类型边界、测试和安全门
+保留 Cohort 的 Go 类型边界、测试和安全门
 借鉴 GA 的成熟操作模式和长期经验
 把复杂平台能力放到 helper/SOP/可选扩展
 默认工具面保持收敛

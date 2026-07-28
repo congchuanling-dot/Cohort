@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"cohert/internal/contextmgr"
-	"cohert/internal/llm"
-	"cohert/internal/session"
+	"cohort/internal/contextmgr"
+	"cohort/internal/llm"
+	"cohort/internal/session"
 )
 
 func TestRunnerCompactSessionMemoryWritesMemoryFile_BitsUT(t *testing.T) {

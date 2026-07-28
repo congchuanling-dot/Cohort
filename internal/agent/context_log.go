@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"cohert/internal/contextmgr"
+	"cohort/internal/contextmgr"
 )
 
 const contextStatsLogFileName = "context.log"

@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"cohert/internal/agent"
-	"cohert/internal/browser"
-	"cohert/internal/vision"
+	"cohort/internal/agent"
+	"cohort/internal/browser"
+	"cohort/internal/vision"
 )
 
 type fakeBrowserClient struct {

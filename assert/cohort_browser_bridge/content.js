@@ -4,14 +4,14 @@
   if (window.top !== window.self) return;
 
   // 防止页面局部刷新或脚本重复注入时创建多个角标。
-  if (document.getElementById("cohert-browser-bridge-indicator")) return;
+  if (document.getElementById("cohort-browser-bridge-indicator")) return;
 
   // 这个角标不是核心功能，只是开发调试用：
   // 看到它就说明插件已经成功注入当前 http/https 页面。
   const indicator = document.createElement("div");
-  indicator.id = "cohert-browser-bridge-indicator";
-  indicator.textContent = "Cohert bridge";
-  indicator.title = "Cohert Browser Bridge is injected on this page";
+  indicator.id = "cohort-browser-bridge-indicator";
+  indicator.textContent = "Cohort bridge";
+  indicator.title = "Cohort Browser Bridge is injected on this page";
   indicator.style.cssText = [
     "position:fixed",
     "right:10px",

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"unicode"
 
-	"cohert/internal/llm"
+	"cohort/internal/llm"
 )
 
 const (
@@ -128,7 +128,7 @@ func buildRelevantLongTermMemoryMessage(matches []relevantMemoryMatch, cfg Confi
 	limited, truncated := limitRunes(b.String(), cfg.MaxRelevantMemoryChars)
 	content := relevantLongTermMemoryNotice + "\n\n" + limited
 	if truncated {
-		content += "\n\n[Cohert relevant long-term memory truncated]"
+		content += "\n\n[Cohort relevant long-term memory truncated]"
 		stats.RelevantMemoryTruncated = true
 	}
 

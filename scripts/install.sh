@@ -1,20 +1,20 @@
 #!/usr/bin/env sh
 set -eu
 
-BIN_NAME="${COHERT_BIN_NAME:-cohert}"
-INSTALL_DIR="${COHERT_INSTALL_DIR:-"$HOME/.cohert/bin"}"
-CONFIG_DIR="${COHERT_CONFIG_DIR:-"$HOME/.cohert"}"
-CONFIG_PATH="${COHERT_CONFIG:-"$CONFIG_DIR/config.yaml"}"
-WORKSPACE_DIR="${COHERT_WORKSPACE:-"$CONFIG_DIR/workspace"}"
-LOG_DIR="${COHERT_LOG_DIR:-"$CONFIG_DIR/logs/model_responses"}"
-SCRIPTS_DIR="${COHERT_SCRIPTS_DIR:-"$CONFIG_DIR/scripts"}"
+BIN_NAME="${COHORT_BIN_NAME:-cohort}"
+INSTALL_DIR="${COHORT_INSTALL_DIR:-"$HOME/.cohort/bin"}"
+CONFIG_DIR="${COHORT_CONFIG_DIR:-"$HOME/.cohort"}"
+CONFIG_PATH="${COHORT_CONFIG:-"$CONFIG_DIR/config.yaml"}"
+WORKSPACE_DIR="${COHORT_WORKSPACE:-"$CONFIG_DIR/workspace"}"
+LOG_DIR="${COHORT_LOG_DIR:-"$CONFIG_DIR/logs/model_responses"}"
+SCRIPTS_DIR="${COHORT_SCRIPTS_DIR:-"$CONFIG_DIR/scripts"}"
 GO_BIN="${GO_BIN:-go}"
-REPO_URL="${COHERT_REPO_URL:-}"
-REPO_REF="${COHERT_REPO_REF:-}"
-GITHUB_REPO="${COHERT_GITHUB_REPO:-congchuanling-dot/Cohort}"
-RELEASE_TAG="${COHERT_VERSION:-latest}"
-FROM_SOURCE="${COHERT_INSTALL_FROM_SOURCE:-0}"
-UPDATE_SHELL="${COHERT_UPDATE_SHELL:-auto}"
+REPO_URL="${COHORT_REPO_URL:-}"
+REPO_REF="${COHORT_REPO_REF:-}"
+GITHUB_REPO="${COHORT_GITHUB_REPO:-congchuanling-dot/Cohort}"
+RELEASE_TAG="${COHORT_VERSION:-latest}"
+FROM_SOURCE="${COHORT_INSTALL_FROM_SOURCE:-0}"
+UPDATE_SHELL="${COHORT_UPDATE_SHELL:-auto}"
 DARWIN_ARCH=""
 
 info() {
@@ -32,7 +32,7 @@ need_cmd() {
 
 usage() {
   cat <<EOF
-Cohert macOS installer
+Cohort macOS installer
 
 Usage:
   ./scripts/install.sh [options]
@@ -44,21 +44,21 @@ Options:
   --version <tag>       Download a specific GitHub release tag. Default: latest.
   --github-repo <repo>  GitHub repo for release downloads. Default: congchuanling-dot/Cohort.
   --from-source         Skip release download and build from source.
-  --install-dir <dir>   Install binary to this directory. Default: ~/.cohert/bin
-  --config <file>       Initialize config at this path. Default: ~/.cohert/config.yaml
+  --install-dir <dir>   Install binary to this directory. Default: ~/.cohort/bin
+  --config <file>       Initialize config at this path. Default: ~/.cohort/config.yaml
   --no-shell            Do not append PATH setup to ~/.zshrc.
   --help                Show this help.
 
 Environment:
-  COHERT_REPO_URL       Same as --repo.
-  COHERT_REPO_REF       Same as --ref.
-  COHERT_VERSION        Same as --version.
-  COHERT_GITHUB_REPO    Same as --github-repo.
-  COHERT_INSTALL_FROM_SOURCE
+  COHORT_REPO_URL       Same as --repo.
+  COHORT_REPO_REF       Same as --ref.
+  COHORT_VERSION        Same as --version.
+  COHORT_GITHUB_REPO    Same as --github-repo.
+  COHORT_INSTALL_FROM_SOURCE
                          Set to 1 to skip release download.
-  COHERT_INSTALL_DIR    Same as --install-dir.
-  COHERT_CONFIG         Same as --config.
-  COHERT_UPDATE_SHELL   auto|never. Default: auto.
+  COHORT_INSTALL_DIR    Same as --install-dir.
+  COHORT_CONFIG         Same as --config.
+  COHORT_UPDATE_SHELL   auto|never. Default: auto.
 EOF
 }
 
@@ -175,7 +175,7 @@ download_release_binary() {
   [ "$FROM_SOURCE" != "1" ] || return 1
   command -v curl >/dev/null 2>&1 || return 1
 
-  asset="cohert-darwin-${DARWIN_ARCH}"
+  asset="cohort-darwin-${DARWIN_ARCH}"
   url=$(release_url "$asset")
   info "downloading $BIN_NAME from GitHub release: $url"
   if curl -fsSL "$url" -o "$BUILD_TMP/$asset"; then
@@ -208,7 +208,7 @@ install_runtime_scripts() {
 }
 
 find_source_dir() {
-  if [ -f "go.mod" ] && grep -q '^module cohert$' "go.mod"; then
+  if [ -f "go.mod" ] && grep -q '^module cohort$' "go.mod"; then
     pwd
     return 0
   fi
@@ -216,7 +216,7 @@ find_source_dir() {
   script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd || true)
   if [ -n "$script_dir" ]; then
     candidate=$(CDPATH= cd -- "$script_dir/.." 2>/dev/null && pwd || true)
-    if [ -f "$candidate/go.mod" ] && grep -q '^module cohert$' "$candidate/go.mod"; then
+    if [ -f "$candidate/go.mod" ] && grep -q '^module cohort$' "$candidate/go.mod"; then
       printf '%s\n' "$candidate"
       return 0
     fi
@@ -232,7 +232,7 @@ find_source_dir() {
     return 0
   fi
 
-  fail "run this script from the Cohert repository, or pass --repo <git-url> for one-line remote install"
+  fail "run this script from the Cohort repository, or pass --repo <git-url> for one-line remote install"
 }
 
 write_default_config() {
@@ -303,7 +303,7 @@ update_shell_path() {
   case "$UPDATE_SHELL" in
     never) return 0 ;;
     auto|"") ;;
-    *) fail "COHERT_UPDATE_SHELL must be auto or never" ;;
+    *) fail "COHORT_UPDATE_SHELL must be auto or never" ;;
   esac
 
   case ":$PATH:" in
@@ -324,7 +324,7 @@ update_shell_path() {
     return 0
   fi
   {
-    printf '\n# Cohert CLI\n'
+    printf '\n# Cohort CLI\n'
     printf '%s\n' "$line"
   } >>"$zshrc"
   info "updated PATH in $zshrc"
@@ -332,14 +332,14 @@ update_shell_path() {
 
 parse_args "$@"
 check_macos
-BUILD_TMP=$(mktemp -d "${TMPDIR:-/tmp}/cohert-build.XXXXXX")
+BUILD_TMP=$(mktemp -d "${TMPDIR:-/tmp}/cohort-build.XXXXXX")
 trap 'rm -rf "$BUILD_TMP"' EXIT INT TERM
 
 if ! download_release_binary; then
   need_cmd "$GO_BIN"
   SOURCE_DIR=$(find_source_dir)
   info "building $BIN_NAME from $SOURCE_DIR"
-  (cd "$SOURCE_DIR" && "$GO_BIN" build -o "$BUILD_TMP/$BIN_NAME" ./cmd/cohert)
+  (cd "$SOURCE_DIR" && "$GO_BIN" build -o "$BUILD_TMP/$BIN_NAME" ./cmd/cohort)
 fi
 
 mkdir -p "$INSTALL_DIR"
@@ -357,7 +357,7 @@ case ":$PATH:" in
   *":$INSTALL_DIR:"*) ;;
   *)
     info ""
-    info "Add Cohert to PATH:"
+    info "Add Cohort to PATH:"
     info "  export PATH=\"$INSTALL_DIR:\$PATH\""
     ;;
 esac

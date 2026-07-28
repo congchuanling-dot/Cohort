@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"cohert/internal/agent"
-	"cohert/internal/llm"
+	"cohort/internal/agent"
+	"cohort/internal/llm"
 )
 
 const (

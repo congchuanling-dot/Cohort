@@ -18,7 +18,7 @@ import (
 	"unicode"
 )
 
-const manifestFileName = ".cohert-skill.json"
+const manifestFileName = ".cohort-skill.json"
 
 const maxInstallPreviewBytes = 20_000
 
@@ -401,7 +401,7 @@ func resolveInstallCandidate(ctx context.Context, source, requestedName, pin str
 	if !looksLikeGitSource(source) {
 		return installCandidate{}, nil, fmt.Errorf("skill source %q is not a local path and does not look like a git URL", source)
 	}
-	tempDir, err := os.MkdirTemp("", "cohert-skill-install-*")
+	tempDir, err := os.MkdirTemp("", "cohort-skill-install-*")
 	if err != nil {
 		return installCandidate{}, nil, err
 	}

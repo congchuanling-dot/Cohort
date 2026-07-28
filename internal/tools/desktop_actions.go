@@ -12,9 +12,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"cohert/internal/agent"
-	"cohert/internal/desktop"
-	"cohert/internal/llm"
+	"cohort/internal/agent"
+	"cohort/internal/desktop"
+	"cohort/internal/llm"
 )
 
 // desktopActionRisk 是桌面输入动作按可逆性和外部副作用划分的风险等级。

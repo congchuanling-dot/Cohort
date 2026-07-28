@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"cohert/internal/skill"
+	"cohort/internal/skill"
 )
 
 func TestLoadConfigParsesContextSection_BitsUT(t *testing.T) {

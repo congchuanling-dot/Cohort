@@ -15,7 +15,7 @@ import (
 
 // Risk 表示外部 MCP 工具的副作用等级。
 //
-// 风险等级只决定 Cohert 默认如何处理调用，不影响 MCP Server 自身的权限范围。
+// 风险等级只决定 Cohort 默认如何处理调用，不影响 MCP Server 自身的权限范围。
 // 未被用户显式描述的外部工具一律按 R2 处理，避免因为工具名看起来像“读取”
 // 就在没有确认的情况下执行实际副作用。
 type Risk string
@@ -25,7 +25,7 @@ const (
 	RiskR1 Risk = "R1"
 	// RiskR2 是可能产生外部副作用的操作，默认需要用户确认。
 	RiskR2 Risk = "R2"
-	// RiskR3 是删除、审批、授权、支付等高风险操作，Cohert 不自动放行。
+	// RiskR3 是删除、审批、授权、支付等高风险操作，Cohort 不自动放行。
 	RiskR3 Risk = "R3"
 )
 
@@ -77,7 +77,7 @@ type PermissionGrant struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// PermissionConfig 存储 Cohert 私有 MCP 治理信息。
+// PermissionConfig 存储 Cohort 私有 MCP 治理信息。
 //
 // 它刻意与 Claude Code 兼容的 .mcp.json 分离：
 //   - .mcp.json 只描述“连接哪个 Server”；

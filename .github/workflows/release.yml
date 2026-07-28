@@ -46,10 +46,10 @@ jobs:
         run: |
           mkdir -p dist
           for arch in arm64 amd64; do
-            output="dist/cohert-darwin-${arch}"
+            output="dist/cohort-darwin-${arch}"
             GOOS=darwin GOARCH="${arch}" CGO_ENABLED=0 \
-              go build -trimpath -ldflags="-s -w" -o "${output}" ./cmd/cohert
-            (cd dist && shasum -a 256 "cohert-darwin-${arch}" > "cohert-darwin-${arch}.sha256")
+              go build -trimpath -ldflags="-s -w" -o "${output}" ./cmd/cohort
+            (cd dist && shasum -a 256 "cohort-darwin-${arch}" > "cohort-darwin-${arch}.sha256")
           done
 
       - name: Publish GitHub release
@@ -63,5 +63,5 @@ jobs:
           else
             gh release create "${RELEASE_TAG}" dist/* \
               --title "${RELEASE_TAG}" \
-              --notes "Cohert ${RELEASE_TAG}"
+              --notes "Cohort ${RELEASE_TAG}"
           fi

@@ -1,4 +1,4 @@
-module cohert
+module cohort
 
 go 1.21
 

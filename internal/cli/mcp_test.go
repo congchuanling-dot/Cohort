@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"cohert/internal/mcp"
-	"cohert/internal/skill"
+	"cohort/internal/mcp"
+	"cohort/internal/skill"
 )
 
 func TestPrintMCPStatusAllowsEmptyUserAssembly(t *testing.T) {

@@ -1,12 +1,12 @@
-# Cohert
+# Cohort
 
 Agent Runtime en ligne de commande, local-first, pour les appels d'outils, l'automatisation du navigateur, la perception du bureau, les longs contextes, les SOP et la mémoire vérifiée.
 
 **Langues :** [简体中文](../../README.md) · [English](README.en.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Español](README.es.md) · **Français** · [हिन्दी](README.hi.md)
 
-## Qu'est-ce Que Cohert
+## Qu'est-ce Que Cohort
 
-Cohert est un Agent Runtime local écrit en Go. Il connecte un LLM compatible OpenAI, une couche d'outils contrôlée, des sessions persistantes, l'automatisation du navigateur, le Computer Use de bureau sur macOS, la compactation du contexte, le routage SOP et une mémoire longue durée vérifiée.
+Cohort est un Agent Runtime local écrit en Go. Il connecte un LLM compatible OpenAI, une couche d'outils contrôlée, des sessions persistantes, l'automatisation du navigateur, le Computer Use de bureau sur macOS, la compactation du contexte, le routage SOP et une mémoire longue durée vérifiée.
 
 ```text
 Intention utilisateur
@@ -46,8 +46,8 @@ go run . session list
 Compiler :
 
 ```bash
-go build -o cohert ./cmd/cohert
-./cohert
+go build -o cohort ./cmd/cohort
+./cohort
 ```
 
 La configuration par défaut se trouve dans [`configs/config.yaml`](../../configs/config.yaml). Le guide complet est dans [`docs/usage.md`](../usage.md).
@@ -68,12 +68,12 @@ La configuration par défaut se trouve dans [`configs/config.yaml`](../../config
 ## CLI
 
 ```bash
-cohert                         # mode interactif
-cohert ask "task"              # exécuter une tâche puis quitter
-cohert tools                   # lister les outils
-cohert config                  # afficher la configuration active
-cohert session list            # lister les sessions locales
-cohert session resume <id>     # reprendre une session
+cohort                         # mode interactif
+cohort ask "task"              # exécuter une tâche puis quitter
+cohort tools                   # lister les outils
+cohort config                  # afficher la configuration active
+cohort session list            # lister les sessions locales
+cohort session resume <id>     # reprendre une session
 ```
 
 Commandes interactives :
@@ -94,7 +94,7 @@ Commandes interactives :
 
 ## Automatisation Du Navigateur
 
-Cohert contrôle Chrome via un Browser Bridge local :
+Cohort contrôle Chrome via un Browser Bridge local :
 
 ```text
 ws://127.0.0.1:18777/browser
@@ -114,11 +114,11 @@ Dépendances OCR optionnelles :
 python3 -m pip install rapidocr-onnxruntime pillow numpy
 ```
 
-Si les outils navigateur retournent `browser_not_connected`, chargez l'extension Chrome depuis `assert/cohert_browser_bridge`.
+Si les outils navigateur retournent `browser_not_connected`, chargez l'extension Chrome depuis `assert/cohort_browser_bridge`.
 
 ## Desktop Computer Use
 
-Cohert fournit une perception générique du bureau macOS et des actions sémantiques AX contrôlées :
+Cohort fournit une perception générique du bureau macOS et des actions sémantiques AX contrôlées :
 
 ```text
 desktop_permissions
@@ -148,7 +148,7 @@ Dépendances du helper macOS :
 python3 -m pip install pyobjc-framework-Quartz pyobjc-framework-Cocoa pyobjc-framework-ApplicationServices
 ```
 
-Accordez les permissions Accessibility et Screen Recording au terminal ou à l'IDE qui exécute Cohert.
+Accordez les permissions Accessibility et Screen Recording au terminal ou à l'IDE qui exécute Cohort.
 
 ## Mémoire Et SOP
 
@@ -162,7 +162,7 @@ start_long_term_update
 
 Les écritures doivent référencer des preuves vérifiées, refuser le contenu sensible ou dupliqué, puis relire l'entrée avant succès.
 
-Les SOP sont des contraintes opérationnelles légères. Cohert injecte [`sops/index.md`](../../sops/index.md) comme navigation et demande de lire le SOP pertinent avant d'agir.
+Les SOP sont des contraintes opérationnelles légères. Cohort injecte [`sops/index.md`](../../sops/index.md) comme navigation et demande de lire le SOP pertinent avant d'agir.
 
 ## Développement
 

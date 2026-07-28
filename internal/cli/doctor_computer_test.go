@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"cohert/internal/app"
-	"cohert/internal/browser"
-	"cohert/internal/desktop"
-	"cohert/internal/vision"
+	"cohort/internal/app"
+	"cohort/internal/browser"
+	"cohort/internal/desktop"
+	"cohort/internal/vision"
 )
 
 func TestRunComputerDoctorCommandPassesWithFakes_BitsUT(t *testing.T) {

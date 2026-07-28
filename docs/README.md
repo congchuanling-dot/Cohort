@@ -1,4 +1,4 @@
-# Cohert 文档导航与实现状态
+# Cohort 文档导航与实现状态
 
 > 状态基线：2026-07-26。本文档是阅读项目文档时判断“已经可用”与“仅为设计”的唯一入口。
 > 代码和 `go test ./...` 是最终事实来源；设计文档不因保留方案文字而代表功能已经上线。
@@ -20,7 +20,7 @@
 1. `[下一步]` 实现 `FinishGuard` / `NoToolPolicy`，保持无工具默认结束，只处理空回复、截断回复、大代码块误输出和 plan 未验证完成等强异常。
 2. `[规划]` 增加严格文本 `<tool_use>` 兜底，降低不同模型或中转服务的 tool calling 波动。
 3. `[部分完成]` 将现有工具级 `run.log` 扩展为完整 Runner 生命周期事件流，再抽取内部 Hook 接口。
-4. `[规划]` 实现 `cohert doctor` 总入口，统一检查配置、模型、MCP、Skill、浏览器和桌面环境。
+4. `[规划]` 实现 `cohort doctor` 总入口，统一检查配置、模型、MCP、Skill、浏览器和桌面环境。
 5. `[规划]` 实现交互式 diff、变更审阅与回滚边界。
 6. `[规划]` 再推进 Project/Plan Mode、内置 Skill 包、Plugin、LSP、多模型和 daemon。
 7. `[验收支线]` 用官方飞书 MCP 完成 OAuth、只读和受控写操作的真实端到端验收。
@@ -42,7 +42,8 @@
 | `[部分完成]` | [cohort_mcp_integration_design.md](cohort_mcp_integration_design.md) | add/list/status/tools/probe/remove 与 P1 权限审计基础已完成；导入导出、飞书真实验收、OAuth 体验和 Plugin 尚待完成。 |
 | `[规划]` | [cohort_future_development_opportunities.md](cohort_future_development_opportunities.md) | Claude Code/OpenClaw 对标能力池；以顶部状态表判断实际进度。 |
 | `[部分完成]` | [cohort_vs_ga_current_gap.md](cohort_vs_ga_current_gap.md) | 当前差距分析；MCP 和渐进式 Skill Runtime 基础已补齐，NoToolPolicy、Hook、Project/Plan Mode、长期自治和前端生态仍未完成。 |
-| `[历史]` | [cohert_vs_ga_gap.md](cohert_vs_ga_gap.md) | 早期 MVP 差距快照，已由 `cohort_vs_ga_current_gap.md` 取代。 |
+| `[规划]` | [agent_observability_technical_design.md](agent_observability_technical_design.md) | 提炼 GA hook、Langfuse、checkpoint 和 L4 反射经验；规划 Cohort lifecycle events、run.log JSONL、usage/cost、tracing sink 和调优报告。 |
+| `[历史]` | [cohort_vs_ga_gap.md](cohort_vs_ga_gap.md) | 早期 MVP 差距快照，已由 `cohort_vs_ga_current_gap.md` 取代。 |
 
 ## 核心能力设计
 
@@ -62,7 +63,7 @@
 
 | 状态 | 文档 | 使用方式 |
 | --- | --- | --- |
-| `[历史]` | [genericagent_borrowing_research.md](genericagent_borrowing_research.md) | GenericAgent 能力调研；不能直接当作 Cohert 当前状态。 |
+| `[历史]` | [genericagent_borrowing_research.md](genericagent_borrowing_research.md) | GenericAgent 能力调研；不能直接当作 Cohort 当前状态。 |
 | `[历史]` | [ga_browser_technical_route.md](ga_browser_technical_route.md) | GA 浏览器技术路线与对比依据。 |
 | `[历史]` | [code_run_background_server_issue.md](code_run_background_server_issue.md) | 一次 code_run 长服务问题的根因和规避方案。 |
 

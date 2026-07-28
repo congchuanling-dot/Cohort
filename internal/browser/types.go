@@ -3,7 +3,7 @@ package browser
 import "context"
 
 const (
-	// DefaultListenAddr 是 Cohert 浏览器桥默认监听地址。
+	// DefaultListenAddr 是 Cohort 浏览器桥默认监听地址。
 	// 插件里的 config.js 也指向这个端口，二者必须保持一致。
 	//
 	// 不使用 GA/TMWebDriver 常见的 18765/18766：

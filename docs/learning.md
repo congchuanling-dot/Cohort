@@ -1,10 +1,10 @@
-# Cohert 学习文档
+# Cohort 学习文档
 
-这份文档用于快速理解当前 Cohert 项目。Cohert 是一个用 Go 编写的命令行智能体运行时，当前已经具备命令行 Agent 闭环、浏览器基础自动化、上下文压缩、SOP 路由和受控长期记忆；UI、全局安装、插件和调度类能力仍然后置。
+这份文档用于快速理解当前 Cohort 项目。Cohort 是一个用 Go 编写的命令行智能体运行时，当前已经具备命令行 Agent 闭环、浏览器基础自动化、上下文压缩、SOP 路由和受控长期记忆；UI、全局安装、插件和调度类能力仍然后置。
 
 ## 1. 项目定位
 
-Cohert 当前定位是本地命令行 Agent Runtime。
+Cohort 当前定位是本地命令行 Agent Runtime。
 
 当前最小闭环是：
 
@@ -23,7 +23,7 @@ Cohert 当前定位是本地命令行 Agent Runtime。
 ## 2. 目录结构
 
 ```text
-cmd/cohert/        本地二进制入口
+cmd/cohort/        本地二进制入口
 configs/           本地配置
 internal/app/      应用装配、配置加载、Runner 创建
 internal/agent/    Agent Loop、输出 Sink、运行结果
@@ -37,7 +37,7 @@ temp/              模型响应日志，运行时生成
 
 ### 3.1 先看入口
 
-文件：[cmd/cohert/main.go](../cmd/cohert/main.go)
+文件：[cmd/cohort/main.go](../cmd/cohort/main.go)
 
 开发阶段推荐直接在项目根目录使用 `go run .`：
 
@@ -51,10 +51,10 @@ go run . config
 如果先构建本地二进制，也可以在项目根目录使用：
 
 ```text
-./cohert
-./cohert ask "任务"
-./cohert tools
-./cohert config
+./cohort
+./cohort ask "任务"
+./cohort tools
+./cohort config
 ```
 
 关键点：
@@ -63,7 +63,7 @@ go run . config
 - `go run . ask` 执行一次任务。
 - `go run . tools` 只列工具，不需要 API Key。
 - `go run . config` 只看配置，不需要 API Key。
-- `./cohert` 是构建出来的本地二进制，不代表已经支持任意路径全局启动。
+- `./cohort` 是构建出来的本地二进制，不代表已经支持任意路径全局启动。
 - 真正跑 Agent 时才会初始化 LLM。
 
 ### 3.2 再看应用装配
@@ -124,7 +124,7 @@ for turn := 1; turn <= maxTurns; turn++:
     continue next turn
 ```
 
-这里是 Cohert 的核心调度逻辑：轮次控制、工具调用、结果回灌。
+这里是 Cohort 的核心调度逻辑：轮次控制、工具调用、结果回灌。
 
 ### 3.5 再看 LLM Client
 

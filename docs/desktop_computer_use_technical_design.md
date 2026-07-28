@@ -7,7 +7,7 @@
 
 ## 背景
 
-Cohert 当前已经具备文件、命令、长期记忆、SOP、Chrome 浏览器桥接、DOM 摘要、浏览器截图和 `browser_ocr` 等能力。浏览器场景内的主链路已经比较清晰：
+Cohort 当前已经具备文件、命令、长期记忆、SOP、Chrome 浏览器桥接、DOM 摘要、浏览器截图和 `browser_ocr` 等能力。浏览器场景内的主链路已经比较清晰：
 
 ```text
 DOM / browser_scan / browser_dom_summary
@@ -18,7 +18,7 @@ DOM / browser_scan / browser_dom_summary
 
 但这条链路只覆盖 Chrome 内部页面。真实电脑操作需要面对任意桌面应用、系统弹窗、原生菜单、文件选择器、聊天工具、IDE、终端、设置页等对象。这类目标通常没有浏览器 DOM，也不能依赖 CDP，因此需要补齐一套通用桌面端感知与受控输入能力。
 
-本方案目标是把 Cohert 从“浏览器 Agent”扩展为“通用 Computer Use Agent”的基础框架。它参考 GenericAgent 的桌面操作实践，但不做微信专属实现，也不直接开放任意坐标点击能力。
+本方案目标是把 Cohort 从“浏览器 Agent”扩展为“通用 Computer Use Agent”的基础框架。它参考 GenericAgent 的桌面操作实践，但不做微信专属实现，也不直接开放任意坐标点击能力。
 
 ## 目标
 
@@ -372,7 +372,7 @@ Python helper 需要支持：
 ```json
 {
   "status": "success",
-  "image_path": ".cohert/desktop/screenshots/20260725-xxxx.png",
+  "image_path": ".cohort/desktop/screenshots/20260725-xxxx.png",
   "width": 1200,
   "height": 900,
   "window": {
@@ -437,7 +437,7 @@ Python helper 需要支持：
 
 ```json
 {
-  "image_path": ".cohert/desktop/screenshots/20260725-xxxx.png",
+  "image_path": ".cohort/desktop/screenshots/20260725-xxxx.png",
   "min_confidence": 0.5,
   "max_lines": 80,
   "enhance": false
@@ -526,8 +526,8 @@ M2.5 阶段工具。用途：基于截图 manifest 和 OCR/UI bbox 执行受控�
 ```json
 {
   "pid": 888,
-  "image_path": "workspace/.cohert/desktop/screenshots/desktop_screenshot.png",
-  "manifest_path": "workspace/.cohert/desktop/screenshots/desktop_screenshot.json",
+  "image_path": "workspace/.cohort/desktop/screenshots/desktop_screenshot.png",
+  "manifest_path": "workspace/.cohort/desktop/screenshots/desktop_screenshot.json",
   "bbox": [510, 1790, 730, 1845],
   "expected_text": "发消息...",
   "reason": "聚焦 WebView 消息输入框"
@@ -749,7 +749,7 @@ M2.1 验收：
 - bbox 从 `screenshot-local` 到 `screen-physical` 的受控转换。
 - 视觉候选和 AX 节点的合并排序。
 
-## 与现有 Cohert 能力的关系
+## 与现有 Cohort 能力的关系
 
 - `browser_ocr` 继续服务浏览器截图，不承担桌面窗口枚举和输入。
 - `desktop_ocr` 复用 OCR runner，但输入来源是桌面截图。
@@ -769,4 +769,4 @@ M2.1 验收：
 
 ## 关键结论
 
-Cohert 后续不应该开发“微信工具”或某个应用的专属自动化，而应该开发一套通用桌面感知和受控输入底座。正确的第一步是 M1 只读感知：权限检查、窗口枚举、PID 激活、窗口截图、AX 快照和桌面 OCR。等这套链路稳定后，再开放受限输入，并且所有副作用动作都必须绑定目标 PID、经过风险判断和结果验证。
+Cohort 后续不应该开发“微信工具”或某个应用的专属自动化，而应该开发一套通用桌面感知和受控输入底座。正确的第一步是 M1 只读感知：权限检查、窗口枚举、PID 激活、窗口截图、AX 快照和桌面 OCR。等这套链路稳定后，再开放受限输入，并且所有副作用动作都必须绑定目标 PID、经过风险判断和结果验证。

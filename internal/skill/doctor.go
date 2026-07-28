@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"cohert/internal/mcp"
+	"cohort/internal/mcp"
 )
 
 // DiagnosticSeverity 表示 Skill doctor 的单项检查严重程度。

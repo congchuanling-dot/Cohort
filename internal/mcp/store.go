@@ -16,13 +16,13 @@ type Scope string
 const (
 	// ScopeProject 是可提交到项目仓库、供团队共享的 .mcp.json。
 	ScopeProject Scope = "project"
-	// ScopeUser 是当前用户跨项目复用的 ~/.cohert/mcp.json。
+	// ScopeUser 是当前用户跨项目复用的 ~/.cohort/mcp.json。
 	ScopeUser Scope = "user"
 	// ScopeLocal 是当前机器私有且应被忽略的 .cohort/local.mcp.json。
 	ScopeLocal Scope = "local"
 )
 
-// Store owns Cohert's MCP configuration files. Project scope deliberately
+// Store owns Cohort's MCP configuration files. Project scope deliberately
 // uses Claude Code's .mcp.json format for direct compatibility.
 type Store struct {
 	// ProjectRoot 是项目级和本地级配置的根目录。
@@ -172,7 +172,7 @@ func (s Store) Path(scope Scope) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return filepath.Join(homeDir, ".cohert", "mcp.json"), nil
+		return filepath.Join(homeDir, ".cohort", "mcp.json"), nil
 	default:
 		return "", fmt.Errorf("unknown MCP scope %q", scope)
 	}

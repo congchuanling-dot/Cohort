@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"cohert/internal/agent"
-	"cohert/internal/llm"
+	"cohort/internal/agent"
+	"cohort/internal/llm"
 )
 
 // AskUser 让模型在缺少关键信息或高风险操作确认时，通过命令行向用户提问。
@@ -76,7 +76,7 @@ func (t *AskUser) Run(ctx context.Context, call agent.ToolCallContext) (agent.Ou
 						Data: agent.NewToolError(
 							"confirmation_unavailable",
 							"ask_user cannot issue an approval token because the confirmation store is unavailable",
-							"请重新初始化 Cohert 工具注册表后重试。",
+							"请重新初始化 Cohort 工具注册表后重试。",
 						),
 						NextPrompt: "\n",
 					}, nil

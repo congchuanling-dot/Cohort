@@ -15,8 +15,8 @@ const (
 
 // ResolveRuntimeScriptPath 按源码仓库、全局安装目录、当前目录的顺序解析运行时脚本。
 //
-// release 安装场景中二进制通常位于 ~/.cohert/bin/cohert，对应脚本应放在
-// ~/.cohert/scripts/。开发场景仍优先使用仓库内 scripts/。
+// release 安装场景中二进制通常位于 ~/.cohort/bin/cohort，对应脚本应放在
+// ~/.cohort/scripts/。开发场景仍优先使用仓库内 scripts/。
 func ResolveRuntimeScriptPath(workspace string, relativePath string) string {
 	relativePath = filepath.Clean(strings.TrimSpace(relativePath))
 	if relativePath == "." || relativePath == "" {
@@ -37,7 +37,7 @@ func ResolveRuntimeScriptPath(workspace string, relativePath string) string {
 		candidates = append(candidates, filepath.Join(installRoot, "scripts", filepath.Base(relativePath)))
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		candidates = append(candidates, filepath.Join(home, ".cohert", "scripts", filepath.Base(relativePath)))
+		candidates = append(candidates, filepath.Join(home, ".cohort", "scripts", filepath.Base(relativePath)))
 	}
 
 	seen := map[string]bool{}

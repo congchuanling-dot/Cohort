@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""macOS desktop sensing helper for Cohert.
+"""macOS desktop sensing helper for Cohort.
 
 The script exposes a small JSON protocol for desktop sensing and narrowly
 reviewed semantic input. Mouse click input is only exposed through current AX
@@ -55,7 +55,7 @@ class DesktopError(Exception):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Cohert macOS desktop sensing helper")
+    parser = argparse.ArgumentParser(description="Cohort macOS desktop sensing helper")
     parser.add_argument("--command", required=True)
     parser.add_argument("--json", required=True, dest="payload")
     return parser.parse_args()
@@ -132,10 +132,10 @@ def permissions(_payload):
     hints = []
     if accessibility is False:
         missing.append("accessibility")
-        hints.append("系统设置 -> 隐私与安全性 -> 辅助功能：允许运行 Cohert 的终端或 IDE。")
+        hints.append("系统设置 -> 隐私与安全性 -> 辅助功能：允许运行 Cohort 的终端或 IDE。")
     if screen_recording is False:
         missing.append("screen_recording")
-        hints.append("系统设置 -> 隐私与安全性 -> 屏幕录制：允许运行 Cohert 的终端或 IDE。")
+        hints.append("系统设置 -> 隐私与安全性 -> 屏幕录制：允许运行 Cohort 的终端或 IDE。")
     return {
         "platform": "darwin",
         "accessibility": accessibility,
@@ -292,7 +292,7 @@ def screenshot(payload):
         raise DesktopError(
             "desktop_bad_output_path",
             "desktop_screenshot requires an output_path",
-            "请通过 Cohert 的 desktop_screenshot 工具调用，不能直接调用 helper。",
+            "请通过 Cohort 的 desktop_screenshot 工具调用，不能直接调用 helper。",
         )
     window = find_window(payload)
     require_active_pid(window["pid"])
@@ -475,7 +475,7 @@ def require_ax_target(payload, operation_name, require_action=None, require_boun
         raise DesktopError(
             "desktop_permission_denied",
             "Accessibility permission is not granted",
-            "系统设置 -> 隐私与安全性 -> 辅助功能：允许运行 Cohert 的终端或 IDE。",
+            "系统设置 -> 隐私与安全性 -> 辅助功能：允许运行 Cohort 的终端或 IDE。",
         )
     pid = int(payload.get("pid") or 0)
     if pid <= 0:
@@ -646,7 +646,7 @@ def visual_click(payload):
         raise DesktopError(
             "desktop_visual_click_bad_coordinate_space",
             f"desktop_visual_click requires screen-physical coordinates, got {coordinate_space!r}",
-            "请通过 Cohert desktop_visual_click 工具调用，不能直接传入截图坐标或任意坐标。",
+            "请通过 Cohort desktop_visual_click 工具调用，不能直接传入截图坐标或任意坐标。",
         )
     x = int(payload.get("x") or 0)
     y = int(payload.get("y") or 0)
@@ -703,7 +703,7 @@ def post_mouse_click(quartz, point, button="left", click_count=1):
         raise DesktopError(
             "desktop_click_bad_button",
             f"unsupported mouse button: {button!r}",
-            "请使用 Cohert 已注册的点击工具，不要直接调用 helper。",
+            "请使用 Cohort 已注册的点击工具，不要直接调用 helper。",
         )
     for index in range(max(1, int(click_count))):
         click_state = index + 1
@@ -713,7 +713,7 @@ def post_mouse_click(quartz, point, button="left", click_count=1):
             raise DesktopError(
                 "desktop_click_failed",
                 "unable to create Quartz mouse click event",
-                "请确认 Cohert 运行进程具备必要的系统权限。",
+                "请确认 Cohort 运行进程具备必要的系统权限。",
             )
         try:
             quartz.CGEventSetIntegerValueField(down, quartz.kCGMouseEventClickState, click_state)
@@ -738,7 +738,7 @@ def post_mouse_drag(quartz, start_point, end_point):
         raise DesktopError(
             "desktop_drag_failed",
             "unable to create Quartz mouse down event",
-            "请确认 Cohert 运行进程具备必要的系统权限。",
+            "请确认 Cohort 运行进程具备必要的系统权限。",
         )
     quartz.CGEventPost(quartz.kCGHIDEventTap, down)
     time.sleep(0.08)
@@ -759,7 +759,7 @@ def post_mouse_drag(quartz, start_point, end_point):
             raise DesktopError(
                 "desktop_drag_failed",
                 "unable to create Quartz mouse drag event",
-                "请确认 Cohert 运行进程具备必要的系统权限。",
+                "请确认 Cohort 运行进程具备必要的系统权限。",
             )
         quartz.CGEventPost(quartz.kCGHIDEventTap, moved)
         time.sleep(0.025)
@@ -773,7 +773,7 @@ def post_mouse_drag(quartz, start_point, end_point):
         raise DesktopError(
             "desktop_drag_failed",
             "unable to create Quartz mouse up event",
-            "请确认 Cohert 运行进程具备必要的系统权限。",
+            "请确认 Cohort 运行进程具备必要的系统权限。",
         )
     time.sleep(0.05)
     quartz.CGEventPost(quartz.kCGHIDEventTap, up)
@@ -794,7 +794,7 @@ def pointer_click(payload, command_name, action_name, button, click_count):
         raise DesktopError(
             f"{command_name}_bad_coordinate_space",
             f"{command_name} requires screen-physical coordinates, got {coordinate_space!r}",
-            "请通过 Cohert computer 工具调用，不能直接传入截图坐标或任意坐标。",
+            "请通过 Cohort computer 工具调用，不能直接传入截图坐标或任意坐标。",
         )
     x = int(payload.get("x") or 0)
     y = int(payload.get("y") or 0)
@@ -871,7 +871,7 @@ def scroll(payload):
             raise DesktopError(
                 "desktop_scroll_failed",
                 "unable to create Quartz scroll event",
-                "请确认 Cohert 运行进程具备必要的系统权限。",
+                "请确认 Cohort 运行进程具备必要的系统权限。",
             )
         quartz.CGEventPost(quartz.kCGHIDEventTap, event)
         time.sleep(0.15)
@@ -909,7 +909,7 @@ def drag(payload):
         raise DesktopError(
             "desktop_drag_bad_coordinate_space",
             f"desktop_drag requires screen-physical coordinates, got {coordinate_space!r}",
-            "请通过 Cohert computer_drag 工具调用，不能直接传入截图坐标或任意坐标。",
+            "请通过 Cohort computer_drag 工具调用，不能直接传入截图坐标或任意坐标。",
         )
     start_x = int(payload.get("start_x") or 0)
     start_y = int(payload.get("start_y") or 0)
@@ -984,7 +984,7 @@ def parse_key(quartz, raw_key):
             raise DesktopError(
                 "desktop_press_key_unsupported",
                 f"unsupported desktop key modifier: {modifier}",
-                "请使用 Cohert desktop_press_key 工具提供的受限按键集合。",
+                "请使用 Cohort desktop_press_key 工具提供的受限按键集合。",
             )
         key = base
     keycode = keycodes.get(key)
@@ -992,7 +992,7 @@ def parse_key(quartz, raw_key):
         raise DesktopError(
             "desktop_press_key_unsupported",
             f"unsupported desktop key: {raw_key!r}",
-            "请使用 Cohert desktop_press_key 工具提供的受限按键集合。",
+            "请使用 Cohort desktop_press_key 工具提供的受限按键集合。",
         )
     return keycode, modifiers
 
@@ -1003,7 +1003,7 @@ def post_key_event(quartz, keycode, down, flags):
         raise DesktopError(
             "desktop_press_key_failed",
             "unable to create Quartz keyboard event",
-            "请确认 Cohert 运行进程具备必要的系统权限。",
+            "请确认 Cohort 运行进程具备必要的系统权限。",
         )
     quartz.CGEventSetFlags(event, flags)
     quartz.CGEventPost(quartz.kCGHIDEventTap, event)
@@ -1165,7 +1165,7 @@ def menu_select(payload):
         raise DesktopError(
             "desktop_permission_denied",
             "Accessibility permission is not granted",
-            "系统设置 -> 隐私与安全性 -> 辅助功能：允许运行 Cohert 的终端或 IDE。",
+            "系统设置 -> 隐私与安全性 -> 辅助功能：允许运行 Cohort 的终端或 IDE。",
         )
     pid = int(payload.get("pid") or 0)
     if pid <= 0:
@@ -1357,7 +1357,7 @@ def window_move(payload):
         raise DesktopError("desktop_bad_pid", "window_move requires a positive pid", "请先通过 computer_see 或 computer_window_switch 获取目标窗口。")
     require_active_pid(pid)
     if str(payload.get("coordinate_space") or "").strip() != "screen-physical":
-        raise DesktopError("desktop_window_move_bad_coordinate_space", "window_move requires screen-physical coordinates", "请使用 Cohert computer_window_move 工具，不要传入截图局部坐标。")
+        raise DesktopError("desktop_window_move_bad_coordinate_space", "window_move requires screen-physical coordinates", "请使用 Cohort computer_window_move 工具，不要传入截图局部坐标。")
     x = int(payload.get("x") or 0)
     y = int(payload.get("y") or 0)
     if x < 0 or y < 0:
@@ -1387,7 +1387,7 @@ def window_resize(payload):
         raise DesktopError("desktop_bad_pid", "window_resize requires a positive pid", "请先通过 computer_see 或 computer_window_switch 获取目标窗口。")
     require_active_pid(pid)
     if str(payload.get("coordinate_space") or "").strip() != "screen-physical":
-        raise DesktopError("desktop_window_resize_bad_coordinate_space", "window_resize requires screen-physical coordinates", "请使用 Cohert computer_window_resize 工具，不要传入截图局部坐标。")
+        raise DesktopError("desktop_window_resize_bad_coordinate_space", "window_resize requires screen-physical coordinates", "请使用 Cohort computer_window_resize 工具，不要传入截图局部坐标。")
     width = int(payload.get("width") or 0)
     height = int(payload.get("height") or 0)
     if width <= 0 or height <= 0:
@@ -1416,7 +1416,7 @@ def focused_metadata(pid):
         raise DesktopError(
             "desktop_permission_denied",
             "Accessibility permission is not granted",
-            "系统设置 -> 隐私与安全性 -> 辅助功能：允许运行 Cohert 的终端或 IDE。",
+            "系统设置 -> 隐私与安全性 -> 辅助功能：允许运行 Cohort 的终端或 IDE。",
         )
     app = api["application"](pid)
     element = ax_attr(api, app, api["focused"])
@@ -1454,7 +1454,7 @@ def post_unicode_text(quartz, text):
             raise DesktopError(
                 "desktop_type_text_failed",
                 "unable to create Quartz unicode keyboard event",
-                "请确认 Cohert 运行进程具备必要的系统权限。",
+                "请确认 Cohort 运行进程具备必要的系统权限。",
             )
         quartz.CGEventKeyboardSetUnicodeString(event, len(chunk), chunk)
         quartz.CGEventPost(quartz.kCGHIDEventTap, event)
@@ -1527,7 +1527,7 @@ def ax_snapshot(payload):
         raise DesktopError(
             "desktop_permission_denied",
             "Accessibility permission is not granted",
-            "系统设置 -> 隐私与安全性 -> 辅助功能：允许运行 Cohert 的终端或 IDE。",
+            "系统设置 -> 隐私与安全性 -> 辅助功能：允许运行 Cohort 的终端或 IDE。",
         )
     pid = int(payload.get("pid") or 0)
     if pid <= 0:
@@ -1637,7 +1637,7 @@ def dispatch(command, payload):
         raise DesktopError(
             "desktop_unknown_command",
             f"unsupported desktop helper command: {command}",
-            "请使用 Cohert 已注册的 desktop 工具，不要直接调用未实现的 helper command。",
+            "请使用 Cohort 已注册的 desktop 工具，不要直接调用未实现的 helper command。",
         )
     return handler(payload)
 

@@ -7,14 +7,14 @@ import (
 	"sync"
 )
 
-// RegisteredTool 将 MCP 发现结果与 Cohert 内部唯一工具名绑定。
+// RegisteredTool 将 MCP 发现结果与 Cohort 内部唯一工具名绑定。
 type RegisteredTool struct {
 	// Server 是提供该工具且已校验过的服务器配置。
 	Server ServerConfig
 	// Tool 是服务器通过 tools/list 上报的原始定义。
 	Tool ToolDefinition
-	// CohertID 是注册到本地工具表后的无冲突名称。
-	CohertID string
+	// CohortID 是注册到本地工具表后的无冲突名称。
+	CohortID string
 }
 
 // ServerStatus 是用于 CLI 诊断的无敏感信息摘要。
@@ -27,7 +27,7 @@ type ServerStatus struct {
 	Available bool
 	// Error 是不可用原因，不包含环境变量或请求正文。
 	Error string
-	// Tools 是成功挂载到 Cohert 的工具数量。
+	// Tools 是成功挂载到 Cohort 的工具数量。
 	Tools int
 }
 
@@ -37,7 +37,7 @@ type Manager struct {
 	mu sync.RWMutex
 	// clients 按服务器名保存已完成握手的传输连接。
 	clients map[string]Client
-	// tools 按 CohertID 保存可供 Agent 调用的工具。
+	// tools 按 CohortID 保存可供 Agent 调用的工具。
 	tools map[string]RegisteredTool
 	// statuses 保存成功与失败服务器的诊断结果。
 	statuses map[string]ServerStatus
@@ -53,7 +53,7 @@ func NewManager() *Manager {
 }
 
 // Load opens every configured server. A broken optional server is recorded in
-// Statuses but does not prevent Cohert's local tools from starting.
+// Statuses but does not prevent Cohort's local tools from starting.
 func (m *Manager) Load(ctx context.Context, configs []ServerConfig) {
 	for _, config := range configs {
 		m.loadOne(ctx, config)
@@ -63,7 +63,7 @@ func (m *Manager) Load(ctx context.Context, configs []ServerConfig) {
 // Reload 在新连接完成握手和发现后原子替换当前快照。
 //
 // 构建新快照失败的 Server 只会在新状态中显示为 unavailable，不会破坏仍在使用的
-// 旧快照；替换完成后才关闭旧客户端。已注册的 MCPTool 仍通过 CohertID 回查本
+// 旧快照；替换完成后才关闭旧客户端。已注册的 MCPTool 仍通过 CohortID 回查本
 // Manager，因此同名工具可以无感切到新连接。新增工具则需要 Registry 刷新后才会
 // 出现在下一次模型请求中。
 func (m *Manager) Reload(ctx context.Context, configs []ServerConfig) {
@@ -114,9 +114,9 @@ func (m *Manager) loadOne(ctx context.Context, config ServerConfig) {
 	}
 	// 同名 Server 被重复加载时，先移除它的旧工具映射；否则新发现到同名工具会
 	// 和自己的旧快照冲突。不同 Server 的工具仍保留，用于检测真实命名冲突。
-	for cohertID, registered := range m.tools {
+	for cohortID, registered := range m.tools {
 		if registered.Server.Name == validated.Name {
-			delete(m.tools, cohertID)
+			delete(m.tools, cohortID)
 		}
 	}
 	registered := make([]RegisteredTool, 0, len(discovered))
@@ -125,26 +125,26 @@ func (m *Manager) loadOne(ctx context.Context, config ServerConfig) {
 		if tool.Name == "" {
 			continue
 		}
-		cohertID := ToolName(validated.Name, tool.Name)
-		if _, conflict := m.tools[cohertID]; conflict || seen[cohertID] {
+		cohortID := ToolName(validated.Name, tool.Name)
+		if _, conflict := m.tools[cohortID]; conflict || seen[cohortID] {
 			m.mu.Unlock()
 			_ = client.Close()
 			m.setStatus(ServerStatus{
 				Name:      validated.Name,
 				Transport: validated.Type,
-				Error:     fmt.Sprintf("MCP tool name conflict: %s", cohertID),
+				Error:     fmt.Sprintf("MCP tool name conflict: %s", cohortID),
 			})
 			return
 		}
-		seen[cohertID] = true
+		seen[cohortID] = true
 		registered = append(registered, RegisteredTool{
 			Server:   validated,
 			Tool:     tool,
-			CohertID: cohertID,
+			CohortID: cohortID,
 		})
 	}
 	for _, tool := range registered {
-		m.tools[tool.CohertID] = tool
+		m.tools[tool.CohortID] = tool
 	}
 	m.clients[validated.Name] = client
 	m.statuses[validated.Name] = ServerStatus{
@@ -156,7 +156,7 @@ func (m *Manager) loadOne(ctx context.Context, config ServerConfig) {
 	m.mu.Unlock()
 }
 
-// Tools 返回按 CohertID 排序的发现结果，使 CLI 与模型 schema 顺序稳定。
+// Tools 返回按 CohortID 排序的发现结果，使 CLI 与模型 schema 顺序稳定。
 func (m *Manager) Tools() []RegisteredTool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -188,14 +188,14 @@ func (m *Manager) Statuses() []ServerStatus {
 	return result
 }
 
-// CallTool 将本地 CohertID 映射回原始 MCP 名称，再转发给所属客户端。
+// CallTool 将本地 CohortID 映射回原始 MCP 名称，再转发给所属客户端。
 // 读取注册信息时只持有读锁，网络调用期间不阻塞其他工具枚举。
-func (m *Manager) CallTool(ctx context.Context, cohertID string, args map[string]any) (ToolResult, RegisteredTool, error) {
+func (m *Manager) CallTool(ctx context.Context, cohortID string, args map[string]any) (ToolResult, RegisteredTool, error) {
 	m.mu.RLock()
-	registered, ok := m.tools[cohertID]
+	registered, ok := m.tools[cohortID]
 	if !ok {
 		m.mu.RUnlock()
-		return ToolResult{}, RegisteredTool{}, fmt.Errorf("unknown MCP tool %q", cohertID)
+		return ToolResult{}, RegisteredTool{}, fmt.Errorf("unknown MCP tool %q", cohortID)
 	}
 	client := m.clients[registered.Server.Name]
 	m.mu.RUnlock()

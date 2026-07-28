@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"cohert/internal/contextmgr"
-	"cohert/internal/evolution"
-	"cohert/internal/llm"
-	"cohert/internal/session"
-	"cohert/internal/skill"
+	"cohort/internal/contextmgr"
+	"cohort/internal/evolution"
+	"cohort/internal/llm"
+	"cohort/internal/session"
+	"cohort/internal/skill"
 )
 
 const (

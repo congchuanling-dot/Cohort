@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"cohert/internal/agent"
-	"cohert/internal/computeruse"
-	"cohert/internal/desktop"
-	"cohert/internal/vision"
+	"cohort/internal/agent"
+	"cohort/internal/computeruse"
+	"cohort/internal/desktop"
+	"cohort/internal/vision"
 )
 
 func TestComputerSeeAndFindCachesAXTargets_BitsUT(t *testing.T) {

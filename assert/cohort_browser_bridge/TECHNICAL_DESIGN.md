@@ -1,16 +1,16 @@
-# Cohert Browser Bridge 技术方案
+# Cohort Browser Bridge 技术方案
 
 ## 插件命名
 
-插件名：`Cohert Browser Bridge`
+插件名：`Cohort Browser Bridge`
 
 目录：
 
 ```text
-assert/cohert_browser_bridge
+assert/cohort_browser_bridge
 ```
 
-这个名字强调它不是完整自动化框架，而是 Cohert 和用户真实 Chrome 会话之间的桥。
+这个名字强调它不是完整自动化框架，而是 Cohort 和用户真实 Chrome 会话之间的桥。
 
 ## GA 参考结论
 
@@ -42,9 +42,9 @@ Agent web_scan / web_execute_js
 
 这条链路的价值是复用真实浏览器登录态，而不是启动一次性 headless 浏览器。
 
-## Cohert 第一版取舍
+## Cohort 第一版取舍
 
-Cohert 第一版保留：
+Cohort 第一版保留：
 
 - MV3 service worker。
 - 插件主动连接本地 WebSocket。
@@ -53,7 +53,7 @@ Cohert 第一版保留：
 - 受控 JS 执行。
 - 标签页变化主动上报。
 
-Cohert 第一版不照搬：
+Cohort 第一版不照搬：
 
 - `cookies` 权限。
 - `management` 权限。
@@ -65,12 +65,12 @@ Cohert 第一版不照搬：
 
 - 先把浏览器桥主链路跑通。
 - 降低插件权限，避免第一版过度暴露用户浏览器状态。
-- 高风险动作后续由 Cohert 工具层和 `ask_user` 控制。
+- 高风险动作后续由 Cohort 工具层和 `ask_user` 控制。
 
 ## 当前文件结构
 
 ```text
-assert/cohert_browser_bridge/
+assert/cohort_browser_bridge/
   manifest.json
   config.js
   background.js
@@ -122,7 +122,7 @@ ws://127.0.0.1:18777/browser
 
 职责：
 
-- 自动连接 Cohert 本地 WebSocket server。
+- 自动连接 Cohort 本地 WebSocket server。
 - 连接成功后发送 `ext_ready`。
 - 标签页变化时发送 `tabs_update`。
 - 处理 Go 侧发来的命令：
@@ -142,20 +142,20 @@ ws://127.0.0.1:18777/browser
 
 用于人工确认：
 
-- 插件是否连上 Cohert。
+- 插件是否连上 Cohort。
 - 当前 WebSocket 地址。
 - 当前可脚本化标签页列表。
 
 ## WebSocket 协议
 
-### 插件到 Cohert
+### 插件到 Cohort
 
 连接成功：
 
 ```json
 {
   "type": "ext_ready",
-  "name": "Cohert Browser Bridge",
+  "name": "Cohort Browser Bridge",
   "version": "0.1.0",
   "tabs": []
 }
@@ -193,7 +193,7 @@ ws://127.0.0.1:18777/browser
 }
 ```
 
-### Cohert 到插件
+### Cohort 到插件
 
 列标签页：
 
@@ -304,9 +304,9 @@ internal/tools/browser_js.go
 
 插件侧：
 
-- Chrome 可以通过 Load unpacked 加载 `assert/cohert_browser_bridge`。
+- Chrome 可以通过 Load unpacked 加载 `assert/cohort_browser_bridge`。
 - popup 可以显示 WebSocket 地址和当前 http/https 标签页。
-- 未启动 Cohert bridge server 时状态显示 `waiting for Cohert`。
+- 未启动 Cohort bridge server 时状态显示 `waiting for Cohort`。
 
 Go 侧接入后：
 

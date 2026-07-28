@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"cohert/internal/agent"
-	"cohert/internal/desktop"
-	"cohert/internal/llm"
-	"cohert/internal/vision"
+	"cohort/internal/agent"
+	"cohort/internal/desktop"
+	"cohort/internal/llm"
+	"cohort/internal/vision"
 )
 
 const (
@@ -31,7 +31,7 @@ const (
 	// maxDesktopAXNodes 是辅助功能树可返回的最大节点数。
 	maxDesktopAXNodes = 500
 	// defaultDesktopScreenshotDir 是工作区内桌面截图和 manifest 的固定目录。
-	defaultDesktopScreenshotDir    = ".cohert/desktop/screenshots"
+	defaultDesktopScreenshotDir    = ".cohort/desktop/screenshots"
 	defaultDesktopOCRMinConfidence = 0.5
 	defaultDesktopOCRMaxLines      = 80
 	defaultDesktopOCRMaxChars      = 8000
@@ -412,7 +412,7 @@ func (t *DesktopOCR) Run(ctx context.Context, call agent.ToolCallContext) (agent
 			Data: agent.NewToolError(
 				"desktop_ocr_unavailable",
 				"OCR runner is not configured",
-				"请确认 Cohert 随附的 scripts/browser_ocr.py 可用，并已配置 Python OCR 环境。",
+				"请确认 Cohort 随附的 scripts/browser_ocr.py 可用，并已配置 Python OCR 环境。",
 			),
 			NextPrompt: "\n",
 		}, nil

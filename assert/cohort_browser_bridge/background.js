@@ -1,8 +1,8 @@
 // MV3 的 background 是 service worker 环境，不能直接用普通 HTML 的 <script>。
-// importScripts 会把 config.js 加载进同一个 worker 作用域，里面的配置挂在 self.COHERT_BRIDGE_CONFIG 上。
+// importScripts 会把 config.js 加载进同一个 worker 作用域，里面的配置挂在 self.COHORT_BRIDGE_CONFIG 上。
 importScripts("config.js");
 
-// ws 保存插件主动连到 Cohert Go 进程的 WebSocket 连接。
+// ws 保存插件主动连到 Cohort Go 进程的 WebSocket 连接。
 // 这条连接是整个浏览器桥的主链路：Go 发命令，插件执行，再把结果回传。
 let ws = null;
 
@@ -10,7 +10,7 @@ let ws = null;
 // 询问 background 当前状态。lastStatus 就是给 popup 展示用的轻量状态快照。
 let lastStatus = {
   connected: false,
-  wsUrl: COHERT_BRIDGE_CONFIG.wsUrl,
+  wsUrl: COHORT_BRIDGE_CONFIG.wsUrl,
   lastError: "",
   tabCount: 0
 };
@@ -25,16 +25,16 @@ function updateStatus(patch) {
 
 function scheduleProbe() {
   // MV3 service worker 会被 Chrome 挂起，不能依赖 setInterval 长期运行。
-  // chrome.alarms 是扩展里更稳定的定时唤醒方式，这里用于定期重连 Cohert。
-  chrome.alarms.create(COHERT_BRIDGE_CONFIG.probeAlarmName, {
-    delayInMinutes: COHERT_BRIDGE_CONFIG.probeDelayMinutes
+  // chrome.alarms 是扩展里更稳定的定时唤醒方式，这里用于定期重连 Cohort。
+  chrome.alarms.create(COHORT_BRIDGE_CONFIG.probeAlarmName, {
+    delayInMinutes: COHORT_BRIDGE_CONFIG.probeDelayMinutes
   });
 }
 
 function scheduleKeepalive() {
   // WebSocket 连接建立后，定期发 ping，既能检查连接是否还活着，也能降低 worker 被挂起的概率。
-  chrome.alarms.create(COHERT_BRIDGE_CONFIG.keepaliveAlarmName, {
-    delayInMinutes: COHERT_BRIDGE_CONFIG.keepaliveDelayMinutes
+  chrome.alarms.create(COHORT_BRIDGE_CONFIG.keepaliveAlarmName, {
+    delayInMinutes: COHORT_BRIDGE_CONFIG.keepaliveDelayMinutes
   });
 }
 
@@ -47,7 +47,7 @@ function safeSend(payload) {
 
 async function listTabs() {
   // chrome.tabs.query({}) 会拿到当前 Chrome 里所有窗口的所有标签页。
-  // 这里后续会成为 Cohert 的 browser_tabs 工具数据源。
+  // 这里后续会成为 Cohort 的 browser_tabs 工具数据源。
   const tabs = await chrome.tabs.query({});
   return tabs
     .filter((tab) => isScriptable(tab.url))
@@ -76,7 +76,7 @@ function truncateText(text, maxChars) {
   // 浏览器页面文本通常很长，必须在插件层先截断一次。
   // 后续 Context Manager 还会兜底压缩工具结果，但工具自身不能无限返回。
   const value = String(text ?? "");
-  const limit = Number(maxChars) > 0 ? Number(maxChars) : COHERT_BRIDGE_CONFIG.maxScanChars;
+  const limit = Number(maxChars) > 0 ? Number(maxChars) : COHORT_BRIDGE_CONFIG.maxScanChars;
   if (value.length <= limit) {
     return { text: value, truncated: false, charCount: value.length, omitted: 0 };
   }
@@ -469,7 +469,7 @@ async function executeJs(request) {
     const routedResult = await handleExecuteJSCommand(routed, request);
     const clipped = truncateText(
       JSON.stringify(routedResult),
-      request.max_return_chars || request.maxReturnChars || COHERT_BRIDGE_CONFIG.maxJsReturnChars
+      request.max_return_chars || request.maxReturnChars || COHORT_BRIDGE_CONFIG.maxJsReturnChars
     );
     return {
       status: "success",
@@ -503,7 +503,7 @@ async function executeJs(request) {
 
   const clipped = truncateText(
     typeof result.value === "string" ? result.value : JSON.stringify(result.value),
-    request.max_return_chars || request.maxReturnChars || COHERT_BRIDGE_CONFIG.maxJsReturnChars
+    request.max_return_chars || request.maxReturnChars || COHORT_BRIDGE_CONFIG.maxJsReturnChars
   );
   return {
     status: "success",
@@ -1422,7 +1422,7 @@ async function screenshotTab(request) {
 }
 
 async function handleCommand(message) {
-  // Cohert Go 侧发来的命令在这里统一分发。
+  // Cohort Go 侧发来的命令在这里统一分发。
   // 协议保持小而稳定：tabs / scan / open / execute_js / cdp / click / type / press_key / snapshot / screenshot / wait。
   const command = message.command || message.cmd;
   if (command === "execute_js") {
@@ -1449,14 +1449,14 @@ function sendError(id, error) {
 }
 
 async function sendReady(type) {
-  // ext_ready：插件刚连上 Cohert。
+  // ext_ready：插件刚连上 Cohort。
   // tabs_update：标签页发生变化。
   // 两者都附带当前 tab 快照，让 Go 侧不用每次主动拉取。
   const tabs = await listTabs();
   updateStatus({ tabCount: tabs.length });
   safeSend({
     type,
-    name: "Cohert Browser Bridge",
+    name: "Cohort Browser Bridge",
     version: "0.1.0",
     tabs
   });
@@ -1466,7 +1466,7 @@ function connectWS() {
   // 避免重复连接：CONNECTING(0) 或 OPEN(1) 都说明当前已有连接在工作。
   if (ws && ws.readyState <= WebSocket.OPEN) return;
   try {
-    ws = new WebSocket(COHERT_BRIDGE_CONFIG.wsUrl);
+    ws = new WebSocket(COHORT_BRIDGE_CONFIG.wsUrl);
   } catch (err) {
     updateStatus({ connected: false, lastError: err.message || String(err) });
     ws = null;
@@ -1475,7 +1475,7 @@ function connectWS() {
   }
 
   ws.onopen = async () => {
-    // 连接建立后，立刻把插件身份和当前 tabs 发给 Cohert。
+    // 连接建立后，立刻把插件身份和当前 tabs 发给 Cohort。
     // Go 侧收到 ext_ready 后，就知道浏览器桥已经可用了。
     updateStatus({ connected: true, lastError: "" });
     scheduleKeepalive();
@@ -1483,7 +1483,7 @@ function connectWS() {
   };
 
   ws.onmessage = async (event) => {
-    // Cohert 发来的消息格式大致是：
+    // Cohort 发来的消息格式大致是：
     // { "id": "...", "command": "tabs|scan|execute_js", ... }
     let payload;
     try {
@@ -1502,7 +1502,7 @@ function connectWS() {
   };
 
   ws.onclose = () => {
-    // Cohert 进程退出、端口没监听或网络断开时会走这里。
+    // Cohort 进程退出、端口没监听或网络断开时会走这里。
     // 插件不报死错，而是切回 probe 模式，等待 Go 侧重新启动。
     updateStatus({ connected: false });
     ws = null;
@@ -1516,14 +1516,14 @@ function connectWS() {
 }
 
 async function sendTabsUpdate() {
-  // tab 创建、关闭、加载完成后，把最新 tab 快照推给 Cohert。
+  // tab 创建、关闭、加载完成后，把最新 tab 快照推给 Cohort。
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   await sendReady("tabs_update");
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   // keepalive：连接活着就 ping；发不出去说明连接失效，切回重连探测。
-  if (alarm.name === COHERT_BRIDGE_CONFIG.keepaliveAlarmName) {
+  if (alarm.name === COHORT_BRIDGE_CONFIG.keepaliveAlarmName) {
     if (safeSend({ type: "ping" })) {
       scheduleKeepalive();
     } else {
@@ -1531,7 +1531,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     }
   }
   // probe：未连接时周期性尝试 connectWS。
-  if (alarm.name === COHERT_BRIDGE_CONFIG.probeAlarmName) {
+  if (alarm.name === COHORT_BRIDGE_CONFIG.probeAlarmName) {
     connectWS();
   }
 });
@@ -1558,11 +1558,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true;
 });
 
-// 插件安装、Chrome 启动时都主动连接 Cohert。
+// 插件安装、Chrome 启动时都主动连接 Cohort。
 chrome.runtime.onInstalled.addListener(() => connectWS());
 chrome.runtime.onStartup.addListener(() => connectWS());
 
-// 标签页变化时主动通知 Cohert，避免 Go 侧拿到过期 tab 列表。
+// 标签页变化时主动通知 Cohort，避免 Go 侧拿到过期 tab 列表。
 chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
   if (changeInfo.status === "complete") sendTabsUpdate();
 });

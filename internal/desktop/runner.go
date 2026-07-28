@@ -217,14 +217,14 @@ func (d *PythonDriver) call(ctx context.Context, command string, request any, ta
 		return &ToolError{
 			Code:    "desktop_helper_missing",
 			Message: "desktop helper path is not configured",
-			Hint:    "请确认 scripts/desktop_darwin.py 随 Cohert 项目一起存在。",
+			Hint:    "请确认 scripts/desktop_darwin.py 随 Cohort 项目一起存在。",
 		}
 	}
 	if _, err := os.Stat(d.ScriptPath); err != nil {
 		return &ToolError{
 			Code:    "desktop_helper_missing",
 			Message: fmt.Sprintf("desktop helper is unavailable: %v", err),
-			Hint:    "请确认 scripts/desktop_darwin.py 存在且当前运行目录是 Cohert 项目根目录。",
+			Hint:    "请确认 scripts/desktop_darwin.py 存在且当前运行目录是 Cohort 项目根目录。",
 		}
 	}
 

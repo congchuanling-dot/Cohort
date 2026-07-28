@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"cohert/internal/agent"
-	"cohert/internal/browser"
-	"cohert/internal/llm"
-	"cohert/internal/vision"
+	"cohort/internal/agent"
+	"cohort/internal/browser"
+	"cohort/internal/llm"
+	"cohort/internal/vision"
 )
 
 const (
@@ -29,7 +29,7 @@ const (
 	defaultBrowserSnapshotItems    = 80
 	defaultBrowserWaitTimeoutMS    = 10000
 	defaultBrowserWaitIntervalMS   = 200
-	defaultBrowserScreenshotDir    = ".cohert/screenshots"
+	defaultBrowserScreenshotDir    = ".cohort/screenshots"
 	defaultBrowserOCRMinConfidence = 0.5
 	defaultBrowserOCRMaxLines      = 80
 	defaultBrowserOCRMaxChars      = 8000
@@ -53,7 +53,7 @@ func (t *BrowserTabs) Name() string { return ToolNameBrowserTabs }
 func (t *BrowserTabs) Schema() llm.ToolSchema {
 	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
 		Name:        t.Name(),
-		Description: "List current Chrome tabs visible to the Cohert Browser Bridge.",
+		Description: "List current Chrome tabs visible to the Cohort Browser Bridge.",
 		Parameters:  objectSchema(map[string]any{}),
 	}}
 }
@@ -973,7 +973,7 @@ func (t *BrowserOCR) Run(ctx context.Context, call agent.ToolCallContext) (agent
 			Data: agent.NewToolError(
 				"browser_ocr_unavailable",
 				"OCR runner is not configured",
-				"请确认 Cohert 随附的 scripts/browser_ocr.py 可用，并已配置 Python 运行环境。",
+				"请确认 Cohort 随附的 scripts/browser_ocr.py 可用，并已配置 Python 运行环境。",
 			),
 			NextPrompt: "\n",
 		}, nil
@@ -1138,10 +1138,10 @@ func truncateBrowserOCRText(text string, maxChars int) (string, bool) {
 
 func browserToolError(err error) agent.Outcome {
 	code := "browser_error"
-	hint := "确认 Chrome 已安装 Cohert Browser Bridge 插件，并且 Cohert 正在运行；插件会连接 ws://127.0.0.1:18777/browser。"
+	hint := "确认 Chrome 已安装 Cohort Browser Bridge 插件，并且 Cohort 正在运行；插件会连接 ws://127.0.0.1:18777/browser。"
 	if errors.Is(err, browser.ErrNotConnected) {
 		code = "browser_not_connected"
-		hint = "请在 Chrome 的 chrome://extensions 中加载 assert/cohert_browser_bridge，并打开任意 http/https 页面；然后重试。"
+		hint = "请在 Chrome 的 chrome://extensions 中加载 assert/cohort_browser_bridge，并打开任意 http/https 页面；然后重试。"
 	}
 	return agent.Outcome{
 		Data:       agent.NewToolError(code, err.Error(), hint),

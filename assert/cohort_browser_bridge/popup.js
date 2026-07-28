@@ -10,7 +10,7 @@ function setText(id, value) {
 }
 
 async function refresh() {
-  // status 用于看 WebSocket 是否连上 Cohert。
+  // status 用于看 WebSocket 是否连上 Cohort。
   const statusResp = await send("status");
 
   // tabs 用于看插件当前能感知到哪些 http/https 标签页。
@@ -19,7 +19,7 @@ async function refresh() {
   const status = statusResp?.data || {};
   const tabs = tabsResp?.data || [];
 
-  setText("status", status.connected ? "connected" : "waiting for Cohert");
+  setText("status", status.connected ? "connected" : "waiting for Cohort");
   setText("wsUrl", status.wsUrl || "");
   setText("tabCount", String(tabs.length));
   setText("tabs", tabs.map((tab) => {
@@ -29,10 +29,10 @@ async function refresh() {
   }).join("\n\n") || "No scriptable http/https tabs.");
 }
 
-// 手动刷新 popup 展示，不影响插件和 Cohert 的真实连接。
+// 手动刷新 popup 展示，不影响插件和 Cohort 的真实连接。
 document.getElementById("refresh").addEventListener("click", refresh);
 
-// 手动触发 background.js 重连 Cohert，便于本地调试 Go 侧 server。
+// 手动触发 background.js 重连 Cohort，便于本地调试 Go 侧 server。
 document.getElementById("reconnect").addEventListener("click", async () => {
   await send("reconnect");
   await refresh();

@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"cohert/internal/app"
-	"cohert/internal/browser"
-	"cohert/internal/desktop"
-	"cohert/internal/vision"
+	"cohort/internal/app"
+	"cohort/internal/browser"
+	"cohort/internal/desktop"
+	"cohort/internal/vision"
 )
 
 type computerDoctorOptions struct{}
@@ -58,7 +58,7 @@ func parseComputerDoctorArgs(args []string) (computerDoctorOptions, error) {
 	for _, arg := range args {
 		switch arg {
 		case "--help", "-h":
-			return opts, errors.New("usage: cohert doctor computer")
+			return opts, errors.New("usage: cohort doctor computer")
 		default:
 			return opts, fmt.Errorf("unknown doctor computer option %q", arg)
 		}
@@ -114,7 +114,7 @@ func runComputerDoctorCommandWithDeps(ctx context.Context, _ computerDoctorOptio
 	} else {
 		checkWritableDir(out, summary, "workspace", cfg.Workspace)
 	}
-	checkWritableDir(out, summary, "computer.artifacts", filepath.Join(firstNonEmpty(deps.Workspace, cfg.Workspace, "."), ".cohert", "doctor"))
+	checkWritableDir(out, summary, "computer.artifacts", filepath.Join(firstNonEmpty(deps.Workspace, cfg.Workspace, "."), ".cohort", "doctor"))
 
 	checkComputerPlatform(out, summary, deps.GOOS)
 	checkDesktopHelper(ctx, out, summary, deps)
@@ -138,7 +138,7 @@ func checkComputerPlatform(out io.Writer, summary *doctorSummary, goos string) {
 
 func checkDesktopHelper(ctx context.Context, out io.Writer, summary *doctorSummary, deps computerDoctorDeps) {
 	if !fileExists(deps.DesktopScriptPath) {
-		summary.fail(out, "desktop.helper", fmt.Sprintf("%s not found; reinstall Cohert or place helper under ~/.cohert/scripts", filepath.Clean(deps.DesktopScriptPath)))
+		summary.fail(out, "desktop.helper", fmt.Sprintf("%s not found; reinstall Cohort or place helper under ~/.cohort/scripts", filepath.Clean(deps.DesktopScriptPath)))
 		return
 	}
 	summary.pass(out, "desktop.helper", filepath.Clean(deps.DesktopScriptPath))
@@ -195,7 +195,7 @@ func checkDesktopPermissionValue(out io.Writer, summary *doctorSummary, name str
 
 func checkOCRHelper(ctx context.Context, out io.Writer, summary *doctorSummary, deps computerDoctorDeps) {
 	if !fileExists(deps.OCRScriptPath) {
-		summary.fail(out, "ocr.helper", fmt.Sprintf("%s not found; reinstall Cohert or place helper under ~/.cohert/scripts", filepath.Clean(deps.OCRScriptPath)))
+		summary.fail(out, "ocr.helper", fmt.Sprintf("%s not found; reinstall Cohort or place helper under ~/.cohort/scripts", filepath.Clean(deps.OCRScriptPath)))
 		return
 	}
 	summary.pass(out, "ocr.helper", filepath.Clean(deps.OCRScriptPath))
@@ -221,7 +221,7 @@ func checkOCRHelper(ctx context.Context, out io.Writer, summary *doctorSummary, 
 }
 
 func writeDoctorOCRProbeImage(workspace string) (string, func(), error) {
-	dir := filepath.Join(workspace, ".cohert", "doctor")
+	dir := filepath.Join(workspace, ".cohort", "doctor")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", func() {}, err
 	}
@@ -264,7 +264,7 @@ func checkBrowserBridge(ctx context.Context, out io.Writer, summary *doctorSumma
 	tabs, err := deps.Browser.Tabs(reqCtx)
 	if err != nil {
 		if errors.Is(err, browser.ErrNotConnected) || strings.Contains(err.Error(), browser.ErrNotConnected.Error()) {
-			summary.warn(out, "browser.bridge.connection", "Chrome bridge is not connected; enable the Cohert Chrome extension")
+			summary.warn(out, "browser.bridge.connection", "Chrome bridge is not connected; enable the Cohort Chrome extension")
 			return
 		}
 		summary.warn(out, "browser.bridge.connection", err.Error())

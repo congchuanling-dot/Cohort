@@ -1,4 +1,4 @@
-# Cohert Browser Bridge 开发教程
+# Cohort Browser Bridge 开发教程
 
 这份教程不是给浏览器插件老手看的，而是给第一次接触 Chrome 插件和 JavaScript 的开发者看的。
 
@@ -13,7 +13,7 @@
 这个插件的本质是：
 
 ```text
-Cohert Go 进程
+Cohort Go 进程
   <-> 本地 WebSocket
   <-> Chrome 插件 background.js
   <-> Chrome Extension API
@@ -22,7 +22,7 @@ Cohert Go 进程
 
 它不是独立的网页应用，也不是普通前端页面。
 
-它是一个安装在 Chrome 里的桥。Cohert 以后通过本地 WebSocket 给它发命令，它再用 Chrome 给插件开放的 API 去读取或操作真实浏览器页面。
+它是一个安装在 Chrome 里的桥。Cohort 以后通过本地 WebSocket 给它发命令，它再用 Chrome 给插件开放的 API 去读取或操作真实浏览器页面。
 
 ## 2. 为什么要做插件
 
@@ -61,7 +61,7 @@ GA Agent
   -> chrome.tabs / chrome.scripting / chrome.debugger
 ```
 
-Cohert 版参考了这个链路，但第一版刻意收窄权限。
+Cohort 版参考了这个链路，但第一版刻意收窄权限。
 
 GA 里有这些能力：
 
@@ -72,7 +72,7 @@ GA 里有这些能力：
 - contentSettings
 - CSP header 移除
 
-Cohert 第一版只保留：
+Cohort 第一版只保留：
 
 - tabs
 - scan
@@ -119,10 +119,10 @@ manifest.json = 插件配置入口
 
 它负责：
 
-- 连接 Cohert 本地 WebSocket。
-- 监听 Cohert 发来的命令。
+- 连接 Cohort 本地 WebSocket。
+- 监听 Cohort 发来的命令。
 - 调用 Chrome API 列 tab、扫描页面、执行 JS。
-- 把结果发回 Cohert。
+- 把结果发回 Cohort。
 
 本项目对应文件：
 
@@ -142,7 +142,7 @@ background.js = 插件后台控制器
 
 它能访问当前网页的 DOM，但它和 `background.js` 不在同一个运行环境。
 
-当前第一版里，`content.js` 只做一件很轻的事：在页面右下角放一个 `Cohert bridge` 标记，证明插件已经注入到了页面。
+当前第一版里，`content.js` 只做一件很轻的事：在页面右下角放一个 `Cohort bridge` 标记，证明插件已经注入到了页面。
 
 本项目对应文件：
 
@@ -162,7 +162,7 @@ popup 是你点击 Chrome 插件图标后弹出来的小面板。
 
 它负责：
 
-- 显示插件是否连上 Cohert。
+- 显示插件是否连上 Cohort。
 - 显示 WebSocket 地址。
 - 显示当前可脚本化的标签页。
 - 手动触发 reconnect。
@@ -185,7 +185,7 @@ popup = 插件状态面板
 当前目录：
 
 ```text
-assert/cohert_browser_bridge/
+assert/cohort_browser_bridge/
   manifest.json
   config.js
   background.js
@@ -204,7 +204,7 @@ assert/cohert_browser_bridge/
 ```json
 {
   "manifest_version": 3,
-  "name": "Cohert Browser Bridge",
+  "name": "Cohort Browser Bridge",
   "permissions": ["tabs", "activeTab", "scripting", "debugger", "alarms"],
   "background": {
     "service_worker": "background.js"
@@ -240,7 +240,7 @@ assert/cohert_browser_bridge/
 核心内容：
 
 ```javascript
-self.COHERT_BRIDGE_CONFIG = {
+self.COHORT_BRIDGE_CONFIG = {
   wsUrl: "ws://127.0.0.1:18777/browser",
   maxScanChars: 12000,
   maxJsReturnChars: 8000
@@ -252,7 +252,7 @@ self.COHERT_BRIDGE_CONFIG = {
 为什么用 `18777`：
 
 - GA/TMWebDriver 常见端口是 `18765/18766`。
-- Cohert 用 `18777` 避免和 GA 冲突。
+- Cohort 用 `18777` 避免和 GA 冲突。
 
 为什么写到 `self`：
 
@@ -261,7 +261,7 @@ self.COHERT_BRIDGE_CONFIG = {
 
 面试说法：
 
-> 插件默认连接本机 `ws://127.0.0.1:18777/browser`，这个端口后续由 Cohert Go 侧 bridge server 监听。配置单独放在 `config.js`，便于后面改端口或扫描长度。
+> 插件默认连接本机 `ws://127.0.0.1:18777/browser`，这个端口后续由 Cohort Go 侧 bridge server 监听。配置单独放在 `config.js`，便于后面改端口或扫描长度。
 
 ### 5.3 background.js
 
@@ -275,7 +275,7 @@ self.COHERT_BRIDGE_CONFIG = {
 let ws = null;
 let lastStatus = {
   connected: false,
-  wsUrl: COHERT_BRIDGE_CONFIG.wsUrl,
+  wsUrl: COHORT_BRIDGE_CONFIG.wsUrl,
   lastError: "",
   tabCount: 0
 };
@@ -374,7 +374,7 @@ async function executeJs(request) {
 
 这就是 `browser_execute_js` 的核心。
 
-Cohert 后续会给插件发：
+Cohort 后续会给插件发：
 
 ```json
 {
@@ -399,13 +399,13 @@ return document.title
 
 面试说法：
 
-> JS 执行走 `chrome.scripting.executeScript`，插件把 Cohert 发来的脚本包装到页面上下文里执行，并把返回值序列化。第一版要求读取型 JS 显式 return，后续再做风险识别和用户确认。
+> JS 执行走 `chrome.scripting.executeScript`，插件把 Cohort 发来的脚本包装到页面上下文里执行，并把返回值序列化。第一版要求读取型 JS 显式 return，后续再做风险识别和用户确认。
 
 #### 第五块：WebSocket 协议
 
 ```javascript
 function connectWS() {
-  ws = new WebSocket(COHERT_BRIDGE_CONFIG.wsUrl);
+  ws = new WebSocket(COHORT_BRIDGE_CONFIG.wsUrl);
 }
 ```
 
@@ -414,13 +414,13 @@ function connectWS() {
 ```json
 {
   "type": "ext_ready",
-  "name": "Cohert Browser Bridge",
+  "name": "Cohort Browser Bridge",
   "version": "0.1.0",
   "tabs": []
 }
 ```
 
-收到 Cohert 命令后：
+收到 Cohort 命令后：
 
 ```javascript
 ws.onmessage = async (event) => {
@@ -446,7 +446,7 @@ if (command === "execute_js") return await executeJs(message);
 当前只做状态标记：
 
 ```javascript
-indicator.textContent = "Cohert bridge";
+indicator.textContent = "Cohort bridge";
 document.body.appendChild(indicator);
 ```
 
@@ -476,7 +476,7 @@ chrome.runtime.sendMessage({ cmd: "tabs" })
 
 然后显示：
 
-- 是否连接 Cohert。
+- 是否连接 Cohort。
 - WebSocket URL。
 - 当前 tab 数量。
 - 当前 tab 列表。
@@ -500,20 +500,20 @@ chrome://extensions
 3. 选择目录：
 
 ```text
-/Users/bytedance/Desktop/myOwnProject/Cohort/assert/cohert_browser_bridge
+/Users/bytedance/Desktop/myOwnProject/Cohort/assert/cohort_browser_bridge
 ```
 
 安装成功后：
 
-- Chrome 工具栏会出现 `Cohert Browser Bridge`。
+- Chrome 工具栏会出现 `Cohort Browser Bridge`。
 - 打开一个普通网页，例如 `https://example.com`。
-- 页面右下角应该出现 `Cohert bridge` 小标记。
+- 页面右下角应该出现 `Cohort bridge` 小标记。
 - 点击插件图标，popup 会显示状态。
 
 当前 Go 侧 server 还没实现，所以状态应该是：
 
 ```text
-waiting for Cohert
+waiting for Cohort
 ```
 
 这是正常的。
@@ -528,7 +528,7 @@ waiting for Cohert
 chrome://extensions
 ```
 
-找到 `Cohert Browser Bridge`。
+找到 `Cohort Browser Bridge`。
 
 点击：
 
@@ -556,7 +556,7 @@ Command + Option + I
 
 在 Console 里看页面脚本错误。
 
-如果右下角没有 `Cohert bridge` 标记，说明 content script 没有注入。
+如果右下角没有 `Cohort bridge` 标记，说明 content script 没有注入。
 
 常见原因：
 
@@ -577,9 +577,9 @@ Command + Option + I
 在项目根目录运行：
 
 ```bash
-node --check assert/cohert_browser_bridge/background.js
-node --check assert/cohert_browser_bridge/content.js
-node --check assert/cohert_browser_bridge/popup.js
+node --check assert/cohort_browser_bridge/background.js
+node --check assert/cohort_browser_bridge/content.js
+node --check assert/cohort_browser_bridge/popup.js
 ```
 
 这只能检查语法，不能证明 Chrome API 一定可用。
@@ -655,7 +655,7 @@ internal/tools/browser_js.go
 
 ### 10.1 背景
 
-> Cohert 是本地 Agent Runtime，后续需要处理网页任务。普通 HTTP 请求不能复用用户真实登录态，也看不到动态渲染后的 DOM，所以我设计了一个 Chrome 插件桥接真实浏览器。
+> Cohort 是本地 Agent Runtime，后续需要处理网页任务。普通 HTTP 请求不能复用用户真实登录态，也看不到动态渲染后的 DOM，所以我设计了一个 Chrome 插件桥接真实浏览器。
 
 ### 10.2 参考
 
@@ -663,11 +663,11 @@ internal/tools/browser_js.go
 
 ### 10.3 取舍
 
-> 但我没有直接照搬 GA 的高权限能力。第一版 Cohert 插件只保留 tabs、scan、execute_js，不申请 cookies、management、contentSettings，也不移除 CSP header。这样第一版安全边界更清晰。
+> 但我没有直接照搬 GA 的高权限能力。第一版 Cohort 插件只保留 tabs、scan、execute_js，不申请 cookies、management、contentSettings，也不移除 CSP header。这样第一版安全边界更清晰。
 
 ### 10.4 架构
 
-> 插件的 background service worker 主动连 Cohert 本地 WebSocket。Go 侧发送带 request id 的命令，插件执行后返回 result 或 error。页面扫描通过 `chrome.scripting.executeScript` 读取 `document.body.innerText`，JS 执行也走同一个机制。
+> 插件的 background service worker 主动连 Cohort 本地 WebSocket。Go 侧发送带 request id 的命令，插件执行后返回 result 或 error。页面扫描通过 `chrome.scripting.executeScript` 读取 `document.body.innerText`，JS 执行也走同一个机制。
 
 ### 10.5 后续
 
@@ -700,7 +700,7 @@ http://...
 https://...
 ```
 
-### 12.2 为什么插件显示 waiting for Cohert
+### 12.2 为什么插件显示 waiting for Cohort
 
 因为 Go 侧 WebSocket server 还没实现或没启动。
 
@@ -740,7 +740,7 @@ cookies 是高敏感能力。
 
 - Chrome 可以加载。
 - 插件能显示 popup。
-- 插件会尝试连 Cohert。
+- 插件会尝试连 Cohort。
 - 插件定义了 tabs、scan、execute_js 协议。
 
 但 Go 侧还没接，所以它现在只是桥的一端。

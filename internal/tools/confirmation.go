@@ -76,7 +76,7 @@ type storedVisualFocus struct {
 }
 
 // ConfirmationStore 保存短时、一次性的用户确认令牌。
-// 它只在一个 Cohert 进程内生效，令牌消费后立即失效。
+// 它只在一个 Cohort 进程内生效，令牌消费后立即失效。
 type ConfirmationStore struct {
 	// mu 保护 entries，也让一次性消费与并发请求原子化。
 	mu sync.Mutex

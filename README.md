@@ -1,5 +1,5 @@
 <div align="center">
-  <h1 align="center">Cohert</h1>
+  <h1 align="center">Cohort</h1>
   <p align="center">
     <strong>The Runtime Layer Between LLMs and Real Work</strong>
   </p>
@@ -39,9 +39,13 @@
 </p>
 
 <p align="center">
+  <img src="docs/1785215163755.jpeg" alt="Cohort preview" width="860">
+</p>
+
+<p align="center">
   <a href="#项目叙事">项目叙事</a>
   ·
-  <a href="#为什么是-cohert">为什么是 Cohert</a>
+  <a href="#为什么是-cohort">为什么是 Cohort</a>
   ·
   <a href="#快速开始">快速开始</a>
   ·
@@ -73,7 +77,11 @@
 - 它能记住一点东西，却记不清什么是事实、什么只是一次成功的幻觉。
 - 它能跑一段 demo，却很难跨过长任务、长上下文和真实副作用的门槛。
 
+<<<<<<< HEAD
 这就是 Cohert 想要解决的核心矛盾。
+=======
+这就是 Cohort 想解决的核心矛盾。
+>>>>>>> dev
 
 我们不是把大模型再包一层 UI，也不是再做一个提示词更花哨的 Agent 壳。  
 我们想做的是更底层的一层东西: 一个真正意义上的 <strong>Agent Runtime</strong>。
@@ -86,9 +94,9 @@
 - 给记忆一个可以被验证、被审计、被演化的生命周期。
 
 如果说大模型提供的是 intelligence，  
-那么 Cohert 试图补上的，是 intelligence 落地之前最缺的那层 infrastructure。
+那么 Cohort 试图补上的，是 intelligence 落地之前最缺的那层 infrastructure。
 
-## 为什么是 Cohert
+## 为什么是 Cohort
 
 大部分 Agent Demo 的问题不是“不会想”，而是“不能稳定做事”。
 
@@ -97,16 +105,16 @@
 - 浏览器和桌面自动化混在 prompt 里，失败后很难恢复。
 - 记忆是模型随手写下的摘要，不是有证据的事实。
 
-Cohert 的判断很明确:
+Cohort 的判断很明确:
 
 > 真正可用的 Agent，不该建立在“模型这次刚好没出错”的侥幸上。  
 > 它应该建立在 runtime 的边界、证据、恢复能力和长期演化能力之上。
 
-所以 Cohert 的目标不是炫技式地证明“模型能做到什么”，而是工程化地回答另一个问题:
+所以 Cohort 的目标不是炫技式地证明“模型能做到什么”，而是工程化地回答另一个问题:
 
 **当 Agent 进入真实工作流之后，它如何持续、稳定、可追踪地完成任务。**
 
-| 方向 | Cohert 的处理方式 |
+| 方向 | Cohort 的处理方式 |
 | --- | --- |
 | 执行 | 用受控工具层连接文件、Shell、浏览器、桌面、MCP |
 | 长任务 | 用 session、compact、memory 分层管理长上下文 |
@@ -115,7 +123,7 @@ Cohert 的判断很明确:
 | 自动化 | 浏览器优先 DOM，桌面优先 AX，避免纯视觉瞎点 |
 | 演化 | SOP、checkpoint、memory candidate 分层升级，而不是一次性 prompt 魔法 |
 
-换句话说，Cohert 关心的不是“像不像人”，而是更底层也更重要的三件事:
+换句话说，Cohort 关心的不是“像不像人”，而是更底层也更重要的三件事:
 
 - 能不能安全地行动。
 - 能不能在失败后恢复。
@@ -135,24 +143,24 @@ curl -fsSL https://raw.githubusercontent.com/congchuanling-dot/Cohort/master/scr
 
 ```bash
 ./scripts/install.sh
-export PATH="$HOME/.cohert/bin:$PATH"
+export PATH="$HOME/.cohort/bin:$PATH"
 export DEEPSEEK_API_KEY="sk-xxx"
-cohert config
-cohert doctor
-cohert
+cohort config
+cohort doctor
+cohort
 ```
 
 安装脚本会优先下载 GitHub Release 里的 macOS 二进制；如果 release 不可用，
-才回退到源码构建。最终会安装到 `~/.cohert/bin/cohert`，并在
-`~/.cohert/config.yaml` 初始化用户级配置。脚本不会写入 API key。macOS zsh
-下会自动把 `~/.cohert/bin` 写入 `~/.zshrc`；如不希望修改 shell 配置，可加
+才回退到源码构建。最终会安装到 `~/.cohort/bin/cohort`，并在
+`~/.cohort/config.yaml` 初始化用户级配置。脚本不会写入 API key。macOS zsh
+下会自动把 `~/.cohort/bin` 写入 `~/.zshrc`；如不希望修改 shell 配置，可加
 `--no-shell`。
 
 也可以手动初始化或覆盖用户级配置：
 
 ```bash
-cohert init --provider deepseek
-cohert init --provider anthropic --force
+cohort init --provider deepseek
+cohort init --provider anthropic --force
 ```
 
 ### 2. 本地开发运行
@@ -195,11 +203,11 @@ go run . session list
 ### 5. 构建二进制
 
 ```bash
-go build -o cohert ./cmd/cohert
-./cohert
+go build -o cohort ./cmd/cohort
+./cohort
 ```
 
-默认项目配置见 [configs/config.yaml](/Users/bytedance/Desktop/myOwnProject/Cohort/configs/config.yaml)。全局运行时会按 `--config`、`COHERT_CONFIG`、项目配置、`~/.cohert/config.yaml` 的顺序查找配置。更完整的命令和 REPL 说明见 [docs/usage.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/usage.md)。
+默认项目配置见 [configs/config.yaml](/Users/bytedance/Desktop/myOwnProject/Cohort/configs/config.yaml)。全局运行时会按 `--config`、`COHORT_CONFIG`、项目配置、`~/.cohort/config.yaml` 的顺序查找配置。更完整的命令和 REPL 说明见 [docs/usage.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/usage.md)。
 
 ## 能力矩阵
 
@@ -213,7 +221,7 @@ go build -o cohert ./cmd/cohert
 | Context Manager | 工具结果压缩、消息组裁剪、session memory、full compact | 让长任务不被上下文拖死 |
 | Session Store | `meta.json`、`history.jsonl`、resume、local audit trail | 让任务可以中断后继续 |
 | SOP Runtime | SOP 索引、任务路由、工作 checkpoint | 把稳定流程固化成可复用约束 |
-| Skill Runtime | `skill install` 预览确认安装、`skill install --yes`、`skill install --dry-run`、`skill update --check`、`--pin` 版本锁定、`skill doctor`、manifest hash、`.cohort/skills`、`~/.cohert/skills`、`skill_read`、`/skill run`、`/<skill-alias>` | 像 Claude Code 一样安装、校验、锁定版本并按需加载可复用工作流 |
+| Skill Runtime | `skill install` 预览确认安装、`skill install --yes`、`skill install --dry-run`、`skill update --check`、`--pin` 版本锁定、`skill doctor`、manifest hash、`.cohort/skills`、`~/.cohort/skills`、`skill_read`、`/skill run`、`/<skill-alias>` | 像 Claude Code 一样安装、校验、锁定版本并按需加载可复用工作流 |
 | Evolution Memory | 证据约束、去重、项目记忆、审计日志 | 让“长期记忆”从摘要变成资产 |
 
 ## 一个完整任务是怎么跑起来的
@@ -238,7 +246,7 @@ flowchart TD
     E --> AUD[memory audit.jsonl]
 ```
 
-从用户输入到最终结果，Cohert 实际做的是这几件事：
+从用户输入到最终结果，Cohort 实际做的是这几件事：
 
 1. 读取当前 session、历史和上下文预算。
 2. 把 relevant memory、session memory、compact 摘要按层注入请求。
@@ -251,7 +259,7 @@ flowchart TD
 
 ### 1. 浏览器自动化不是截图脚本
 
-Cohert 通过本地 Browser Bridge 控制真实 Chrome:
+Cohort 通过本地 Browser Bridge 控制真实 Chrome:
 
 ```text
 ws://127.0.0.1:18777/browser
@@ -274,12 +282,12 @@ open
 Chrome 扩展路径：
 
 ```text
-assert/cohert_browser_bridge
+assert/cohort_browser_bridge
 ```
 
 ### 2. 桌面自动化不是任意乱点
 
-Cohert 当前的桌面能力基于 macOS Accessibility / AX，目标是做“受控的语义动作”，不是暴露一个危险的任意坐标点击器。
+Cohort 当前的桌面能力基于 macOS Accessibility / AX，目标是做“受控的语义动作”，不是暴露一个危险的任意坐标点击器。
 
 ```text
 desktop_permissions
@@ -320,11 +328,11 @@ start_long_term_update
 - 成功写入前必须回读确认。
 - 每次 apply 都写审计记录。
 
-这意味着 Cohert 的 memory 更像可追踪知识库，而不是一堆不可验证的 prompt summary。
+这意味着 Cohort 的 memory 更像可追踪知识库，而不是一堆不可验证的 prompt summary。
 
 ### 4. 上下文不会失控
 
-每次请求模型前，Cohert 会构造一个受控上下文窗口，而不是盲目把所有历史都拼进去。它会：
+每次请求模型前，Cohort 会构造一个受控上下文窗口，而不是盲目把所有历史都拼进去。它会：
 
 - 清理协议非法的 orphan tool result。
 - 注入 relevant memory 和 session memory。
@@ -365,18 +373,18 @@ temp/sessions/<session_id>/
 ### 外部 CLI
 
 ```bash
-cohert                         # 进入交互模式
-cohert ask "task"              # 执行一次任务后退出
-cohert tools                   # 查看已挂载工具
-cohert config                  # 查看有效配置
-cohert mcp list                # 查看 MCP server
-cohert mcp status              # 检查 MCP server 连通性
-cohert mcp add <name> -- ...   # 添加 stdio MCP server
-cohert mcp tools <name>        # 查看 server 提供的工具
-cohert mcp probe <name>        # 探测 server 可用性
-cohert mcp remove <name>       # 删除 MCP server
-cohert session list            # 查看本地 session
-cohert session resume <id>     # 恢复 session
+cohort                         # 进入交互模式
+cohort ask "task"              # 执行一次任务后退出
+cohort tools                   # 查看已挂载工具
+cohort config                  # 查看有效配置
+cohort mcp list                # 查看 MCP server
+cohort mcp status              # 检查 MCP server 连通性
+cohort mcp add <name> -- ...   # 添加 stdio MCP server
+cohort mcp tools <name>        # 查看 server 提供的工具
+cohort mcp probe <name>        # 探测 server 可用性
+cohort mcp remove <name>       # 删除 MCP server
+cohort session list            # 查看本地 session
+cohort session resume <id>     # 恢复 session
 ```
 
 ### 交互模式 Slash Commands
@@ -470,7 +478,7 @@ computer_execute_plan
 
 ## 安全模型
 
-自动化如果没有边界，最终一定会变成事故放大器。Cohert 的策略是把风险前置到 runtime，而不是把判断完全留给模型。
+自动化如果没有边界，最终一定会变成事故放大器。Cohort 的策略是把风险前置到 runtime，而不是把判断完全留给模型。
 
 风险分级：
 
@@ -518,7 +526,7 @@ context:
 ## 项目结构
 
 ```text
-cmd/cohert/             CLI 入口
+cmd/cohort/             CLI 入口
 configs/                本地配置
 docs/                   使用教程、技术设计、开发记录
 assert/                 浏览器 bridge 扩展资源
@@ -547,6 +555,7 @@ temp/                   session、日志和运行时输出
 - [docs/desktop_computer_use_technical_design.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/desktop_computer_use_technical_design.md): 桌面 Computer Use 技术设计
 - [docs/cohort_mcp_integration_design.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/cohort_mcp_integration_design.md): MCP 集成设计
 - [docs/cohort_self_evolution_research.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/cohort_self_evolution_research.md): 自演化与记忆方向研究
+- [docs/agent_observability_technical_design.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/agent_observability_technical_design.md): Agent 可观测性、tracing 和调优方案
 
 ## 开发与测试
 
@@ -582,7 +591,7 @@ go vet ./...
 
 ## 非目标
 
-为了让边界更清楚，下面这些不是 Cohert 当前要解决的问题：
+为了让边界更清楚，下面这些不是 Cohort 当前要解决的问题：
 
 - 不是云端托管 Agent 平台。
 - 不是无约束的自动点击机器人。
@@ -591,7 +600,7 @@ go vet ./...
 
 ## 结语
 
-如果你想做的是一个真正能落地的本地 Agent 系统，而不是一个只会说“我可以帮你”的聊天界面，Cohert 的重点就在这里：
+如果你想做的是一个真正能落地的本地 Agent 系统，而不是一个只会说“我可以帮你”的聊天界面，Cohort 的重点就在这里：
 
 - 有执行闭环。
 - 有上下文治理。
@@ -602,7 +611,7 @@ go vet ./...
 
 ## Skill 系统
 
-Cohert 的 Skill 是可安装、可发现、可按需读取的工作流包。启动时只把 Skill 摘要注入系统提示词；真正命中任务后，模型再通过 `skill_read` 读取完整 `SKILL.md`。
+Cohort 的 Skill 是可安装、可发现、可按需读取的工作流包。启动时只把 Skill 摘要注入系统提示词；真正命中任务后，模型再通过 `skill_read` 读取完整 `SKILL.md`。
 
 常用命令：
 
@@ -621,9 +630,9 @@ go run . skill list
 
 `skill install` 默认会先解析来源、定位 `SKILL.md`、计算文件数、内容 SHA256 和 `requires` 依赖摘要，并展示候选 `SKILL.md` 指令内容，然后提示确认；确认后才写入 `.cohort/skills`。这一步的安全边界是让用户在安装前看到“即将允许 Agent 读取并遵循的指令”，同时确认来源、commit、目标目录、覆盖行为和依赖声明。它不是自动安全审计器，不会替用户判断第三方 Skill 是否可信。
 
-`--yes` 用于脚本或自动化场景，表示预览后直接安装；`--dry-run` 只预览不安装。正式安装会写入 `.cohert-skill.json`，记录 `source`、`source_type`、`source_ref`、`requested_ref`、`resolved_ref`、`pinned`、`scope`、`alias`、`installed_at` 和 `content_hash`。`--pin <git-ref>` 会把 git Skill 锁到解析后的 commit；后续不带参数的 `skill update` 和 `skill update --check` 会继续使用这个 commit，除非再次传 `--pin <new-ref>`。`skill doctor` 会检查路径边界、Skill 正文、manifest、hash 漂移和 `requires` 声明的 MCP/env/commands 依赖，适合在更新或手工编辑后做健康检查。
+`--yes` 用于脚本或自动化场景，表示预览后直接安装；`--dry-run` 只预览不安装。正式安装会写入 `.cohort-skill.json`，记录 `source`、`source_type`、`source_ref`、`requested_ref`、`resolved_ref`、`pinned`、`scope`、`alias`、`installed_at` 和 `content_hash`。`--pin <git-ref>` 会把 git Skill 锁到解析后的 commit；后续不带参数的 `skill update` 和 `skill update --check` 会继续使用这个 commit，除非再次传 `--pin <new-ref>`。`skill doctor` 会检查路径边界、Skill 正文、manifest、hash 漂移和 `requires` 声明的 MCP/env/commands 依赖，适合在更新或手工编辑后做健康检查。
 
-Skill 可以在 `SKILL.md` frontmatter 中声明运行前依赖。Cohert 只解析、展示和诊断这些依赖，不会自动安装命令、添加 MCP Server、申请授权或输出环境变量值。
+Skill 可以在 `SKILL.md` frontmatter 中声明运行前依赖。Cohort 只解析、展示和诊断这些依赖，不会自动安装命令、添加 MCP Server、申请授权或输出环境变量值。
 
 ```yaml
 ---

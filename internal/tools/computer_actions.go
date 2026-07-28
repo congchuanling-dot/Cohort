@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"cohert/internal/agent"
-	"cohert/internal/computeruse"
-	"cohert/internal/desktop"
-	"cohert/internal/llm"
+	"cohort/internal/agent"
+	"cohort/internal/computeruse"
+	"cohort/internal/desktop"
+	"cohort/internal/llm"
 )
 
 // ComputerClick 点击由 computer_see/find 缓存的目标，不接受裸坐标或底层 node_id。

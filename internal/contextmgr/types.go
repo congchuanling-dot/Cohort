@@ -1,13 +1,13 @@
 package contextmgr
 
-import "cohert/internal/llm"
+import "cohort/internal/llm"
 
 const (
-	contextNotice                = "[Cohert context notice] Earlier conversation messages were omitted from this request. Full history is preserved in history.jsonl."
-	longTermMemoryIndexNotice    = "[Cohert long-term memory index]"
-	relevantLongTermMemoryNotice = "[Cohert relevant long-term memory]"
-	sessionMemoryNotice          = "[Cohert session memory]"
-	compactSummaryNotice         = "[Cohert compact summary]"
+	contextNotice                = "[Cohort context notice] Earlier conversation messages were omitted from this request. Full history is preserved in history.jsonl."
+	longTermMemoryIndexNotice    = "[Cohort long-term memory index]"
+	relevantLongTermMemoryNotice = "[Cohort relevant long-term memory]"
+	sessionMemoryNotice          = "[Cohort session memory]"
+	compactSummaryNotice         = "[Cohort compact summary]"
 )
 
 // Config 控制本轮模型请求前的确定性上下文压缩。

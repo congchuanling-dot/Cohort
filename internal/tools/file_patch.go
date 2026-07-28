@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"cohert/internal/agent"
-	"cohert/internal/llm"
+	"cohort/internal/agent"
+	"cohort/internal/llm"
 )
 
 // FilePatch 用精确文本块替换文件内容，适合小范围修改。
