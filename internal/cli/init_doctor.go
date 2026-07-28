@@ -101,6 +101,9 @@ func parseInitArgs(args []string) (initOptions, error) {
 }
 
 func runDoctorCommand(ctx context.Context, args []string, configPath string, cfg app.Config, loadErr error, out io.Writer) error {
+	if len(args) > 0 && args[0] == "computer" {
+		return runComputerDoctorCommand(ctx, args[1:], cfg, loadErr, out)
+	}
 	opts, err := parseDoctorArgs(args)
 	if err != nil {
 		return err

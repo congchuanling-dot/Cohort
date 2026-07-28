@@ -175,6 +175,7 @@ go run . ask "读取 README.md，并总结当前 runtime 的核心能力"
 ```bash
 go run . config
 go run . doctor
+go run . doctor computer
 go run . tools
 go run . mcp list
 go run . mcp status
@@ -188,6 +189,8 @@ go run . skill uninstall project/<skill_name>
 go run . skill list
 go run . session list
 ```
+
+`doctor computer` 会检查 macOS Accessibility、Screen Recording、desktop helper、OCR helper、Chrome bridge 和 artifact 目录；默认只读诊断，不会点击、输入或修改系统设置。
 
 ### 5. 构建二进制
 

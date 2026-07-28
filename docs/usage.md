@@ -78,9 +78,12 @@ cohert --config ./my-cohert.yaml init --provider local
 ```bash
 cohert doctor
 cohert doctor --connect
+cohert doctor computer
 ```
 
 `doctor` 默认检查配置解析、API key、provider、api_base 格式、workspace 和 log 目录可写性。`--connect` 会额外访问 `api_base` 检查网络可达性，但不会发起模型补全请求。
+
+`doctor computer` 检查 macOS Computer Use 环境，包括 Accessibility、Screen Recording、desktop helper、OCR helper、Chrome bridge 和截图/OCR artifact 目录。它只做只读诊断，不会默认点击、输入或修改系统设置。
 
 ## 1. 准备 API Key
 

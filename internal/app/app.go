@@ -271,10 +271,8 @@ func newBrowserClient() browser.Client {
 }
 
 func newDesktopDriver(workspace string) desktop.Driver {
-	scriptPath := filepath.Join("scripts", "desktop_darwin.py")
-	if root := findProjectRoot(workspace); root != "" {
-		scriptPath = filepath.Join(root, scriptPath)
-	} else if absolutePath, err := filepath.Abs(scriptPath); err == nil {
+	scriptPath := ResolveRuntimeScriptPath(workspace, DesktopDarwinHelperPath)
+	if absolutePath, err := filepath.Abs(scriptPath); err == nil {
 		scriptPath = absolutePath
 	}
 	return desktop.NewPythonDriver("python3", scriptPath, desktop.DefaultTimeout)

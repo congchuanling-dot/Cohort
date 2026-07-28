@@ -880,6 +880,7 @@ Usage:
                           create a user config at ~/.cohert/config.yaml
   cohert doctor [--connect]
                           check config, API key, provider, and local paths
+  cohert doctor computer  check macOS computer-use permissions and helpers
   cohert mcp list         list configured MCP servers
   cohert mcp status       check configured MCP server availability
   cohert mcp add ...      add an MCP server
