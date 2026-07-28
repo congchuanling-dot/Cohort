@@ -475,6 +475,84 @@ type ClipboardPasteResult struct {
 	ActiveAfter  bool   `json:"active_after"`
 }
 
+// MenuSelectRequest 选择前台应用菜单栏中的语义菜单路径。
+type MenuSelectRequest struct {
+	PID      int      `json:"pid"`
+	MenuPath []string `json:"menu_path"`
+}
+
+// MenuSelectResult 返回菜单选择动作与前台状态。
+type MenuSelectResult struct {
+	PID          int      `json:"pid"`
+	Action       string   `json:"action"`
+	Performed    bool     `json:"performed"`
+	ActiveBefore bool     `json:"active_before"`
+	ActiveAfter  bool     `json:"active_after"`
+	MenuPath     []string `json:"menu_path"`
+}
+
+// FileDialogRequest 在当前前台文件对话框中跳转到指定路径，可选确认。
+type FileDialogRequest struct {
+	PID     int    `json:"pid"`
+	Path    string `json:"path"`
+	Confirm bool   `json:"confirm"`
+}
+
+// FileDialogResult 返回文件对话框路径跳转动作与前台状态。
+type FileDialogResult struct {
+	PID          int    `json:"pid"`
+	Action       string `json:"action"`
+	Performed    bool   `json:"performed"`
+	ActiveBefore bool   `json:"active_before"`
+	ActiveAfter  bool   `json:"active_after"`
+	PathLength   int    `json:"path_length"`
+	Confirm      bool   `json:"confirm"`
+}
+
+// WindowMoveRequest 移动已识别窗口到屏幕物理坐标位置。
+type WindowMoveRequest struct {
+	PID             int    `json:"pid"`
+	WindowID        string `json:"window_id"`
+	X               int    `json:"x"`
+	Y               int    `json:"y"`
+	CoordinateSpace string `json:"coordinate_space"`
+}
+
+// WindowMoveResult 返回窗口移动前后的边界。
+type WindowMoveResult struct {
+	PID             int    `json:"pid"`
+	WindowID        string `json:"window_id"`
+	Action          string `json:"action"`
+	Performed       bool   `json:"performed"`
+	ActiveBefore    bool   `json:"active_before"`
+	ActiveAfter     bool   `json:"active_after"`
+	BeforeBounds    Bounds `json:"before_bounds"`
+	AfterBounds     Bounds `json:"after_bounds"`
+	CoordinateSpace string `json:"coordinate_space"`
+}
+
+// WindowResizeRequest 调整已识别窗口尺寸。
+type WindowResizeRequest struct {
+	PID             int    `json:"pid"`
+	WindowID        string `json:"window_id"`
+	Width           int    `json:"width"`
+	Height          int    `json:"height"`
+	CoordinateSpace string `json:"coordinate_space"`
+}
+
+// WindowResizeResult 返回窗口缩放前后的边界。
+type WindowResizeResult struct {
+	PID             int    `json:"pid"`
+	WindowID        string `json:"window_id"`
+	Action          string `json:"action"`
+	Performed       bool   `json:"performed"`
+	ActiveBefore    bool   `json:"active_before"`
+	ActiveAfter     bool   `json:"active_after"`
+	BeforeBounds    Bounds `json:"before_bounds"`
+	AfterBounds     Bounds `json:"after_bounds"`
+	CoordinateSpace string `json:"coordinate_space"`
+}
+
 // Driver 抽象平台相关的桌面感知和受限 AX 语义动作能力。
 type Driver interface {
 	Permissions(ctx context.Context) (PermissionsResult, error)
@@ -494,4 +572,8 @@ type Driver interface {
 	Drag(ctx context.Context, req DragRequest) (DragResult, error)
 	ClipboardWrite(ctx context.Context, req ClipboardWriteRequest) (ClipboardWriteResult, error)
 	ClipboardPaste(ctx context.Context, req ClipboardPasteRequest) (ClipboardPasteResult, error)
+	MenuSelect(ctx context.Context, req MenuSelectRequest) (MenuSelectResult, error)
+	FileDialog(ctx context.Context, req FileDialogRequest) (FileDialogResult, error)
+	WindowMove(ctx context.Context, req WindowMoveRequest) (WindowMoveResult, error)
+	WindowResize(ctx context.Context, req WindowResizeRequest) (WindowResizeResult, error)
 }

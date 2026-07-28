@@ -326,6 +326,7 @@ def load_ax():
     try:
         from ApplicationServices import (
             AXIsProcessTrusted,
+            AXValueCreate,
             AXUIElementCopyActionNames,
             AXUIElementCopyAttributeValue,
             AXUIElementCreateApplication,
@@ -337,6 +338,7 @@ def load_ax():
             kAXEnabledAttribute,
             kAXFocusedAttribute,
             kAXFocusedUIElementAttribute,
+            kAXMenuBarAttribute,
             kAXPositionAttribute,
             kAXPressAction,
             kAXRoleAttribute,
@@ -355,6 +357,7 @@ def load_ax():
         ) from exc
     return {
         "trusted": AXIsProcessTrusted,
+        "create_value": AXValueCreate,
         "application": AXUIElementCreateApplication,
         "attribute": AXUIElementCopyAttributeValue,
         "set_attribute": AXUIElementSetAttributeValue,
@@ -364,6 +367,7 @@ def load_ax():
         "children": kAXChildrenAttribute,
         "windows": kAXWindowsAttribute,
         "focused": kAXFocusedUIElementAttribute,
+        "menu_bar": kAXMenuBarAttribute,
         "role": kAXRoleAttribute,
         "title": kAXTitleAttribute,
         "description": kAXDescriptionAttribute,
@@ -1112,6 +1116,299 @@ def clipboard_paste(payload):
     }
 
 
+def normalized_label(value):
+    return str(value or "").strip().lower()
+
+
+def ax_label(api, element):
+    title = str(ax_attr(api, element, api["title"]) or "").strip()
+    if title:
+        return title
+    description = str(ax_attr(api, element, api["description"]) or "").strip()
+    if description:
+        return description
+    return str(ax_attr(api, element, api["role"]) or "").strip()
+
+
+def ax_children(api, element):
+    return ax_attr(api, element, api["children"]) or []
+
+
+def flatten_menu_candidates(api, elements):
+    result = []
+    stack = list(elements)
+    while stack:
+        element = stack.pop(0)
+        result.append(element)
+        role = str(ax_attr(api, element, api["role"]) or "")
+        children = ax_children(api, element)
+        if role in {"AXMenu", "AXMenuItem", "AXMenuBarItem"}:
+            stack = list(children) + stack
+    return result
+
+
+def find_menu_child(api, elements, label):
+    expected = normalized_label(label)
+    for element in flatten_menu_candidates(api, elements):
+        if normalized_label(ax_label(api, element)) == expected:
+            return element
+    for element in flatten_menu_candidates(api, elements):
+        if expected and expected in normalized_label(ax_label(api, element)):
+            return element
+    return None
+
+
+def menu_select(payload):
+    _, _, workspace = require_macos_modules()
+    api = load_ax()
+    if not bool(api["trusted"]()):
+        raise DesktopError(
+            "desktop_permission_denied",
+            "Accessibility permission is not granted",
+            "系统设置 -> 隐私与安全性 -> 辅助功能：允许运行 Cohert 的终端或 IDE。",
+        )
+    pid = int(payload.get("pid") or 0)
+    if pid <= 0:
+        raise DesktopError(
+            "desktop_bad_pid",
+            "menu_select requires a positive pid",
+            "请先通过 computer_see 或 computer_window_switch 获取目标窗口。",
+        )
+    require_active_pid(pid)
+    menu_path = payload.get("menu_path") or []
+    if not isinstance(menu_path, list) or not menu_path:
+        raise DesktopError(
+            "desktop_menu_bad_path",
+            "menu_select requires a non-empty menu_path list",
+            "请提供类似 File > Open 的菜单路径。",
+        )
+    labels = [str(part).strip() for part in menu_path if str(part).strip()]
+    if len(labels) != len(menu_path):
+        raise DesktopError(
+            "desktop_menu_bad_path",
+            "menu_select menu_path contains an empty segment",
+            "请提供完整菜单路径，不要包含空段。",
+        )
+    app = api["application"](pid)
+    menu_bar = ax_attr(api, app, api["menu_bar"])
+    if menu_bar is None:
+        raise DesktopError(
+            "desktop_menu_unavailable",
+            "target application does not expose an AX menu bar",
+            "请确认目标应用处于前台，或改用 computer_click/right_click 打开相关菜单。",
+        )
+    current = find_menu_child(api, ax_children(api, menu_bar), labels[0])
+    if current is None:
+        raise DesktopError(
+            "desktop_menu_not_found",
+            f"menu segment not found: {labels[0]!r}",
+            "请重新调用 computer_see 确认目标应用，并检查菜单路径文本。",
+        )
+    for label in labels[1:]:
+        actions = ax_actions(api, current)
+        if api["press_action"] in actions or "AXPress" in actions:
+            api["perform_action"](current, api["press_action"])
+            time.sleep(0.15)
+        children = ax_children(api, current)
+        if len(children) == 1:
+            grandchildren = ax_children(api, children[0])
+            if grandchildren:
+                children = grandchildren
+        current = find_menu_child(api, children, label)
+        if current is None:
+            raise DesktopError(
+                "desktop_menu_not_found",
+                f"menu segment not found: {label!r}",
+                "菜单可能尚未展开或文本不匹配；请重新确认菜单路径。",
+            )
+    error = api["perform_action"](current, api["press_action"])
+    if int(error) != 0:
+        raise DesktopError(
+            "desktop_menu_select_failed",
+            f"AXPress failed for menu item: AXError={int(error)}",
+            "请重新确认菜单项可用状态；禁用菜单项不能执行。",
+        )
+    time.sleep(0.2)
+    return {
+        "pid": pid,
+        "action": "MenuSelect",
+        "performed": True,
+        "active_before": True,
+        "active_after": active_pid(workspace) == pid,
+        "menu_path": labels,
+    }
+
+
+def post_keycode_combo(quartz, keycode, flags):
+    post_key_event(quartz, keycode, True, flags)
+    time.sleep(0.03)
+    post_key_event(quartz, keycode, False, flags)
+
+
+def file_dialog(payload):
+    quartz, _, workspace = require_macos_modules()
+    pid = int(payload.get("pid") or 0)
+    if pid <= 0:
+        raise DesktopError(
+            "desktop_bad_pid",
+            "file_dialog requires a positive pid",
+            "请先通过 computer_see 或 computer_window_switch 获取目标窗口。",
+        )
+    require_active_pid(pid)
+    path = str(payload.get("path") or "").strip()
+    if not path:
+        raise DesktopError(
+            "desktop_file_dialog_bad_path",
+            "file_dialog requires a non-empty path",
+            "请提供要在文件对话框中跳转的绝对路径。",
+        )
+    try:
+        # Cmd+Shift+G opens the macOS file dialog "Go to the folder" sheet.
+        post_keycode_combo(quartz, 5, quartz.kCGEventFlagMaskCommand | quartz.kCGEventFlagMaskShift)
+        time.sleep(0.2)
+        clipboard_write({"text": path})
+        post_cmd_v(quartz)
+        time.sleep(0.08)
+        post_keycode_combo(quartz, 36, 0)
+        if bool(payload.get("confirm", False)):
+            time.sleep(0.25)
+            post_keycode_combo(quartz, 36, 0)
+        time.sleep(0.15)
+    except DesktopError:
+        raise
+    except Exception as exc:
+        raise DesktopError(
+            "desktop_file_dialog_failed",
+            f"file dialog path operation failed: {exc}",
+            "请确认当前前台确实是 macOS 文件打开/保存对话框。",
+        ) from exc
+    return {
+        "pid": pid,
+        "action": "FileDialog",
+        "performed": True,
+        "active_before": True,
+        "active_after": active_pid(workspace) == pid,
+        "path_length": len(path),
+        "confirm": bool(payload.get("confirm", False)),
+    }
+
+
+def find_ax_window_for_payload(api, pid, payload):
+    requested_id = str(payload.get("window_id") or "").strip()
+    window_record = find_window({"pid": pid, "window_id": requested_id})
+    app = api["application"](pid)
+    windows = ax_attr(api, app, api["windows"]) or []
+    if not windows:
+        raise DesktopError(
+            "desktop_window_ax_unavailable",
+            "target application does not expose AX windows",
+            "请确认 Accessibility 权限已开启，且目标窗口不是系统受保护窗口。",
+        )
+    scale = display_scale(require_macos_modules()[0])
+    expected = window_record["bounds"]
+    best = None
+    best_score = 1 << 60
+    for element in windows:
+        bounds = ax_bounds(api, element, scale)
+        score = abs(bounds["x"] - expected["x"]) + abs(bounds["y"] - expected["y"]) + abs(bounds["width"] - expected["width"]) + abs(bounds["height"] - expected["height"])
+        if score < best_score:
+            best = element
+            best_score = score
+    if best is None:
+        raise DesktopError(
+            "desktop_window_ax_unavailable",
+            "unable to match CG window to AX window",
+            "请重新枚举窗口并确保目标窗口仍然可见。",
+        )
+    return best, window_record, ax_bounds(api, best, scale)
+
+
+def set_ax_window_position(api, element, x, y):
+    quartz, _, _ = require_macos_modules()
+    point = quartz.CGPointMake(physical_to_logical(x, display_scale(quartz)), physical_to_logical(y, display_scale(quartz)))
+    value = api["create_value"](api["point_type"], point)
+    error = api["set_attribute"](element, api["position"], value)
+    if int(error) != 0:
+        raise DesktopError(
+            "desktop_window_move_failed",
+            f"AX set position failed: AXError={int(error)}",
+            "目标窗口可能不允许移动；请确认它不是全屏、最小化或系统受保护窗口。",
+        )
+
+
+def set_ax_window_size(api, element, width, height):
+    quartz, _, _ = require_macos_modules()
+    size = quartz.CGSizeMake(physical_to_logical(width, display_scale(quartz)), physical_to_logical(height, display_scale(quartz)))
+    value = api["create_value"](api["size_type"], size)
+    error = api["set_attribute"](element, api["size"], value)
+    if int(error) != 0:
+        raise DesktopError(
+            "desktop_window_resize_failed",
+            f"AX set size failed: AXError={int(error)}",
+            "目标窗口可能不允许缩放；请确认它不是全屏、最小化或系统受保护窗口。",
+        )
+
+
+def window_move(payload):
+    _, _, workspace = require_macos_modules()
+    api = load_ax()
+    pid = int(payload.get("pid") or 0)
+    if pid <= 0:
+        raise DesktopError("desktop_bad_pid", "window_move requires a positive pid", "请先通过 computer_see 或 computer_window_switch 获取目标窗口。")
+    require_active_pid(pid)
+    if str(payload.get("coordinate_space") or "").strip() != "screen-physical":
+        raise DesktopError("desktop_window_move_bad_coordinate_space", "window_move requires screen-physical coordinates", "请使用 Cohert computer_window_move 工具，不要传入截图局部坐标。")
+    x = int(payload.get("x") or 0)
+    y = int(payload.get("y") or 0)
+    if x < 0 or y < 0:
+        raise DesktopError("desktop_window_move_bad_point", "window_move requires non-negative x/y", "请提供屏幕物理坐标中的非负位置。")
+    element, record, before = find_ax_window_for_payload(api, pid, payload)
+    set_ax_window_position(api, element, x, y)
+    time.sleep(0.2)
+    after = ax_bounds(api, element, display_scale(require_macos_modules()[0]))
+    return {
+        "pid": pid,
+        "window_id": record["window_id"],
+        "action": "WindowMove",
+        "performed": True,
+        "active_before": True,
+        "active_after": active_pid(workspace) == pid,
+        "before_bounds": before,
+        "after_bounds": after,
+        "coordinate_space": "screen-physical",
+    }
+
+
+def window_resize(payload):
+    _, _, workspace = require_macos_modules()
+    api = load_ax()
+    pid = int(payload.get("pid") or 0)
+    if pid <= 0:
+        raise DesktopError("desktop_bad_pid", "window_resize requires a positive pid", "请先通过 computer_see 或 computer_window_switch 获取目标窗口。")
+    require_active_pid(pid)
+    if str(payload.get("coordinate_space") or "").strip() != "screen-physical":
+        raise DesktopError("desktop_window_resize_bad_coordinate_space", "window_resize requires screen-physical coordinates", "请使用 Cohert computer_window_resize 工具，不要传入截图局部坐标。")
+    width = int(payload.get("width") or 0)
+    height = int(payload.get("height") or 0)
+    if width <= 0 or height <= 0:
+        raise DesktopError("desktop_window_resize_bad_size", "window_resize requires positive width/height", "请提供目标窗口尺寸。")
+    element, record, before = find_ax_window_for_payload(api, pid, payload)
+    set_ax_window_size(api, element, width, height)
+    time.sleep(0.2)
+    after = ax_bounds(api, element, display_scale(require_macos_modules()[0]))
+    return {
+        "pid": pid,
+        "window_id": record["window_id"],
+        "action": "WindowResize",
+        "performed": True,
+        "active_before": True,
+        "active_after": active_pid(workspace) == pid,
+        "before_bounds": before,
+        "after_bounds": after,
+        "coordinate_space": "screen-physical",
+    }
+
+
 def focused_metadata(pid):
     quartz, _, _ = require_macos_modules()
     api = load_ax()
@@ -1330,6 +1627,10 @@ def dispatch(command, payload):
         "drag": drag,
         "clipboard_write": clipboard_write,
         "clipboard_paste": clipboard_paste,
+        "menu_select": menu_select,
+        "file_dialog": file_dialog,
+        "window_move": window_move,
+        "window_resize": window_resize,
     }
     handler = commands.get(command)
     if handler is None:

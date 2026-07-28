@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -1441,6 +1442,358 @@ func filterComputerSwitchWindows(windows []desktop.Window, appName string, title
 		}
 	}
 	return matches
+}
+
+// ComputerMenu 通过 AX 菜单栏选择目标应用菜单项。
+type ComputerMenu struct {
+	driver        desktop.Driver
+	store         *computeruse.Store
+	confirmations *ConfirmationStore
+}
+
+// NewComputerMenu 创建菜单选择工具。
+func NewComputerMenu(driver desktop.Driver, store *computeruse.Store, confirmations *ConfirmationStore) *ComputerMenu {
+	if store == nil {
+		store = computeruse.NewStore(computeruse.DefaultTargetTTL)
+	}
+	if confirmations == nil {
+		confirmations = NewConfirmationStore()
+	}
+	return &ComputerMenu{driver: driver, store: store, confirmations: confirmations}
+}
+
+func (t *ComputerMenu) Name() string { return ToolNameComputerMenu }
+
+func (t *ComputerMenu) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Select a menu item in the latest computer target app using a semantic menu path such as File > Open. R2 side-effect menu paths require one-time confirmation and R3 paths are refused.",
+		Parameters: objectSchema(map[string]any{
+			"menu_path":          stringProp("Menu path separated by >, for example File > Open Recent > Project."),
+			"reason":             stringProp("Concrete user-facing reason for selecting this menu item."),
+			"confirmation_token": stringProp("Required only for R2 menu actions. Obtain it from ask_user with the returned approval_request."),
+		}, "menu_path", "reason"),
+	}}
+}
+
+func (t *ComputerMenu) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	state, err := t.store.LatestState()
+	if err != nil {
+		return computerCacheError("computer_menu", err), nil
+	}
+	if state.ActivePID <= 0 {
+		return computerToolError("computer_menu_no_target_window", "latest computer state has no active target window", "请先调用 computer_see 或 computer_window_switch 选择目标窗口。"), nil
+	}
+	menuPath, pathErr := parseComputerMenuPath(asString(call.Args["menu_path"]))
+	if pathErr != nil {
+		return agent.Outcome{Data: *pathErr, NextPrompt: "\n"}, nil
+	}
+	reason, reasonErr := requiredDesktopActionString(call.Args, "reason")
+	if reasonErr != nil {
+		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
+	}
+	risk := classifyComputerTextRisk(strings.Join(menuPath, " "), reason)
+	if risk == desktopRiskHigh {
+		return desktopActionError("computer_menu_high_risk_refused", "this menu action is classified as high risk and must be completed manually", "删除、支付、授权、登录验证等菜单动作不能由 computer_menu 自动执行。"), nil
+	}
+	binding := strings.Join(menuPath, ">")
+	if risk == desktopRiskExternal {
+		approval := ActionApproval{Operation: computerMenuOperation, PID: state.ActivePID, BBox: binding, Reason: reason}
+		if !t.confirmations.Consume(strings.TrimSpace(asString(call.Args["confirmation_token"])), approval) {
+			return computerApprovalRequiredOutcome(approval, risk, "computer_menu"), nil
+		}
+	}
+	if err := activateDesktopTarget(ctx, t.driver, state.ActivePID); err != nil {
+		return desktopToolError(err), nil
+	}
+	result, err := t.driver.MenuSelect(ctx, desktop.MenuSelectRequest{PID: state.ActivePID, MenuPath: menuPath})
+	if err != nil {
+		return desktopToolError(err), nil
+	}
+	verified := result.Performed && result.ActiveBefore && result.ActiveAfter
+	data := map[string]any{
+		"status":        agent.ToolStatusSuccess,
+		"state_id":      state.ID,
+		"pid":           result.PID,
+		"action":        result.Action,
+		"risk":          risk,
+		"reason":        reason,
+		"menu_path":     result.MenuPath,
+		"performed":     result.Performed,
+		"active_before": result.ActiveBefore,
+		"active_after":  result.ActiveAfter,
+		"verified":      verified,
+	}
+	if !verified {
+		data["status"] = agent.ToolStatusError
+		data["code"] = "computer_menu_unverified"
+		data["message"] = "menu action was sent but target foreground state was not verified"
+		data["hint"] = "请停止连续菜单操作，重新调用 computer_see 检查当前前台窗口。"
+	}
+	return agent.Outcome{Data: data, NextPrompt: "\n"}, nil
+}
+
+// ComputerFileDialog 在 macOS 文件对话框中跳转到指定路径，并可选确认。
+type ComputerFileDialog struct {
+	driver        desktop.Driver
+	store         *computeruse.Store
+	confirmations *ConfirmationStore
+}
+
+// NewComputerFileDialog 创建文件对话框工具。
+func NewComputerFileDialog(driver desktop.Driver, store *computeruse.Store, confirmations *ConfirmationStore) *ComputerFileDialog {
+	if store == nil {
+		store = computeruse.NewStore(computeruse.DefaultTargetTTL)
+	}
+	if confirmations == nil {
+		confirmations = NewConfirmationStore()
+	}
+	return &ComputerFileDialog{driver: driver, store: store, confirmations: confirmations}
+}
+
+func (t *ComputerFileDialog) Name() string { return ToolNameComputerFileDialog }
+
+func (t *ComputerFileDialog) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Operate the currently active macOS file dialog by jumping to an absolute path. With confirm=false it only fills/navigates the path. confirm=true presses Enter again and requires one-time confirmation.",
+		Parameters: objectSchema(map[string]any{
+			"path":               stringProp("Absolute file or folder path to enter in the active macOS file dialog."),
+			"confirm":            boolProp("Whether to confirm the dialog after entering the path. Default false.", false),
+			"reason":             stringProp("Concrete user-facing reason for operating this file dialog."),
+			"confirmation_token": stringProp("Required when confirm=true. Obtain it from ask_user with the returned approval_request."),
+		}, "path", "reason"),
+	}}
+}
+
+func (t *ComputerFileDialog) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	state, err := t.store.LatestState()
+	if err != nil {
+		return computerCacheError("computer_file_dialog", err), nil
+	}
+	if state.ActivePID <= 0 {
+		return computerToolError("computer_file_dialog_no_target_window", "latest computer state has no active target window", "请先调用 computer_see 或 computer_window_switch 选择目标窗口。"), nil
+	}
+	path := strings.TrimSpace(asString(call.Args["path"]))
+	if path == "" || !filepath.IsAbs(path) {
+		return computerToolError("computer_file_dialog_bad_path", "path must be a non-empty absolute path", "请传入绝对路径，避免在未知目录下误选文件。"), nil
+	}
+	reason, reasonErr := requiredDesktopActionString(call.Args, "reason")
+	if reasonErr != nil {
+		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
+	}
+	confirm := asBool(call.Args["confirm"], false)
+	risk := desktopRiskReversible
+	if confirm {
+		risk = classifyComputerTextRisk(path, reason)
+		if risk == desktopRiskReversible {
+			risk = desktopRiskExternal
+		}
+		if risk == desktopRiskHigh {
+			return desktopActionError("computer_file_dialog_high_risk_refused", "this file dialog confirmation is classified as high risk and must be completed manually", "删除、授权、支付、登录验证等动作不能由 computer_file_dialog 自动确认。"), nil
+		}
+		approval := ActionApproval{Operation: computerFileDialogOperation, PID: state.ActivePID, BBox: path + "|confirm", Reason: reason}
+		if !t.confirmations.Consume(strings.TrimSpace(asString(call.Args["confirmation_token"])), approval) {
+			return computerApprovalRequiredOutcome(approval, risk, "computer_file_dialog"), nil
+		}
+	}
+	if err := activateDesktopTarget(ctx, t.driver, state.ActivePID); err != nil {
+		return desktopToolError(err), nil
+	}
+	result, err := t.driver.FileDialog(ctx, desktop.FileDialogRequest{PID: state.ActivePID, Path: path, Confirm: confirm})
+	if err != nil {
+		return desktopToolError(err), nil
+	}
+	verified := result.Performed && result.ActiveBefore && result.ActiveAfter
+	data := map[string]any{
+		"status":        agent.ToolStatusSuccess,
+		"state_id":      state.ID,
+		"pid":           result.PID,
+		"action":        result.Action,
+		"risk":          risk,
+		"reason":        reason,
+		"confirm":       result.Confirm,
+		"path_length":   result.PathLength,
+		"performed":     result.Performed,
+		"active_before": result.ActiveBefore,
+		"active_after":  result.ActiveAfter,
+		"verified":      verified,
+	}
+	if !verified {
+		data["status"] = agent.ToolStatusError
+		data["code"] = "computer_file_dialog_unverified"
+		data["message"] = "file dialog operation was sent but target foreground state was not verified"
+		data["hint"] = "请停止继续确认文件对话框，重新调用 computer_see 检查当前窗口。"
+	}
+	return agent.Outcome{Data: data, NextPrompt: "\n"}, nil
+}
+
+// ComputerWindowMove 移动最新或指定窗口。
+type ComputerWindowMove struct {
+	driver desktop.Driver
+	store  *computeruse.Store
+}
+
+// NewComputerWindowMove 创建窗口移动工具。
+func NewComputerWindowMove(driver desktop.Driver, store *computeruse.Store) *ComputerWindowMove {
+	if store == nil {
+		store = computeruse.NewStore(computeruse.DefaultTargetTTL)
+	}
+	return &ComputerWindowMove{driver: driver, store: store}
+}
+
+func (t *ComputerWindowMove) Name() string { return ToolNameComputerWindowMove }
+
+func (t *ComputerWindowMove) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Move the latest active computer window or a known window_id to a bounded screen-physical position. This is R1 reversible window management.",
+		Parameters: objectSchema(map[string]any{
+			"window_id": stringProp("Optional window_id from computer_see/window_switch. Defaults to latest active window."),
+			"x":         intProp("Target screen-physical X. Must be 0..20000.", 0),
+			"y":         intProp("Target screen-physical Y. Must be 0..20000.", 0),
+			"reason":    stringProp("Concrete user-facing reason for moving the window."),
+		}, "x", "y", "reason"),
+	}}
+}
+
+func (t *ComputerWindowMove) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	state, windowID, reason, errOutcome, ok := computerWindowActionInputs(t.store, call.Args, "computer_window_move")
+	if !ok {
+		return errOutcome, nil
+	}
+	x := asInt(call.Args["x"], -1)
+	y := asInt(call.Args["y"], -1)
+	if x < 0 || y < 0 || x > 20000 || y > 20000 {
+		return computerToolError("computer_window_move_bad_bounds", "x/y must be between 0 and 20000", "请传入受限屏幕物理坐标，避免把窗口移动到不可恢复位置。"), nil
+	}
+	if err := activateDesktopTarget(ctx, t.driver, state.ActivePID); err != nil {
+		return desktopToolError(err), nil
+	}
+	result, err := t.driver.WindowMove(ctx, desktop.WindowMoveRequest{PID: state.ActivePID, WindowID: windowID, X: x, Y: y, CoordinateSpace: desktop.CoordinateSpaceScreenPhysical})
+	if err != nil {
+		return desktopToolError(err), nil
+	}
+	return computerWindowGeometryOutcome("computer_window_move", state.ID, reason, result.PID, result.WindowID, result.Action, result.Performed, result.ActiveBefore, result.ActiveAfter, result.BeforeBounds, result.AfterBounds, result.CoordinateSpace), nil
+}
+
+// ComputerWindowResize 调整最新或指定窗口尺寸。
+type ComputerWindowResize struct {
+	driver desktop.Driver
+	store  *computeruse.Store
+}
+
+// NewComputerWindowResize 创建窗口缩放工具。
+func NewComputerWindowResize(driver desktop.Driver, store *computeruse.Store) *ComputerWindowResize {
+	if store == nil {
+		store = computeruse.NewStore(computeruse.DefaultTargetTTL)
+	}
+	return &ComputerWindowResize{driver: driver, store: store}
+}
+
+func (t *ComputerWindowResize) Name() string { return ToolNameComputerWindowResize }
+
+func (t *ComputerWindowResize) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Resize the latest active computer window or a known window_id to a bounded screen-physical size. This is R1 reversible window management.",
+		Parameters: objectSchema(map[string]any{
+			"window_id": stringProp("Optional window_id from computer_see/window_switch. Defaults to latest active window."),
+			"width":     intProp("Target window width. Must be 160..10000.", 0),
+			"height":    intProp("Target window height. Must be 120..10000.", 0),
+			"reason":    stringProp("Concrete user-facing reason for resizing the window."),
+		}, "width", "height", "reason"),
+	}}
+}
+
+func (t *ComputerWindowResize) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	state, windowID, reason, errOutcome, ok := computerWindowActionInputs(t.store, call.Args, "computer_window_resize")
+	if !ok {
+		return errOutcome, nil
+	}
+	width := asInt(call.Args["width"], 0)
+	height := asInt(call.Args["height"], 0)
+	if width < 160 || height < 120 || width > 10000 || height > 10000 {
+		return computerToolError("computer_window_resize_bad_size", "width/height are outside the allowed range", "请传入合理窗口尺寸，width 160..10000，height 120..10000。"), nil
+	}
+	if err := activateDesktopTarget(ctx, t.driver, state.ActivePID); err != nil {
+		return desktopToolError(err), nil
+	}
+	result, err := t.driver.WindowResize(ctx, desktop.WindowResizeRequest{PID: state.ActivePID, WindowID: windowID, Width: width, Height: height, CoordinateSpace: desktop.CoordinateSpaceScreenPhysical})
+	if err != nil {
+		return desktopToolError(err), nil
+	}
+	return computerWindowGeometryOutcome("computer_window_resize", state.ID, reason, result.PID, result.WindowID, result.Action, result.Performed, result.ActiveBefore, result.ActiveAfter, result.BeforeBounds, result.AfterBounds, result.CoordinateSpace), nil
+}
+
+func parseComputerMenuPath(raw string) ([]string, *agent.ToolErrorData) {
+	parts := strings.Split(raw, ">")
+	path := make([]string, 0, len(parts))
+	for _, part := range parts {
+		value := strings.TrimSpace(part)
+		if value != "" {
+			path = append(path, value)
+		}
+	}
+	if len(path) == 0 {
+		err := agent.NewToolError("computer_menu_bad_path", "menu_path must be a non-empty path separated by >", "请提供类似 File > Open 的菜单路径。")
+		return nil, &err
+	}
+	if len(path) > 6 {
+		err := agent.NewToolError("computer_menu_path_too_deep", "menu_path has too many segments", "请使用明确且较短的菜单路径。")
+		return nil, &err
+	}
+	return path, nil
+}
+
+func classifyComputerTextRisk(text string, reason string) desktopActionRisk {
+	return classifyDesktopVisualClickRisk(text, reason)
+}
+
+func computerWindowActionInputs(store *computeruse.Store, args map[string]any, operation string) (computeruse.ComputerState, string, string, agent.Outcome, bool) {
+	state, err := store.LatestState()
+	if err != nil {
+		return computeruse.ComputerState{}, "", "", computerCacheError(operation, err), false
+	}
+	if state.ActivePID <= 0 {
+		return computeruse.ComputerState{}, "", "", computerToolError(operation+"_no_target_window", "latest computer state has no active target window", "请先调用 computer_see 或 computer_window_switch 选择目标窗口。"), false
+	}
+	reason, reasonErr := requiredDesktopActionString(args, "reason")
+	if reasonErr != nil {
+		return computeruse.ComputerState{}, "", "", agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, false
+	}
+	windowID := strings.TrimSpace(asString(args["window_id"]))
+	if windowID == "" {
+		windowID = state.ActiveWindow.WindowID
+	}
+	return state, windowID, reason, agent.Outcome{}, true
+}
+
+func computerWindowGeometryOutcome(operation string, stateID string, reason string, pid int, windowID string, action string, performed bool, activeBefore bool, activeAfter bool, before desktop.Bounds, after desktop.Bounds, coordinateSpace string) agent.Outcome {
+	verified := performed && activeBefore && activeAfter
+	data := map[string]any{
+		"status":           agent.ToolStatusSuccess,
+		"state_id":         stateID,
+		"pid":              pid,
+		"window_id":        windowID,
+		"action":           action,
+		"risk":             desktopRiskReversible,
+		"reason":           reason,
+		"before_bounds":    before,
+		"after_bounds":     after,
+		"coordinate_space": coordinateSpace,
+		"performed":        performed,
+		"active_before":    activeBefore,
+		"active_after":     activeAfter,
+		"verified":         verified,
+	}
+	if !verified {
+		data["status"] = agent.ToolStatusError
+		data["code"] = operation + "_unverified"
+		data["message"] = operation + " was sent but target foreground state was not verified"
+		data["hint"] = "请重新调用 computer_see 检查当前窗口位置和前台状态。"
+	}
+	return agent.Outcome{Data: data, NextPrompt: "\n"}
 }
 
 // ComputerWait 等待最近 computer_see 的窗口出现文本，或仅短暂等待界面稳定。

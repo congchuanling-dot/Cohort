@@ -6,6 +6,7 @@
 > 当前进展：`cohert doctor computer` 基础版已实现，可检查 workspace/artifact 目录、macOS 权限、desktop helper、OCR helper 和 Chrome bridge。
 > P1 第一批操作原语已实现：`computer_scroll`、`computer_drag`、`computer_clipboard_write`、`computer_paste`。
 > P1 第二批操作原语已实现：`computer_double_click`、`computer_right_click`、`computer_window_switch`。
+> P1 第三批操作原语已实现：`computer_menu`、`computer_file_dialog`、`computer_window_move`、`computer_window_resize`。
 
 ## 1. 目标定义
 
@@ -115,13 +116,9 @@ DOM / JS -> CDP action -> screenshot / OCR fallback
 
 ### 3.2 操作原语还不完整
 
-当前主要覆盖点击、双击、右键、输入、按键、等待、滚动、确认拖拽、剪贴板写入、粘贴和窗口切换。要更接近“所有操作”，还需要：
+当前主要覆盖点击、双击、右键、输入、按键、等待、滚动、确认拖拽、剪贴板写入、粘贴、窗口切换、菜单选择、文件对话框路径操作、窗口移动和窗口缩放。要更接近“所有操作”，还需要：
 
 - `computer_drop`
-- `computer_menu`
-- `computer_file_dialog`
-- `computer_window_move`
-- `computer_window_resize`
 - 多显示器坐标处理
 - 更完整快捷键策略
 
@@ -247,6 +244,10 @@ computer_see
 5. `computer_paste` `[完成：可选写入后粘贴，不发送]`
 6. `computer_drag` `[完成：必须一次性确认]`
 7. `computer_window_switch` `[完成：按 app/title/window_id 切换并更新 active state]`
+8. `computer_menu` `[完成：AX 菜单路径，R2 需确认，R3 拒绝]`
+9. `computer_file_dialog` `[完成：绝对路径跳转，可选确认需授权]`
+10. `computer_window_move` `[完成：最新/指定窗口，受限坐标]`
+11. `computer_window_resize` `[完成：最新/指定窗口，受限尺寸]`
 
 验收：
 
@@ -323,6 +324,10 @@ computer_paste
 computer_double_click
 computer_right_click
 computer_window_switch
+computer_menu
+computer_file_dialog
+computer_window_move
+computer_window_resize
 ```
 
 它已经覆盖：
@@ -338,11 +343,14 @@ computer_window_switch
 - 剪贴板只支持写入和粘贴，不读取原剪贴板内容，不回显文本。
 - 双击和右键必须引用缓存 target，不暴露裸坐标。
 - 窗口切换支持 app/title/window_id 匹配，并写入最新 active state。
+- 菜单选择通过 AX 菜单路径执行，外部影响动作必须确认，高危动作拒绝。
+- 文件对话框只支持绝对路径跳转；`confirm=true` 必须用户确认。
+- 窗口移动/缩放只作用于最新或指定窗口，并限制坐标和尺寸范围。
 
 下一步进入：
 
 ```text
-computer_menu / computer_file_dialog / computer_window_move / computer_window_resize
+computer_drop / computer_visual_snapshot
 ```
 
 最后再做视觉 detector 和执行器。

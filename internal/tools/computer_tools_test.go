@@ -694,6 +694,207 @@ func TestComputerWindowSwitchActivatesMatchedWindowAndUpdatesState_BitsUT(t *tes
 	}
 }
 
+func TestComputerMenuRequiresConfirmationForExternalMenu_BitsUT(t *testing.T) {
+	store := computeruse.NewStore(time.Minute)
+	store.SaveState(computeruse.ComputerState{
+		OS:           "darwin",
+		ActivePID:    123,
+		ActiveWindow: computerTestWindowRef(),
+	})
+	driver := fakeComputerDriver(computerAXRoot(""))
+	driver.menuSelect = desktop.MenuSelectResult{PID: 123, Action: "MenuSelect", Performed: true, ActiveBefore: true, ActiveAfter: true, MenuPath: []string{"File", "Save"}}
+	confirmations := NewConfirmationStore()
+	tool := NewComputerMenu(driver, store, confirmations)
+	args := map[string]any{"menu_path": "File > Save", "reason": "保存当前文档"}
+
+	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	required := outcome.Data.(map[string]any)
+	if required["code"] != "desktop_action_confirmation_required" || len(driver.menuSelectRequest.MenuPath) != 0 {
+		t.Fatalf("outcome = %#v, menu request = %#v", required, driver.menuSelectRequest)
+	}
+	token, err := confirmations.Issue(ActionApproval{Operation: computerMenuOperation, PID: 123, BBox: "File>Save", Reason: "保存当前文档"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args["confirmation_token"] = token
+	outcome, err = tool.Run(context.Background(), agent.ToolCallContext{Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(driver.menuSelectRequest.MenuPath, ">") != "File>Save" {
+		t.Fatalf("menu request = %#v", driver.menuSelectRequest)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["risk"] != desktopRiskExternal || data["verified"] != true {
+		t.Fatalf("outcome = %#v", data)
+	}
+}
+
+func TestComputerFileDialogConfirmRequiresConfirmation_BitsUT(t *testing.T) {
+	store := computeruse.NewStore(time.Minute)
+	store.SaveState(computeruse.ComputerState{
+		OS:           "darwin",
+		ActivePID:    123,
+		ActiveWindow: computerTestWindowRef(),
+	})
+	driver := fakeComputerDriver(computerAXRoot(""))
+	driver.fileDialog = desktop.FileDialogResult{PID: 123, Action: "FileDialog", Performed: true, ActiveBefore: true, ActiveAfter: true, PathLength: len("/tmp/report.txt"), Confirm: true}
+	confirmations := NewConfirmationStore()
+	tool := NewComputerFileDialog(driver, store, confirmations)
+	args := map[string]any{"path": "/tmp/report.txt", "confirm": true, "reason": "选择报告文件"}
+
+	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	required := outcome.Data.(map[string]any)
+	if required["code"] != "desktop_action_confirmation_required" || driver.fileDialogRequest.Path != "" {
+		t.Fatalf("outcome = %#v, file dialog request = %#v", required, driver.fileDialogRequest)
+	}
+	token, err := confirmations.Issue(ActionApproval{Operation: computerFileDialogOperation, PID: 123, BBox: "/tmp/report.txt|confirm", Reason: "选择报告文件"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args["confirmation_token"] = token
+	outcome, err = tool.Run(context.Background(), agent.ToolCallContext{Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if driver.fileDialogRequest.Path != "/tmp/report.txt" || !driver.fileDialogRequest.Confirm {
+		t.Fatalf("file dialog request = %#v", driver.fileDialogRequest)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["risk"] != desktopRiskExternal || data["verified"] != true {
+		t.Fatalf("outcome = %#v", data)
+	}
+	if _, exists := data["path"]; exists {
+		t.Fatalf("file dialog result should not echo path: %#v", data)
+	}
+}
+
+func TestComputerFileDialogWithoutConfirmDoesNotRequireToken_BitsUT(t *testing.T) {
+	store := computeruse.NewStore(time.Minute)
+	store.SaveState(computeruse.ComputerState{
+		OS:           "darwin",
+		ActivePID:    123,
+		ActiveWindow: computerTestWindowRef(),
+	})
+	driver := fakeComputerDriver(computerAXRoot(""))
+	driver.fileDialog = desktop.FileDialogResult{PID: 123, Action: "FileDialog", Performed: true, ActiveBefore: true, ActiveAfter: true, PathLength: len("/tmp/report.txt"), Confirm: false}
+
+	outcome, err := NewComputerFileDialog(driver, store, NewConfirmationStore()).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"path": "/tmp/report.txt", "reason": "跳转到报告文件"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if driver.fileDialogRequest.Path != "/tmp/report.txt" || driver.fileDialogRequest.Confirm {
+		t.Fatalf("file dialog request = %#v", driver.fileDialogRequest)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["risk"] != desktopRiskReversible || data["verified"] != true {
+		t.Fatalf("outcome = %#v", data)
+	}
+	if _, exists := data["path"]; exists {
+		t.Fatalf("file dialog result should not echo path: %#v", data)
+	}
+}
+
+func TestComputerWindowMoveAndResizeUseLatestWindow_BitsUT(t *testing.T) {
+	store := computeruse.NewStore(time.Minute)
+	store.SaveState(computeruse.ComputerState{
+		OS:           "darwin",
+		ActivePID:    123,
+		ActiveWindow: computerTestWindowRef(),
+	})
+	driver := fakeComputerDriver(computerAXRoot(""))
+	driver.windowMove = desktop.WindowMoveResult{
+		PID:             123,
+		WindowID:        "w1",
+		Action:          "WindowMove",
+		Performed:       true,
+		ActiveBefore:    true,
+		ActiveAfter:     true,
+		BeforeBounds:    desktop.Bounds{X: 0, Y: 0, Width: 800, Height: 600},
+		AfterBounds:     desktop.Bounds{X: 100, Y: 120, Width: 800, Height: 600},
+		CoordinateSpace: desktop.CoordinateSpaceScreenPhysical,
+	}
+	driver.windowResize = desktop.WindowResizeResult{
+		PID:             123,
+		WindowID:        "w1",
+		Action:          "WindowResize",
+		Performed:       true,
+		ActiveBefore:    true,
+		ActiveAfter:     true,
+		BeforeBounds:    desktop.Bounds{X: 100, Y: 120, Width: 800, Height: 600},
+		AfterBounds:     desktop.Bounds{X: 100, Y: 120, Width: 900, Height: 700},
+		CoordinateSpace: desktop.CoordinateSpaceScreenPhysical,
+	}
+
+	moveOutcome, err := NewComputerWindowMove(driver, store).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"x": 100, "y": 120, "reason": "整理窗口位置"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if driver.windowMoveRequest.PID != 123 || driver.windowMoveRequest.WindowID != "w1" || driver.windowMoveRequest.X != 100 || driver.windowMoveRequest.Y != 120 {
+		t.Fatalf("move request = %#v", driver.windowMoveRequest)
+	}
+	moveData := moveOutcome.Data.(map[string]any)
+	if moveData["status"] != agent.ToolStatusSuccess || moveData["risk"] != desktopRiskReversible || moveData["verified"] != true {
+		t.Fatalf("move outcome = %#v", moveData)
+	}
+
+	resizeOutcome, err := NewComputerWindowResize(driver, store).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"width": 900, "height": 700, "reason": "扩大窗口"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if driver.windowResizeRequest.PID != 123 || driver.windowResizeRequest.WindowID != "w1" || driver.windowResizeRequest.Width != 900 || driver.windowResizeRequest.Height != 700 {
+		t.Fatalf("resize request = %#v", driver.windowResizeRequest)
+	}
+	resizeData := resizeOutcome.Data.(map[string]any)
+	if resizeData["status"] != agent.ToolStatusSuccess || resizeData["risk"] != desktopRiskReversible || resizeData["verified"] != true {
+		t.Fatalf("resize outcome = %#v", resizeData)
+	}
+}
+
+func TestAskUserApprovalAcceptsComputerMenuAndFileDialog_BitsUT(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		operation string
+		binding   string
+		wantText  string
+	}{
+		{name: "menu", operation: computerMenuOperation, binding: "File>Save", wantText: "菜单选择操作"},
+		{name: "file_dialog", operation: computerFileDialogOperation, binding: "/tmp/report.txt|confirm", wantText: "文件对话框确认操作"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			approval, toolErr := parseAskUserApproval(map[string]any{
+				"approval": map[string]any{
+					"operation": tc.operation,
+					"pid":       123,
+					"bbox":      tc.binding,
+					"reason":    "确认执行",
+				},
+			})
+			if toolErr != nil {
+				t.Fatalf("unexpected error: %#v", toolErr)
+			}
+			if approval == nil || approval.Operation != tc.operation || approval.BBox != tc.binding {
+				t.Fatalf("approval = %#v", approval)
+			}
+			if !strings.Contains(approvalPrompt(*approval), tc.wantText) {
+				t.Fatalf("approval prompt = %q", approvalPrompt(*approval))
+			}
+		})
+	}
+}
+
 func TestComputerWaitForTextPollsAXSnapshot_BitsUT(t *testing.T) {
 	store := computeruse.NewStore(time.Minute)
 	store.SaveState(computeruse.ComputerState{

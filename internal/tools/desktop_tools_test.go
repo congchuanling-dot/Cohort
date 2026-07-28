@@ -32,6 +32,10 @@ type fakeDesktopDriver struct {
 	drag           desktop.DragResult
 	clipboardWrite desktop.ClipboardWriteResult
 	clipboardPaste desktop.ClipboardPasteResult
+	menuSelect     desktop.MenuSelectResult
+	fileDialog     desktop.FileDialogResult
+	windowMove     desktop.WindowMoveResult
+	windowResize   desktop.WindowResizeResult
 	typeTexts      []desktop.TypeTextResult
 	typeTextErrs   []error
 	err            error
@@ -52,6 +56,10 @@ type fakeDesktopDriver struct {
 	dragRequest           desktop.DragRequest
 	clipboardWriteRequest desktop.ClipboardWriteRequest
 	clipboardPasteRequest desktop.ClipboardPasteRequest
+	menuSelectRequest     desktop.MenuSelectRequest
+	fileDialogRequest     desktop.FileDialogRequest
+	windowMoveRequest     desktop.WindowMoveRequest
+	windowResizeRequest   desktop.WindowResizeRequest
 	typeTextRequests      []desktop.TypeTextRequest
 	axSnapshotCalls       int
 	typeTextCalls         int
@@ -220,6 +228,38 @@ func (d *fakeDesktopDriver) ClipboardPaste(ctx context.Context, req desktop.Clip
 		return desktop.ClipboardPasteResult{}, d.err
 	}
 	return d.clipboardPaste, nil
+}
+
+func (d *fakeDesktopDriver) MenuSelect(ctx context.Context, req desktop.MenuSelectRequest) (desktop.MenuSelectResult, error) {
+	d.menuSelectRequest = req
+	if d.err != nil {
+		return desktop.MenuSelectResult{}, d.err
+	}
+	return d.menuSelect, nil
+}
+
+func (d *fakeDesktopDriver) FileDialog(ctx context.Context, req desktop.FileDialogRequest) (desktop.FileDialogResult, error) {
+	d.fileDialogRequest = req
+	if d.err != nil {
+		return desktop.FileDialogResult{}, d.err
+	}
+	return d.fileDialog, nil
+}
+
+func (d *fakeDesktopDriver) WindowMove(ctx context.Context, req desktop.WindowMoveRequest) (desktop.WindowMoveResult, error) {
+	d.windowMoveRequest = req
+	if d.err != nil {
+		return desktop.WindowMoveResult{}, d.err
+	}
+	return d.windowMove, nil
+}
+
+func (d *fakeDesktopDriver) WindowResize(ctx context.Context, req desktop.WindowResizeRequest) (desktop.WindowResizeResult, error) {
+	d.windowResizeRequest = req
+	if d.err != nil {
+		return desktop.WindowResizeResult{}, d.err
+	}
+	return d.windowResize, nil
 }
 
 func TestDesktopWindowsClampsLimitAndReportsPhysicalCoordinates_BitsUT(t *testing.T) {

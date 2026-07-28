@@ -456,6 +456,10 @@ computer_drag
 computer_clipboard_write
 computer_paste
 computer_window_switch
+computer_menu
+computer_file_dialog
+computer_window_move
+computer_window_resize
 ```
 
 </details>

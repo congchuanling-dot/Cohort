@@ -162,6 +162,30 @@ func (d *PythonDriver) ClipboardPaste(ctx context.Context, req ClipboardPasteReq
 	return result, d.call(ctx, "clipboard_paste", req, &result)
 }
 
+// MenuSelect 通过 AX 菜单栏选择受控菜单路径。
+func (d *PythonDriver) MenuSelect(ctx context.Context, req MenuSelectRequest) (MenuSelectResult, error) {
+	var result MenuSelectResult
+	return result, d.call(ctx, "menu_select", req, &result)
+}
+
+// FileDialog 在当前文件对话框中跳转路径并可选确认。
+func (d *PythonDriver) FileDialog(ctx context.Context, req FileDialogRequest) (FileDialogResult, error) {
+	var result FileDialogResult
+	return result, d.call(ctx, "file_dialog", req, &result)
+}
+
+// WindowMove 通过 AX 移动目标窗口。
+func (d *PythonDriver) WindowMove(ctx context.Context, req WindowMoveRequest) (WindowMoveResult, error) {
+	var result WindowMoveResult
+	return result, d.call(ctx, "window_move", req, &result)
+}
+
+// WindowResize 通过 AX 调整目标窗口尺寸。
+func (d *PythonDriver) WindowResize(ctx context.Context, req WindowResizeRequest) (WindowResizeResult, error) {
+	var result WindowResizeResult
+	return result, d.call(ctx, "window_resize", req, &result)
+}
+
 // helperEnvelope 是 Go 与 Python helper 之间固定的一层 JSON 返回协议。
 // 无论成功或失败，helper 都必须把业务数据放在该封装内，避免 Go 侧猜测 stderr。
 type helperEnvelope struct {

@@ -122,6 +122,14 @@ const (
 	ToolNameComputerPaste = "computer_paste"
 	// ToolNameComputerWindowSwitch 切换到匹配的桌面窗口。
 	ToolNameComputerWindowSwitch = "computer_window_switch"
+	// ToolNameComputerMenu 选择目标应用菜单项。
+	ToolNameComputerMenu = "computer_menu"
+	// ToolNameComputerFileDialog 在文件对话框中跳转路径并可选确认。
+	ToolNameComputerFileDialog = "computer_file_dialog"
+	// ToolNameComputerWindowMove 移动目标窗口。
+	ToolNameComputerWindowMove = "computer_window_move"
+	// ToolNameComputerWindowResize 调整目标窗口尺寸。
+	ToolNameComputerWindowResize = "computer_window_resize"
 )
 
 // Tool 是所有本地工具必须实现的接口。
@@ -201,6 +209,10 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameComputerClipboardWrite,
 		ToolNameComputerPaste,
 		ToolNameComputerWindowSwitch,
+		ToolNameComputerMenu,
+		ToolNameComputerFileDialog,
+		ToolNameComputerWindowMove,
+		ToolNameComputerWindowResize,
 		ToolNameSkillRead,
 		ToolNameUpdateWorkingCheckpoint,
 		ToolNameStartLongTermUpdate,

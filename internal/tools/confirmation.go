@@ -22,6 +22,10 @@ const (
 	computerDragOperation = "computer_drag"
 	// computerDoubleClickOperation 标识基于缓存 target 的受控双击动作。
 	computerDoubleClickOperation = "computer_double_click"
+	// computerMenuOperation 标识菜单选择中的受控外部影响动作。
+	computerMenuOperation = "computer_menu"
+	// computerFileDialogOperation 标识文件对话框确认动作。
+	computerFileDialogOperation = "computer_file_dialog"
 )
 
 // ActionApproval 绑定用户确认到一个具体的高风险桌面动作。
