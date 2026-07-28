@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -418,6 +419,145 @@ func TestComputerPressRequiresConfirmationForSubmitKey_BitsUT(t *testing.T) {
 	data := outcome.Data.(map[string]any)
 	if driver.pressKeyRequest.Key != "Cmd+Enter" || data["status"] != agent.ToolStatusSuccess || data["verified"] != true {
 		t.Fatalf("outcome = %#v, request = %#v", data, driver.pressKeyRequest)
+	}
+}
+
+func TestComputerScrollUsesLatestComputerState_BitsUT(t *testing.T) {
+	store := computeruse.NewStore(time.Minute)
+	store.SaveState(computeruse.ComputerState{
+		OS:           "darwin",
+		ActivePID:    123,
+		ActiveWindow: computerTestWindowRef(),
+	})
+	driver := fakeComputerDriver(computerAXRoot(""))
+	driver.scroll = desktop.ScrollResult{PID: 123, Action: "Scroll", Performed: true, ActiveBefore: true, ActiveAfter: true, DeltaY: -360}
+
+	outcome, err := NewComputerScroll(driver, store).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"direction": "down", "ticks": 3, "reason": "查看更多内容"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if driver.scrollRequest.PID != 123 || driver.scrollRequest.DeltaY != -360 {
+		t.Fatalf("scroll request = %#v", driver.scrollRequest)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["risk"] != desktopRiskReversible || data["verified"] != true {
+		t.Fatalf("outcome = %#v", data)
+	}
+}
+
+func TestComputerDragRequiresConfirmation_BitsUT(t *testing.T) {
+	store := computeruse.NewStore(time.Minute)
+	target := saveComputerButtonTarget(store)
+	driver := fakeComputerDriver(computerAXRoot(""))
+	driver.drag = desktop.DragResult{
+		PID:             123,
+		Action:          "Drag",
+		Performed:       true,
+		ActiveBefore:    true,
+		ActiveAfter:     true,
+		StartX:          435,
+		StartY:          45,
+		EndX:            535,
+		EndY:            45,
+		CoordinateSpace: desktop.CoordinateSpaceScreenPhysical,
+	}
+	confirmations := NewConfirmationStore()
+	tool := NewComputerDrag(driver, store, confirmations)
+	args := map[string]any{"target_id": target.ID, "delta_x": 100, "reason": "调整列表顺序"}
+
+	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	required := outcome.Data.(map[string]any)
+	if required["code"] != "desktop_action_confirmation_required" || driver.dragRequest.PID != 0 {
+		t.Fatalf("outcome = %#v, drag request = %#v", required, driver.dragRequest)
+	}
+	token, err := confirmations.Issue(ActionApproval{Operation: computerDragOperation, PID: 123, BBox: target.ID + "||100|", Reason: "调整列表顺序"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args["confirmation_token"] = token
+	outcome, err = tool.Run(context.Background(), agent.ToolCallContext{Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if driver.dragRequest.StartX != 435 || driver.dragRequest.EndX != 535 {
+		t.Fatalf("drag request = %#v", driver.dragRequest)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["risk"] != desktopRiskExternal || data["verified"] != true {
+		t.Fatalf("outcome = %#v", data)
+	}
+}
+
+func TestComputerClipboardWriteDoesNotEchoContent_BitsUT(t *testing.T) {
+	driver := fakeComputerDriver(computerAXRoot(""))
+	driver.clipboardWrite = desktop.ClipboardWriteResult{Action: "ClipboardWrite", Performed: true, TextLength: 5, LineCount: 1}
+
+	outcome, err := NewComputerClipboardWrite(driver).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"text": "hello", "reason": "准备粘贴草稿"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if driver.clipboardWriteRequest.Text != "hello" {
+		t.Fatalf("clipboard write request = %#v", driver.clipboardWriteRequest)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["content_returned"] != false || data["reads_clipboard"] != false {
+		t.Fatalf("outcome = %#v", data)
+	}
+	if _, exists := data["text"]; exists {
+		t.Fatalf("clipboard write must not echo content: %#v", data)
+	}
+}
+
+func TestComputerPasteWritesTextThenPastes_BitsUT(t *testing.T) {
+	store := computeruse.NewStore(time.Minute)
+	store.SaveState(computeruse.ComputerState{
+		OS:           "darwin",
+		ActivePID:    123,
+		ActiveWindow: computerTestWindowRef(),
+	})
+	driver := fakeComputerDriver(computerAXRoot(""))
+	driver.clipboardWrite = desktop.ClipboardWriteResult{Action: "ClipboardWrite", Performed: true, TextLength: 2, LineCount: 1}
+	driver.clipboardPaste = desktop.ClipboardPasteResult{PID: 123, Action: "ClipboardPaste", Performed: true, ActiveBefore: true, ActiveAfter: true}
+
+	outcome, err := NewComputerPaste(driver, store).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"text": "你好", "reason": "粘贴草稿"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if driver.clipboardWriteRequest.Text != "你好" || driver.clipboardPasteRequest.PID != 123 {
+		t.Fatalf("requests = write:%#v paste:%#v", driver.clipboardWriteRequest, driver.clipboardPasteRequest)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["text_written"] != true || data["verified"] != true || data["content_returned"] != false {
+		t.Fatalf("outcome = %#v", data)
+	}
+}
+
+func TestAskUserApprovalAcceptsComputerDrag_BitsUT(t *testing.T) {
+	approval, toolErr := parseAskUserApproval(map[string]any{
+		"approval": map[string]any{
+			"operation": computerDragOperation,
+			"pid":       123,
+			"bbox":      "source|dest||",
+			"reason":    "拖拽文件到目标区域",
+		},
+	})
+	if toolErr != nil {
+		t.Fatalf("unexpected error: %#v", toolErr)
+	}
+	if approval == nil || approval.Operation != computerDragOperation || approval.BBox != "source|dest||" {
+		t.Fatalf("approval = %#v", approval)
+	}
+	if !strings.Contains(approvalPrompt(*approval), "桌面拖拽操作") {
+		t.Fatalf("approval prompt = %q", approvalPrompt(*approval))
 	}
 }
 

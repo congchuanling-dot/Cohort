@@ -7,6 +7,7 @@ CONFIG_DIR="${COHERT_CONFIG_DIR:-"$HOME/.cohert"}"
 CONFIG_PATH="${COHERT_CONFIG:-"$CONFIG_DIR/config.yaml"}"
 WORKSPACE_DIR="${COHERT_WORKSPACE:-"$CONFIG_DIR/workspace"}"
 LOG_DIR="${COHERT_LOG_DIR:-"$CONFIG_DIR/logs/model_responses"}"
+SCRIPTS_DIR="${COHERT_SCRIPTS_DIR:-"$CONFIG_DIR/scripts"}"
 GO_BIN="${GO_BIN:-go}"
 REPO_URL="${COHERT_REPO_URL:-}"
 REPO_REF="${COHERT_REPO_REF:-}"
@@ -157,6 +158,19 @@ release_url() {
   fi
 }
 
+raw_script_url() {
+  script="$1"
+  ref="$REPO_REF"
+  if [ -z "$ref" ]; then
+    if [ "$RELEASE_TAG" = "latest" ]; then
+      ref="master"
+    else
+      ref="$RELEASE_TAG"
+    fi
+  fi
+  printf 'https://raw.githubusercontent.com/%s/%s/scripts/%s\n' "$GITHUB_REPO" "$ref" "$script"
+}
+
 download_release_binary() {
   [ "$FROM_SOURCE" != "1" ] || return 1
   command -v curl >/dev/null 2>&1 || return 1
@@ -175,6 +189,22 @@ download_release_binary() {
   fi
   info "release binary unavailable; falling back to source build"
   return 1
+}
+
+install_runtime_scripts() {
+  mkdir -p "$SCRIPTS_DIR"
+  for script in desktop_darwin.py browser_ocr.py; do
+    if [ -n "${SOURCE_DIR:-}" ] && [ -f "$SOURCE_DIR/scripts/$script" ]; then
+      cp "$SOURCE_DIR/scripts/$script" "$SCRIPTS_DIR/$script"
+      chmod 0755 "$SCRIPTS_DIR/$script"
+      continue
+    fi
+    command -v curl >/dev/null 2>&1 || fail "curl is required to install runtime helper script: $script"
+    url=$(raw_script_url "$script")
+    info "downloading helper script: $url"
+    curl -fsSL "$url" -o "$SCRIPTS_DIR/$script" || fail "failed to download helper script: $script"
+    chmod 0755 "$SCRIPTS_DIR/$script"
+  done
 }
 
 find_source_dir() {
@@ -315,10 +345,12 @@ fi
 mkdir -p "$INSTALL_DIR"
 cp "$BUILD_TMP/$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
 chmod 0755 "$INSTALL_DIR/$BIN_NAME"
+install_runtime_scripts
 write_default_config
 update_shell_path
 
 info "installed: $INSTALL_DIR/$BIN_NAME"
+info "helpers:   $SCRIPTS_DIR"
 info "config:    $CONFIG_PATH"
 
 case ":$PATH:" in

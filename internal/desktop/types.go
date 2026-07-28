@@ -354,6 +354,79 @@ type TypeTextResult struct {
 	FocusVerification string `json:"focus_verification"`
 }
 
+// ScrollRequest 在已激活目标应用中执行受限滚动。
+type ScrollRequest struct {
+	// PID 是目标应用进程。
+	PID int `json:"pid"`
+	// DeltaX 是水平滚动量，正负方向由平台 helper 解释并回传。
+	DeltaX int `json:"delta_x"`
+	// DeltaY 是垂直滚动量，正负方向由平台 helper 解释并回传。
+	DeltaY int `json:"delta_y"`
+}
+
+// ScrollResult 返回滚动动作和目标应用前后台状态。
+type ScrollResult struct {
+	PID          int    `json:"pid"`
+	Action       string `json:"action"`
+	Performed    bool   `json:"performed"`
+	ActiveBefore bool   `json:"active_before"`
+	ActiveAfter  bool   `json:"active_after"`
+	DeltaX       int    `json:"delta_x"`
+	DeltaY       int    `json:"delta_y"`
+}
+
+// DragRequest 在屏幕物理坐标系中执行受控左键拖拽。
+type DragRequest struct {
+	PID             int    `json:"pid"`
+	StartX          int    `json:"start_x"`
+	StartY          int    `json:"start_y"`
+	EndX            int    `json:"end_x"`
+	EndY            int    `json:"end_y"`
+	CoordinateSpace string `json:"coordinate_space"`
+}
+
+// DragResult 返回拖拽动作和目标应用前后台状态。
+type DragResult struct {
+	PID             int    `json:"pid"`
+	Action          string `json:"action"`
+	Performed       bool   `json:"performed"`
+	ActiveBefore    bool   `json:"active_before"`
+	ActiveAfter     bool   `json:"active_after"`
+	StartX          int    `json:"start_x"`
+	StartY          int    `json:"start_y"`
+	EndX            int    `json:"end_x"`
+	EndY            int    `json:"end_y"`
+	CoordinateSpace string `json:"coordinate_space"`
+}
+
+// ClipboardWriteRequest 写入系统剪贴板；调用方负责避免泄露原有剪贴板内容。
+type ClipboardWriteRequest struct {
+	Text string `json:"text"`
+}
+
+// ClipboardWriteResult 返回写入状态，不回显剪贴板正文。
+type ClipboardWriteResult struct {
+	Action       string `json:"action"`
+	Performed    bool   `json:"performed"`
+	TextLength   int    `json:"text_length"`
+	LineCount    int    `json:"line_count"`
+	TextReturned bool   `json:"text_returned"`
+}
+
+// ClipboardPasteRequest 对已激活目标应用发送 Cmd+V。
+type ClipboardPasteRequest struct {
+	PID int `json:"pid"`
+}
+
+// ClipboardPasteResult 返回粘贴动作和目标应用前后台状态。
+type ClipboardPasteResult struct {
+	PID          int    `json:"pid"`
+	Action       string `json:"action"`
+	Performed    bool   `json:"performed"`
+	ActiveBefore bool   `json:"active_before"`
+	ActiveAfter  bool   `json:"active_after"`
+}
+
 // Driver 抽象平台相关的桌面感知和受限 AX 语义动作能力。
 type Driver interface {
 	Permissions(ctx context.Context) (PermissionsResult, error)
@@ -367,4 +440,8 @@ type Driver interface {
 	VisualClick(ctx context.Context, req VisualClickRequest) (VisualClickResult, error)
 	PressKey(ctx context.Context, req PressKeyRequest) (PressKeyResult, error)
 	TypeText(ctx context.Context, req TypeTextRequest) (TypeTextResult, error)
+	Scroll(ctx context.Context, req ScrollRequest) (ScrollResult, error)
+	Drag(ctx context.Context, req DragRequest) (DragResult, error)
+	ClipboardWrite(ctx context.Context, req ClipboardWriteRequest) (ClipboardWriteResult, error)
+	ClipboardPaste(ctx context.Context, req ClipboardPasteRequest) (ClipboardPasteResult, error)
 }

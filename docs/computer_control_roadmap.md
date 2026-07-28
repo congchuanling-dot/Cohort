@@ -4,6 +4,7 @@
 > 目标：把 Cohert 从“具备浏览器和 macOS 受控桌面工具的本地 Agent”，推进到“可以稳定观察、理解、执行、验证大部分电脑操作的 Computer Use Agent”。
 > 代码和真实端到端验收仍是最终事实来源。
 > 当前进展：`cohert doctor computer` 基础版已实现，可检查 workspace/artifact 目录、macOS 权限、desktop helper、OCR helper 和 Chrome bridge。
+> P1 第一批操作原语已实现：`computer_scroll`、`computer_drag`、`computer_clipboard_write`、`computer_paste`。
 
 ## 1. 目标定义
 
@@ -113,16 +114,11 @@ DOM / JS -> CDP action -> screenshot / OCR fallback
 
 ### 3.2 操作原语还不完整
 
-当前主要覆盖点击、输入、按键和等待。要更接近“所有操作”，还需要：
+当前主要覆盖点击、输入、按键、等待、滚动、确认拖拽、剪贴板写入和粘贴。要更接近“所有操作”，还需要：
 
-- `computer_scroll`
-- `computer_drag`
 - `computer_drop`
 - `computer_double_click`
 - `computer_right_click`
-- `computer_clipboard_read`
-- `computer_clipboard_write`
-- `computer_paste`
 - `computer_menu`
 - `computer_file_dialog`
 - `computer_window_switch`
@@ -132,6 +128,8 @@ DOM / JS -> CDP action -> screenshot / OCR fallback
 - 更完整快捷键策略
 
 这些能力不能直接暴露成裸坐标工具，应继续绑定 target、窗口、风险等级和验证。
+
+`computer_clipboard_read` 暂不实现。读取剪贴板会把用户已有剪贴板内容暴露给模型，除非未来有明确的用户授权和脱敏策略。
 
 ### 3.3 视觉 UI detector 缺失
 
@@ -244,12 +242,12 @@ computer_see
 
 优先级：
 
-1. `computer_scroll`
+1. `computer_scroll` `[完成：基础版]`
 2. `computer_double_click`
 3. `computer_right_click`
-4. `computer_clipboard_write`
-5. `computer_paste`
-6. `computer_drag`
+4. `computer_clipboard_write` `[完成：不读取原剪贴板内容]`
+5. `computer_paste` `[完成：可选写入后粘贴，不发送]`
+6. `computer_drag` `[完成：必须一次性确认]`
 7. `computer_window_switch`
 
 验收：
@@ -316,10 +314,14 @@ computer_see
 
 ## 5. 推荐下一步
 
-基础版已完成：
+已完成：
 
 ```text
 cohert doctor computer
+computer_scroll
+computer_drag
+computer_clipboard_write
+computer_paste
 ```
 
 它已经覆盖：
@@ -330,11 +332,14 @@ cohert doctor computer
 - OCR helper 存在性和依赖探测。
 - Chrome bridge server 与插件连接状态。
 - 只读诊断，不执行点击、输入或系统设置修改。
+- R1 滚动只作用于最近 `computer_see` 的目标窗口。
+- 拖拽必须引用缓存 target，且必须用户一次性确认。
+- 剪贴板只支持写入和粘贴，不读取原剪贴板内容，不回显文本。
 
 下一步进入：
 
 ```text
-computer_scroll / computer_drag / computer_clipboard
+computer_double_click / computer_right_click / computer_window_switch
 ```
 
 最后再做视觉 detector 和执行器。

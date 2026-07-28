@@ -710,6 +710,173 @@ def post_mouse_click(quartz, point):
     quartz.CGEventPost(quartz.kCGHIDEventTap, up)
 
 
+def post_mouse_drag(quartz, start_point, end_point):
+    down = quartz.CGEventCreateMouseEvent(
+        None,
+        quartz.kCGEventLeftMouseDown,
+        start_point,
+        quartz.kCGMouseButtonLeft,
+    )
+    if down is None:
+        raise DesktopError(
+            "desktop_drag_failed",
+            "unable to create Quartz mouse down event",
+            "请确认 Cohert 运行进程具备必要的系统权限。",
+        )
+    quartz.CGEventPost(quartz.kCGHIDEventTap, down)
+    time.sleep(0.08)
+    steps = 8
+    for index in range(1, steps + 1):
+        ratio = index / steps
+        point = (
+            start_point[0] + (end_point[0] - start_point[0]) * ratio,
+            start_point[1] + (end_point[1] - start_point[1]) * ratio,
+        )
+        moved = quartz.CGEventCreateMouseEvent(
+            None,
+            quartz.kCGEventLeftMouseDragged,
+            point,
+            quartz.kCGMouseButtonLeft,
+        )
+        if moved is None:
+            raise DesktopError(
+                "desktop_drag_failed",
+                "unable to create Quartz mouse drag event",
+                "请确认 Cohert 运行进程具备必要的系统权限。",
+            )
+        quartz.CGEventPost(quartz.kCGHIDEventTap, moved)
+        time.sleep(0.025)
+    up = quartz.CGEventCreateMouseEvent(
+        None,
+        quartz.kCGEventLeftMouseUp,
+        end_point,
+        quartz.kCGMouseButtonLeft,
+    )
+    if up is None:
+        raise DesktopError(
+            "desktop_drag_failed",
+            "unable to create Quartz mouse up event",
+            "请确认 Cohert 运行进程具备必要的系统权限。",
+        )
+    time.sleep(0.05)
+    quartz.CGEventPost(quartz.kCGHIDEventTap, up)
+
+
+def scroll(payload):
+    quartz, _, workspace = require_macos_modules()
+    pid = int(payload.get("pid") or 0)
+    if pid <= 0:
+        raise DesktopError(
+            "desktop_bad_pid",
+            "desktop_scroll requires a positive pid",
+            "请先通过 desktop_windows 获取目标窗口对应的 pid。",
+        )
+    require_active_pid(pid)
+    delta_x = int(payload.get("delta_x") or 0)
+    delta_y = int(payload.get("delta_y") or 0)
+    if delta_x == 0 and delta_y == 0:
+        raise DesktopError(
+            "desktop_scroll_bad_delta",
+            "desktop_scroll requires a non-zero delta",
+            "请提供明确的滚动方向和步数。",
+        )
+    delta_x = max(-2400, min(delta_x, 2400))
+    delta_y = max(-2400, min(delta_y, 2400))
+    try:
+        event = quartz.CGEventCreateScrollWheelEvent(
+            None,
+            quartz.kCGScrollEventUnitPixel,
+            2,
+            delta_y,
+            delta_x,
+        )
+        if event is None:
+            raise DesktopError(
+                "desktop_scroll_failed",
+                "unable to create Quartz scroll event",
+                "请确认 Cohert 运行进程具备必要的系统权限。",
+            )
+        quartz.CGEventPost(quartz.kCGHIDEventTap, event)
+        time.sleep(0.15)
+    except DesktopError:
+        raise
+    except Exception as exc:
+        raise DesktopError(
+            "desktop_scroll_failed",
+            f"desktop scroll failed: {exc}",
+            "请重新确认目标应用前台状态，不要连续重试。",
+        ) from exc
+    return {
+        "pid": pid,
+        "action": "Scroll",
+        "performed": True,
+        "active_before": True,
+        "active_after": active_pid(workspace) == pid,
+        "delta_x": delta_x,
+        "delta_y": delta_y,
+    }
+
+
+def drag(payload):
+    quartz, _, workspace = require_macos_modules()
+    pid = int(payload.get("pid") or 0)
+    if pid <= 0:
+        raise DesktopError(
+            "desktop_bad_pid",
+            "desktop_drag requires a positive pid",
+            "请先通过 desktop_windows 获取目标窗口对应的 pid。",
+        )
+    require_active_pid(pid)
+    coordinate_space = str(payload.get("coordinate_space") or "").strip()
+    if coordinate_space != "screen-physical":
+        raise DesktopError(
+            "desktop_drag_bad_coordinate_space",
+            f"desktop_drag requires screen-physical coordinates, got {coordinate_space!r}",
+            "请通过 Cohert computer_drag 工具调用，不能直接传入截图坐标或任意坐标。",
+        )
+    start_x = int(payload.get("start_x") or 0)
+    start_y = int(payload.get("start_y") or 0)
+    end_x = int(payload.get("end_x") or 0)
+    end_y = int(payload.get("end_y") or 0)
+    if min(start_x, start_y, end_x, end_y) < 0:
+        raise DesktopError(
+            "desktop_drag_bad_point",
+            "desktop_drag requires non-negative screen points",
+            "请重新通过 computer_see/computer_find 获取当前 target_id。",
+        )
+    try:
+        start_point = (
+            physical_to_logical(start_x, display_scale(quartz)),
+            physical_to_logical(start_y, display_scale(quartz)),
+        )
+        end_point = (
+            physical_to_logical(end_x, display_scale(quartz)),
+            physical_to_logical(end_y, display_scale(quartz)),
+        )
+        post_mouse_drag(quartz, start_point, end_point)
+        time.sleep(0.15)
+    except DesktopError:
+        raise
+    except Exception as exc:
+        raise DesktopError(
+            "desktop_drag_failed",
+            f"desktop drag failed: {exc}",
+            "请重新确认目标应用前台状态和目标位置，不要连续重试。",
+        ) from exc
+    return {
+        "pid": pid,
+        "action": "Drag",
+        "performed": True,
+        "active_before": True,
+        "active_after": active_pid(workspace) == pid,
+        "start_x": start_x,
+        "start_y": start_y,
+        "end_x": end_x,
+        "end_y": end_y,
+        "coordinate_space": "screen-physical",
+    }
+
+
 def parse_key(quartz, raw_key):
     key = str(raw_key or "").strip()
     keycodes = {
@@ -798,6 +965,77 @@ def press_key(payload):
         "performed": True,
         "active_before": True,
         "active_after": active_after,
+    }
+
+
+def post_cmd_v(quartz):
+    keycode_v = 9
+    flags = quartz.kCGEventFlagMaskCommand
+    post_key_event(quartz, keycode_v, True, flags)
+    time.sleep(0.03)
+    post_key_event(quartz, keycode_v, False, flags)
+
+
+def clipboard_write(payload):
+    text = str(payload.get("text") or "")
+    if not text:
+        raise DesktopError(
+            "desktop_clipboard_write_bad_request",
+            "clipboard_write requires non-empty text",
+            "请提供要写入剪贴板的文本；工具不会读取或返回原剪贴板内容。",
+        )
+    try:
+        from AppKit import NSPasteboard
+
+        pasteboard = NSPasteboard.generalPasteboard()
+        pasteboard.clearContents()
+        ok = pasteboard.setString_forType_(text, "public.utf8-plain-text")
+        if not ok:
+            ok = pasteboard.setString_forType_(text, "NSStringPboardType")
+        if not ok:
+            raise RuntimeError("NSPasteboard rejected text")
+    except Exception as exc:
+        raise DesktopError(
+            "desktop_clipboard_write_failed",
+            f"unable to write clipboard: {exc}",
+            "请确认当前会话允许访问系统剪贴板；不要自动读取或回显剪贴板内容。",
+        ) from exc
+    return {
+        "action": "ClipboardWrite",
+        "performed": True,
+        "text_length": len(text),
+        "line_count": text.count("\n") + 1,
+        "text_returned": False,
+    }
+
+
+def clipboard_paste(payload):
+    quartz, _, workspace = require_macos_modules()
+    pid = int(payload.get("pid") or 0)
+    if pid <= 0:
+        raise DesktopError(
+            "desktop_bad_pid",
+            "clipboard_paste requires a positive pid",
+            "请先通过 computer_see 获取目标窗口对应的 pid。",
+        )
+    require_active_pid(pid)
+    try:
+        post_cmd_v(quartz)
+        time.sleep(0.15)
+    except DesktopError:
+        raise
+    except Exception as exc:
+        raise DesktopError(
+            "desktop_clipboard_paste_failed",
+            f"unable to paste clipboard: {exc}",
+            "请重新确认目标应用前台状态和输入焦点。",
+        ) from exc
+    return {
+        "pid": pid,
+        "action": "ClipboardPaste",
+        "performed": True,
+        "active_before": True,
+        "active_after": active_pid(workspace) == pid,
     }
 
 
@@ -1013,6 +1251,10 @@ def dispatch(command, payload):
         "visual_click": visual_click,
         "press_key": press_key,
         "type_text": type_text,
+        "scroll": scroll,
+        "drag": drag,
+        "clipboard_write": clipboard_write,
+        "clipboard_paste": clipboard_paste,
     }
     handler = commands.get(command)
     if handler is None:

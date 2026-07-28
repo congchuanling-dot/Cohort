@@ -14,35 +14,43 @@ import (
 )
 
 type fakeDesktopDriver struct {
-	permissions  desktop.PermissionsResult
-	windows      desktop.ListWindowsResult
-	activate     desktop.ActivateResult
-	screenshot   desktop.ScreenshotResult
-	axSnapshot   desktop.AXSnapshotResult
-	axSnapshots  []desktop.AXSnapshotResult
-	axPress      desktop.AXPressResult
-	axFocus      desktop.AXFocusResult
-	click        desktop.ClickResult
-	visualClick  desktop.VisualClickResult
-	pressKey     desktop.PressKeyResult
-	typeText     desktop.TypeTextResult
-	typeTexts    []desktop.TypeTextResult
-	typeTextErrs []error
-	err          error
+	permissions    desktop.PermissionsResult
+	windows        desktop.ListWindowsResult
+	activate       desktop.ActivateResult
+	screenshot     desktop.ScreenshotResult
+	axSnapshot     desktop.AXSnapshotResult
+	axSnapshots    []desktop.AXSnapshotResult
+	axPress        desktop.AXPressResult
+	axFocus        desktop.AXFocusResult
+	click          desktop.ClickResult
+	visualClick    desktop.VisualClickResult
+	pressKey       desktop.PressKeyResult
+	typeText       desktop.TypeTextResult
+	scroll         desktop.ScrollResult
+	drag           desktop.DragResult
+	clipboardWrite desktop.ClipboardWriteResult
+	clipboardPaste desktop.ClipboardPasteResult
+	typeTexts      []desktop.TypeTextResult
+	typeTextErrs   []error
+	err            error
 
-	listRequest        desktop.ListWindowsRequest
-	activateRequest    desktop.ActivateRequest
-	screenshotRequest  desktop.ScreenshotRequest
-	axRequest          desktop.AXSnapshotRequest
-	axPressRequest     desktop.AXPressRequest
-	axFocusRequest     desktop.AXFocusRequest
-	clickRequest       desktop.ClickRequest
-	visualClickRequest desktop.VisualClickRequest
-	pressKeyRequest    desktop.PressKeyRequest
-	typeTextRequest    desktop.TypeTextRequest
-	typeTextRequests   []desktop.TypeTextRequest
-	axSnapshotCalls    int
-	typeTextCalls      int
+	listRequest           desktop.ListWindowsRequest
+	activateRequest       desktop.ActivateRequest
+	screenshotRequest     desktop.ScreenshotRequest
+	axRequest             desktop.AXSnapshotRequest
+	axPressRequest        desktop.AXPressRequest
+	axFocusRequest        desktop.AXFocusRequest
+	clickRequest          desktop.ClickRequest
+	visualClickRequest    desktop.VisualClickRequest
+	pressKeyRequest       desktop.PressKeyRequest
+	typeTextRequest       desktop.TypeTextRequest
+	scrollRequest         desktop.ScrollRequest
+	dragRequest           desktop.DragRequest
+	clipboardWriteRequest desktop.ClipboardWriteRequest
+	clipboardPasteRequest desktop.ClipboardPasteRequest
+	typeTextRequests      []desktop.TypeTextRequest
+	axSnapshotCalls       int
+	typeTextCalls         int
 }
 
 func (d *fakeDesktopDriver) Permissions(ctx context.Context) (desktop.PermissionsResult, error) {
@@ -160,6 +168,38 @@ func (d *fakeDesktopDriver) TypeText(ctx context.Context, req desktop.TypeTextRe
 		return d.typeTexts[resultIndex], nil
 	}
 	return d.typeText, nil
+}
+
+func (d *fakeDesktopDriver) Scroll(ctx context.Context, req desktop.ScrollRequest) (desktop.ScrollResult, error) {
+	d.scrollRequest = req
+	if d.err != nil {
+		return desktop.ScrollResult{}, d.err
+	}
+	return d.scroll, nil
+}
+
+func (d *fakeDesktopDriver) Drag(ctx context.Context, req desktop.DragRequest) (desktop.DragResult, error) {
+	d.dragRequest = req
+	if d.err != nil {
+		return desktop.DragResult{}, d.err
+	}
+	return d.drag, nil
+}
+
+func (d *fakeDesktopDriver) ClipboardWrite(ctx context.Context, req desktop.ClipboardWriteRequest) (desktop.ClipboardWriteResult, error) {
+	d.clipboardWriteRequest = req
+	if d.err != nil {
+		return desktop.ClipboardWriteResult{}, d.err
+	}
+	return d.clipboardWrite, nil
+}
+
+func (d *fakeDesktopDriver) ClipboardPaste(ctx context.Context, req desktop.ClipboardPasteRequest) (desktop.ClipboardPasteResult, error) {
+	d.clipboardPasteRequest = req
+	if d.err != nil {
+		return desktop.ClipboardPasteResult{}, d.err
+	}
+	return d.clipboardPaste, nil
 }
 
 func TestDesktopWindowsClampsLimitAndReportsPhysicalCoordinates_BitsUT(t *testing.T) {

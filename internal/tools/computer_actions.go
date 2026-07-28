@@ -620,6 +620,425 @@ func (t *ComputerPress) Run(ctx context.Context, call agent.ToolCallContext) (ag
 	return agent.Outcome{Data: data, NextPrompt: "\n"}, nil
 }
 
+// ComputerScroll 在最近 computer_see 的目标窗口中执行受限滚动。
+type ComputerScroll struct {
+	driver desktop.Driver
+	store  *computeruse.Store
+}
+
+// NewComputerScroll 创建滚动工具。
+func NewComputerScroll(driver desktop.Driver, store *computeruse.Store) *ComputerScroll {
+	if store == nil {
+		store = computeruse.NewStore(computeruse.DefaultTargetTTL)
+	}
+	return &ComputerScroll{driver: driver, store: store}
+}
+
+func (t *ComputerScroll) Name() string { return ToolNameComputerScroll }
+
+func (t *ComputerScroll) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Scroll the latest computer_see target window. This is R1 navigation only and requires a recent computer_see state; it does not accept raw screen coordinates.",
+		Parameters: objectSchema(map[string]any{
+			"direction": stringProp("Scroll direction: up, down, left, or right."),
+			"ticks":     intProp("Scroll strength from 1 to 10. Default 3.", 3),
+			"reason":    stringProp("Concrete user-facing reason for scrolling."),
+		}, "direction", "reason"),
+	}}
+}
+
+func (t *ComputerScroll) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	state, err := t.store.LatestState()
+	if err != nil {
+		return computerCacheError("computer_scroll", err), nil
+	}
+	if state.ActivePID <= 0 {
+		return computerToolError("computer_scroll_no_target_window", "latest computer state has no active target window", "请先调用 computer_see 选择目标窗口。"), nil
+	}
+	direction := strings.ToLower(strings.TrimSpace(asString(call.Args["direction"])))
+	ticks := clampDesktopLimit(asInt(call.Args["ticks"], 3), 3, 10)
+	reason, reasonErr := requiredComputerString(call.Args, "reason", "computer_scroll_bad_request", "请说明滚动的具体目的。")
+	if reasonErr != nil {
+		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
+	}
+	deltaX, deltaY, ok := computerScrollDelta(direction, ticks)
+	if !ok {
+		return computerToolError("computer_scroll_bad_direction", "direction must be one of: up, down, left, right", "请使用明确方向，不要传入坐标。"), nil
+	}
+	if err := activateDesktopTarget(ctx, t.driver, state.ActivePID); err != nil {
+		return desktopToolError(err), nil
+	}
+	result, err := t.driver.Scroll(ctx, desktop.ScrollRequest{PID: state.ActivePID, DeltaX: deltaX, DeltaY: deltaY})
+	if err != nil {
+		return desktopToolError(err), nil
+	}
+	verified := result.Performed && result.ActiveBefore && result.ActiveAfter
+	data := map[string]any{
+		"status":        agent.ToolStatusSuccess,
+		"state_id":      state.ID,
+		"pid":           result.PID,
+		"action":        result.Action,
+		"risk":          desktopRiskReversible,
+		"direction":     direction,
+		"ticks":         ticks,
+		"delta_x":       result.DeltaX,
+		"delta_y":       result.DeltaY,
+		"reason":        reason,
+		"performed":     result.Performed,
+		"active_before": result.ActiveBefore,
+		"active_after":  result.ActiveAfter,
+		"verified":      verified,
+	}
+	if !verified {
+		data["status"] = agent.ToolStatusError
+		data["code"] = "computer_scroll_unverified"
+		data["message"] = "computer scroll was sent but target foreground state was not verified"
+		data["hint"] = "请停止连续滚动，重新调用 computer_see 确认目标窗口。"
+	}
+	return agent.Outcome{Data: data, NextPrompt: "\n"}, nil
+}
+
+func computerScrollDelta(direction string, ticks int) (int, int, bool) {
+	delta := ticks * 120
+	switch direction {
+	case "up":
+		return 0, delta, true
+	case "down":
+		return 0, -delta, true
+	case "left":
+		return delta, 0, true
+	case "right":
+		return -delta, 0, true
+	default:
+		return 0, 0, false
+	}
+}
+
+// ComputerDrag 从缓存 target 拖拽到另一个缓存 target 或相对偏移。
+type ComputerDrag struct {
+	driver        desktop.Driver
+	store         *computeruse.Store
+	confirmations *ConfirmationStore
+}
+
+// NewComputerDrag 创建受确认保护的拖拽工具。
+func NewComputerDrag(driver desktop.Driver, store *computeruse.Store, confirmations *ConfirmationStore) *ComputerDrag {
+	if store == nil {
+		store = computeruse.NewStore(computeruse.DefaultTargetTTL)
+	}
+	if confirmations == nil {
+		confirmations = NewConfirmationStore()
+	}
+	return &ComputerDrag{driver: driver, store: store, confirmations: confirmations}
+}
+
+func (t *ComputerDrag) Name() string { return ToolNameComputerDrag }
+
+func (t *ComputerDrag) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Drag from a cached computer target to another cached target or by a bounded relative offset. Dragging may move files or reorder items, so it always requires a one-time confirmation_token. Never pass raw screen coordinates.",
+		Parameters: objectSchema(map[string]any{
+			"target_id":          stringProp("Cached source target_id from computer_find or computer_see candidates."),
+			"to_target_id":       stringProp("Optional cached destination target_id. If omitted, provide delta_x and/or delta_y."),
+			"delta_x":            intProp("Optional relative horizontal drag offset in screen pixels. Used only when to_target_id is empty. Max absolute value 1200.", 0),
+			"delta_y":            intProp("Optional relative vertical drag offset in screen pixels. Used only when to_target_id is empty. Max absolute value 1200.", 0),
+			"reason":             stringProp("Concrete user-facing reason for this drag."),
+			"expected_change":    stringProp("Optional expected UI change after the drag, used for audit and follow-up check guidance."),
+			"confirmation_token": stringProp("Required. Obtain it from ask_user with the returned approval_request."),
+		}, "target_id", "reason"),
+	}}
+}
+
+func (t *ComputerDrag) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	targetID, idErr := requiredDesktopActionString(call.Args, "target_id")
+	if idErr != nil {
+		return agent.Outcome{Data: *idErr, NextPrompt: "\n"}, nil
+	}
+	reason, reasonErr := requiredDesktopActionString(call.Args, "reason")
+	if reasonErr != nil {
+		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
+	}
+	source, err := t.store.Target(targetID)
+	if err != nil {
+		return computerCacheError("computer_drag", err), nil
+	}
+	if source.Window.PID <= 0 {
+		return computerToolError("computer_drag_bad_target", "source target is not bound to a valid PID", "请重新调用 computer_see 刷新目标窗口。"), nil
+	}
+	startX, startY, startErr := computerTargetScreenCenter(source)
+	if startErr != nil {
+		return agent.Outcome{Data: *startErr, NextPrompt: "\n"}, nil
+	}
+	endX, endY, destinationID, endErr := t.computerDragEndPoint(call.Args, source)
+	if endErr != nil {
+		return agent.Outcome{Data: *endErr, NextPrompt: "\n"}, nil
+	}
+	approval := ActionApproval{
+		Operation: computerDragOperation,
+		PID:       source.Window.PID,
+		BBox:      strings.Join([]string{targetID, destinationID, asString(call.Args["delta_x"]), asString(call.Args["delta_y"])}, "|"),
+		Reason:    reason,
+	}
+	if !t.confirmations.Consume(strings.TrimSpace(asString(call.Args["confirmation_token"])), approval) {
+		return agent.Outcome{Data: map[string]any{
+			"status":  agent.ToolStatusError,
+			"code":    "desktop_action_confirmation_required",
+			"message": "this computer drag requires one-time user confirmation",
+			"hint":    "请调用 ask_user，并在 approval 中原样传入 approval_request；用户明确确认后，用同一 target_id、to_target_id/delta、reason 和 token 重试一次 computer_drag。",
+			"approval_request": map[string]any{
+				"operation": approval.Operation,
+				"pid":       approval.PID,
+				"bbox":      approval.BBox,
+				"reason":    approval.Reason,
+			},
+			"risk": desktopRiskExternal,
+		}, NextPrompt: "\n"}, nil
+	}
+	if err := activateDesktopTarget(ctx, t.driver, source.Window.PID); err != nil {
+		return desktopToolError(err), nil
+	}
+	result, err := t.driver.Drag(ctx, desktop.DragRequest{
+		PID:             source.Window.PID,
+		StartX:          startX,
+		StartY:          startY,
+		EndX:            endX,
+		EndY:            endY,
+		CoordinateSpace: desktop.CoordinateSpaceScreenPhysical,
+	})
+	if err != nil {
+		return desktopToolError(err), nil
+	}
+	verified := result.Performed && result.ActiveBefore && result.ActiveAfter
+	data := map[string]any{
+		"status":           agent.ToolStatusSuccess,
+		"target_id":        source.ID,
+		"to_target_id":     destinationID,
+		"pid":              result.PID,
+		"action":           result.Action,
+		"risk":             desktopRiskExternal,
+		"reason":           reason,
+		"expected_change":  strings.TrimSpace(asString(call.Args["expected_change"])),
+		"start_x":          result.StartX,
+		"start_y":          result.StartY,
+		"end_x":            result.EndX,
+		"end_y":            result.EndY,
+		"coordinate_space": result.CoordinateSpace,
+		"performed":        result.Performed,
+		"active_before":    result.ActiveBefore,
+		"active_after":     result.ActiveAfter,
+		"verified":         verified,
+	}
+	if !verified {
+		data["status"] = agent.ToolStatusError
+		data["code"] = "computer_drag_unverified"
+		data["message"] = "computer drag was sent but target foreground state was not verified"
+		data["hint"] = "请停止连续拖拽，重新调用 computer_see 确认目标窗口。"
+	}
+	return agent.Outcome{Data: data, NextPrompt: "\n"}, nil
+}
+
+func (t *ComputerDrag) computerDragEndPoint(args map[string]any, source computeruse.ComputerTarget) (int, int, string, *agent.ToolErrorData) {
+	toTargetID := strings.TrimSpace(asString(args["to_target_id"]))
+	if toTargetID != "" {
+		destination, err := t.store.Target(toTargetID)
+		if err != nil {
+			outcome := computerCacheError("computer_drag", err)
+			if toolErr, ok := outcome.Data.(agent.ToolErrorData); ok {
+				return 0, 0, "", &toolErr
+			}
+			generic := agent.NewToolError("computer_drag_bad_destination", "destination target is unavailable", "请重新调用 computer_see/computer_find 获取目标。")
+			return 0, 0, "", &generic
+		}
+		if destination.Window.PID != source.Window.PID {
+			err := agent.NewToolError("computer_drag_cross_window_unsupported", "source and destination targets are in different windows", "当前拖拽只允许同一目标窗口内的缓存 target。")
+			return 0, 0, "", &err
+		}
+		endX, endY, endErr := computerTargetScreenCenter(destination)
+		return endX, endY, destination.ID, endErr
+	}
+	deltaX := asInt(args["delta_x"], 0)
+	deltaY := asInt(args["delta_y"], 0)
+	if deltaX == 0 && deltaY == 0 {
+		err := agent.NewToolError("computer_drag_bad_destination", "computer_drag requires to_target_id or non-zero delta_x/delta_y", "请使用缓存目标作为终点，或提供受限相对偏移。")
+		return 0, 0, "", &err
+	}
+	if absInt(deltaX) > 1200 || absInt(deltaY) > 1200 {
+		err := agent.NewToolError("computer_drag_delta_too_large", "computer_drag delta exceeds the maximum absolute value", "请把拖拽拆成更小步骤，单次 delta_x/delta_y 绝对值不能超过 1200。")
+		return 0, 0, "", &err
+	}
+	startX, startY, startErr := computerTargetScreenCenter(source)
+	if startErr != nil {
+		return 0, 0, "", startErr
+	}
+	return startX + deltaX, startY + deltaY, "", nil
+}
+
+func computerTargetScreenCenter(target computeruse.ComputerTarget) (int, int, *agent.ToolErrorData) {
+	if target.CoordinateSpace == desktop.CoordinateSpaceScreenPhysical && target.Bounds.Width > 0 && target.Bounds.Height > 0 {
+		return target.Bounds.X + target.Bounds.Width/2, target.Bounds.Y + target.Bounds.Height/2, nil
+	}
+	if (target.Source == computeruse.SourceOCR || target.Source == computeruse.SourceVision) && target.ScreenshotManifest != "" {
+		manifest, manifestErr := readDesktopVisualManifest(target.ScreenshotManifest)
+		if manifestErr != nil {
+			return 0, 0, manifestErr
+		}
+		if validationErr := validateDesktopVisualManifest(manifest, target.Window.PID, target.ScreenshotRef, target.BBox); validationErr != nil {
+			return 0, 0, validationErr
+		}
+		x, y := mapScreenshotBBoxCenterToScreen(manifest, target.BBox)
+		return x, y, nil
+	}
+	err := agent.NewToolError("computer_drag_bad_target_bounds", "target does not have screen-physical bounds or a valid screenshot manifest", "请重新调用 computer_see/computer_find 选择当前可见目标。")
+	return 0, 0, &err
+}
+
+func absInt(value int) int {
+	if value < 0 {
+		return -value
+	}
+	return value
+}
+
+// ComputerClipboardWrite 写入系统剪贴板，不读取或返回原剪贴板内容。
+type ComputerClipboardWrite struct {
+	driver desktop.Driver
+}
+
+// NewComputerClipboardWrite 创建剪贴板写入工具。
+func NewComputerClipboardWrite(driver desktop.Driver) *ComputerClipboardWrite {
+	return &ComputerClipboardWrite{driver: driver}
+}
+
+func (t *ComputerClipboardWrite) Name() string { return ToolNameComputerClipboardWrite }
+
+func (t *ComputerClipboardWrite) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Write text to the system clipboard without reading or returning previous clipboard content. Use this before computer_paste when paste is more reliable than keystroke typing.",
+		Parameters: objectSchema(map[string]any{
+			"text":   stringProp("Text to write to clipboard. The result returns only length and line count."),
+			"reason": stringProp("Concrete user-facing reason for writing clipboard content."),
+		}, "text", "reason"),
+	}}
+}
+
+func (t *ComputerClipboardWrite) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	text, textErr := requiredDesktopTypeText(call.Args)
+	if textErr != nil {
+		return agent.Outcome{Data: *textErr, NextPrompt: "\n"}, nil
+	}
+	reason, reasonErr := requiredDesktopActionString(call.Args, "reason")
+	if reasonErr != nil {
+		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
+	}
+	result, err := t.driver.ClipboardWrite(ctx, desktop.ClipboardWriteRequest{Text: text})
+	if err != nil {
+		return desktopToolError(err), nil
+	}
+	return agent.Outcome{Data: map[string]any{
+		"status":           agent.ToolStatusSuccess,
+		"action":           result.Action,
+		"risk":             desktopRiskReversible,
+		"reason":           reason,
+		"performed":        result.Performed,
+		"text_length":      result.TextLength,
+		"line_count":       result.LineCount,
+		"content_returned": false,
+		"reads_clipboard":  false,
+	}, NextPrompt: "\n"}, nil
+}
+
+// ComputerPaste 将可选文本写入剪贴板后粘贴到最新目标窗口。
+type ComputerPaste struct {
+	driver desktop.Driver
+	store  *computeruse.Store
+}
+
+// NewComputerPaste 创建粘贴工具。
+func NewComputerPaste(driver desktop.Driver, store *computeruse.Store) *ComputerPaste {
+	if store == nil {
+		store = computeruse.NewStore(computeruse.DefaultTargetTTL)
+	}
+	return &ComputerPaste{driver: driver, store: store}
+}
+
+func (t *ComputerPaste) Name() string { return ToolNameComputerPaste }
+
+func (t *ComputerPaste) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Paste into the latest computer_see target window. If text is provided, the tool first writes that text to clipboard and then sends Cmd+V. It never reads clipboard content and never sends/submits.",
+		Parameters: objectSchema(map[string]any{
+			"text":   stringProp("Optional text to write before pasting. If omitted, paste the current clipboard without reading it."),
+			"reason": stringProp("Concrete user-facing reason for pasting into the target window."),
+		}, "reason"),
+	}}
+}
+
+func (t *ComputerPaste) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	state, err := t.store.LatestState()
+	if err != nil {
+		return computerCacheError("computer_paste", err), nil
+	}
+	if state.ActivePID <= 0 {
+		return computerToolError("computer_paste_no_target_window", "latest computer state has no active target window", "请先调用 computer_see 选择目标窗口。"), nil
+	}
+	reason, reasonErr := requiredDesktopActionString(call.Args, "reason")
+	if reasonErr != nil {
+		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
+	}
+	textWritten := false
+	textLength := 0
+	lineCount := 0
+	if _, hasText := call.Args["text"]; hasText {
+		text, textErr := requiredDesktopTypeText(call.Args)
+		if textErr != nil {
+			return agent.Outcome{Data: *textErr, NextPrompt: "\n"}, nil
+		}
+		writeResult, writeErr := t.driver.ClipboardWrite(ctx, desktop.ClipboardWriteRequest{Text: text})
+		if writeErr != nil {
+			return desktopToolError(writeErr), nil
+		}
+		textWritten = writeResult.Performed
+		textLength = writeResult.TextLength
+		lineCount = writeResult.LineCount
+	}
+	if err := activateDesktopTarget(ctx, t.driver, state.ActivePID); err != nil {
+		return desktopToolError(err), nil
+	}
+	result, err := t.driver.ClipboardPaste(ctx, desktop.ClipboardPasteRequest{PID: state.ActivePID})
+	if err != nil {
+		return desktopToolError(err), nil
+	}
+	verified := result.Performed && result.ActiveBefore && result.ActiveAfter
+	data := map[string]any{
+		"status":           agent.ToolStatusSuccess,
+		"state_id":         state.ID,
+		"pid":              result.PID,
+		"action":           result.Action,
+		"risk":             desktopRiskReversible,
+		"reason":           reason,
+		"text_written":     textWritten,
+		"text_length":      textLength,
+		"line_count":       lineCount,
+		"content_returned": false,
+		"reads_clipboard":  false,
+		"performed":        result.Performed,
+		"active_before":    result.ActiveBefore,
+		"active_after":     result.ActiveAfter,
+		"verified":         verified,
+	}
+	if !verified {
+		data["status"] = agent.ToolStatusError
+		data["code"] = "computer_paste_unverified"
+		data["message"] = "computer paste was sent but target foreground state was not verified"
+		data["hint"] = "请停止继续输入或发送，重新调用 computer_see 确认目标应用状态。"
+	}
+	return agent.Outcome{Data: data, NextPrompt: "\n"}, nil
+}
+
 // ComputerWait 等待最近 computer_see 的窗口出现文本，或仅短暂等待界面稳定。
 type ComputerWait struct {
 	driver desktop.Driver

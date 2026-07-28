@@ -442,6 +442,17 @@ desktop_click
 desktop_visual_click
 desktop_press_key
 desktop_type_text
+computer_see
+computer_find
+computer_click
+computer_type
+computer_press
+computer_wait
+computer_check
+computer_scroll
+computer_drag
+computer_clipboard_write
+computer_paste
 ```
 
 </details>

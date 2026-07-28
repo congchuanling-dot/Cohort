@@ -108,6 +108,14 @@ const (
 	ToolNameComputerWait = "computer_wait"
 	// ToolNameComputerCheck 验证当前 GUI 状态。
 	ToolNameComputerCheck = "computer_check"
+	// ToolNameComputerScroll 在最近 computer_see 的目标窗口中滚动。
+	ToolNameComputerScroll = "computer_scroll"
+	// ToolNameComputerDrag 从缓存 target 拖拽到另一个 target 或相对偏移。
+	ToolNameComputerDrag = "computer_drag"
+	// ToolNameComputerClipboardWrite 写入系统剪贴板但不读取原内容。
+	ToolNameComputerClipboardWrite = "computer_clipboard_write"
+	// ToolNameComputerPaste 将可选文本写入剪贴板后粘贴到目标窗口。
+	ToolNameComputerPaste = "computer_paste"
 )
 
 // Tool 是所有本地工具必须实现的接口。
@@ -180,6 +188,10 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameComputerPress,
 		ToolNameComputerWait,
 		ToolNameComputerCheck,
+		ToolNameComputerScroll,
+		ToolNameComputerDrag,
+		ToolNameComputerClipboardWrite,
+		ToolNameComputerPaste,
 		ToolNameSkillRead,
 		ToolNameUpdateWorkingCheckpoint,
 		ToolNameStartLongTermUpdate,

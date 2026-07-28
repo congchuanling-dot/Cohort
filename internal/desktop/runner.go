@@ -126,6 +126,30 @@ func (d *PythonDriver) TypeText(ctx context.Context, req TypeTextRequest) (TypeT
 	return result, d.call(ctx, "type_text", req, &result)
 }
 
+// Scroll 在已激活应用中发送受限滚轮事件。
+func (d *PythonDriver) Scroll(ctx context.Context, req ScrollRequest) (ScrollResult, error) {
+	var result ScrollResult
+	return result, d.call(ctx, "scroll", req, &result)
+}
+
+// Drag 在已激活应用中从一个受控物理点拖拽到另一个物理点。
+func (d *PythonDriver) Drag(ctx context.Context, req DragRequest) (DragResult, error) {
+	var result DragResult
+	return result, d.call(ctx, "drag", req, &result)
+}
+
+// ClipboardWrite 写入系统剪贴板，不读取或返回原剪贴板内容。
+func (d *PythonDriver) ClipboardWrite(ctx context.Context, req ClipboardWriteRequest) (ClipboardWriteResult, error) {
+	var result ClipboardWriteResult
+	return result, d.call(ctx, "clipboard_write", req, &result)
+}
+
+// ClipboardPaste 对已激活应用发送 Cmd+V。
+func (d *PythonDriver) ClipboardPaste(ctx context.Context, req ClipboardPasteRequest) (ClipboardPasteResult, error) {
+	var result ClipboardPasteResult
+	return result, d.call(ctx, "clipboard_paste", req, &result)
+}
+
 // helperEnvelope 是 Go 与 Python helper 之间固定的一层 JSON 返回协议。
 // 无论成功或失败，helper 都必须把业务数据放在该封装内，避免 Go 侧猜测 stderr。
 type helperEnvelope struct {

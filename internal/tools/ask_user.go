@@ -36,7 +36,7 @@ func (t *AskUser) Schema() llm.ToolSchema {
 		Description: "Ask the user for missing information or a decision.",
 		Parameters: objectSchema(map[string]any{
 			"question": stringProp("Question for the user"),
-			"approval": objectProp("Optional confirmation binding for a high-risk action. Supported operations: desktop_ax_press/desktop_click with operation, pid, node_id, reason; desktop_visual_click with operation, pid, image_path, bbox, reason; desktop_press_key with operation, pid, key, reason. A positive user answer returns a one-time confirmation_token."),
+			"approval": objectProp("Optional confirmation binding for a high-risk action. Supported operations: desktop_ax_press/desktop_click with operation, pid, node_id, reason; desktop_visual_click with operation, pid, image_path, bbox, reason; desktop_press_key with operation, pid, key, reason; computer_drag with operation, pid, bbox, reason. A positive user answer returns a one-time confirmation_token."),
 		}, "question"),
 	}}
 }
@@ -130,7 +130,7 @@ func parseAskUserApproval(args map[string]any) (*ActionApproval, *agent.ToolErro
 	if !validActionApproval(value) {
 		err := agent.NewToolError(
 			"confirmation_bad_request",
-			"ask_user approval only supports desktop_ax_press/desktop_click with pid/node_id/reason, desktop_visual_click with pid/image_path/bbox/reason, or desktop_press_key with pid/key/reason",
+			"ask_user approval only supports desktop_ax_press/desktop_click with pid/node_id/reason, desktop_visual_click with pid/image_path/bbox/reason, desktop_press_key with pid/key/reason, or computer_drag with pid/bbox/reason",
 			"请使用工具返回的 approval_request 原样请求用户确认，不要手写或复用旧确认。",
 		)
 		return nil, &err
@@ -150,6 +150,8 @@ func validActionApproval(value ActionApproval) bool {
 		return value.NodeID == "" && value.Key == "" && value.ImagePath != "" && value.BBox != ""
 	case desktopPressKeyOperation:
 		return value.Key != "" && value.NodeID == "" && value.ImagePath == "" && value.BBox == ""
+	case computerDragOperation:
+		return value.BBox != "" && value.NodeID == "" && value.Key == "" && value.ImagePath == ""
 	default:
 		return false
 	}
@@ -185,6 +187,13 @@ func approvalPrompt(value ActionApproval) string {
 			"该回答将只授权一次桌面按键操作：pid=%d，key=%s，原因=%s。",
 			value.PID,
 			value.Key,
+			value.Reason,
+		)
+	case computerDragOperation:
+		return fmt.Sprintf(
+			"该回答将只授权一次桌面拖拽操作：pid=%d，binding=%s，原因=%s。",
+			value.PID,
+			value.BBox,
 			value.Reason,
 		)
 	default:
