@@ -95,6 +95,9 @@ func (c *OpenAIClient) doChat(ctx context.Context, req ChatRequest, out chan<- E
 		Stream:   c.cfg.Stream,
 		Tools:    req.Tools,
 	}
+	if c.cfg.Stream {
+		body.StreamOptions = &openAIStreamOptions{IncludeUsage: true}
+	}
 	if len(body.Tools) > 0 {
 		// tool_choice=auto 表示让模型自行决定是否调用工具。
 		body.ToolChoice = "auto"
@@ -141,6 +144,12 @@ type openAIRequest struct {
 	Tools []ToolSchema `json:"tools,omitempty"`
 	// ToolChoice 控制模型是否自动选择工具。
 	ToolChoice string `json:"tool_choice,omitempty"`
+	// StreamOptions 控制流式响应是否返回 usage-only chunk。
+	StreamOptions *openAIStreamOptions `json:"stream_options,omitempty"`
+}
+
+type openAIStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 // buildOpenAIMessages 把 system prompt 合并到消息列表最前面。
@@ -196,12 +205,13 @@ func parseOpenAIJSON(r io.Reader) (*Response, error) {
 		return nil, err
 	}
 	if len(data.Choices) == 0 {
-		return &Response{}, nil
+		return &Response{Usage: data.Usage.toUsage()}, nil
 	}
 	msg := data.Choices[0].Message
 	return &Response{
 		Content:   msg.Content,
 		ToolCalls: normalizeToolCalls(msg.ToolCalls),
+		Usage:     data.Usage.toUsage(),
 	}, nil
 }
 
@@ -213,6 +223,7 @@ func parseOpenAISSE(r io.Reader, out chan<- Event) (*Response, error) {
 
 	var content strings.Builder
 	toolCalls := map[int]*ToolCall{}
+	var usage Usage
 	var raw strings.Builder
 
 	for scanner.Scan() {
@@ -237,6 +248,9 @@ func parseOpenAISSE(r io.Reader, out chan<- Event) (*Response, error) {
 				return nil, markModelProgress(err)
 			}
 			return nil, err
+		}
+		if chunk.Usage != nil {
+			usage = chunk.Usage.toUsage()
 		}
 		if len(chunk.Choices) == 0 {
 			continue
@@ -283,6 +297,7 @@ func parseOpenAISSE(r io.Reader, out chan<- Event) (*Response, error) {
 	return &Response{
 		Content:   content.String(),
 		ToolCalls: normalizeToolCalls(calls),
+		Usage:     usage,
 		Raw:       raw.String(),
 	}, nil
 }
@@ -304,6 +319,8 @@ type openAIResponse struct {
 		// Message 是该候选结果里的 assistant 消息。
 		Message Message `json:"message"`
 	} `json:"choices"`
+	// Usage 是本次请求的 token 用量。
+	Usage openAIUsage `json:"usage"`
 }
 
 // openAIStreamChunk 是 SSE 每个 data payload 的结构。
@@ -332,4 +349,24 @@ type openAIStreamChunk struct {
 			} `json:"tool_calls"`
 		} `json:"delta"`
 	} `json:"choices"`
+	// Usage 通常只出现在 include_usage=true 的最终 chunk。
+	Usage *openAIUsage `json:"usage,omitempty"`
+}
+
+type openAIUsage struct {
+	PromptTokens        int `json:"prompt_tokens"`
+	CompletionTokens    int `json:"completion_tokens"`
+	TotalTokens         int `json:"total_tokens"`
+	PromptTokensDetails struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
+}
+
+func (u openAIUsage) toUsage() Usage {
+	return Usage{
+		InputTokens:          u.PromptTokens,
+		OutputTokens:         u.CompletionTokens,
+		TotalTokens:          u.TotalTokens,
+		CacheReadInputTokens: u.PromptTokensDetails.CachedTokens,
+	}
 }

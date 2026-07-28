@@ -147,6 +147,8 @@ type Runner struct {
 	SkillStore *skill.Store
 	// Observability 接收 Runner 生命周期事件；为空时 Runner 会写入本地 run.log.jsonl。
 	Observability observability.Bus
+	// ObservationSinks 是默认本地 JSONL 之外的观测输出，例如 Langfuse。
+	ObservationSinks []observability.Sink
 	// WorkingCheckpoint 保存当前任务的短期关键约束，避免读过 SOP 后在多轮执行中遗忘。
 	WorkingCheckpoint WorkingCheckpoint
 

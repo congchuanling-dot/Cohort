@@ -99,6 +99,16 @@ llm:
       read_timeout_seconds: 120
       max_retries: 2
 
+# observability:
+#   langfuse:
+#     enabled: false
+#     host: https://cloud.langfuse.com
+#     public_key: ${LANGFUSE_PUBLIC_KEY}
+#     secret_key: ${LANGFUSE_SECRET_KEY}
+#     environment: dev
+#     release: local
+#     timeout_seconds: 2
+
 context:
   max_history_messages: 40
   keep_recent_tool_results: 2

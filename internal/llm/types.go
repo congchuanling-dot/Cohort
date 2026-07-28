@@ -66,8 +66,41 @@ type Response struct {
 	Content string
 	// ToolCalls 是模型在本轮请求中发起的工具调用。
 	ToolCalls []ToolCall
+	// Usage 保存供应商返回的 token 用量。
+	Usage Usage
 	// Raw 保存原始流式 payload，方便排查供应商协议问题。
 	Raw string
+}
+
+// Usage 是一次模型响应的 token 用量摘要。
+type Usage struct {
+	// InputTokens 是提示词、历史消息和工具 schema 等输入 token。
+	InputTokens int `json:"input_tokens,omitempty"`
+	// OutputTokens 是模型生成内容和工具调用参数等输出 token。
+	OutputTokens int `json:"output_tokens,omitempty"`
+	// TotalTokens 是供应商返回的总 token；未返回时可由输入和输出推导。
+	TotalTokens int `json:"total_tokens,omitempty"`
+	// CacheCreationInputTokens 是 Anthropic 等供应商报告的新写入缓存输入 token。
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+	// CacheReadInputTokens 是 Anthropic 等供应商报告的缓存命中输入 token。
+	CacheReadInputTokens int `json:"cache_read_input_tokens,omitempty"`
+}
+
+// IsZero 判断供应商是否没有返回用量信息。
+func (u Usage) IsZero() bool {
+	return u.InputTokens == 0 &&
+		u.OutputTokens == 0 &&
+		u.TotalTokens == 0 &&
+		u.CacheCreationInputTokens == 0 &&
+		u.CacheReadInputTokens == 0
+}
+
+// NormalizedTotal 返回可用于展示和上报的总 token。
+func (u Usage) NormalizedTotal() int {
+	if u.TotalTokens > 0 {
+		return u.TotalTokens
+	}
+	return u.InputTokens + u.OutputTokens
 }
 
 // ChatRequest 是 Runner 调用 LLM Client 时传入的数据。

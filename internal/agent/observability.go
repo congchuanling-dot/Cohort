@@ -16,11 +16,16 @@ func (r *Runner) observationBus() observability.Bus {
 	if r.Observability != nil {
 		return r.Observability
 	}
+	sinks := make([]observability.Sink, 0, 1+len(r.ObservationSinks))
 	path := r.observationLogPath()
-	if path == "" {
+	if path != "" {
+		sinks = append(sinks, observability.NewJSONLSink(path))
+	}
+	sinks = append(sinks, r.ObservationSinks...)
+	if len(sinks) == 0 {
 		return observability.NoopBus{}
 	}
-	return observability.NewBus(observability.NewJSONLSink(path))
+	return observability.NewBus(sinks...)
 }
 
 func (r *Runner) observationLogPath() string {
@@ -110,6 +115,24 @@ func llmResponseData(resp *llm.Response, duration time.Duration) map[string]any 
 	data["content_chars"] = len([]rune(resp.Content))
 	data["tool_call_count"] = len(resp.ToolCalls)
 	data["raw_chars"] = len([]rune(resp.Raw))
+	if !resp.Usage.IsZero() {
+		data["usage"] = usageData(resp.Usage)
+	}
+	return data
+}
+
+func usageData(usage llm.Usage) map[string]any {
+	data := map[string]any{
+		"input_tokens":  usage.InputTokens,
+		"output_tokens": usage.OutputTokens,
+		"total_tokens":  usage.NormalizedTotal(),
+	}
+	if usage.CacheCreationInputTokens > 0 {
+		data["cache_creation_input_tokens"] = usage.CacheCreationInputTokens
+	}
+	if usage.CacheReadInputTokens > 0 {
+		data["cache_read_input_tokens"] = usage.CacheReadInputTokens
+	}
 	return data
 }
 

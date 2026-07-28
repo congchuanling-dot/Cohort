@@ -11,6 +11,8 @@ func TestParseOpenAISSEText(t *testing.T) {
 		"",
 		`data: {"choices":[{"delta":{"content":"好"}}]}`,
 		"",
+		`data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,"prompt_tokens_details":{"cached_tokens":1}}}`,
+		"",
 		`data: [DONE]`,
 		"",
 	}, "\n"))
@@ -27,6 +29,9 @@ func TestParseOpenAISSEText(t *testing.T) {
 	if len(resp.ToolCalls) != 0 {
 		t.Fatalf("tool calls count = %d, want 0", len(resp.ToolCalls))
 	}
+	if resp.Usage.InputTokens != 3 || resp.Usage.OutputTokens != 2 || resp.Usage.TotalTokens != 5 || resp.Usage.CacheReadInputTokens != 1 {
+		t.Fatalf("usage = %#v, want OpenAI usage", resp.Usage)
+	}
 
 	first := <-out
 	if first.Type != EventText || first.Text != "你" {
@@ -40,6 +45,30 @@ func TestParseOpenAISSEText(t *testing.T) {
 	case event := <-out:
 		t.Fatalf("unexpected extra event: %#v", event)
 	default:
+	}
+}
+
+func TestParseOpenAIJSONUsage_BitsUT(t *testing.T) {
+	body := strings.NewReader(`{
+		"choices": [
+			{"message": {"content": "hello"}}
+		],
+		"usage": {
+			"prompt_tokens": 7,
+			"completion_tokens": 4,
+			"total_tokens": 11
+		}
+	}`)
+
+	resp, err := parseOpenAIJSON(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Content != "hello" {
+		t.Fatalf("content = %q, want hello", resp.Content)
+	}
+	if resp.Usage.InputTokens != 7 || resp.Usage.OutputTokens != 4 || resp.Usage.TotalTokens != 11 {
+		t.Fatalf("usage = %#v, want parsed OpenAI usage", resp.Usage)
 	}
 }
 
