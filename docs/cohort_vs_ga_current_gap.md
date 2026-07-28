@@ -8,7 +8,7 @@
 
 ## 结论摘要
 
-仓库里已有的 `docs/cohert_vs_ga_gap.md` 是早期 MVP 阶段的差距清单，其中“无 session、无浏览器、无长期记忆、无工作记忆”等判断已经过期。当前 Cohort 已经补齐并部分增强了这些基础能力：
+仓库里已有的 `docs/cohort_vs_ga_gap.md` 是早期 MVP 阶段的差距清单，其中“无 session、无浏览器、无长期记忆、无工作记忆”等判断已经过期。当前 Cohort 已经补齐并部分增强了这些基础能力：
 
 - 会话落盘、list、resume。
 - Context Manager、工具结果压缩、token 预算。
@@ -108,10 +108,10 @@ GA 的 OS 控制覆盖面广，但风险边界更宽。Cohort 的 desktop 工具
 
 Cohort 现在具备：
 
-- 项目级 `.cohort/skills/<name>/SKILL.md` 和用户级 `~/.cohert/skills/<name>/SKILL.md`。
+- 项目级 `.cohort/skills/<name>/SKILL.md` 和用户级 `~/.cohort/skills/<name>/SKILL.md`。
 - `skill install` 安装前预览候选 `SKILL.md`，并明确提示安装阶段不会执行命令、安装依赖或授权 MCP。
 - `--dry-run`、`--yes`、`--force`、`--scope project|user`、`--name`、Git URL 安装和 `--pin` 版本锁定。
-- `.cohert-skill.json` 记录 source、ref、resolved commit、pinned、alias、installed_at 和 content hash。
+- `.cohort-skill.json` 记录 source、ref、resolved commit、pinned、alias、installed_at 和 content hash。
 - `skill update`、`skill update --check`、`skill uninstall`、`skill doctor`。
 - 启动时只把 Skill 摘要注入系统提示词，命中后用 `skill_read` 按需读取完整正文。
 - REPL 支持 `/skill run <id>` 和声明 `user-invocable: true` 的 `/<skill-alias>`。
@@ -258,8 +258,8 @@ Cohort 目前没有后台 reflect runner。
 
 Cohort 缺：
 
-- `cohert reflect once`。
-- `cohert reflect scheduler`。
+- `cohort reflect once`。
+- `cohort reflect scheduler`。
 - session archive。
 - failure pattern mining。
 - SOP candidate mining。
@@ -268,9 +268,9 @@ Cohort 缺：
 建议先做只读：
 
 ```text
-cohert reflect once --task session-archive
-cohert reflect once --task mine-sop-candidates
-cohert reflect once --task memory-quality-report
+cohort reflect once --task session-archive
+cohort reflect once --task mine-sop-candidates
+cohort reflect once --task memory-quality-report
 ```
 
 优先级：P1-P2。
@@ -393,8 +393,8 @@ GA 有安装脚本、配置向导、桌面打包和 hub/service 管理。Cohort 
 
 Cohort 缺：
 
-- `cohert doctor`。
-- `cohert skill doctor` 已有，但还缺覆盖全局运行环境的总入口。
+- `cohort doctor`。
+- `cohort skill doctor` 已有，但还缺覆盖全局运行环境的总入口。
 - API key / model connectivity 检查。
 - browser bridge 检查。
 - Python helper 依赖检查。
@@ -426,7 +426,7 @@ Cohort 缺：
 2. 严格文本 `<tool_use>` 兜底。
 3. Lifecycle event 内部接口。
 4. `run.log` 从工具审计扩展为完整 JSONL 事件流。
-5. `cohert doctor` 总入口。
+5. `cohort doctor` 总入口。
 6. `/diff` 和文件变更摘要。
 
 验收：
@@ -498,7 +498,7 @@ Cohort 下一阶段不应该照搬 GA 的所有外围能力，而应优先把运
 FinishGuard / NoToolPolicy
   -> 文本 tool_use 兜底
   -> Lifecycle Hook / run.log 事件流
-  -> Diff / cohert doctor
+  -> Diff / cohort doctor
   -> Project / Plan Mode
   -> 内置 Skill 包 / runtime permissions
   -> Reflect archive

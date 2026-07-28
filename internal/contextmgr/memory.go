@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"cohert/internal/llm"
+	"cohort/internal/llm"
 )
 
 const (
@@ -48,7 +48,7 @@ func buildLongTermMemoryIndexMessage(indexText string, cfg Config, stats *Stats)
 	limited, truncated := limitRunes(indexText, cfg.MaxMemoryIndexChars)
 	content := longTermMemoryIndexNotice + "\n\n" + limited
 	if truncated {
-		content += "\n\n[Cohert long-term memory index truncated]"
+		content += "\n\n[Cohort long-term memory index truncated]"
 		stats.MemoryIndexTruncated = true
 	}
 
@@ -92,7 +92,7 @@ func buildSessionMemoryMessage(memoryText string, cfg Config, stats *Stats) (llm
 	limited, truncated := limitRunes(memoryText, cfg.MaxSessionMemoryChars)
 	content := sessionMemoryNotice + "\n\n" + limited
 	if truncated {
-		content += "\n\n[Cohert session memory truncated]"
+		content += "\n\n[Cohort session memory truncated]"
 		stats.SessionMemoryTruncated = true
 	}
 
@@ -136,7 +136,7 @@ func buildCompactSummaryMessage(summaryText string, cfg Config, stats *Stats) (l
 	limited, truncated := limitRunes(summaryText, cfg.MaxCompactSummaryChars)
 	content := compactSummaryNotice + "\n\n" + limited
 	if truncated {
-		content += "\n\n[Cohert compact summary truncated]"
+		content += "\n\n[Cohort compact summary truncated]"
 		stats.CompactSummaryTruncated = true
 	}
 

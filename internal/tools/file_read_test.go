@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"cohert/internal/agent"
+	"cohort/internal/agent"
 )
 
 func TestFileReadAddsSOPCheckpointHint_BitsUT(t *testing.T) {

@@ -19,7 +19,7 @@ Go 改动：
 Chrome 插件 JS 改动：
 
 ```bash
-node --check assert/cohert_browser_bridge/background.js
+node --check assert/cohort_browser_bridge/background.js
 ```
 
 文档路径或引用改动：

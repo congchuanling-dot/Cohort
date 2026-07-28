@@ -15,8 +15,8 @@ const (
 	SkillFileName = "SKILL.md"
 	// ProjectSkillsDir 是项目级 Skill 根目录。
 	ProjectSkillsDir = ".cohort/skills"
-	// UserSkillsDir 是用户级 Skill 根目录。沿用 Cohert 当前全局目录拼写。
-	UserSkillsDir = ".cohert/skills"
+	// UserSkillsDir 是用户级 Skill 根目录。沿用 Cohort 当前全局目录拼写。
+	UserSkillsDir = ".cohort/skills"
 
 	maxSkillDescriptionRunes = 240
 	maxSkillReadBytes        = 200_000
@@ -45,7 +45,7 @@ type Skill struct {
 }
 
 // Requires 描述 Skill 在运行前需要用户显式准备的外部依赖。
-// Cohert 只负责解析和诊断，不会自动安装命令、配置 MCP 或读取环境变量值。
+// Cohort 只负责解析和诊断，不会自动安装命令、配置 MCP 或读取环境变量值。
 type Requires struct {
 	MCP      []string `json:"mcp,omitempty"`
 	Env      []string `json:"env,omitempty"`

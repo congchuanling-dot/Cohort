@@ -3,9 +3,9 @@ package tools
 import (
 	"context"
 
-	"cohert/internal/agent"
-	"cohert/internal/llm"
-	"cohert/internal/skill"
+	"cohort/internal/agent"
+	"cohort/internal/llm"
+	"cohort/internal/skill"
 )
 
 // SkillRead 读取已经发现的 Skill 正文。
@@ -23,7 +23,7 @@ func (t *SkillRead) Name() string { return ToolNameSkillRead }
 func (t *SkillRead) Schema() llm.ToolSchema {
 	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
 		Name:        t.Name(),
-		Description: "Read the full SKILL.md for a discovered Cohert Skill. Use this after the Skill Index suggests a matching workflow. skill_id must be an id from the Skill Index, such as project/go-test or user/release-checks; an unambiguous alias is also accepted.",
+		Description: "Read the full SKILL.md for a discovered Cohort Skill. Use this after the Skill Index suggests a matching workflow. skill_id must be an id from the Skill Index, such as project/go-test or user/release-checks; an unambiguous alias is also accepted.",
 		Parameters: objectSchema(map[string]any{
 			"skill_id": stringProp("Skill id from the Skill Index or /skill list, for example project/go-test."),
 		}, "skill_id"),

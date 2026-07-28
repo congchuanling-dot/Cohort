@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"cohert/internal/agent"
-	"cohert/internal/llm"
+	"cohort/internal/agent"
+	"cohort/internal/llm"
 )
 
 // FileRead 读取文本文件，并可按行号截取内容。

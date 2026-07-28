@@ -8,14 +8,14 @@ import (
 	"strings"
 	"testing"
 
-	"cohert/internal/agent"
-	"cohert/internal/app"
-	"cohert/internal/contextmgr"
-	"cohert/internal/evolution"
-	"cohert/internal/llm"
-	"cohert/internal/mcp"
-	"cohert/internal/session"
-	"cohert/internal/skill"
+	"cohort/internal/agent"
+	"cohort/internal/app"
+	"cohort/internal/contextmgr"
+	"cohort/internal/evolution"
+	"cohort/internal/llm"
+	"cohort/internal/mcp"
+	"cohort/internal/session"
+	"cohort/internal/skill"
 )
 
 type fakeClient struct {
@@ -77,7 +77,7 @@ func TestStartHandlesSlashCommandsLocally(t *testing.T) {
 		t.Fatalf("model calls = %d, want 0", client.calls)
 	}
 	output := out.String()
-	for _, want := range []string{"Cohert", "model:", "tools:", "file_read", "bye"} {
+	for _, want := range []string{"Cohort", "model:", "tools:", "file_read", "bye"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output does not contain %q:\n%s", want, output)
 		}

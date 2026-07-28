@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"cohert/internal/agent"
-	"cohert/internal/llm"
+	"cohort/internal/agent"
+	"cohort/internal/llm"
 )
 
 // FileWrite 创建或修改文本文件，支持 overwrite/append/prepend 三种模式。

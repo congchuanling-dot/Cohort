@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"cohert/internal/llm"
+	"cohort/internal/llm"
 )
 
 // Store 管理本地 session 目录。
@@ -83,7 +83,7 @@ func (s Store) SessionDir(sessionID string) string {
 // MetaPath 返回 meta.json 路径。
 // 这个文件用于快速读取会话列表，不需要扫描完整 history.jsonl。
 //
-// 后续 `cohert session list` 只需要读取每个 session 目录下的 meta.json，
+// 后续 `cohort session list` 只需要读取每个 session 目录下的 meta.json，
 // 不需要把所有历史消息都加载进内存。
 func (s Store) MetaPath(sessionID string) string {
 	return filepath.Join(s.SessionDir(sessionID), MetaFileName)
@@ -119,7 +119,7 @@ func (s Store) SaveMeta(sess Session) error {
 
 // LoadMeta 读取某个 session 的 meta.json。
 //
-// 后续做 `cohert resume <id>` 时，会先通过这个方法拿到会话元信息，
+// 后续做 `cohort resume <id>` 时，会先通过这个方法拿到会话元信息，
 // 再继续读取 history.jsonl 还原完整模型上下文。
 func (s Store) LoadMeta(sessionID string) (Session, error) {
 	data, err := os.ReadFile(s.MetaPath(sessionID))

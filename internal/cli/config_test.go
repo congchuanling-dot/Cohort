@@ -8,16 +8,16 @@ import (
 	"strings"
 	"testing"
 
-	"cohert/internal/app"
+	"cohort/internal/app"
 )
 
 func TestParseGlobalOptionsConsumesConfigPath_BitsUT(t *testing.T) {
-	opts, args, err := parseGlobalOptions([]string{"--config", "/tmp/cohert.yaml", "config"})
+	opts, args, err := parseGlobalOptions([]string{"--config", "/tmp/cohort.yaml", "config"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.ConfigPath != "/tmp/cohert.yaml" {
-		t.Fatalf("config path = %q, want /tmp/cohert.yaml", opts.ConfigPath)
+	if opts.ConfigPath != "/tmp/cohort.yaml" {
+		t.Fatalf("config path = %q, want /tmp/cohort.yaml", opts.ConfigPath)
 	}
 	if len(args) != 1 || args[0] != "config" {
 		t.Fatalf("args = %#v, want [config]", args)
@@ -25,12 +25,12 @@ func TestParseGlobalOptionsConsumesConfigPath_BitsUT(t *testing.T) {
 }
 
 func TestParseGlobalOptionsConsumesConfigEquals_BitsUT(t *testing.T) {
-	opts, args, err := parseGlobalOptions([]string{"--config=/tmp/cohert.yaml", "tools"})
+	opts, args, err := parseGlobalOptions([]string{"--config=/tmp/cohort.yaml", "tools"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.ConfigPath != "/tmp/cohert.yaml" {
-		t.Fatalf("config path = %q, want /tmp/cohert.yaml", opts.ConfigPath)
+	if opts.ConfigPath != "/tmp/cohort.yaml" {
+		t.Fatalf("config path = %q, want /tmp/cohort.yaml", opts.ConfigPath)
 	}
 	if len(args) != 1 || args[0] != "tools" {
 		t.Fatalf("args = %#v, want [tools]", args)

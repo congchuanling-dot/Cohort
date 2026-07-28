@@ -15,9 +15,9 @@ manifest.json
 ```json
 {
   "manifest_version": 3,
-  "name": "Cohert Browser Bridge",
+  "name": "Cohort Browser Bridge",
   "version": "0.1.0",
-  "description": "Connect Cohert to a real Chrome session for tab scanning and controlled JavaScript execution.",
+  "description": "Connect Cohort to a real Chrome session for tab scanning and controlled JavaScript execution.",
   "permissions": [
     "tabs",
     "activeTab",
@@ -47,7 +47,7 @@ manifest.json
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Cohert Browser Bridge"
+    "default_title": "Cohort Browser Bridge"
   }
 }
 ```
@@ -79,7 +79,7 @@ Chrome 插件的 manifest 本质就是一个 JSON 对象，里面用 key/value �
 ### 第 3 行
 
 ```json
-"name": "Cohert Browser Bridge",
+"name": "Cohort Browser Bridge",
 ```
 
 插件名。
@@ -90,7 +90,7 @@ Chrome 插件的 manifest 本质就是一个 JSON 对象，里面用 key/value �
 - 插件工具栏
 - 插件详情页
 
-这里定名为 `Cohert Browser Bridge`，意思是它是 Cohert 和真实 Chrome 浏览器之间的桥。
+这里定名为 `Cohort Browser Bridge`，意思是它是 Cohort 和真实 Chrome 浏览器之间的桥。
 
 ### 第 4 行
 
@@ -112,7 +112,7 @@ Chrome 插件的 manifest 本质就是一个 JSON 对象，里面用 key/value �
 ### 第 5 行
 
 ```json
-"description": "Connect Cohert to a real Chrome session for tab scanning and controlled JavaScript execution.",
+"description": "Connect Cohort to a real Chrome session for tab scanning and controlled JavaScript execution.",
 ```
 
 插件描述。
@@ -146,9 +146,9 @@ Chrome 插件的 manifest 本质就是一个 JSON 对象，里面用 key/value �
 
 - `chrome.tabs.query({})`：列出所有标签页。
 - `chrome.tabs.get(tabId)`：读取指定 tab 的标题、URL 等信息。
-- 监听 `chrome.tabs.onUpdated/onCreated/onRemoved`：标签页变化时通知 Cohert。
+- 监听 `chrome.tabs.onUpdated/onCreated/onRemoved`：标签页变化时通知 Cohort。
 
-对应 Cohert 后续工具：
+对应 Cohort 后续工具：
 
 ```text
 browser_tabs
@@ -202,7 +202,7 @@ chrome.scripting.executeScript({
 - `location.href`
 - `document.body.innerText`
 
-`browser_execute_js` 也是靠它执行 Cohert 发来的 JS。
+`browser_execute_js` 也是靠它执行 Cohort 发来的 JS。
 
 面试说法：
 
@@ -242,8 +242,8 @@ MV3 的 background service worker 不是永久常驻的，Chrome 可能会挂起
 
 我们用 `alarms` 做两件事：
 
-- 未连接 Cohert 时，定期尝试重连。
-- 已连接 Cohert 时，定期发送 keepalive ping。
+- 未连接 Cohort 时，定期尝试重连。
+- 已连接 Cohort 时，定期发送 keepalive ping。
 
 对应代码在 `background.js`：
 
@@ -321,7 +321,7 @@ https://github.com/
 
 为什么不写 `<all_urls>`：
 
-GA 版用了更大的权限范围，但 Cohert 第一版主动收窄，只处理 `http/https`。
+GA 版用了更大的权限范围，但 Cohort 第一版主动收窄，只处理 `http/https`。
 
 这样不会覆盖：
 
@@ -357,7 +357,7 @@ background.js
 
 这个文件负责：
 
-- 连接 Cohert WebSocket。
+- 连接 Cohort WebSocket。
 - 维护连接状态。
 - 分发 `tabs/scan/execute_js` 命令。
 - 监听 tab 变化。
@@ -424,7 +424,7 @@ content.js
 当前 `content.js` 只做一个很轻的调试标记：
 
 ```text
-页面右下角显示 Cohert bridge
+页面右下角显示 Cohort bridge
 ```
 
 它不负责 WebSocket，也不负责核心 browser_scan。
@@ -502,7 +502,7 @@ popup.html
 ### 第 35 行
 
 ```json
-"default_title": "Cohert Browser Bridge"
+"default_title": "Cohort Browser Bridge"
 ```
 
 声明鼠标悬浮到插件图标上时显示的标题。

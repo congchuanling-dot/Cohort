@@ -8,18 +8,18 @@ import (
 )
 
 const (
-	// EnvConfigPath 是显式指定 Cohert 配置文件的环境变量名。
-	EnvConfigPath = "COHERT_CONFIG"
+	// EnvConfigPath 是显式指定 Cohort 配置文件的环境变量名。
+	EnvConfigPath = "COHORT_CONFIG"
 	// ProjectConfigPath 是项目级默认配置路径，兼容开发期在仓库根目录运行。
 	ProjectConfigPath = "configs/config.yaml"
 	// UserConfigRelativePath 是用户级默认配置路径。
-	UserConfigRelativePath = ".cohert/config.yaml"
+	UserConfigRelativePath = ".cohort/config.yaml"
 )
 
 // ResolveConfigPath 按优先级解析配置文件路径。
 //
-// 优先级：显式 --config/-c > COHERT_CONFIG > 当前目录 configs/config.yaml >
-// ~/.cohert/config.yaml。显式指定的路径必须存在；自动搜索不到配置文件时返回
+// 优先级：显式 --config/-c > COHORT_CONFIG > 当前目录 configs/config.yaml >
+// ~/.cohort/config.yaml。显式指定的路径必须存在；自动搜索不到配置文件时返回
 // 项目默认路径，让 LoadConfig 继续使用内置默认值。
 func ResolveConfigPath(explicit string) (string, error) {
 	if strings.TrimSpace(explicit) != "" {
@@ -38,7 +38,7 @@ func ResolveConfigPath(explicit string) (string, error) {
 	return filepath.Clean(ProjectConfigPath), nil
 }
 
-// UserConfigPath 返回当前用户的默认 Cohert 配置文件路径。
+// UserConfigPath 返回当前用户的默认 Cohort 配置文件路径。
 func UserConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {

@@ -3,7 +3,7 @@ package contextmgr
 import (
 	"fmt"
 
-	"cohert/internal/llm"
+	"cohort/internal/llm"
 )
 
 type messageGroup struct {

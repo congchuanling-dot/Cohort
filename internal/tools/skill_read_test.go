@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"cohert/internal/agent"
-	"cohert/internal/skill"
+	"cohort/internal/agent"
+	"cohort/internal/skill"
 )
 
 func TestSkillReadReturnsDiscoveredSkill_BitsUT(t *testing.T) {

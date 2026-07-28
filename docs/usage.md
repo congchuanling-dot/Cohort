@@ -1,12 +1,12 @@
-# Cohert 使用教程
+# Cohort 使用教程
 
 > 文档状态：`[维护]`。当前实现状态和设计文档导航见 [docs/README.md](README.md)。
 
-这份文档说明当前 Cohert 怎么启动、有哪些命令、怎么恢复 session。
+这份文档说明当前 Cohort 怎么启动、有哪些命令、怎么恢复 session。
 
 ## 0. 安装和配置路径
 
-开发阶段可以继续在 Cohert 项目根目录运行：
+开发阶段可以继续在 Cohort 项目根目录运行：
 
 ```bash
 cd /Users/bytedance/Desktop/myOwnProject/Cohort
@@ -22,15 +22,15 @@ curl -fsSL https://raw.githubusercontent.com/congchuanling-dot/Cohort/master/scr
 
 ```bash
 ./scripts/install.sh
-export PATH="$HOME/.cohert/bin:$PATH"
-cohert config
-cohert doctor
+export PATH="$HOME/.cohort/bin:$PATH"
+cohort config
+cohort doctor
 ```
 
 安装脚本会优先下载 GitHub Release 里的 macOS 二进制；如果 release 不可用，
-才回退到源码构建。最终会把二进制写入 `~/.cohert/bin/cohert`，把用户级配置
-写入 `~/.cohert/config.yaml`。它不会写入 API key。macOS zsh 下会自动把
-`~/.cohert/bin` 写入 `~/.zshrc`；不希望修改 shell 配置时使用：
+才回退到源码构建。最终会把二进制写入 `~/.cohort/bin/cohort`，把用户级配置
+写入 `~/.cohort/config.yaml`。它不会写入 API key。macOS zsh 下会自动把
+`~/.cohort/bin` 写入 `~/.zshrc`；不希望修改 shell 配置时使用：
 
 ```bash
 ./scripts/install.sh --no-shell
@@ -51,34 +51,34 @@ curl -fsSL https://raw.githubusercontent.com/congchuanling-dot/Cohort/master/scr
   --version v0.1.0
 ```
 
-Cohert 配置文件查找顺序：
+Cohort 配置文件查找顺序：
 
 1. `--config <file>` 或 `-c <file>`
-2. `COHERT_CONFIG`
+2. `COHORT_CONFIG`
 3. 当前目录的 `configs/config.yaml`
-4. `~/.cohert/config.yaml`
+4. `~/.cohort/config.yaml`
 
 例如：
 
 ```bash
-cohert --config ~/.cohert/config.yaml config
-COHERT_CONFIG=~/.cohert/config.yaml cohert ask "用一句话介绍 Cohert"
+cohort --config ~/.cohort/config.yaml config
+COHORT_CONFIG=~/.cohort/config.yaml cohort ask "用一句话介绍 Cohort"
 ```
 
 初始化或覆盖用户级配置：
 
 ```bash
-cohert init
-cohert init --provider anthropic --force
-cohert --config ./my-cohert.yaml init --provider local
+cohort init
+cohort init --provider anthropic --force
+cohort --config ./my-cohort.yaml init --provider local
 ```
 
 诊断当前环境：
 
 ```bash
-cohert doctor
-cohert doctor --connect
-cohert doctor computer
+cohort doctor
+cohort doctor --connect
+cohort doctor computer
 ```
 
 `doctor` 默认检查配置解析、API key、provider、api_base 格式、workspace 和 log 目录可写性。`--connect` 会额外访问 `api_base` 检查网络可达性，但不会发起模型补全请求。
@@ -119,7 +119,7 @@ go run .
 
 ```text
 ╭────────────────────────────────────────────────────────────╮
-│ Cohert                                                     │
+│ Cohort                                                     │
 │ Command-line Agent Runtime                                │
 ├────────────────────────────────────────────────────────────┤
 │ Model      deepseek-v4-pro                                 │
@@ -131,7 +131,7 @@ go run .
 │ 输入 / 打开命令菜单；用 ↑↓ 选择，Enter 执行              │
 ╰────────────────────────────────────────────────────────────╯
 
-cohert ›
+cohort ›
 ```
 
 然后直接输入任务：
@@ -313,7 +313,7 @@ go run . config
 
 ### 4.6 管理 MCP Server
 
-MCP 让 Cohert 连接飞书、GitHub、数据库等外部系统。项目级配置使用 Claude Code 兼容的 `.mcp.json`，所以现有 Claude Code 配置可以直接复用。
+MCP 让 Cohort 连接飞书、GitHub、数据库等外部系统。项目级配置使用 Claude Code 兼容的 `.mcp.json`，所以现有 Claude Code 配置可以直接复用。
 
 查看当前生效的 server：
 
@@ -356,7 +356,7 @@ go run . mcp probe github
 
 首次使用 `npx` 安装某个 MCP Server 时，npm 需要下载依赖，可能需要几十秒；等 `probe` 成功列出工具后再启动 `ask`，后续启动会命中本机缓存。
 
-默认写入项目级 `.mcp.json`。可加 `--scope user` 写入 `~/.cohert/mcp.json`，或加 `--scope local` 写入默认 gitignore 的 `.cohort/local.mcp.json`：
+默认写入项目级 `.mcp.json`。可加 `--scope user` 写入 `~/.cohort/mcp.json`，或加 `--scope local` 写入默认 gitignore 的 `.cohort/local.mcp.json`：
 
 ```bash
 go run . mcp remove github
@@ -563,7 +563,7 @@ go run .
 先执行一次：
 
 ```bash
-go run . ask "用一句话介绍 Cohert"
+go run . ask "用一句话介绍 Cohort"
 ```
 
 或者进入交互模式问一个问题：
@@ -651,7 +651,7 @@ context:
 
 字段说明：
 
-- 模型上下文窗口不需要用户配置。Cohert 会根据 `llm.model` 查内置 map，`deepseek-v4-pro` / `dsv4pro` 按 1000000 tokens 处理。
+- 模型上下文窗口不需要用户配置。Cohort 会根据 `llm.model` 查内置 map，`deepseek-v4-pro` / `dsv4pro` 按 1000000 tokens 处理。
 - 压缩触发比例固定为可用输入预算的 70%。
 - `max_history_messages`：本轮请求最多保留的历史消息数。
 - `max_memory_index_chars`：`memory/index.md` 注入请求前允许携带的最大字符数。
@@ -674,7 +674,7 @@ context:
 temp/sessions/<session_id>/memory.md
 ```
 
-Cohert 会在每次请求模型前读取它，并作为 `[Cohert session memory]` 注入到 request messages 前部。
+Cohort 会在每次请求模型前读取它，并作为 `[Cohort session memory]` 注入到 request messages 前部。
 
 生成或更新 `memory.md`：
 
@@ -719,7 +719,7 @@ temp/model_responses/context.log
 temp/sessions/<session_id>/compact.bak.md
 ```
 
-只要当前 session 目录下存在 `compact.md`，Cohert 会在每次请求模型前自动读取并注入。长期记忆开启后，Context Manager 会先注入 `memory/index.md` 指针和命中的相关 entry。整体顺序固定为：
+只要当前 session 目录下存在 `compact.md`，Cohort 会在每次请求模型前自动读取并注入。长期记忆开启后，Context Manager 会先注入 `memory/index.md` 指针和命中的相关 entry。整体顺序固定为：
 
 ```text
 memory/index.md -> relevant long-term memory -> memory.md -> compact.md -> 最近对话消息
@@ -763,13 +763,13 @@ memory/reflection/sop_candidates.md
 
 ### 9.4 Skill Runtime
 
-Skill 是可按需读取的任务工作流包，和 MCP 工具分开管理。Cohert 启动时只扫描并注入 Skill 摘要索引，不把完整 `SKILL.md` 默认塞进系统提示词。
+Skill 是可按需读取的任务工作流包，和 MCP 工具分开管理。Cohort 启动时只扫描并注入 Skill 摘要索引，不把完整 `SKILL.md` 默认塞进系统提示词。
 
 当前扫描目录：
 
 ```text
 .cohort/skills/<skill_name>/SKILL.md
-~/.cohert/skills/<skill_name>/SKILL.md
+~/.cohort/skills/<skill_name>/SKILL.md
 ```
 
 安装本地 Skill 目录：
@@ -796,14 +796,14 @@ go run . skill install --yes ./path/to/skill
 go run . skill install --dry-run ./path/to/skill
 ```
 
-安装预览会解析来源、定位候选 `SKILL.md`、计算将安装的文件数和内容 SHA256，并显示目标路径、`requires` 依赖摘要和候选 `SKILL.md` 指令内容。`--dry-run` 使用同一套预览逻辑，但不会进入确认和安装阶段，也不会创建 `.cohort/skills/<skill_name>` 或 `~/.cohert/skills/<skill_name>`。
+安装预览会解析来源、定位候选 `SKILL.md`、计算将安装的文件数和内容 SHA256，并显示目标路径、`requires` 依赖摘要和候选 `SKILL.md` 指令内容。`--dry-run` 使用同一套预览逻辑，但不会进入确认和安装阶段，也不会创建 `.cohort/skills/<skill_name>` 或 `~/.cohort/skills/<skill_name>`。
 
 预览阶段的安全边界：
 
 - 让用户确认来源、git commit、目标目录、是否覆盖和内容 hash。
 - 让用户在确认前看到完整或截断后的 `SKILL.md` 指令，理解这个 Skill 之后会让 Agent 做什么。
 - 终端输出会过滤控制字符，避免远程内容用转义序列污染终端。
-- Cohert 不会在安装阶段自动运行 Skill、安装依赖、授权 MCP、写入环境变量或执行命令。
+- Cohort 不会在安装阶段自动运行 Skill、安装依赖、授权 MCP、写入环境变量或执行命令。
 - 这不是自动安全审计器；第三方 Skill 是否可信仍需要用户根据来源和指令内容判断。
 
 安装 git 仓库里的 Skill：
@@ -838,7 +838,7 @@ go run . skill install --name go-test https://example.com/org/skills.git
 go run . skill install --force ./path/to/skill
 ```
 
-正式安装会写入 `.cohert-skill.json`，记录：
+正式安装会写入 `.cohort-skill.json`，记录：
 
 ```json
 {
@@ -855,7 +855,7 @@ go run . skill install --force ./path/to/skill
 }
 ```
 
-其中 `content_hash` 覆盖 Skill 包内普通文件，不包含 `.cohert-skill.json` 本身。
+其中 `content_hash` 覆盖 Skill 包内普通文件，不包含 `.cohort-skill.json` 本身。
 
 Skill 可以在 `SKILL.md` frontmatter 中声明运行前依赖：
 
@@ -876,11 +876,11 @@ requires:
 
 支持的 `requires` 分类：
 
-- `mcp`：需要用户已通过 `cohert mcp add ...` 显式配置的 MCP Server 名称。
+- `mcp`：需要用户已通过 `cohort mcp add ...` 显式配置的 MCP Server 名称。
 - `env`：需要存在的环境变量名。doctor 只检查是否存在，不会输出变量值。
 - `commands`：需要能在 `PATH` 中找到的命令名。
 
-Cohert 不会根据 `requires` 自动安装命令、添加 MCP Server、申请授权或写入环境变量；这些依赖只用于安装预览、`skill list/show` 和 `skill doctor` 的展示与诊断。
+Cohort 不会根据 `requires` 自动安装命令、添加 MCP Server、申请授权或写入环境变量；这些依赖只用于安装预览、`skill list/show` 和 `skill doctor` 的展示与诊断。
 
 更新和删除已安装 Skill：
 
@@ -916,7 +916,7 @@ go run . skill doctor project/<skill_name>
 - `requires` 声明的 MCP Server 是否已配置。
 - `requires` 声明的环境变量是否存在，且不展示变量值。
 - `requires` 声明的命令是否能在 `PATH` 中找到。
-- `.cohert-skill.json` 是否存在且 JSON 可读。
+- `.cohort-skill.json` 是否存在且 JSON 可读。
 - manifest 中的 source/source_type 是否完整。
 - 当前文件内容 hash 是否和安装时记录一致。
 
@@ -982,50 +982,50 @@ go run . config
 ```bash
 # 查看帮助
 go run . help
-cohert help
+cohort help
 
 # 进入交互模式
 go run .
-cohert
+cohort
 
 # 执行单次任务
 go run . ask "任务内容"
-cohert ask "任务内容"
+cohort ask "任务内容"
 
 # 查看工具
 go run . tools
-cohert tools
+cohort tools
 
 # 查看配置
 go run . config
-cohert config
-cohert --config ~/.cohert/config.yaml config
+cohort config
+cohort --config ~/.cohort/config.yaml config
 
 # 初始化配置
-cohert init
-cohert init --provider anthropic --force
+cohort init
+cohort init --provider anthropic --force
 
 # 诊断环境
 go run . doctor
-cohert doctor
-cohert doctor --connect
+cohort doctor
+cohort doctor --connect
 
 # 查看 session 列表，兼容入口
 go run . session list
-cohert session list
+cohort session list
 
 # 恢复 session，兼容入口
 go run . session resume <session_id>
-cohert session resume <session_id>
+cohort session resume <session_id>
 
 # 构建本地二进制
-go build -o cohert ./cmd/cohert
+go build -o cohort ./cmd/cohort
 
 # 使用本地二进制
-./cohert
-./cohert ask "任务内容"
-./cohert session list
-./cohert session resume <session_id>
+./cohort
+./cohort ask "任务内容"
+./cohort session list
+./cohort session resume <session_id>
 ```
 
 交互模式内：

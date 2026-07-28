@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"cohert/internal/llm"
+	"cohort/internal/llm"
 )
 
 const runLogFileName = "run.log"

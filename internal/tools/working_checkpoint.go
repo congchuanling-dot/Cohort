@@ -3,8 +3,8 @@ package tools
 import (
 	"context"
 
-	"cohert/internal/agent"
-	"cohert/internal/llm"
+	"cohort/internal/agent"
+	"cohort/internal/llm"
 )
 
 // UpdateWorkingCheckpoint 让模型把当前任务的关键约束写入短期工作记忆。

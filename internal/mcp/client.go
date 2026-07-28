@@ -91,7 +91,7 @@ func (c *initializedClient) initialize(ctx context.Context) error {
 		"protocolVersion": protocolVersion,
 		"capabilities":    map[string]any{},
 		"clientInfo": map[string]string{
-			"name":    "cohert",
+			"name":    "cohort",
 			"version": "0.1.0",
 		},
 	}, &result); err != nil {
@@ -102,7 +102,7 @@ func (c *initializedClient) initialize(ctx context.Context) error {
 	return c.request(ctx, "notifications/initialized", map[string]any{}, nil)
 }
 
-// ListTools 请求服务器列出可被 Cohert 注册的工具定义。
+// ListTools 请求服务器列出可被 Cohort 注册的工具定义。
 //
 // MCP Server 可以通过 nextCursor 分页返回工具。必须拉完全部页面后再注册，
 // 否则工具数量较大的 Server 会随机缺少后半部分能力，且用户难以察觉。

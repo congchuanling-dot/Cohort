@@ -130,7 +130,7 @@ GenericAgent 用 `memory/L4_raw_sessions/compress_session.py` 压缩历史会话
 
 ## 2. Cohort 当前状态
 
-代码中名称多处仍写作 Cohert，本文统一称 Cohort。
+代码中名称多处仍写作 Cohort，本文统一称 Cohort。
 
 ### 2.1 已具备的能力
 

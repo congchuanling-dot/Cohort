@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"cohert/internal/llm"
+	"cohort/internal/llm"
 )
 
 // compactToolResults 执行第一层 Micro Compact，只压缩旧工具结果的 Content。

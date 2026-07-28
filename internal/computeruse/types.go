@@ -3,7 +3,7 @@ package computeruse
 import (
 	"time"
 
-	"cohert/internal/desktop"
+	"cohort/internal/desktop"
 )
 
 const (

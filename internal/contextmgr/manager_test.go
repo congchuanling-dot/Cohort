@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"cohert/internal/llm"
+	"cohort/internal/llm"
 )
 
 func TestManagerBuildCompactsOldToolResults_BitsUT(t *testing.T) {
@@ -379,7 +379,7 @@ func TestManagerBuildTruncatesInjectedSessionMemory_BitsUT(t *testing.T) {
 	if strings.Contains(result.Messages[0].Content, "567890") {
 		t.Fatalf("untruncated tail leaked into request:\n%s", result.Messages[0].Content)
 	}
-	if !strings.Contains(result.Messages[0].Content, "[Cohert session memory truncated]") {
+	if !strings.Contains(result.Messages[0].Content, "[Cohort session memory truncated]") {
 		t.Fatalf("truncate notice missing:\n%s", result.Messages[0].Content)
 	}
 }

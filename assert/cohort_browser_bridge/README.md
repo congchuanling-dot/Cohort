@@ -1,10 +1,10 @@
-# Cohert Browser Bridge
+# Cohort Browser Bridge
 
-`Cohert Browser Bridge` 是 Cohert 的 Chrome 浏览器桥接插件。
+`Cohort Browser Bridge` 是 Cohort 的 Chrome 浏览器桥接插件。
 
 它参考 GA 的 `assets/tmwd_cdp_bridge`，但第一版只保留必要能力：
 
-- 连接 Cohert 本地 WebSocket 服务。
+- 连接 Cohort 本地 WebSocket 服务。
 - 上报当前 Chrome 的 http/https 标签页。
 - 支持读取页面标题、URL 和正文文本。
 - 支持受控执行 JavaScript。
@@ -26,7 +26,7 @@
 5. 选择本目录：
 
 ```text
-assert/cohert_browser_bridge
+assert/cohort_browser_bridge
 ```
 
 ## 学习和开发
@@ -53,7 +53,7 @@ MANIFEST_EXPLAINED.md
 ws://127.0.0.1:18777/browser
 ```
 
-后续 Cohert 的 Go 侧 browser bridge server 应监听这个地址。
+后续 Cohort 的 Go 侧 browser bridge server 应监听这个地址。
 
 ## WebSocket 协议
 
@@ -62,7 +62,7 @@ ws://127.0.0.1:18777/browser
 ```json
 {
   "type": "ext_ready",
-  "name": "Cohert Browser Bridge",
+  "name": "Cohort Browser Bridge",
   "version": "0.1.0",
   "tabs": []
 }

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"cohert/internal/llm"
+	"cohort/internal/llm"
 )
 
 // Outcome 是工具执行后的统一结果。

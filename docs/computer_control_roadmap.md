@@ -1,9 +1,9 @@
-# Cohert 全电脑操控能力路线图
+# Cohort 全电脑操控能力路线图
 
 > 文档状态：`[部分完成]`。
-> 目标：把 Cohert 从“具备浏览器和 macOS 受控桌面工具的本地 Agent”，推进到“可以稳定观察、理解、执行、验证大部分电脑操作的 Computer Use Agent”。
+> 目标：把 Cohort 从“具备浏览器和 macOS 受控桌面工具的本地 Agent”，推进到“可以稳定观察、理解、执行、验证大部分电脑操作的 Computer Use Agent”。
 > 代码和真实端到端验收仍是最终事实来源。
-> 当前进展：`cohert doctor computer` 基础版已实现，可检查 workspace/artifact 目录、macOS 权限、desktop helper、OCR helper 和 Chrome bridge。
+> 当前进展：`cohort doctor computer` 基础版已实现，可检查 workspace/artifact 目录、macOS 权限、desktop helper、OCR helper 和 Chrome bridge。
 > P1 第一批操作原语已实现：`computer_scroll`、`computer_drag`、`computer_clipboard_write`、`computer_paste`。
 > P1 第二批操作原语已实现：`computer_double_click`、`computer_right_click`、`computer_window_switch`。
 > P1 第三批操作原语已实现：`computer_menu`、`computer_file_dialog`、`computer_window_move`、`computer_window_resize`。
@@ -17,7 +17,7 @@
 
 这里的“操控电脑的所有操作”不等于给模型暴露任意 `click(x,y)`、`type(text)`、`key(cmd+s)`。
 
-Cohert 应该提供一层高层 Computer Use 操作协议：
+Cohort 应该提供一层高层 Computer Use 操作协议：
 
 ```text
 observe -> find target -> act -> verify -> recover / ask user
@@ -104,7 +104,7 @@ DOM / JS -> CDP action -> screenshot / OCR fallback
 
 ### 3.1 安装后环境自检不足
 
-需要把 `cohert doctor` 扩展成 Computer Use 环境诊断入口。
+需要把 `cohort doctor` 扩展成 Computer Use 环境诊断入口。
 
 应检查：
 
@@ -218,17 +218,17 @@ computer_see
 
 ### P0：Computer Doctor + Setup
 
-目标：让用户一眼知道本机是否能被 Cohert 操作。
+目标：让用户一眼知道本机是否能被 Cohort 操作。
 
 任务：
 
-1. 扩展 `cohert doctor computer`。
+1. 扩展 `cohort doctor computer`。
 2. 检查 macOS Accessibility / Screen Recording。
 3. 检查 desktop helper。
 4. 检查 OCR helper 和依赖。
 5. 检查 Chrome bridge。
 6. 输出修复建议。
-7. 增加 `cohert doctor --all` 汇总入口。
+7. 增加 `cohort doctor --all` 汇总入口。
 
 验收：
 
@@ -343,7 +343,7 @@ computer_see
 已完成：
 
 ```text
-cohert doctor computer
+cohort doctor computer
 computer_scroll
 computer_drag
 computer_drop

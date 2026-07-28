@@ -5,20 +5,20 @@ import (
 	"fmt"
 	"strings"
 
-	"cohert/internal/agent"
-	"cohert/internal/llm"
-	"cohert/internal/mcp"
+	"cohort/internal/agent"
+	"cohort/internal/llm"
+	"cohort/internal/mcp"
 )
 
 // maxMCPToolResultChars 限制不可信外部内容进入模型上下文的最大长度。
 const maxMCPToolResultChars = 12000
 
-// MCPTool 将动态发现的 MCP 工具适配为 Cohert 的静态 Tool 接口。
+// MCPTool 将动态发现的 MCP 工具适配为 Cohort 的静态 Tool 接口。
 // MCP 协议细节留在 internal/mcp，本层负责权限、上下文大小和不可信标记。
 type MCPTool struct {
-	// registered 保存发现阶段确定的服务器、原始工具与 CohertID。
+	// registered 保存发现阶段确定的服务器、原始工具与 CohortID。
 	registered mcp.RegisteredTool
-	// manager 负责将 CohertID 路由回已打开的 MCP 连接。
+	// manager 负责将 CohortID 路由回已打开的 MCP 连接。
 	manager *mcp.Manager
 	// permissions 缓存本会话内用户允许的写操作。
 	permissions *MCPPermissionStore
@@ -41,9 +41,9 @@ func NewMCPTool(
 	}
 }
 
-// Name 返回 Registry 与模型使用的 Cohert 命名空间工具名。
+// Name 返回 Registry 与模型使用的 Cohort 命名空间工具名。
 func (t *MCPTool) Name() string {
-	return t.registered.CohertID
+	return t.registered.CohortID
 }
 
 // Schema 保留服务器输入 schema，同时追加来源和风险说明给模型。
@@ -109,7 +109,7 @@ func (t *MCPTool) Run(ctx context.Context, call agent.ToolCallContext) (agent.Ou
 			Data: agent.NewToolError(
 				"mcp_tool_call_failed",
 				err.Error(),
-				"检查 MCP server 是否可用、参数是否符合 schema；必要时运行 cohert mcp probe <server>。",
+				"检查 MCP server 是否可用、参数是否符合 schema；必要时运行 cohort mcp probe <server>。",
 			),
 			NextPrompt: "\n",
 			Audit:      mcpAuditData(t.registered, rule, "error", argsHash),

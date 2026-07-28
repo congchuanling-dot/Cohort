@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"cohert/internal/app"
-	"cohert/internal/llm"
+	"cohort/internal/app"
+	"cohort/internal/llm"
 )
 
 type initOptions struct {
@@ -64,7 +64,7 @@ func runInitCommand(global globalOptions, args []string, out io.Writer) error {
 	fmt.Fprintf(out, "active_profile: %s\n", active)
 	fmt.Fprintln(out, "next:")
 	fmt.Fprintf(out, "  export %s=\"sk-...\"\n", envForProfile(active))
-	fmt.Fprintf(out, "  cohert --config %q config\n", filepath.Clean(path))
+	fmt.Fprintf(out, "  cohort --config %q config\n", filepath.Clean(path))
 	return nil
 }
 
@@ -231,7 +231,7 @@ func checkWritableDir(out io.Writer, summary *doctorSummary, name string, dir st
 		summary.fail(out, name, err.Error())
 		return
 	}
-	temp, err := os.CreateTemp(dir, ".cohert-doctor-*")
+	temp, err := os.CreateTemp(dir, ".cohort-doctor-*")
 	if err != nil {
 		summary.fail(out, name, err.Error())
 		return

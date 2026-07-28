@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"cohert/internal/contextmgr"
-	"cohert/internal/llm"
-	"cohert/internal/session"
+	"cohort/internal/contextmgr"
+	"cohort/internal/llm"
+	"cohort/internal/session"
 )
 
 type contextRecordingClient struct {
@@ -552,7 +552,7 @@ func TestRunnerUsesContextManagerForModelRequest_BitsUT(t *testing.T) {
 	if len(requestMessages) != 3 {
 		t.Fatalf("request messages = %d, want 3: %#v", len(requestMessages), requestMessages)
 	}
-	if requestMessages[0].Content != "[Cohert context notice] Earlier conversation messages were omitted from this request. Full history is preserved in history.jsonl." {
+	if requestMessages[0].Content != "[Cohort context notice] Earlier conversation messages were omitted from this request. Full history is preserved in history.jsonl." {
 		t.Fatalf("first request message = %#v, want context notice", requestMessages[0])
 	}
 	if requestMessages[2].Content != "latest user" {

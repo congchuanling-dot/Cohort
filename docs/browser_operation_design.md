@@ -1,17 +1,17 @@
-# Cohert 浏览器操作技术方案
+# Cohort 浏览器操作技术方案
 
 > 文档状态：`[部分完成]`。状态基线为 2026-07-26；完整文档导航见 [docs/README.md](README.md)。
 >
 > 已完成：Chrome bridge、tab/scan、DOM 摘要、snapshot、受控 JS、点击、输入、按键、
 > 等待、截图与 OCR。未完成：浏览器扩展桥、长期页面变化监控和更强的跨浏览器连接治理。
 
-本文档描述 Cohert 后续实现浏览器操作能力的技术路径。
+本文档描述 Cohort 后续实现浏览器操作能力的技术路径。
 
-这份方案参考 GA 已验证过的浏览器工具形态，但不会直接照搬 GA 的 Python 代码和前端体系。Cohert 的目标是保留“真实浏览器会话”和“少量高价值工具”的核心能力，并用 Go 项目的模块边界重新设计。
+这份方案参考 GA 已验证过的浏览器工具形态，但不会直接照搬 GA 的 Python 代码和前端体系。Cohort 的目标是保留“真实浏览器会话”和“少量高价值工具”的核心能力，并用 Go 项目的模块边界重新设计。
 
 ## 1. 背景
 
-Cohert 当前已经具备命令行 Agent 主链路：
+Cohort 当前已经具备命令行 Agent 主链路：
 
 - 用户输入。
 - 模型流式响应。
@@ -108,9 +108,9 @@ GA 的 `simphtml` 负责把页面内容变成模型更容易消费的结构。
 - 控制最大字符数。
 - JS 执行后计算 DOM 变化摘要。
 
-Cohert 第一版不需要完整复刻 `simphtml`，但必须保留它背后的原则：浏览器工具返回的是“Agent 可用的页面摘要”，不是原始网页源码。
+Cohort 第一版不需要完整复刻 `simphtml`，但必须保留它背后的原则：浏览器工具返回的是“Agent 可用的页面摘要”，不是原始网页源码。
 
-## 3. Cohert 设计目标
+## 3. Cohort 设计目标
 
 ### 3.1 第一版目标
 
@@ -180,10 +180,10 @@ Runner
 ```bash
 /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
   --remote-debugging-port=9222 \
-  --user-data-dir="$HOME/.cohert/chrome-profile"
+  --user-data-dir="$HOME/.cohort/chrome-profile"
 ```
 
-Cohert 读取：
+Cohort 读取：
 
 ```text
 http://127.0.0.1:9222/json
@@ -530,7 +530,7 @@ browser_execute_js 默认 max_return_chars = 8000
 验收：
 
 - 用户不需要手动记 remote debugging 参数。
-- Cohert 能稳定连接真实浏览器。
+- Cohort 能稳定连接真实浏览器。
 
 ## 12. 配置设计
 
@@ -556,7 +556,7 @@ browser:
 
 ## 13. 错误格式
 
-浏览器工具错误必须使用 Cohert 已有的 `ToolErrorData`：
+浏览器工具错误必须使用 Cohort 已有的 `ToolErrorData`：
 
 ```json
 {
@@ -596,7 +596,7 @@ browser_action_requires_confirmation
 - 不一开始实现浏览器扩展。
 - 不让 JS 工具无限制执行高风险操作。
 
-Cohert 的方向是先建立清晰模块边界：
+Cohort 的方向是先建立清晰模块边界：
 
 ```text
 browser layer 管连接和页面
@@ -607,7 +607,7 @@ session layer 管完整历史落盘
 
 ## 15. 推荐落地顺序
 
-在当前 Cohert 阶段，浏览器能力建议排在 Context Manager 之后。
+在当前 Cohort 阶段，浏览器能力建议排在 Context Manager 之后。
 
 原因：
 
@@ -628,7 +628,7 @@ session layer 管完整历史落盘
 
 ## 16. 最终效果
 
-实现后，用户可以让 Cohert 处理网页任务，例如：
+实现后，用户可以让 Cohort 处理网页任务，例如：
 
 ```text
 看一下我当前浏览器页面是什么内容

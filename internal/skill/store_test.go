@@ -19,7 +19,7 @@ description: Run focused Go tests before broad verification.
 
 Use go test with focused package paths first.
 `)
-	writeSkill(t, filepath.Join(home, ".cohert", "skills", "release", SkillFileName), `# Release Checks
+	writeSkill(t, filepath.Join(home, ".cohort", "skills", "release", SkillFileName), `# Release Checks
 
 Verify changelog and smoke tests.
 `)
@@ -58,7 +58,7 @@ func TestStoreReadRejectsAmbiguousAlias_BitsUT(t *testing.T) {
 	workspace := t.TempDir()
 	home := t.TempDir()
 	writeSkill(t, filepath.Join(workspace, ".cohort", "skills", "same", SkillFileName), "# Project Same\n")
-	writeSkill(t, filepath.Join(home, ".cohert", "skills", "same", SkillFileName), "# User Same\n")
+	writeSkill(t, filepath.Join(home, ".cohort", "skills", "same", SkillFileName), "# User Same\n")
 
 	store := NewStore(workspace, home)
 	if err := store.Reload(); err != nil {

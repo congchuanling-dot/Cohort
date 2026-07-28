@@ -20,7 +20,7 @@
 
 ```bash
 go test ./...
-node --check assert/cohert_browser_bridge/background.js
+node --check assert/cohort_browser_bridge/background.js
 rg -n "keyword" .
 ```
 

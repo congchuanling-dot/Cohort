@@ -1,6 +1,6 @@
-# Cohert 测试功能文档
+# Cohort 测试功能文档
 
-这份文档用于测试当前 Cohert 是否可用。当前先测试项目根目录内启动，不测试全局安装和任意路径启动。
+这份文档用于测试当前 Cohort 是否可用。当前先测试项目根目录内启动，不测试全局安装和任意路径启动。
 
 日常使用教程见：[usage.md](./usage.md)。
 
@@ -67,10 +67,10 @@ go run . help
 ### 2.4 构建本地二进制
 
 ```bash
-go build -o cohert ./cmd/cohert
+go build -o cohort ./cmd/cohort
 ```
 
-预期结果：在项目根目录生成本地二进制 `./cohert`。
+预期结果：在项目根目录生成本地二进制 `./cohort`。
 
 ### 2.5 查看帮助
 
@@ -81,16 +81,16 @@ go run . help
 或者：
 
 ```bash
-./cohert help
+./cohort help
 ```
 
 预期结果：看到命令说明：
 
 ```text
-cohert
-cohert ask "task"
-cohert tools
-cohert config
+cohort
+cohort ask "task"
+cohort tools
+cohort config
 ```
 
 ### 2.6 查看工具列表
@@ -200,7 +200,7 @@ Result(file_read): ...
 ### 4.3 文件写入工具测试
 
 ```bash
-go run . ask "在 workspace/hello.txt 写入一行 Hello Cohert，然后读取它确认内容"
+go run . ask "在 workspace/hello.txt 写入一行 Hello Cohort，然后读取它确认内容"
 ```
 
 预期现象：
@@ -222,7 +222,7 @@ cat workspace/hello.txt
 预期包含：
 
 ```text
-Hello Cohert
+Hello Cohort
 ```
 
 ### 4.4 文件补丁工具测试
@@ -303,7 +303,7 @@ go run .
 
 预期先看到启动欢迎页，包含：
 
-- `Cohert`
+- `Cohort`
 - `Command-line Agent Runtime`
 - 当前模型
 - workspace
@@ -362,7 +362,7 @@ go run .
 
 ## 6. 会话恢复测试
 
-当前 Cohert 会把对话消息写入：
+当前 Cohort 会把对话消息写入：
 
 ```text
 temp/sessions/<session_id>/history.jsonl
@@ -438,7 +438,7 @@ find temp/model_responses -type f -maxdepth 1 -print
 ```bash
 gofmt -w ./cmd ./internal
 go test ./...
-go build -o cohert ./cmd/cohert
+go build -o cohort ./cmd/cohort
 go run . tools
 go run . config
 ```
@@ -496,7 +496,7 @@ go run . config
 go run . ask "必须调用 file_read 读取 README.md 前 20 行，然后总结"
 ```
 
-### 9.4 `bash: ./cohert: No such file or directory`
+### 9.4 `bash: ./cohort: No such file or directory`
 
 说明还没构建本地二进制。当前推荐直接用：
 
@@ -508,7 +508,7 @@ go run . tools
 
 
 ```bash
-go build -o cohert ./cmd/cohert
+go build -o cohort ./cmd/cohort
 ```
 
 ### 9.5 文件写到了意料之外的位置
@@ -530,9 +530,9 @@ go run . config
 满足以下条件即可认为 MVP 可用：
 
 - `go test ./...` 通过。
-- `go build -o cohert ./cmd/cohert` 通过。
+- `go build -o cohort ./cmd/cohort` 通过。
 - `go run . tools` 输出文件、命令、浏览器、工作记忆和长期记忆工具。
 - `go run . config` 能识别 API Key。
 - `go run . ask "用一句话介绍你自己"` 能得到模型回答。
 - `go run . ask "读取 README.md 前 40 行并总结"` 能触发 `file_read`。
-- `go run . ask "在 workspace/hello.txt 写入 Hello Cohert"` 能生成文件。
+- `go run . ask "在 workspace/hello.txt 写入 Hello Cohort"` 能生成文件。

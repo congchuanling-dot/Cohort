@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"cohert/internal/mcp"
+	"cohort/internal/mcp"
 )
 
 func TestInstallCopiesLocalSkillToProjectScope_BitsUT(t *testing.T) {
@@ -126,7 +126,7 @@ func TestInstallUserScopeUsesHomeDir_BitsUT(t *testing.T) {
 	if result.Skill.ID != "user/global-skill" {
 		t.Fatalf("result = %#v", result)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".cohert", "skills", "global-skill", SkillFileName)); err != nil {
+	if _, err := os.Stat(filepath.Join(home, ".cohort", "skills", "global-skill", SkillFileName)); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -508,8 +508,8 @@ func newGitSkillRepo(t *testing.T) string {
 		t.Fatal(err)
 	}
 	runGit(t, repo, "init", "-q")
-	runGit(t, repo, "config", "user.email", "cohert@example.com")
-	runGit(t, repo, "config", "user.name", "Cohert Test")
+	runGit(t, repo, "config", "user.email", "cohort@example.com")
+	runGit(t, repo, "config", "user.name", "Cohort Test")
 	return repo
 }
 

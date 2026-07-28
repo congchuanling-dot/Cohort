@@ -1,6 +1,6 @@
 package contextmgr
 
-import "cohert/internal/llm"
+import "cohort/internal/llm"
 
 // Build 根据完整历史构造“本轮真正发给模型”的 messages。
 //

@@ -11,12 +11,12 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"cohert/internal/agent"
-	"cohert/internal/app"
-	"cohert/internal/mcp"
-	"cohert/internal/repl"
-	"cohert/internal/session"
-	"cohert/internal/skill"
+	"cohort/internal/agent"
+	"cohort/internal/app"
+	"cohort/internal/mcp"
+	"cohort/internal/repl"
+	"cohort/internal/session"
+	"cohort/internal/skill"
 )
 
 const mcpProbeTimeout = 90 * time.Second
@@ -113,7 +113,7 @@ func Run(args []string) error {
 		return startREPL(context.Background(), cfg, runner)
 	case "ask":
 		if len(args) < 2 {
-			return errors.New(`usage: cohert ask "your task"`)
+			return errors.New(`usage: cohort ask "your task"`)
 		}
 		task := strings.Join(args[1:], " ")
 		_, err := runner.Run(context.Background(), task, agent.NewConsoleSink(os.Stdout))
@@ -149,7 +149,7 @@ func parseGlobalOptions(args []string) (globalOptions, []string, error) {
 
 func runMCPCommand(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: cohert mcp add|list|status|tools|probe|remove ...")
+		return errors.New("usage: cohort mcp add|list|status|tools|probe|remove ...")
 	}
 	projectRoot, err := os.Getwd()
 	if err != nil {
@@ -161,7 +161,7 @@ func runMCPCommand(ctx context.Context, args []string) error {
 		return printMCPList(store)
 	case "status":
 		if len(args) != 1 {
-			return errors.New("usage: cohert mcp status")
+			return errors.New("usage: cohort mcp status")
 		}
 		return printMCPStatus(ctx, store)
 	case "add":
@@ -170,7 +170,7 @@ func runMCPCommand(ctx context.Context, args []string) error {
 		return removeMCPServer(store, args[1:])
 	case "tools", "probe":
 		if len(args) != 2 {
-			return fmt.Errorf("usage: cohert mcp %s <server>", args[0])
+			return fmt.Errorf("usage: cohort mcp %s <server>", args[0])
 		}
 		return inspectMCPServer(ctx, store, args[1], args[0] == "probe")
 	default:
@@ -180,7 +180,7 @@ func runMCPCommand(ctx context.Context, args []string) error {
 
 func runSkillCommand(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: cohert skill install|doctor|list|show|reload ...")
+		return errors.New("usage: cohort skill install|doctor|list|show|reload ...")
 	}
 	projectRoot, err := os.Getwd()
 	if err != nil {
@@ -195,7 +195,7 @@ func runSkillCommand(ctx context.Context, args []string) error {
 		return installSkill(ctx, projectRoot, args[1:])
 	case "doctor":
 		if len(args) != 2 {
-			return errors.New("usage: cohert skill doctor <id>")
+			return errors.New("usage: cohort skill doctor <id>")
 		}
 		result, err := store.Doctor(args[1])
 		if err != nil {
@@ -208,7 +208,7 @@ func runSkillCommand(ctx context.Context, args []string) error {
 		return nil
 	case "uninstall":
 		if len(args) != 2 {
-			return errors.New("usage: cohert skill uninstall <id>")
+			return errors.New("usage: cohort skill uninstall <id>")
 		}
 		result, err := store.Uninstall(args[1])
 		if err != nil {
@@ -238,17 +238,17 @@ func runSkillCommand(ctx context.Context, args []string) error {
 		return nil
 	case "list":
 		if len(args) != 1 {
-			return errors.New("usage: cohert skill list")
+			return errors.New("usage: cohort skill list")
 		}
 		return printSkillList(store.Skills())
 	case "show":
 		if len(args) != 2 {
-			return errors.New("usage: cohert skill show <id>")
+			return errors.New("usage: cohort skill show <id>")
 		}
 		return printSkill(store, args[1])
 	case "reload":
 		if len(args) != 1 {
-			return errors.New("usage: cohert skill reload")
+			return errors.New("usage: cohort skill reload")
 		}
 		if err := store.Reload(); err != nil {
 			return err
@@ -284,12 +284,12 @@ func parseSkillUpdateArgs(args []string) (skill.UpdateOptions, bool, error) {
 			} else if opts.Source == "" {
 				opts.Source = arg
 			} else {
-				return opts, false, errors.New("usage: cohert skill update [--check] [--pin git-ref] <id> [path-or-git-url]")
+				return opts, false, errors.New("usage: cohort skill update [--check] [--pin git-ref] <id> [path-or-git-url]")
 			}
 		}
 	}
 	if opts.ID == "" {
-		return opts, false, errors.New("usage: cohert skill update [--check] [--pin git-ref] <id> [path-or-git-url]")
+		return opts, false, errors.New("usage: cohort skill update [--check] [--pin git-ref] <id> [path-or-git-url]")
 	}
 	return opts, check, nil
 }
@@ -338,13 +338,13 @@ func installSkillWithConfirmation(ctx context.Context, projectRoot string, args 
 				return fmt.Errorf("unknown skill install option %q", arg)
 			}
 			if opts.Source != "" {
-				return errors.New("usage: cohert skill install [--scope project|user] [--name name] [--force] [--yes] [--dry-run] [--pin git-ref] <path-or-git-url>")
+				return errors.New("usage: cohort skill install [--scope project|user] [--name name] [--force] [--yes] [--dry-run] [--pin git-ref] <path-or-git-url>")
 			}
 			opts.Source = arg
 		}
 	}
 	if opts.Source == "" {
-		return errors.New("usage: cohert skill install [--scope project|user] [--name name] [--force] [--yes] [--dry-run] [--pin git-ref] <path-or-git-url>")
+		return errors.New("usage: cohort skill install [--scope project|user] [--name name] [--force] [--yes] [--dry-run] [--pin git-ref] <path-or-git-url>")
 	}
 	previewOpts := opts
 	previewOpts.DryRun = true
@@ -426,7 +426,7 @@ func printSkillInstallSecurityReview(out io.Writer, result skill.InstallResult) 
 	fmt.Fprintln(out, "security review:")
 	fmt.Fprintln(out, "  - Installing a Skill lets the agent load and follow this SKILL.md as task instructions.")
 	fmt.Fprintln(out, "  - Review the instructions below before confirming install.")
-	fmt.Fprintln(out, "  - Cohert does not auto-install dependencies, grant permissions, or run commands during install.")
+	fmt.Fprintln(out, "  - Cohort does not auto-install dependencies, grant permissions, or run commands during install.")
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "SKILL.md preview:")
 	fmt.Fprintln(out, "```markdown")
@@ -684,17 +684,17 @@ func addMCPServer(store mcp.Store, args []string) error {
 		}
 	}
 	if name == "" {
-		return errors.New("usage: cohert mcp add [--scope project|user|local] [--transport http] [-e KEY=VALUE] <name> -- <command> [args...]")
+		return errors.New("usage: cohort mcp add [--scope project|user|local] [--transport http] [-e KEY=VALUE] <name> -- <command> [args...]")
 	}
 	server := mcp.ServerConfig{Name: name, Type: transport, Env: env}
 	if transport == mcp.TransportHTTP {
 		if len(positionals) != 1 || len(commandArgs) != 0 {
-			return errors.New("usage: cohert mcp add --transport http <name> <url>")
+			return errors.New("usage: cohort mcp add --transport http <name> <url>")
 		}
 		server.URL = positionals[0]
 	} else {
 		if len(positionals) != 0 || len(commandArgs) == 0 {
-			return errors.New("stdio MCP usage: cohert mcp add <name> -- <command> [args...]")
+			return errors.New("stdio MCP usage: cohort mcp add <name> -- <command> [args...]")
 		}
 		server.Command = commandArgs[0]
 		server.Args = commandArgs[1:]
@@ -718,7 +718,7 @@ func removeMCPServer(store mcp.Store, args []string) error {
 		args = args[2:]
 	}
 	if len(args) != 1 {
-		return errors.New("usage: cohert mcp remove [--scope project|user|local] <server>")
+		return errors.New("usage: cohort mcp remove [--scope project|user|local] <server>")
 	}
 	removed, err := store.Remove(scope, args[0])
 	if err != nil {
@@ -776,7 +776,7 @@ func inspectMCPServer(ctx context.Context, store mcp.Store, name string, probe b
 // resume 会恢复历史并进入交互模式，继续对话时才需要初始化 Runner。
 func runSessionCommand(ctx context.Context, cfg app.Config, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: cohert session list | cohert session resume <id>")
+		return errors.New("usage: cohort session list | cohort session resume <id>")
 	}
 	store := session.NewStore(session.DefaultRootDir)
 
@@ -785,7 +785,7 @@ func runSessionCommand(ctx context.Context, cfg app.Config, args []string) error
 		return printSessionList(store)
 	case "resume":
 		if len(args) < 2 {
-			return errors.New("usage: cohert session resume <id>")
+			return errors.New("usage: cohort session resume <id>")
 		}
 		return resumeSession(ctx, cfg, store, args[1])
 	default:
@@ -869,37 +869,37 @@ func startREPL(ctx context.Context, cfg app.Config, runner *agent.Runner) error 
 
 // printHelp 输出当前支持的最小命令集合。
 func printHelp() {
-	fmt.Print(`Cohert
+	fmt.Print(`Cohort
 
 Usage:
-  cohert [--config file]  start interactive CLI
-  cohert [--config file] ask "task"
+  cohort [--config file]  start interactive CLI
+  cohort [--config file] ask "task"
                           run one task without entering REPL
-  cohert config           show effective config and config path
-  cohert init [--provider deepseek|local|anthropic] [--force]
-                          create a user config at ~/.cohert/config.yaml
-  cohert doctor [--connect]
+  cohort config           show effective config and config path
+  cohort init [--provider deepseek|local|anthropic] [--force]
+                          create a user config at ~/.cohort/config.yaml
+  cohort doctor [--connect]
                           check config, API key, provider, and local paths
-  cohert doctor computer  check macOS computer-use permissions and helpers
-  cohert mcp list         list configured MCP servers
-  cohert mcp status       check configured MCP server availability
-  cohert mcp add ...      add an MCP server
-  cohert mcp tools <name> inspect an MCP server's tools
-  cohert mcp probe <name> verify an MCP server
-  cohert mcp remove <name>
-  cohert skill install [--yes] [--dry-run] [--pin git-ref] <path-or-git-url>
+  cohort doctor computer  check macOS computer-use permissions and helpers
+  cohort mcp list         list configured MCP servers
+  cohort mcp status       check configured MCP server availability
+  cohort mcp add ...      add an MCP server
+  cohort mcp tools <name> inspect an MCP server's tools
+  cohort mcp probe <name> verify an MCP server
+  cohort mcp remove <name>
+  cohort skill install [--yes] [--dry-run] [--pin git-ref] <path-or-git-url>
                           preview, confirm, then install a Skill
-  cohert skill doctor <id>
+  cohort skill doctor <id>
                           diagnose an installed Skill
-  cohert skill update [--check] [--pin git-ref] <id> [path-or-git-url]
+  cohort skill update [--check] [--pin git-ref] <id> [path-or-git-url]
                           update or check an installed Skill
-  cohert skill uninstall <id>
+  cohort skill uninstall <id>
                           remove an installed Skill
-  cohert skill list       list discovered Skills
-  cohert skill show <id>  show one Skill's SKILL.md
-  cohert skill reload     rescan Skills
-  cohert session list     list local sessions
-  cohert session resume <id>
+  cohort skill list       list discovered Skills
+  cohort skill show <id>  show one Skill's SKILL.md
+  cohort skill reload     rescan Skills
+  cohort session list     list local sessions
+  cohort session resume <id>
                           resume a local session and enter REPL
 
 Development:
@@ -929,7 +929,7 @@ Interactive slash commands:
   /exit                   exit
 
 Environment:
-  COHERT_CONFIG          optional config file path
+  COHORT_CONFIG          optional config file path
   DEEPSEEK_API_KEY       required unless active config contains api_key
 `)
 }

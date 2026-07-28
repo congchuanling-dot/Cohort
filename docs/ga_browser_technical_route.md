@@ -1,10 +1,10 @@
 # GA 浏览器操作技术路线记录
 
-> 文档状态：`[历史]`。这是 GenericAgent 浏览器实现的调研和对比依据；Cohert 当前浏览器
+> 文档状态：`[历史]`。这是 GenericAgent 浏览器实现的调研和对比依据；Cohort 当前浏览器
 > 能力与未完成项请看 [docs/README.md](README.md) 和
 > [browser_operation_design.md](browser_operation_design.md)。
 
-本文记录 GenericAgent 中浏览器操作能力的完整链路，以及 Cohert 下一步应如何对齐这条路线。
+本文记录 GenericAgent 中浏览器操作能力的完整链路，以及 Cohort 下一步应如何对齐这条路线。
 
 ## 1. 核心结论
 
@@ -151,7 +151,7 @@ contentSettings
 
 这些权限让 GA 能做更多高级操作，比如读 Cookie、管理扩展、放开自动下载、移除 CSP、通过 CDP 控制页面。
 
-Cohert 第一版不应全量照搬这些权限。当前应保持最小权限，先把主链路跑稳，再按真实需求增加权限。
+Cohort 第一版不应全量照搬这些权限。当前应保持最小权限，先把主链路跑稳，再按真实需求增加权限。
 
 ### 4.2 background.js
 
@@ -313,12 +313,12 @@ OCR 适合这些场景：
 
 对于普通网页查询、Google 搜索、天气卡片、表单填写，优先使用 DOM + JS + CDP。
 
-## 7. Cohert 当前状态
+## 7. Cohort 当前状态
 
-Cohert 当前已经有第一版浏览器桥：
+Cohort 当前已经有第一版浏览器桥：
 
 ```text
-assert/cohert_browser_bridge
+assert/cohort_browser_bridge
 internal/browser
 internal/tools/browser_tools.go
 ```
@@ -358,11 +358,11 @@ CDP 预热和坐标稳定处理
 让模型优先使用 browser_execute_js、browser_scan 和高层动作工具
 ```
 
-## 8. Cohert 下一步开发路线
+## 8. Cohort 下一步开发路线
 
 ### P0：暴露 browser_execute_js（已完成）
 
-目标：先让 Cohert 具备 GA 的 `web_execute_js` 基础能力。
+目标：先让 Cohort 具备 GA 的 `web_execute_js` 基础能力。
 
 开发内容：
 
@@ -568,9 +568,9 @@ DOM 是否变化
 - `browser_click_element` 建立在 JS 定位和 CDP 点击之上。
 - 页面变化监控最后补，可以先让动作闭环跑通。
 
-## 10. Cohert 与 GA 的取舍
+## 10. Cohort 与 GA 的取舍
 
-Cohert 应继承 GA 的技术路线：
+Cohort 应继承 GA 的技术路线：
 
 ```text
 真实浏览器插件桥
@@ -594,7 +594,7 @@ declarativeNetRequest 移除 CSP
 
 这些能力可以等基础链路稳定后按需增加。
 
-第一阶段的目标不是“浏览器万能自动化”，而是先让 Cohert 稳定完成：
+第一阶段的目标不是“浏览器万能自动化”，而是先让 Cohort 稳定完成：
 
 ```text
 打开网页
@@ -605,13 +605,13 @@ declarativeNetRequest 移除 CSP
 总结结果
 ```
 
-## 11. Cohert 浏览器输入链路落地状态
+## 11. Cohort 浏览器输入链路落地状态
 
 当前已按“JS 定位、CDP 动作、轻量 diff 反馈”的路线补齐第一版浏览器交互链路。
 
 ### 11.1 插件内部 cdp command
 
-插件 `assert/cohert_browser_bridge/background.js` 已新增 `cdp` command。
+插件 `assert/cohort_browser_bridge/background.js` 已新增 `cdp` command。
 
 执行流程：
 
@@ -632,7 +632,7 @@ resolveTabId
 
 ### 11.2 browser_execute_js JSON 命令路由
 
-Cohert 已按 GA 的做法收敛工具面：`browser_cdp` 保留为内部调试能力，但默认不注册给模型。
+Cohort 已按 GA 的做法收敛工具面：`browser_cdp` 保留为内部调试能力，但默认不注册给模型。
 
 模型仍然只需要通过 `browser_execute_js` 进入高级浏览器能力：
 
@@ -770,7 +770,7 @@ tab count 1->2
 
 第一版不返回完整 DOM diff，也不做 OCR。这样能满足动作闭环判断，同时避免工具结果污染上下文。
 
-## 12. Cohert 浏览器等待链路落地状态
+## 12. Cohort 浏览器等待链路落地状态
 
 当前已补齐第一版 wait 工具，目标是解决“页面还没加载出来，Agent 就过早 scan 并误判失败”的问题。
 
@@ -793,7 +793,7 @@ browser_click_element / browser_type_element
 
 ### 12.1 插件 wait command
 
-插件 `assert/cohert_browser_bridge/background.js` 已新增统一 `wait` command。
+插件 `assert/cohort_browser_bridge/background.js` 已新增统一 `wait` command。
 
 底层参数：
 

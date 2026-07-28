@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"cohert/internal/contextmgr"
+	"cohort/internal/contextmgr"
 )
 
-// Config 是 Cohert 的运行配置。当前只覆盖命令行 MVP 必需字段。
+// Config 是 Cohort 的运行配置。当前只覆盖命令行 MVP 必需字段。
 type Config struct {
 	// Language 控制系统提示词和默认回复语言。
 	Language string

@@ -8,19 +8,19 @@ import (
 	"path/filepath"
 	"strings"
 
-	"cohert/internal/contextmgr"
-	"cohert/internal/llm"
+	"cohort/internal/contextmgr"
+	"cohort/internal/llm"
 )
 
 const (
-	memoryGenerationSystemPrompt = `你是 Cohert 的 Session Memory 生成器。
+	memoryGenerationSystemPrompt = `你是 Cohort 的 Session Memory 生成器。
 
 你的任务是从会话历史中提取稳定事实，生成 memory.md。
 只记录对后续继续这个 session 有长期价值的信息。
 不要记录临时命令输出、无关寒暄、重复过程或模型中间废话。
 必须使用用户提供的 markdown 结构；没有内容的栏目写 "- 暂无"。`
 
-	fullCompactGenerationSystemPrompt = `你是 Cohert 的 Full Compact 生成器。
+	fullCompactGenerationSystemPrompt = `你是 Cohort 的 Full Compact 生成器。
 
 你的任务是从完整会话历史中生成 compact.md，用于恢复长会话的关键上下文。
 compact.md 应保留任务目标、技术背景、关键文件、错误修复、当前进度和下一步。
@@ -302,7 +302,7 @@ func backupNonEmptyFile(path string, backupFileName string) (backupPath string, 
 
 func buildMemoryGenerationPrompt(history []llm.Message) string {
 	rendered := limitMemorySource(renderMessagesForMemory(history))
-	return `请从下面的 Cohert 会话历史中生成 session memory。
+	return `请从下面的 Cohort 会话历史中生成 session memory。
 
 输出必须严格使用这个 markdown 结构：
 
@@ -354,7 +354,7 @@ func buildMemoryGenerationPrompt(history []llm.Message) string {
 
 func buildFullCompactPrompt(history []llm.Message) string {
 	rendered := limitCompactSource(renderMessagesForMemory(history))
-	return `请从下面的 Cohert 会话历史中生成 full compact 摘要。
+	return `请从下面的 Cohort 会话历史中生成 full compact 摘要。
 
 输出必须包含 <summary>...</summary>，summary 内部必须严格使用这个结构：
 
@@ -419,7 +419,7 @@ func limitMemorySource(text string) string {
 	}
 	head := string(runes[:memorySourceHead])
 	tail := string(runes[len(runes)-memorySourceTail:])
-	return head + "\n\n[... earlier memory generation source omitted by Cohert ...]\n\n" + tail
+	return head + "\n\n[... earlier memory generation source omitted by Cohort ...]\n\n" + tail
 }
 
 func limitCompactSource(text string) string {
@@ -429,7 +429,7 @@ func limitCompactSource(text string) string {
 	}
 	head := string(runes[:compactSourceHead])
 	tail := string(runes[len(runes)-compactSourceTail:])
-	return head + "\n\n[... earlier full compact source omitted by Cohert ...]\n\n" + tail
+	return head + "\n\n[... earlier full compact source omitted by Cohort ...]\n\n" + tail
 }
 
 func extractSummaryContent(content string) string {

@@ -1,12 +1,12 @@
-# Cohert
+# Cohort
 
 도구 호출, 브라우저 자동화, 데스크톱 인식, 긴 컨텍스트, SOP, 검증된 메모리를 지원하는 로컬 우선 명령줄 Agent Runtime 입니다.
 
 **언어:** [简体中文](../../README.md) · [English](README.en.md) · [日本語](README.ja.md) · **한국어** · [Español](README.es.md) · [Français](README.fr.md) · [हिन्दी](README.hi.md)
 
-## Cohert 소개
+## Cohort 소개
 
-Cohert 는 Go 로 작성된 로컬 Agent Runtime 입니다. OpenAI-compatible LLM, 통제된 도구 계층, 영속 세션, 브라우저 자동화, macOS Desktop Computer Use, 컨텍스트 압축, SOP 라우팅, 검증된 장기 메모리를 연결합니다.
+Cohort 는 Go 로 작성된 로컬 Agent Runtime 입니다. OpenAI-compatible LLM, 통제된 도구 계층, 영속 세션, 브라우저 자동화, macOS Desktop Computer Use, 컨텍스트 압축, SOP 라우팅, 검증된 장기 메모리를 연결합니다.
 
 ```text
 사용자 의도
@@ -46,8 +46,8 @@ go run . session list
 빌드:
 
 ```bash
-go build -o cohert ./cmd/cohert
-./cohert
+go build -o cohort ./cmd/cohort
+./cohort
 ```
 
 기본 설정은 [`configs/config.yaml`](../../configs/config.yaml)에 있습니다. 자세한 사용법은 [`docs/usage.md`](../usage.md)를 참고하세요.
@@ -68,12 +68,12 @@ go build -o cohert ./cmd/cohert
 ## CLI
 
 ```bash
-cohert                         # 대화 모드
-cohert ask "task"              # 작업 하나 실행 후 종료
-cohert tools                   # 도구 목록
-cohert config                  # 유효 설정 보기
-cohert session list            # 세션 목록
-cohert session resume <id>     # 세션 재개
+cohort                         # 대화 모드
+cohort ask "task"              # 작업 하나 실행 후 종료
+cohort tools                   # 도구 목록
+cohort config                  # 유효 설정 보기
+cohort session list            # 세션 목록
+cohort session resume <id>     # 세션 재개
 ```
 
 대화 모드 명령:
@@ -94,7 +94,7 @@ cohert session resume <id>     # 세션 재개
 
 ## 브라우저 자동화
 
-Cohert 는 로컬 Browser Bridge 로 Chrome 을 제어합니다.
+Cohort 는 로컬 Browser Bridge 로 Chrome 을 제어합니다.
 
 ```text
 ws://127.0.0.1:18777/browser
@@ -114,11 +114,11 @@ OCR 선택 의존성:
 python3 -m pip install rapidocr-onnxruntime pillow numpy
 ```
 
-`browser_not_connected` 가 나오면 `assert/cohert_browser_bridge` 에서 Chrome 확장을 로드하세요.
+`browser_not_connected` 가 나오면 `assert/cohort_browser_bridge` 에서 Chrome 확장을 로드하세요.
 
 ## Desktop Computer Use
 
-Cohert 는 macOS 범용 데스크톱 인식과 통제된 AX 의미 동작을 제공합니다.
+Cohort 는 macOS 범용 데스크톱 인식과 통제된 AX 의미 동작을 제공합니다.
 
 ```text
 desktop_permissions
@@ -148,7 +148,7 @@ macOS helper 의존성:
 python3 -m pip install pyobjc-framework-Quartz pyobjc-framework-Cocoa pyobjc-framework-ApplicationServices
 ```
 
-Cohert 를 실행하는 Terminal 또는 IDE 에 Accessibility 와 Screen Recording 권한을 부여하세요.
+Cohort 를 실행하는 Terminal 또는 IDE 에 Accessibility 와 Screen Recording 권한을 부여하세요.
 
 ## 메모리와 SOP
 
@@ -162,7 +162,7 @@ start_long_term_update
 
 메모리 쓰기는 검증된 도구 증거를 참조해야 하며, 민감 정보와 중복을 거부하고 성공 전 read-back 합니다.
 
-SOP 는 가벼운 운영 제약입니다. Cohert 는 [`sops/index.md`](../../sops/index.md)를 navigation 으로 주입하고, 필요한 SOP 를 읽은 뒤 작업합니다.
+SOP 는 가벼운 운영 제약입니다. Cohort 는 [`sops/index.md`](../../sops/index.md)를 navigation 으로 주입하고, 필요한 SOP 를 읽은 뒤 작업합니다.
 
 ## 개발
 

@@ -127,14 +127,14 @@ func (r *PythonOCRRunner) Run(ctx context.Context, request OCRRequest) (OCRResul
 		return OCRResult{}, &ToolError{
 			Code:    "browser_ocr_helper_missing",
 			Message: "browser OCR helper path is not configured",
-			Hint:    "请确认 scripts/browser_ocr.py 随 Cohert 项目一起存在。",
+			Hint:    "请确认 scripts/browser_ocr.py 随 Cohort 项目一起存在。",
 		}
 	}
 	if _, err := os.Stat(r.ScriptPath); err != nil {
 		return OCRResult{}, &ToolError{
 			Code:    "browser_ocr_helper_missing",
 			Message: fmt.Sprintf("browser OCR helper is unavailable: %v", err),
-			Hint:    "请确认 scripts/browser_ocr.py 存在且当前运行目录是 Cohert 项目根目录。",
+			Hint:    "请确认 scripts/browser_ocr.py 存在且当前运行目录是 Cohort 项目根目录。",
 		}
 	}
 

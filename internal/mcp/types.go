@@ -1,4 +1,4 @@
-// Package mcp 实现 Cohert 发现和调用外部工具所需的 Model Context Protocol 子集。
+// Package mcp 实现 Cohort 发现和调用外部工具所需的 Model Context Protocol 子集。
 package mcp
 
 import (
@@ -9,13 +9,13 @@ import (
 )
 
 const (
-	// TransportStdio 表示 Cohert 通过子进程标准输入输出与服务器通信。
+	// TransportStdio 表示 Cohort 通过子进程标准输入输出与服务器通信。
 	TransportStdio = "stdio"
-	// TransportHTTP 表示 Cohert 通过 Streamable HTTP 或 JSON-RPC HTTP 与服务器通信。
+	// TransportHTTP 表示 Cohort 通过 Streamable HTTP 或 JSON-RPC HTTP 与服务器通信。
 	TransportHTTP = "http"
 )
 
-// validName 限制服务器名称能安全用作配置键和 Cohert 工具命名空间的一部分。
+// validName 限制服务器名称能安全用作配置键和 Cohort 工具命名空间的一部分。
 var validName = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // ServerConfig 描述一个 MCP 服务器配置项。
@@ -54,7 +54,7 @@ type ToolDefinition struct {
 	InputSchema map[string]any `json:"inputSchema,omitempty"`
 }
 
-// ToolResult 是 Cohert 暴露给 Agent 的 MCP tools/call 规范化结果。
+// ToolResult 是 Cohort 暴露给 Agent 的 MCP tools/call 规范化结果。
 // 原始协议字段刻意留在本包，避免外部工具格式泄漏到 Agent 主循环。
 type ToolResult struct {
 	// Text 汇总 MCP 文本内容块；非文本内容会被安全省略。
@@ -99,7 +99,7 @@ func (c ServerConfig) Validate() (ServerConfig, error) {
 	return c, nil
 }
 
-// ToolName 将服务器名和 MCP 工具名转换为 Cohert 的 snake_case 命名空间。
+// ToolName 将服务器名和 MCP 工具名转换为 Cohort 的 snake_case 命名空间。
 func ToolName(server, tool string) string {
 	return "mcp_" + normalizeName(server) + "_" + normalizeName(tool)
 }

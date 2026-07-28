@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"cohert/internal/agent"
-	"cohert/internal/evolution"
-	"cohert/internal/llm"
+	"cohort/internal/agent"
+	"cohort/internal/evolution"
+	"cohort/internal/llm"
 )
 
 // StartLongTermUpdate 初始化受控长期记忆沉淀流程，但不直接写入经验内容。

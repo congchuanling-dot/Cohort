@@ -87,7 +87,7 @@ func TestOpenHTTPClientListsAndCallsTools(t *testing.T) {
 }
 
 func TestOpenStdioClientListsAndCallsTools(t *testing.T) {
-	if os.Getenv("COHERT_MCP_HELPER") == "1" {
+	if os.Getenv("COHORT_MCP_HELPER") == "1" {
 		runMCPStdioHelper(t)
 		return
 	}
@@ -96,7 +96,7 @@ func TestOpenStdioClientListsAndCallsTools(t *testing.T) {
 		Type:    TransportStdio,
 		Command: os.Args[0],
 		Args:    []string{"-test.run=TestOpenStdioClientListsAndCallsTools"},
-		Env:     map[string]string{"COHERT_MCP_HELPER": "1"},
+		Env:     map[string]string{"COHORT_MCP_HELPER": "1"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -245,14 +245,14 @@ func TestManagerReloadReplacesDiscoveredToolSnapshot(t *testing.T) {
 	configs := []ServerConfig{{Name: "custom", Type: TransportHTTP, URL: server.URL}}
 	manager := NewManager()
 	manager.Load(context.Background(), configs)
-	if tools := manager.Tools(); len(tools) != 1 || tools[0].CohertID != "mcp_custom_first_tool" {
+	if tools := manager.Tools(); len(tools) != 1 || tools[0].CohortID != "mcp_custom_first_tool" {
 		t.Fatalf("initial tools = %#v", tools)
 	}
 
 	toolName = "second_tool"
 	manager.Reload(context.Background(), configs)
 	defer manager.Close()
-	if tools := manager.Tools(); len(tools) != 1 || tools[0].CohertID != "mcp_custom_second_tool" {
+	if tools := manager.Tools(); len(tools) != 1 || tools[0].CohortID != "mcp_custom_second_tool" {
 		t.Fatalf("reloaded tools = %#v", tools)
 	}
 }

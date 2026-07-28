@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"cohert/internal/mcp"
+	"cohort/internal/mcp"
 )
 
 // mcpPermissionDecision 表示对外部 MCP 工具调用的最终授权级别。
@@ -61,7 +61,7 @@ func NewMCPPermissionStore() *MCPPermissionStore {
 // NewProjectMCPPermissionStore 读取指定项目的授权规则。
 //
 // 该配置文件不会添加或启动任何 MCP Server；Server 仍必须由用户显式放进
-// .mcp.json、~/.cohert/mcp.json 或 .cohort/local.mcp.json。
+// .mcp.json、~/.cohort/mcp.json 或 .cohort/local.mcp.json。
 func NewProjectMCPPermissionStore(store mcp.Store) (*MCPPermissionStore, error) {
 	config, err := store.LoadPermissions()
 	if err != nil {

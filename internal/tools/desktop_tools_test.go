@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"cohert/internal/agent"
-	"cohert/internal/desktop"
-	"cohert/internal/vision"
+	"cohort/internal/agent"
+	"cohort/internal/desktop"
+	"cohort/internal/vision"
 )
 
 type fakeDesktopDriver struct {

@@ -43,14 +43,14 @@ curl -I --max-time 3 http://127.0.0.1:8899/demo.html
 
 ```bash
 cd /Users/bytedance/Desktop/myOwnProject/Cohort/workspace
-nohup python3 -m http.server 8899 > /tmp/cohert-demo-server.log 2>&1 &
+nohup python3 -m http.server 8899 > /tmp/cohort-demo-server.log 2>&1 &
 echo "Server started on port 8899"
 ```
 
 关键点：
 
 - `nohup`：让服务脱离当前 shell 生命周期。
-- `> /tmp/cohert-demo-server.log 2>&1`：把标准输出和错误输出重定向到日志文件。
+- `> /tmp/cohort-demo-server.log 2>&1`：把标准输出和错误输出重定向到日志文件。
 - `&`：后台运行。
 - `echo`：给 `code_run` 一个明确的短输出，便于模型判断服务已经启动。
 

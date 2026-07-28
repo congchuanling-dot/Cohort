@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Cohert Browser Bridge",
+  "name": "Cohort Browser Bridge",
   "version": "0.1.0",
-  "description": "Connect Cohert to a real Chrome session for tab scanning and controlled JavaScript execution.",
+  "description": "Connect Cohort to a real Chrome session for tab scanning and controlled JavaScript execution.",
   "permissions": [
     "tabs",
     "activeTab",
@@ -32,6 +32,6 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Cohert Browser Bridge"
+    "default_title": "Cohort Browser Bridge"
   }
 }

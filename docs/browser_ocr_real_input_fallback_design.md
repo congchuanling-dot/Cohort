@@ -7,7 +7,7 @@
 
 ## 背景
 
-Cohert 当前浏览器主链路已经是：
+Cohort 当前浏览器主链路已经是：
 
 ```text
 browser_open / browser_tabs
@@ -17,14 +17,14 @@ browser_open / browser_tabs
   -> browser_screenshot
 ```
 
-底层由 `internal/browser.Bridge` 通过本机 WebSocket 连接 `assert/cohert_browser_bridge` Chrome MV3 插件。插件侧用 `chrome.scripting` 读 DOM，用 `chrome.debugger` 发送 CDP 输入事件和截图命令。普通网页读取和交互不需要 OCR，也不应该默认走系统鼠标键盘。
+底层由 `internal/browser.Bridge` 通过本机 WebSocket 连接 `assert/cohort_browser_bridge` Chrome MV3 插件。插件侧用 `chrome.scripting` 读 DOM，用 `chrome.debugger` 发送 CDP 输入事件和截图命令。普通网页读取和交互不需要 OCR，也不应该默认走系统鼠标键盘。
 
 本方案只补齐两类兜底能力：
 
 1. OCR/视觉定位：当 DOM 文本不可用、内容在 canvas/image/PDF 预览/验证码说明图中，基于截图识别文字和候选区域。
 2. 系统级真实输入 fallback：当 DOM、JS、CDP 输入都无法完成，且确实需要像用户一样操作前台 Chrome 窗口时，通过 OS 鼠标键盘执行最后一步。
 
-更完整的 GenericAgent 功能调研与 Cohert 可借鉴清单见 [GenericAgent 调研与 Cohert 可借鉴能力清单](file:///Users/bytedance/Desktop/myOwnProject/Cohort/docs/genericagent_borrowing_research.md)。本文只展开其中“浏览器视觉和真实输入 fallback”这一条技术路线。
+更完整的 GenericAgent 功能调研与 Cohort 可借鉴清单见 [GenericAgent 调研与 Cohort 可借鉴能力清单](file:///Users/bytedance/Desktop/myOwnProject/Cohort/docs/genericagent_borrowing_research.md)。本文只展开其中“浏览器视觉和真实输入 fallback”这一条技术路线。
 
 ## GA 调研结论
 
@@ -32,9 +32,9 @@ GenericAgent 的相关能力分散在 `memory/` 下，核心取舍如下：
 
 - 浏览器主链路不是 Selenium/Playwright，而是真实 Chrome 扩展桥，保留用户登录态。
 - 网页自动化优先级是 `DOM/JS -> CDP -> OCR/系统输入`，OCR 不是普通网页主路径。
-- `simphtml.py` 会把真实 DOM 压缩成低噪声 HTML：过滤脚本/样式/广告，保留表单值、同源 iframe、open shadowRoot 和固定弹窗。这说明 Cohert 在进入 OCR 前还可以先补一层 `browser_dom_summary`。
-- GA 插件侧的 `web_execute_js` 支持 JSON 命令路由到 `cdp/cookies/tabs/management/contentSettings/batch`。Cohert 已有 CDP 高层工具，但 cookies、extension management、contentSettings、移除 CSP 等高权限能力不应默认照搬。
-- GA 的 `batch` 能复用一次 debugger attach，并支持 `$N.path` 引用前序结果；Cohert 可借鉴到 `browser_execute_js` 的内部 JSON 路由，但应继续隐藏底层 CDP。
+- `simphtml.py` 会把真实 DOM 压缩成低噪声 HTML：过滤脚本/样式/广告，保留表单值、同源 iframe、open shadowRoot 和固定弹窗。这说明 Cohort 在进入 OCR 前还可以先补一层 `browser_dom_summary`。
+- GA 插件侧的 `web_execute_js` 支持 JSON 命令路由到 `cdp/cookies/tabs/management/contentSettings/batch`。Cohort 已有 CDP 高层工具，但 cookies、extension management、contentSettings、移除 CSP 等高权限能力不应默认照搬。
+- GA 的 `batch` 能复用一次 debugger attach，并支持 `$N.path` 引用前序结果；Cohort 可借鉴到 `browser_execute_js` 的内部 JSON 路由，但应继续隐藏底层 CDP。
 - OCR 使用 `rapidocr-onnxruntime`，返回全文、行文本和 bbox。无文本时返回空结果，不应当做异常。
 - UI 视觉检测使用 OmniParser/YOLO + RapidOCR，输出 `bbox/type/label/confidence`；该输出自带 OCR，不需要再单独跑 OCR。
 - 系统输入必须先枚举窗口、激活目标窗口、使用物理像素坐标，动作后用像素变化或页面状态验证。
@@ -44,7 +44,7 @@ GenericAgent 的相关能力分散在 `memory/` 下，核心取舍如下：
 
 ## 和 GA 的取舍边界
 
-Cohert 当前的 Go 结构比 GA 的 Python 原型更强调工具边界、测试和权限收敛，因此应“借鉴路径，不复制权限面”。
+Cohort 当前的 Go 结构比 GA 的 Python 原型更强调工具边界、测试和权限收敛，因此应“借鉴路径，不复制权限面”。
 
 建议借鉴：
 
@@ -84,7 +84,7 @@ LLM
       -> DOM/表单/iframe/shadowRoot 低噪声摘要
   -> browser_screenshot
       -> Chrome 插件 CDP Page.captureScreenshot
-      -> workspace/.cohert/screenshots/*.png
+      -> workspace/.cohort/screenshots/*.png
   -> browser_ocr
       -> OCR backend
       -> text / lines / bbox / coordinate_space=screenshot-local
@@ -231,7 +231,7 @@ browser_ocr
 
 ### 实现建议
 
-第一版不要把 OCR 引擎写进 Go 进程。原因是 Go 生态下高质量中英文 OCR 集成成本高，Cohert 当前依赖也很小。
+第一版不要把 OCR 引擎写进 Go 进程。原因是 Go 生态下高质量中英文 OCR 集成成本高，Cohort 当前依赖也很小。
 
 建议新增一个受控 helper：
 
@@ -425,7 +425,7 @@ pip install pyobjc-framework-Quartz pyobjc-framework-Cocoa pyobjc-framework-Appl
   "status": "error",
   "code": "os_input_permission_missing",
   "message": "需要辅助功能或屏幕录制权限",
-  "hint": "系统设置 > 隐私与安全性 > 辅助功能/屏幕录制，授权 Cohert 宿主进程后重启"
+  "hint": "系统设置 > 隐私与安全性 > 辅助功能/屏幕录制，授权 Cohort 宿主进程后重启"
 }
 ```
 
@@ -523,7 +523,7 @@ os_screenshot_window 或 browser_scan 验证
 - 对系统级输入增加风险文案：该工具会控制当前桌面前台窗口。
 - 对敏感场景不自动操作：验证码识别后只能提示用户介入；不实现自动过验证码。
 - 不读取或返回剪贴板原内容；如需要粘贴文本，应只写入用户明确提供的文本，并在结果中说明是否使用剪贴板。
-- 截图保存继续放在 workspace `.cohert/screenshots` 或 `.cohert/os_screenshots`，避免散落临时文件。
+- 截图保存继续放在 workspace `.cohort/screenshots` 或 `.cohort/os_screenshots`，避免散落临时文件。
 
 ## 配置建议
 
@@ -683,6 +683,6 @@ internal/app/config.go
 
 ## 最终建议
 
-`browser_dom_summary` 已作为前置增强落地。下一步先补只读 `browser_ocr`，不急着直接做系统级鼠标键盘。Cohert 当前已有 DOM、CDP、等待、截图闭环，DOM 摘要能减少过早截图，OCR 能补上“看不见文字”的缺口，风险最低。
+`browser_dom_summary` 已作为前置增强落地。下一步先补只读 `browser_ocr`，不急着直接做系统级鼠标键盘。Cohort 当前已有 DOM、CDP、等待、截图闭环，DOM 摘要能减少过早截图，OCR 能补上“看不见文字”的缺口，风险最低。
 
 系统级真实输入应作为第二阶段，并且默认关闭。它的价值在 Chrome 原生 UI、文件选择器、扩展弹窗和少数 CDP 被拒绝的页面，但一旦误用会破坏普通网页自动化的可控性。

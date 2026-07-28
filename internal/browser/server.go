@@ -23,7 +23,7 @@ const (
 	messageTypePing       = "ping"
 )
 
-// Bridge 是 Cohert Go 进程里的浏览器桥服务。
+// Bridge 是 Cohort Go 进程里的浏览器桥服务。
 //
 // 它监听本机 WebSocket，等待 Chrome 插件主动连接。工具层调用 Tabs/Open/Scan 时，
 // Bridge 会把命令发给插件，再根据 request id 等待对应响应。
