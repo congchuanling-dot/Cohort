@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"runtime"
 	"strings"
 	"time"
 
@@ -304,6 +305,277 @@ func (t *ComputerClick) refreshComputerTargetNode(ctx context.Context, target co
 		), false
 	}
 	return node, agent.Outcome{}, true
+}
+
+// ComputerDoubleClick 双击由 computer_see/find 缓存的目标，不接受裸坐标。
+type ComputerDoubleClick struct {
+	driver        desktop.Driver
+	store         *computeruse.Store
+	confirmations *ConfirmationStore
+}
+
+// NewComputerDoubleClick 创建受 target cache 约束的双击工具。
+func NewComputerDoubleClick(driver desktop.Driver, store *computeruse.Store, confirmations *ConfirmationStore) *ComputerDoubleClick {
+	if store == nil {
+		store = computeruse.NewStore(computeruse.DefaultTargetTTL)
+	}
+	if confirmations == nil {
+		confirmations = NewConfirmationStore()
+	}
+	return &ComputerDoubleClick{driver: driver, store: store, confirmations: confirmations}
+}
+
+func (t *ComputerDoubleClick) Name() string { return ToolNameComputerDoubleClick }
+
+func (t *ComputerDoubleClick) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Double-click a cached computer target_id from computer_see/computer_find. The tool refreshes AX targets or validates screenshot manifest targets, refuses R3 actions, and asks for one-time confirmation for R2 side effects. Never pass raw coordinates.",
+		Parameters: objectSchema(map[string]any{
+			"target_id":          stringProp("Cached target_id returned by computer_find or computer_see candidates."),
+			"reason":             stringProp("Concrete user-facing reason for this double click."),
+			"expected_change":    stringProp("Optional expected UI change after the double click."),
+			"confirmation_token": stringProp("Required only for R2 actions. Obtain it from ask_user with the returned approval_request."),
+		}, "target_id", "reason"),
+	}}
+}
+
+func (t *ComputerDoubleClick) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	targetID, idErr := requiredDesktopActionString(call.Args, "target_id")
+	if idErr != nil {
+		return agent.Outcome{Data: *idErr, NextPrompt: "\n"}, nil
+	}
+	reason, reasonErr := requiredDesktopActionString(call.Args, "reason")
+	if reasonErr != nil {
+		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
+	}
+	target, err := t.store.Target(targetID)
+	if err != nil {
+		return computerCacheError("computer_double_click", err), nil
+	}
+	resolved, errOutcome, ok := resolveComputerPointerTarget(ctx, t.driver, target, "computer_double_click")
+	if !ok {
+		return errOutcome, nil
+	}
+	risk := desktopRiskReversible
+	if resolved.hasNode {
+		risk = classifyDesktopClickRisk(resolved.node)
+	} else {
+		risk = classifyDesktopVisualClickRisk(firstNonEmpty(target.Label, target.Description, target.Role), reason)
+	}
+	if risk == desktopRiskHigh {
+		return desktopActionError(
+			"computer_action_high_risk_refused",
+			"this double click is classified as high risk and must be completed manually",
+			"支付、审批、授权、登录验证、删除等操作不能由 computer_double_click 自动执行。",
+		), nil
+	}
+	if risk == desktopRiskExternal {
+		approval := ActionApproval{
+			Operation: computerDoubleClickOperation,
+			PID:       target.Window.PID,
+			BBox:      resolved.binding,
+			Reason:    reason,
+		}
+		if !t.confirmations.Consume(strings.TrimSpace(asString(call.Args["confirmation_token"])), approval) {
+			return computerApprovalRequiredOutcome(approval, risk, "computer_double_click"), nil
+		}
+	}
+	result, err := t.driver.DoubleClick(ctx, desktop.DoubleClickRequest{
+		PID:             target.Window.PID,
+		X:               resolved.x,
+		Y:               resolved.y,
+		CoordinateSpace: desktop.CoordinateSpaceScreenPhysical,
+	})
+	if err != nil {
+		return desktopToolError(err), nil
+	}
+	verified := result.Performed && result.ActiveBefore && result.ActiveAfter
+	data := map[string]any{
+		"status":           agent.ToolStatusSuccess,
+		"target_id":        target.ID,
+		"source":           target.Source,
+		"pid":              result.PID,
+		"action":           result.Action,
+		"risk":             risk,
+		"reason":           reason,
+		"expected_change":  strings.TrimSpace(asString(call.Args["expected_change"])),
+		"x":                result.X,
+		"y":                result.Y,
+		"coordinate_space": result.CoordinateSpace,
+		"performed":        result.Performed,
+		"active_before":    result.ActiveBefore,
+		"active_after":     result.ActiveAfter,
+		"verified":         verified,
+	}
+	if !verified {
+		data["status"] = agent.ToolStatusError
+		data["code"] = "computer_double_click_unverified"
+		data["message"] = "computer double click was sent but target foreground state was not verified"
+		data["hint"] = "请停止连续双击，重新调用 computer_see 和 computer_find 确认目标窗口状态。"
+	}
+	return agent.Outcome{Data: data, NextPrompt: "\n"}, nil
+}
+
+// ComputerRightClick 右键点击由 computer_see/find 缓存的目标，用于打开上下文菜单。
+type ComputerRightClick struct {
+	driver desktop.Driver
+	store  *computeruse.Store
+}
+
+// NewComputerRightClick 创建受 target cache 约束的右键工具。
+func NewComputerRightClick(driver desktop.Driver, store *computeruse.Store) *ComputerRightClick {
+	if store == nil {
+		store = computeruse.NewStore(computeruse.DefaultTargetTTL)
+	}
+	return &ComputerRightClick{driver: driver, store: store}
+}
+
+func (t *ComputerRightClick) Name() string { return ToolNameComputerRightClick }
+
+func (t *ComputerRightClick) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Right-click a cached computer target_id from computer_see/computer_find to open a context menu. This is R1 navigation and never accepts raw coordinates.",
+		Parameters: objectSchema(map[string]any{
+			"target_id":       stringProp("Cached target_id returned by computer_find or computer_see candidates."),
+			"reason":          stringProp("Concrete user-facing reason for opening the context menu."),
+			"expected_change": stringProp("Optional expected UI change after the right click."),
+		}, "target_id", "reason"),
+	}}
+}
+
+func (t *ComputerRightClick) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	targetID, idErr := requiredDesktopActionString(call.Args, "target_id")
+	if idErr != nil {
+		return agent.Outcome{Data: *idErr, NextPrompt: "\n"}, nil
+	}
+	reason, reasonErr := requiredDesktopActionString(call.Args, "reason")
+	if reasonErr != nil {
+		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
+	}
+	target, err := t.store.Target(targetID)
+	if err != nil {
+		return computerCacheError("computer_right_click", err), nil
+	}
+	resolved, errOutcome, ok := resolveComputerPointerTarget(ctx, t.driver, target, "computer_right_click")
+	if !ok {
+		return errOutcome, nil
+	}
+	result, err := t.driver.RightClick(ctx, desktop.RightClickRequest{
+		PID:             target.Window.PID,
+		X:               resolved.x,
+		Y:               resolved.y,
+		CoordinateSpace: desktop.CoordinateSpaceScreenPhysical,
+	})
+	if err != nil {
+		return desktopToolError(err), nil
+	}
+	verified := result.Performed && result.ActiveBefore && result.ActiveAfter
+	data := map[string]any{
+		"status":           agent.ToolStatusSuccess,
+		"target_id":        target.ID,
+		"source":           target.Source,
+		"pid":              result.PID,
+		"action":           result.Action,
+		"risk":             desktopRiskReversible,
+		"reason":           reason,
+		"expected_change":  strings.TrimSpace(asString(call.Args["expected_change"])),
+		"x":                result.X,
+		"y":                result.Y,
+		"coordinate_space": result.CoordinateSpace,
+		"performed":        result.Performed,
+		"active_before":    result.ActiveBefore,
+		"active_after":     result.ActiveAfter,
+		"verified":         verified,
+	}
+	if !verified {
+		data["status"] = agent.ToolStatusError
+		data["code"] = "computer_right_click_unverified"
+		data["message"] = "computer right click was sent but target foreground state was not verified"
+		data["hint"] = "请停止连续右键，重新调用 computer_see 和 computer_find 确认目标窗口状态。"
+	}
+	return agent.Outcome{Data: data, NextPrompt: "\n"}, nil
+}
+
+type resolvedComputerPointerTarget struct {
+	x       int
+	y       int
+	binding string
+	node    desktop.AXNode
+	hasNode bool
+}
+
+func resolveComputerPointerTarget(ctx context.Context, driver desktop.Driver, target computeruse.ComputerTarget, operation string) (resolvedComputerPointerTarget, agent.Outcome, bool) {
+	if target.Window.PID <= 0 {
+		return resolvedComputerPointerTarget{}, computerToolError(operation+"_bad_target", "target is not bound to a valid PID", "请重新调用 computer_see 刷新目标窗口。"), false
+	}
+	if err := activateDesktopTarget(ctx, driver, target.Window.PID); err != nil {
+		return resolvedComputerPointerTarget{}, desktopToolError(err), false
+	}
+	if target.Source == computeruse.SourceAX && target.AXNodeID != "" {
+		node, errOutcome, ok := (&ComputerClick{driver: driver}).refreshComputerTargetNode(ctx, target)
+		if !ok {
+			return resolvedComputerPointerTarget{}, errOutcome, false
+		}
+		if node.Enabled != nil && !*node.Enabled {
+			return resolvedComputerPointerTarget{}, desktopActionError(
+				operation+"_target_disabled",
+				"the requested computer target is disabled",
+				"请重新调用 computer_see/computer_find，选择 enabled=true 的可操作目标。",
+			), false
+		}
+		if node.Bounds.Width <= 0 || node.Bounds.Height <= 0 {
+			return resolvedComputerPointerTarget{}, desktopActionError(
+				operation+"_bad_bounds",
+				"the requested computer target has no clickable bounds",
+				"请重新选择带有效 bounds 的当前可见目标。",
+			), false
+		}
+		return resolvedComputerPointerTarget{
+			x:       node.Bounds.X + node.Bounds.Width/2,
+			y:       node.Bounds.Y + node.Bounds.Height/2,
+			binding: target.ID + "|" + target.AXNodeID,
+			node:    node,
+			hasNode: true,
+		}, agent.Outcome{}, true
+	}
+	if target.Source == computeruse.SourceOCR || target.Source == computeruse.SourceVision {
+		manifest, manifestErr := readDesktopVisualManifest(target.ScreenshotManifest)
+		if manifestErr != nil {
+			return resolvedComputerPointerTarget{}, agent.Outcome{Data: *manifestErr, NextPrompt: "\n"}, false
+		}
+		if validationErr := validateDesktopVisualManifest(manifest, target.Window.PID, target.ScreenshotRef, target.BBox); validationErr != nil {
+			return resolvedComputerPointerTarget{}, agent.Outcome{Data: *validationErr, NextPrompt: "\n"}, false
+		}
+		x, y := mapScreenshotBBoxCenterToScreen(manifest, target.BBox)
+		return resolvedComputerPointerTarget{
+			x:       x,
+			y:       y,
+			binding: strings.Join([]string{target.ID, target.Source, target.ScreenshotRef, canonicalDesktopBBox(target.BBox)}, "|"),
+		}, agent.Outcome{}, true
+	}
+	return resolvedComputerPointerTarget{}, computerToolError(
+		operation+"_unsupported_target",
+		operation+" only supports AX, OCR, or vision targets from computer_see",
+		"请重新调用 computer_see/computer_find 选择当前候选目标，不要手写 target_id。",
+	), false
+}
+
+func computerApprovalRequiredOutcome(approval ActionApproval, risk desktopActionRisk, operation string) agent.Outcome {
+	return agent.Outcome{Data: map[string]any{
+		"status":  agent.ToolStatusError,
+		"code":    "desktop_action_confirmation_required",
+		"message": operation + " requires one-time user confirmation",
+		"hint":    "请调用 ask_user，并在 approval 中原样传入 approval_request；用户明确确认后，用同一参数和 token 重试一次 " + operation + "。",
+		"approval_request": map[string]any{
+			"operation": approval.Operation,
+			"pid":       approval.PID,
+			"bbox":      approval.BBox,
+			"reason":    approval.Reason,
+		},
+		"risk": risk,
+	}, NextPrompt: "\n"}
 }
 
 // ComputerType 聚焦缓存输入目标并起草文本，不负责发送或提交。
@@ -1037,6 +1309,138 @@ func (t *ComputerPaste) Run(ctx context.Context, call agent.ToolCallContext) (ag
 		data["hint"] = "请停止继续输入或发送，重新调用 computer_see 确认目标应用状态。"
 	}
 	return agent.Outcome{Data: data, NextPrompt: "\n"}, nil
+}
+
+// ComputerWindowSwitch 切换到匹配的可见窗口，并更新最小 active state。
+type ComputerWindowSwitch struct {
+	driver desktop.Driver
+	store  *computeruse.Store
+}
+
+// NewComputerWindowSwitch 创建窗口切换工具。
+func NewComputerWindowSwitch(driver desktop.Driver, store *computeruse.Store) *ComputerWindowSwitch {
+	if store == nil {
+		store = computeruse.NewStore(computeruse.DefaultTargetTTL)
+	}
+	return &ComputerWindowSwitch{driver: driver, store: store}
+}
+
+func (t *ComputerWindowSwitch) Name() string { return ToolNameComputerWindowSwitch }
+
+func (t *ComputerWindowSwitch) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Switch to a visible desktop window by app_name/title/window_id, or to the first non-active visible window when no filter is provided. This is R1 navigation and updates the latest active computer state.",
+		Parameters: objectSchema(map[string]any{
+			"app_name": stringProp("Optional case-insensitive application-name substring filter, for example Finder or Chrome."),
+			"title":    stringProp("Optional case-insensitive window-title substring filter."),
+			"window_id": stringProp("Optional exact window_id from computer_see or desktop_windows. " +
+				"When provided, it disambiguates multiple windows of the same app."),
+			"index":  intProp("Zero-based index among matched visible windows. Default 0.", 0),
+			"reason": stringProp("Concrete user-facing reason for switching windows."),
+		}, "reason"),
+	}}
+}
+
+func (t *ComputerWindowSwitch) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	reason, reasonErr := requiredDesktopActionString(call.Args, "reason")
+	if reasonErr != nil {
+		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
+	}
+	appName := strings.TrimSpace(asString(call.Args["app_name"]))
+	title := strings.TrimSpace(asString(call.Args["title"]))
+	windowID := strings.TrimSpace(asString(call.Args["window_id"]))
+	index := asInt(call.Args["index"], 0)
+	if index < 0 {
+		return computerToolError("computer_window_switch_bad_index", "index must be non-negative", "请传入从 0 开始的窗口序号，或使用 window_id 消除歧义。"), nil
+	}
+	result, err := t.driver.ListWindows(ctx, desktop.ListWindowsRequest{AppName: appName, Title: title, Limit: 50})
+	if err != nil {
+		return desktopToolError(err), nil
+	}
+	matches := filterComputerSwitchWindows(result.Windows, appName, title, windowID, appName == "" && title == "" && windowID == "")
+	if len(matches) == 0 {
+		return agent.Outcome{Data: agent.NewToolError(
+			"computer_window_switch_no_match",
+			"no visible window matched the requested switch target",
+			"请先调用 computer_see 或 desktop_windows 查看当前可见窗口，再使用 app_name/title/window_id 精确切换。",
+		), NextPrompt: "\n"}, nil
+	}
+	if index >= len(matches) {
+		return agent.Outcome{Data: agent.NewToolError(
+			"computer_window_switch_index_out_of_range",
+			"requested index is outside the matched window list",
+			"请使用工具返回的 matched_count 范围内序号，或用 window_id 精确指定窗口。",
+		), NextPrompt: "\n"}, nil
+	}
+	target := matches[index]
+	activated, err := t.driver.Activate(ctx, desktop.ActivateRequest{PID: target.PID, WindowID: target.WindowID})
+	if err != nil {
+		return desktopToolError(err), nil
+	}
+	state := t.store.SaveState(computeruse.ComputerState{
+		OS:           runtime.GOOS,
+		ActiveApp:    target.AppName,
+		ActivePID:    target.PID,
+		ActiveWindow: computerWindowRef(runtime.GOOS, target),
+		Windows:      result.Windows,
+	})
+	verified := activated.Active && activated.Verified
+	data := map[string]any{
+		"status":            agent.ToolStatusSuccess,
+		"state_id":          state.ID,
+		"risk":              desktopRiskReversible,
+		"reason":            reason,
+		"matched_count":     len(matches),
+		"selected_index":    index,
+		"active":            activated.Active,
+		"verified":          verified,
+		"pid":               activated.PID,
+		"window_id":         target.WindowID,
+		"app_name":          target.AppName,
+		"title":             target.Title,
+		"active_window":     state.ActiveWindow,
+		"candidate_windows": matches,
+	}
+	if !verified {
+		data["status"] = agent.ToolStatusError
+		data["code"] = "computer_window_switch_unverified"
+		data["message"] = "window activation was requested but the target foreground state was not verified"
+		data["hint"] = "请重新调用 computer_see 检查当前前台窗口，避免继续对错误窗口操作。"
+	}
+	return agent.Outcome{Data: data, NextPrompt: "\n"}, nil
+}
+
+func filterComputerSwitchWindows(windows []desktop.Window, appName string, title string, windowID string, preferNonActive bool) []desktop.Window {
+	appName = strings.ToLower(strings.TrimSpace(appName))
+	title = strings.ToLower(strings.TrimSpace(title))
+	matches := make([]desktop.Window, 0, len(windows))
+	for _, window := range windows {
+		if !window.IsVisible {
+			continue
+		}
+		if appName != "" && !strings.Contains(strings.ToLower(window.AppName), appName) {
+			continue
+		}
+		if title != "" && !strings.Contains(strings.ToLower(window.Title), title) {
+			continue
+		}
+		if windowID != "" && window.WindowID != windowID {
+			continue
+		}
+		if preferNonActive && window.IsActive {
+			continue
+		}
+		matches = append(matches, window)
+	}
+	if len(matches) == 0 && preferNonActive {
+		for _, window := range windows {
+			if window.IsVisible && (appName == "" || strings.Contains(strings.ToLower(window.AppName), appName)) && (title == "" || strings.Contains(strings.ToLower(window.Title), title)) {
+				matches = append(matches, window)
+			}
+		}
+	}
+	return matches
 }
 
 // ComputerWait 等待最近 computer_see 的窗口出现文本，或仅短暂等待界面稳定。

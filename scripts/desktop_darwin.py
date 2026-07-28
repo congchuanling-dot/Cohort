@@ -686,28 +686,41 @@ def visual_click(payload):
     }
 
 
-def post_mouse_click(quartz, point):
-    down = quartz.CGEventCreateMouseEvent(
-        None,
-        quartz.kCGEventLeftMouseDown,
-        point,
-        quartz.kCGMouseButtonLeft,
-    )
-    up = quartz.CGEventCreateMouseEvent(
-        None,
-        quartz.kCGEventLeftMouseUp,
-        point,
-        quartz.kCGMouseButtonLeft,
-    )
-    if down is None or up is None:
+def post_mouse_click(quartz, point, button="left", click_count=1):
+    if button == "left":
+        down_type = quartz.kCGEventLeftMouseDown
+        up_type = quartz.kCGEventLeftMouseUp
+        mouse_button = quartz.kCGMouseButtonLeft
+    elif button == "right":
+        down_type = quartz.kCGEventRightMouseDown
+        up_type = quartz.kCGEventRightMouseUp
+        mouse_button = quartz.kCGMouseButtonRight
+    else:
         raise DesktopError(
-            "desktop_click_failed",
-            "unable to create Quartz mouse click event",
-            "请确认 Cohert 运行进程具备必要的系统权限。",
+            "desktop_click_bad_button",
+            f"unsupported mouse button: {button!r}",
+            "请使用 Cohert 已注册的点击工具，不要直接调用 helper。",
         )
-    quartz.CGEventPost(quartz.kCGHIDEventTap, down)
-    time.sleep(0.03)
-    quartz.CGEventPost(quartz.kCGHIDEventTap, up)
+    for index in range(max(1, int(click_count))):
+        click_state = index + 1
+        down = quartz.CGEventCreateMouseEvent(None, down_type, point, mouse_button)
+        up = quartz.CGEventCreateMouseEvent(None, up_type, point, mouse_button)
+        if down is None or up is None:
+            raise DesktopError(
+                "desktop_click_failed",
+                "unable to create Quartz mouse click event",
+                "请确认 Cohert 运行进程具备必要的系统权限。",
+            )
+        try:
+            quartz.CGEventSetIntegerValueField(down, quartz.kCGMouseEventClickState, click_state)
+            quartz.CGEventSetIntegerValueField(up, quartz.kCGMouseEventClickState, click_state)
+        except Exception:
+            pass
+        quartz.CGEventPost(quartz.kCGHIDEventTap, down)
+        time.sleep(0.03)
+        quartz.CGEventPost(quartz.kCGHIDEventTap, up)
+        if index + 1 < click_count:
+            time.sleep(0.05)
 
 
 def post_mouse_drag(quartz, start_point, end_point):
@@ -760,6 +773,66 @@ def post_mouse_drag(quartz, start_point, end_point):
         )
     time.sleep(0.05)
     quartz.CGEventPost(quartz.kCGHIDEventTap, up)
+
+
+def pointer_click(payload, command_name, action_name, button, click_count):
+    quartz, _, workspace = require_macos_modules()
+    pid = int(payload.get("pid") or 0)
+    if pid <= 0:
+        raise DesktopError(
+            "desktop_bad_pid",
+            f"{command_name} requires a positive pid",
+            "请先通过 computer_see/computer_find 获取目标窗口对应的 pid。",
+        )
+    require_active_pid(pid)
+    coordinate_space = str(payload.get("coordinate_space") or "").strip()
+    if coordinate_space != "screen-physical":
+        raise DesktopError(
+            f"{command_name}_bad_coordinate_space",
+            f"{command_name} requires screen-physical coordinates, got {coordinate_space!r}",
+            "请通过 Cohert computer 工具调用，不能直接传入截图坐标或任意坐标。",
+        )
+    x = int(payload.get("x") or 0)
+    y = int(payload.get("y") or 0)
+    if x < 0 or y < 0:
+        raise DesktopError(
+            f"{command_name}_bad_point",
+            f"{command_name} requires a non-negative screen point",
+            "请重新通过 computer_see/computer_find 获取当前 target_id。",
+        )
+    try:
+        point = (
+            physical_to_logical(x, display_scale(quartz)),
+            physical_to_logical(y, display_scale(quartz)),
+        )
+        post_mouse_click(quartz, point, button=button, click_count=click_count)
+        time.sleep(0.15)
+    except DesktopError:
+        raise
+    except Exception as exc:
+        raise DesktopError(
+            f"{command_name}_failed",
+            f"{command_name} failed: {exc}",
+            "请重新确认目标应用前台状态和目标位置，不要连续重试。",
+        ) from exc
+    return {
+        "pid": pid,
+        "action": action_name,
+        "performed": True,
+        "active_before": True,
+        "active_after": active_pid(workspace) == pid,
+        "x": x,
+        "y": y,
+        "coordinate_space": "screen-physical",
+    }
+
+
+def double_click(payload):
+    return pointer_click(payload, "desktop_double_click", "DoubleClick", "left", 2)
+
+
+def right_click(payload):
+    return pointer_click(payload, "desktop_right_click", "RightClick", "right", 1)
 
 
 def scroll(payload):
@@ -1249,6 +1322,8 @@ def dispatch(command, payload):
         "ax_focus": ax_focus,
         "click": click,
         "visual_click": visual_click,
+        "double_click": double_click,
+        "right_click": right_click,
         "press_key": press_key,
         "type_text": type_text,
         "scroll": scroll,

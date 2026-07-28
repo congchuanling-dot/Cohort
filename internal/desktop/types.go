@@ -294,6 +294,54 @@ type VisualClickResult struct {
 	CoordinateSpace string `json:"coordinate_space"`
 }
 
+// DoubleClickRequest 指定一个由高层 target cache 解析出的双击屏幕点。
+type DoubleClickRequest struct {
+	// PID 是必须处于前台的目标应用进程。
+	PID int `json:"pid"`
+	// X 是物理屏幕横坐标。
+	X int `json:"x"`
+	// Y 是物理屏幕纵坐标。
+	Y int `json:"y"`
+	// CoordinateSpace 明确坐标语义，拒绝截图局部坐标直传。
+	CoordinateSpace string `json:"coordinate_space"`
+}
+
+// DoubleClickResult 描述受控双击实际作用的位置和前台状态。
+type DoubleClickResult struct {
+	PID             int    `json:"pid"`
+	Action          string `json:"action"`
+	Performed       bool   `json:"performed"`
+	ActiveBefore    bool   `json:"active_before"`
+	ActiveAfter     bool   `json:"active_after"`
+	X               int    `json:"x"`
+	Y               int    `json:"y"`
+	CoordinateSpace string `json:"coordinate_space"`
+}
+
+// RightClickRequest 指定一个由高层 target cache 解析出的右键点击屏幕点。
+type RightClickRequest struct {
+	// PID 是必须处于前台的目标应用进程。
+	PID int `json:"pid"`
+	// X 是物理屏幕横坐标。
+	X int `json:"x"`
+	// Y 是物理屏幕纵坐标。
+	Y int `json:"y"`
+	// CoordinateSpace 明确坐标语义，拒绝截图局部坐标直传。
+	CoordinateSpace string `json:"coordinate_space"`
+}
+
+// RightClickResult 描述受控右键点击实际作用的位置和前台状态。
+type RightClickResult struct {
+	PID             int    `json:"pid"`
+	Action          string `json:"action"`
+	Performed       bool   `json:"performed"`
+	ActiveBefore    bool   `json:"active_before"`
+	ActiveAfter     bool   `json:"active_after"`
+	X               int    `json:"x"`
+	Y               int    `json:"y"`
+	CoordinateSpace string `json:"coordinate_space"`
+}
+
 // PressKeyRequest 将受限按键发送给已激活的应用进程。
 type PressKeyRequest struct {
 	// PID 是目标应用进程。
@@ -438,6 +486,8 @@ type Driver interface {
 	AXFocus(ctx context.Context, req AXFocusRequest) (AXFocusResult, error)
 	Click(ctx context.Context, req ClickRequest) (ClickResult, error)
 	VisualClick(ctx context.Context, req VisualClickRequest) (VisualClickResult, error)
+	DoubleClick(ctx context.Context, req DoubleClickRequest) (DoubleClickResult, error)
+	RightClick(ctx context.Context, req RightClickRequest) (RightClickResult, error)
 	PressKey(ctx context.Context, req PressKeyRequest) (PressKeyResult, error)
 	TypeText(ctx context.Context, req TypeTextRequest) (TypeTextResult, error)
 	Scroll(ctx context.Context, req ScrollRequest) (ScrollResult, error)

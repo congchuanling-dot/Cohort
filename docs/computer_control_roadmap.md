@@ -5,6 +5,7 @@
 > 代码和真实端到端验收仍是最终事实来源。
 > 当前进展：`cohert doctor computer` 基础版已实现，可检查 workspace/artifact 目录、macOS 权限、desktop helper、OCR helper 和 Chrome bridge。
 > P1 第一批操作原语已实现：`computer_scroll`、`computer_drag`、`computer_clipboard_write`、`computer_paste`。
+> P1 第二批操作原语已实现：`computer_double_click`、`computer_right_click`、`computer_window_switch`。
 
 ## 1. 目标定义
 
@@ -114,14 +115,11 @@ DOM / JS -> CDP action -> screenshot / OCR fallback
 
 ### 3.2 操作原语还不完整
 
-当前主要覆盖点击、输入、按键、等待、滚动、确认拖拽、剪贴板写入和粘贴。要更接近“所有操作”，还需要：
+当前主要覆盖点击、双击、右键、输入、按键、等待、滚动、确认拖拽、剪贴板写入、粘贴和窗口切换。要更接近“所有操作”，还需要：
 
 - `computer_drop`
-- `computer_double_click`
-- `computer_right_click`
 - `computer_menu`
 - `computer_file_dialog`
-- `computer_window_switch`
 - `computer_window_move`
 - `computer_window_resize`
 - 多显示器坐标处理
@@ -243,12 +241,12 @@ computer_see
 优先级：
 
 1. `computer_scroll` `[完成：基础版]`
-2. `computer_double_click`
-3. `computer_right_click`
+2. `computer_double_click` `[完成：缓存 target，R2 需确认]`
+3. `computer_right_click` `[完成：缓存 target，打开上下文菜单]`
 4. `computer_clipboard_write` `[完成：不读取原剪贴板内容]`
 5. `computer_paste` `[完成：可选写入后粘贴，不发送]`
 6. `computer_drag` `[完成：必须一次性确认]`
-7. `computer_window_switch`
+7. `computer_window_switch` `[完成：按 app/title/window_id 切换并更新 active state]`
 
 验收：
 
@@ -322,6 +320,9 @@ computer_scroll
 computer_drag
 computer_clipboard_write
 computer_paste
+computer_double_click
+computer_right_click
+computer_window_switch
 ```
 
 它已经覆盖：
@@ -335,11 +336,13 @@ computer_paste
 - R1 滚动只作用于最近 `computer_see` 的目标窗口。
 - 拖拽必须引用缓存 target，且必须用户一次性确认。
 - 剪贴板只支持写入和粘贴，不读取原剪贴板内容，不回显文本。
+- 双击和右键必须引用缓存 target，不暴露裸坐标。
+- 窗口切换支持 app/title/window_id 匹配，并写入最新 active state。
 
 下一步进入：
 
 ```text
-computer_double_click / computer_right_click / computer_window_switch
+computer_menu / computer_file_dialog / computer_window_move / computer_window_resize
 ```
 
 最后再做视觉 detector 和执行器。

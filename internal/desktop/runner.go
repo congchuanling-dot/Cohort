@@ -114,6 +114,18 @@ func (d *PythonDriver) VisualClick(ctx context.Context, req VisualClickRequest) 
 	return result, d.call(ctx, "visual_click", req, &result)
 }
 
+// DoubleClick 在高层解析出的物理屏幕点执行双击。
+func (d *PythonDriver) DoubleClick(ctx context.Context, req DoubleClickRequest) (DoubleClickResult, error) {
+	var result DoubleClickResult
+	return result, d.call(ctx, "double_click", req, &result)
+}
+
+// RightClick 在高层解析出的物理屏幕点执行右键点击。
+func (d *PythonDriver) RightClick(ctx context.Context, req RightClickRequest) (RightClickResult, error) {
+	var result RightClickResult
+	return result, d.call(ctx, "right_click", req, &result)
+}
+
 // PressKey 向已激活应用发送由工具层白名单控制的按键。
 func (d *PythonDriver) PressKey(ctx context.Context, req PressKeyRequest) (PressKeyResult, error) {
 	var result PressKeyResult

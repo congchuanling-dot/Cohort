@@ -445,6 +445,8 @@ desktop_type_text
 computer_see
 computer_find
 computer_click
+computer_double_click
+computer_right_click
 computer_type
 computer_press
 computer_wait
@@ -453,6 +455,7 @@ computer_scroll
 computer_drag
 computer_clipboard_write
 computer_paste
+computer_window_switch
 ```
 
 </details>

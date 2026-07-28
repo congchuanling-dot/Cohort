@@ -100,6 +100,10 @@ const (
 	ToolNameComputerFind = "computer_find"
 	// ToolNameComputerClick 点击缓存的 computer target。
 	ToolNameComputerClick = "computer_click"
+	// ToolNameComputerDoubleClick 双击缓存的 computer target。
+	ToolNameComputerDoubleClick = "computer_double_click"
+	// ToolNameComputerRightClick 右键点击缓存的 computer target。
+	ToolNameComputerRightClick = "computer_right_click"
 	// ToolNameComputerType 向缓存输入目标起草文本。
 	ToolNameComputerType = "computer_type"
 	// ToolNameComputerPress 对最近 computer_see 的目标窗口发送受限按键。
@@ -116,6 +120,8 @@ const (
 	ToolNameComputerClipboardWrite = "computer_clipboard_write"
 	// ToolNameComputerPaste 将可选文本写入剪贴板后粘贴到目标窗口。
 	ToolNameComputerPaste = "computer_paste"
+	// ToolNameComputerWindowSwitch 切换到匹配的桌面窗口。
+	ToolNameComputerWindowSwitch = "computer_window_switch"
 )
 
 // Tool 是所有本地工具必须实现的接口。
@@ -184,6 +190,8 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameComputerSee,
 		ToolNameComputerFind,
 		ToolNameComputerClick,
+		ToolNameComputerDoubleClick,
+		ToolNameComputerRightClick,
 		ToolNameComputerType,
 		ToolNameComputerPress,
 		ToolNameComputerWait,
@@ -192,6 +200,7 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameComputerDrag,
 		ToolNameComputerClipboardWrite,
 		ToolNameComputerPaste,
+		ToolNameComputerWindowSwitch,
 		ToolNameSkillRead,
 		ToolNameUpdateWorkingCheckpoint,
 		ToolNameStartLongTermUpdate,

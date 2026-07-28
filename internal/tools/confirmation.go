@@ -20,6 +20,8 @@ const (
 	desktopPressKeyOperation = "desktop_press_key"
 	// computerDragOperation 标识基于缓存 target 的受控拖拽动作。
 	computerDragOperation = "computer_drag"
+	// computerDoubleClickOperation 标识基于缓存 target 的受控双击动作。
+	computerDoubleClickOperation = "computer_double_click"
 )
 
 // ActionApproval 绑定用户确认到一个具体的高风险桌面动作。

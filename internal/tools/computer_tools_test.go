@@ -493,6 +493,88 @@ func TestComputerDragRequiresConfirmation_BitsUT(t *testing.T) {
 	}
 }
 
+func TestComputerDoubleClickRequiresConfirmationForExternalTarget_BitsUT(t *testing.T) {
+	store := computeruse.NewStore(time.Minute)
+	enabled := true
+	state := store.SaveState(computeruse.ComputerState{
+		OS:           "darwin",
+		ActivePID:    123,
+		ActiveWindow: computerTestWindowRef(),
+		Candidates: []computeruse.ComputerTarget{{
+			Label:               "发送",
+			Role:                "AXButton",
+			Source:              computeruse.SourceAX,
+			Bounds:              desktop.Bounds{X: 500, Y: 500, Width: 80, Height: 40},
+			CoordinateSpace:     desktop.CoordinateSpaceScreenPhysical,
+			Window:              computerTestWindowRef(),
+			SuggestedAction:     computeruse.SuggestedActionClick,
+			AXNodeID:            "ax:0/2",
+			ExpectedRole:        "AXButton",
+			ExpectedTitle:       "发送",
+			ExpectedDescription: "",
+		}},
+	})
+	root := computerAXRoot("")
+	root.Children = append(root.Children, desktop.AXNode{
+		ID:      "ax:0/2",
+		Role:    "AXButton",
+		Title:   "发送",
+		Enabled: &enabled,
+		Bounds:  desktop.Bounds{X: 500, Y: 500, Width: 80, Height: 40},
+	})
+	driver := fakeComputerDriver(root)
+	driver.doubleClick = desktop.DoubleClickResult{PID: 123, Action: "DoubleClick", Performed: true, ActiveBefore: true, ActiveAfter: true, X: 540, Y: 520, CoordinateSpace: desktop.CoordinateSpaceScreenPhysical}
+	confirmations := NewConfirmationStore()
+	tool := NewComputerDoubleClick(driver, store, confirmations)
+	args := map[string]any{"target_id": state.Candidates[0].ID, "reason": "打开发送按钮的默认动作"}
+
+	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	required := outcome.Data.(map[string]any)
+	if required["code"] != "desktop_action_confirmation_required" || driver.doubleClickRequest.PID != 0 {
+		t.Fatalf("outcome = %#v, double click request = %#v", required, driver.doubleClickRequest)
+	}
+	token, err := confirmations.Issue(ActionApproval{Operation: computerDoubleClickOperation, PID: 123, BBox: state.Candidates[0].ID + "|ax:0/2", Reason: "打开发送按钮的默认动作"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args["confirmation_token"] = token
+	outcome, err = tool.Run(context.Background(), agent.ToolCallContext{Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if driver.doubleClickRequest.X != 540 || driver.doubleClickRequest.Y != 520 {
+		t.Fatalf("double click request = %#v", driver.doubleClickRequest)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["risk"] != desktopRiskExternal || data["verified"] != true {
+		t.Fatalf("outcome = %#v", data)
+	}
+}
+
+func TestComputerRightClickUsesCachedTargetPoint_BitsUT(t *testing.T) {
+	store := computeruse.NewStore(time.Minute)
+	target := saveComputerButtonTarget(store)
+	driver := fakeComputerDriver(computerAXRoot(""))
+	driver.rightClick = desktop.RightClickResult{PID: 123, Action: "RightClick", Performed: true, ActiveBefore: true, ActiveAfter: true, X: 435, Y: 45, CoordinateSpace: desktop.CoordinateSpaceScreenPhysical}
+
+	outcome, err := NewComputerRightClick(driver, store).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"target_id": target.ID, "reason": "打开上下文菜单"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if driver.rightClickRequest.PID != 123 || driver.rightClickRequest.X != 435 || driver.rightClickRequest.Y != 45 {
+		t.Fatalf("right click request = %#v", driver.rightClickRequest)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["risk"] != desktopRiskReversible || data["verified"] != true {
+		t.Fatalf("outcome = %#v", data)
+	}
+}
+
 func TestComputerClipboardWriteDoesNotEchoContent_BitsUT(t *testing.T) {
 	driver := fakeComputerDriver(computerAXRoot(""))
 	driver.clipboardWrite = desktop.ClipboardWriteResult{Action: "ClipboardWrite", Performed: true, TextLength: 5, LineCount: 1}
@@ -558,6 +640,57 @@ func TestAskUserApprovalAcceptsComputerDrag_BitsUT(t *testing.T) {
 	}
 	if !strings.Contains(approvalPrompt(*approval), "桌面拖拽操作") {
 		t.Fatalf("approval prompt = %q", approvalPrompt(*approval))
+	}
+}
+
+func TestAskUserApprovalAcceptsComputerDoubleClick_BitsUT(t *testing.T) {
+	approval, toolErr := parseAskUserApproval(map[string]any{
+		"approval": map[string]any{
+			"operation": computerDoubleClickOperation,
+			"pid":       123,
+			"bbox":      "ct_1|ax:0/2",
+			"reason":    "双击打开文件",
+		},
+	})
+	if toolErr != nil {
+		t.Fatalf("unexpected error: %#v", toolErr)
+	}
+	if approval == nil || approval.Operation != computerDoubleClickOperation || approval.BBox != "ct_1|ax:0/2" {
+		t.Fatalf("approval = %#v", approval)
+	}
+	if !strings.Contains(approvalPrompt(*approval), "桌面双击操作") {
+		t.Fatalf("approval prompt = %q", approvalPrompt(*approval))
+	}
+}
+
+func TestComputerWindowSwitchActivatesMatchedWindowAndUpdatesState_BitsUT(t *testing.T) {
+	store := computeruse.NewStore(time.Minute)
+	driver := fakeComputerDriver(computerAXRoot(""))
+	driver.windows = desktop.ListWindowsResult{Windows: []desktop.Window{
+		{WindowID: "w1", PID: 123, AppName: "WeChat", Title: "聊天", Bounds: desktop.Bounds{X: 0, Y: 0, Width: 800, Height: 600}, IsVisible: true, IsActive: true},
+		{WindowID: "w2", PID: 456, AppName: "Finder", Title: "Downloads", Bounds: desktop.Bounds{X: 10, Y: 10, Width: 700, Height: 500}, IsVisible: true},
+	}}
+	driver.activate = desktop.ActivateResult{PID: 456, Active: true, Verified: true}
+
+	outcome, err := NewComputerWindowSwitch(driver, store).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"app_name": "Finder", "reason": "切到下载目录"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if driver.listRequest.AppName != "Finder" || driver.activateRequest.PID != 456 || driver.activateRequest.WindowID != "w2" {
+		t.Fatalf("requests = list:%#v activate:%#v", driver.listRequest, driver.activateRequest)
+	}
+	state, err := store.LatestState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.ActivePID != 456 || state.ActiveWindow.AppName != "Finder" {
+		t.Fatalf("state = %#v", state)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["risk"] != desktopRiskReversible || data["verified"] != true {
+		t.Fatalf("outcome = %#v", data)
 	}
 }
 

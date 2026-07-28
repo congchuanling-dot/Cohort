@@ -24,6 +24,8 @@ type fakeDesktopDriver struct {
 	axFocus        desktop.AXFocusResult
 	click          desktop.ClickResult
 	visualClick    desktop.VisualClickResult
+	doubleClick    desktop.DoubleClickResult
+	rightClick     desktop.RightClickResult
 	pressKey       desktop.PressKeyResult
 	typeText       desktop.TypeTextResult
 	scroll         desktop.ScrollResult
@@ -42,6 +44,8 @@ type fakeDesktopDriver struct {
 	axFocusRequest        desktop.AXFocusRequest
 	clickRequest          desktop.ClickRequest
 	visualClickRequest    desktop.VisualClickRequest
+	doubleClickRequest    desktop.DoubleClickRequest
+	rightClickRequest     desktop.RightClickRequest
 	pressKeyRequest       desktop.PressKeyRequest
 	typeTextRequest       desktop.TypeTextRequest
 	scrollRequest         desktop.ScrollRequest
@@ -133,6 +137,22 @@ func (d *fakeDesktopDriver) VisualClick(ctx context.Context, req desktop.VisualC
 		return desktop.VisualClickResult{}, d.err
 	}
 	return d.visualClick, nil
+}
+
+func (d *fakeDesktopDriver) DoubleClick(ctx context.Context, req desktop.DoubleClickRequest) (desktop.DoubleClickResult, error) {
+	d.doubleClickRequest = req
+	if d.err != nil {
+		return desktop.DoubleClickResult{}, d.err
+	}
+	return d.doubleClick, nil
+}
+
+func (d *fakeDesktopDriver) RightClick(ctx context.Context, req desktop.RightClickRequest) (desktop.RightClickResult, error) {
+	d.rightClickRequest = req
+	if d.err != nil {
+		return desktop.RightClickResult{}, d.err
+	}
+	return d.rightClick, nil
 }
 
 func (d *fakeDesktopDriver) PressKey(ctx context.Context, req desktop.PressKeyRequest) (desktop.PressKeyResult, error) {
