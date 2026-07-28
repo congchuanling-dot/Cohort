@@ -586,6 +586,455 @@ func selectComputerExecuteTarget(state computeruse.ComputerState, query string, 
 	return computerTargetMatch{}, computerToolError("computer_execute_step_target_not_found", "no cached target matched target_query and requested action", "请先调用 computer_see/computer_find 或 computer_visual_snapshot 刷新候选目标。"), false
 }
 
+// ComputerExecutePlan 执行多步 Observe-Act-Verify GUI 计划。
+type ComputerExecutePlan struct {
+	driver        desktop.Driver
+	store         *computeruse.Store
+	confirmations *ConfirmationStore
+	visualFocuses *VisualFocusStore
+	runner        vision.OCRRunner
+	workspaceTool
+}
+
+// NewComputerExecutePlan 创建多步 OAV 执行器。
+func NewComputerExecutePlan(driver desktop.Driver, store *computeruse.Store, confirmations *ConfirmationStore, visualFocuses *VisualFocusStore, workspace string) *ComputerExecutePlan {
+	return NewComputerExecutePlanWithOCRRunner(driver, store, confirmations, visualFocuses, workspace, newComputerOCRRunner(workspace))
+}
+
+// NewComputerExecutePlanWithOCRRunner 允许测试注入 OCR runner；runner 为 nil 时自动 observe 不做 OCR。
+func NewComputerExecutePlanWithOCRRunner(driver desktop.Driver, store *computeruse.Store, confirmations *ConfirmationStore, visualFocuses *VisualFocusStore, workspace string, runner vision.OCRRunner) *ComputerExecutePlan {
+	if store == nil {
+		store = computeruse.NewStore(computeruse.DefaultTargetTTL)
+	}
+	if confirmations == nil {
+		confirmations = NewConfirmationStore()
+	}
+	if visualFocuses == nil {
+		visualFocuses = NewVisualFocusStore()
+	}
+	return &ComputerExecutePlan{
+		driver:        driver,
+		store:         store,
+		confirmations: confirmations,
+		visualFocuses: visualFocuses,
+		runner:        runner,
+		workspaceTool: newWorkspaceTool(workspace),
+	}
+}
+
+func (t *ComputerExecutePlan) Name() string { return ToolNameComputerExecutePlan }
+
+func (t *ComputerExecutePlan) Schema() llm.ToolSchema {
+	stepSchema := map[string]any{
+		"type":        "array",
+		"description": "Ordered OAV steps. Each item is an object with action=observe/find/click/type/press_key/wait_text/check_text plus action-specific fields.",
+		"items": map[string]any{
+			"type":                 "object",
+			"additionalProperties": true,
+			"properties": map[string]any{
+				"action":               stringProp("Step action: observe, find, click, type, press_key, wait_text, or check_text."),
+				"target_query":         stringProp("Target query for find/click/type steps."),
+				"text":                 stringProp("Draft text for type, or expected text for check_text when contains_text is omitted."),
+				"key":                  stringProp("Key for press_key."),
+				"reason":               stringProp("Step-specific reason. Defaults to plan reason when omitted."),
+				"expected_change":      stringProp("Optional expected UI change after click/type/press_key."),
+				"verify_contains_text": stringProp("Optional text verification after click/type/press_key."),
+				"contains_text":        stringProp("Text to wait for or check in wait_text/check_text."),
+				"app_name":             stringProp("Optional observe app filter."),
+				"title":                stringProp("Optional observe title filter."),
+				"timeout_ms":           intProp("Wait timeout for text verification. Default 5000, max 30000.", defaultComputerWaitMS),
+				"confirmation_token":   stringProp("Optional token for a risky step."),
+			},
+		},
+	}
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Execute a bounded multi-step Observe-Act-Verify computer plan. It logs every step, refreshes once on stale/missing targets, blocks on R2 confirmation, refuses R3 through delegated tools, and returns a handoff payload when recovery fails.",
+		Parameters: objectSchema(map[string]any{
+			"reason":              stringProp("Plan-level user-facing reason."),
+			"steps":               stepSchema,
+			"start_step_index":    intProp("Resume from this zero-based step index. Default 0.", 0),
+			"max_recoveries":      intProp("Maximum automatic recoveries per failed step. Default 1, max 2.", 1),
+			"confirmation_tokens": objectProp("Optional map from step index string to one-time confirmation_token for resuming a blocked R2 step."),
+		}, "reason", "steps"),
+	}}
+}
+
+type computerPlanStep struct {
+	Index              int
+	Action             string
+	TargetQuery        string
+	Text               string
+	Key                string
+	Reason             string
+	ExpectedChange     string
+	VerifyContainsText string
+	ContainsText       string
+	AppName            string
+	Title              string
+	TimeoutMS          int
+	ConfirmationToken  string
+}
+
+func (t *ComputerExecutePlan) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	reason, reasonErr := requiredDesktopActionString(call.Args, "reason")
+	if reasonErr != nil {
+		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
+	}
+	steps, stepsErr := parseComputerPlanSteps(call.Args["steps"], reason)
+	if stepsErr != nil {
+		return agent.Outcome{Data: *stepsErr, NextPrompt: "\n"}, nil
+	}
+	startIndex := asInt(call.Args["start_step_index"], 0)
+	if startIndex < 0 || startIndex >= len(steps) {
+		return computerToolError("computer_execute_plan_bad_start", "start_step_index is outside the plan step range", "请传入有效的起始 step index，或从 0 开始执行。"), nil
+	}
+	maxRecoveries := clampDesktopLimit(asInt(call.Args["max_recoveries"], 1), 1, 2)
+	tokens := asStringMap(call.Args["confirmation_tokens"])
+	executed := make([]map[string]any, 0, len(steps))
+	lastClickBinding := ""
+
+	for i := startIndex; i < len(steps); i++ {
+		step := steps[i]
+		if token := strings.TrimSpace(tokens[fmt.Sprint(i)]); token != "" && step.ConfirmationToken == "" {
+			step.ConfirmationToken = token
+		}
+		var stepResult map[string]any
+		var err error
+		var recovery map[string]any
+		for attempt := 0; attempt <= maxRecoveries; attempt++ {
+			if step.Action == "click" {
+				binding, duplicate := t.computerPlanClickBinding(step)
+				if duplicate && binding == lastClickBinding {
+					return t.computerPlanHandoff(reason, steps, executed, step, "computer_execute_plan_repeated_click_blocked", "plan attempted to click the same target twice in a row", "请重新观察界面或把重复点击改成明确的 double_click/等待/检查步骤。"), nil
+				}
+			}
+			outcome, runErr := t.runComputerPlanStep(ctx, step)
+			if runErr != nil {
+				return agent.Outcome{}, runErr
+			}
+			stepResult = computerOutcomeDataMap(outcome.Data)
+			stepResult["step_index"] = i
+			stepResult["step_action"] = step.Action
+			stepResult["attempt"] = attempt
+			if recovery != nil {
+				stepResult["recovery"] = recovery
+			}
+			err = nil
+			if stepResult["status"] == agent.ToolStatusSuccess {
+				break
+			}
+			if isComputerPlanConfirmationRequired(stepResult) {
+				return agent.Outcome{Data: map[string]any{
+					"status":                 agent.ToolStatusError,
+					"code":                   "computer_execute_plan_confirmation_required",
+					"message":                "plan paused because one step requires user confirmation",
+					"reason":                 reason,
+					"blocked_step_index":     i,
+					"blocked_step":           step,
+					"approval_request":       stepResult["approval_request"],
+					"resume_from_step_index": i,
+					"executed_steps":         executed,
+					"hint":                   "请调用 ask_user 获取 token，然后用 start_step_index 和 confirmation_tokens 只恢复当前 step。",
+				}, NextPrompt: "\n"}, nil
+			}
+			if attempt >= maxRecoveries || !isComputerPlanRecoverable(stepResult) {
+				break
+			}
+			recovery = t.recoverComputerPlanStep(ctx, step, i, attempt)
+			stepResult["recovery"] = recovery
+			if recovery["status"] != agent.ToolStatusSuccess {
+				break
+			}
+		}
+		if err != nil {
+			return agent.Outcome{}, err
+		}
+		executed = append(executed, stepResult)
+		if stepResult["status"] != agent.ToolStatusSuccess {
+			return t.computerPlanHandoff(reason, steps, executed, step, "computer_execute_plan_handoff_required", "plan step failed after bounded recovery", "请根据 handoff 中的最后一步和失败原因接管或调整 plan 后重试。"), nil
+		}
+		if step.Action == "click" {
+			if binding, ok := stepResult["target_binding"].(string); ok && binding != "" {
+				lastClickBinding = binding
+			} else if targetID, ok := stepResult["target_id"].(string); ok {
+				lastClickBinding = targetID
+			}
+		} else {
+			lastClickBinding = ""
+		}
+	}
+	return agent.Outcome{Data: map[string]any{
+		"status":         agent.ToolStatusSuccess,
+		"reason":         reason,
+		"step_count":     len(steps),
+		"executed_steps": executed,
+		"verified":       computerPlanVerified(executed),
+		"handoff":        nil,
+	}, NextPrompt: "\n"}, nil
+}
+
+func (t *ComputerExecutePlan) runComputerPlanStep(ctx context.Context, step computerPlanStep) (agent.Outcome, error) {
+	switch step.Action {
+	case "observe":
+		return NewComputerSeeWithOCRRunner(t.driver, t.store, t.workspace, t.runner).Run(ctx, agent.ToolCallContext{Args: map[string]any{
+			"app_name": step.AppName,
+			"title":    step.Title,
+			"limit":    defaultDesktopWindowLimit,
+		}})
+	case "find":
+		return NewComputerFind(t.store).Run(ctx, agent.ToolCallContext{Args: map[string]any{"query": step.TargetQuery}})
+	case "click", "type", "press_key":
+		args := map[string]any{
+			"action":               step.Action,
+			"target_query":         step.TargetQuery,
+			"text":                 step.Text,
+			"key":                  step.Key,
+			"reason":               step.Reason,
+			"expected_change":      step.ExpectedChange,
+			"verify_contains_text": step.VerifyContainsText,
+			"timeout_ms":           step.TimeoutMS,
+			"confirmation_token":   step.ConfirmationToken,
+		}
+		outcome, err := NewComputerExecuteStep(t.driver, t.store, t.confirmations, t.visualFocuses).Run(ctx, agent.ToolCallContext{Args: args})
+		data := computerOutcomeDataMap(outcome.Data)
+		if data["status"] == agent.ToolStatusSuccess {
+			if actionData, ok := data["action_outcome"].(map[string]any); ok {
+				if targetID, ok := actionData["target_id"].(string); ok {
+					data["target_id"] = targetID
+					data["target_binding"] = targetID
+				}
+			}
+		}
+		outcome.Data = data
+		return outcome, err
+	case "wait_text":
+		needle := firstNonEmpty(step.ContainsText, step.VerifyContainsText, step.Text)
+		return NewComputerWait(t.driver, t.store).Run(ctx, agent.ToolCallContext{Args: map[string]any{
+			"contains_text":    needle,
+			"reason":           step.Reason,
+			"timeout_ms":       step.TimeoutMS,
+			"poll_interval_ms": defaultComputerPollMS,
+		}})
+	case "check_text":
+		needle := firstNonEmpty(step.ContainsText, step.VerifyContainsText, step.Text)
+		return NewComputerCheck(t.driver, t.store).Run(ctx, agent.ToolCallContext{Args: map[string]any{
+			"expectation":   step.Reason,
+			"contains_text": needle,
+		}})
+	default:
+		return computerToolError("computer_execute_plan_bad_step_action", "unsupported plan step action", "请使用 observe/find/click/type/press_key/wait_text/check_text。"), nil
+	}
+}
+
+func parseComputerPlanSteps(raw any, planReason string) ([]computerPlanStep, *agent.ToolErrorData) {
+	rawSteps, ok := raw.([]any)
+	if !ok || len(rawSteps) == 0 {
+		err := agent.NewToolError("computer_execute_plan_bad_steps", "steps must be a non-empty array", "请传入结构化 steps 数组。")
+		return nil, &err
+	}
+	if len(rawSteps) > 20 {
+		err := agent.NewToolError("computer_execute_plan_too_many_steps", "steps length exceeds 20", "请把大型任务拆成多个较短 plan。")
+		return nil, &err
+	}
+	steps := make([]computerPlanStep, 0, len(rawSteps))
+	for index, rawStep := range rawSteps {
+		stepMap, ok := rawStep.(map[string]any)
+		if !ok {
+			err := agent.NewToolError("computer_execute_plan_bad_step", "each step must be an object", "请把每个 step 写成包含 action 等字段的对象。")
+			return nil, &err
+		}
+		action := normalizeComputerPlanAction(asString(stepMap["action"]))
+		if action == "" {
+			err := agent.NewToolError("computer_execute_plan_bad_step_action", "step action is missing or unsupported", "请使用 observe/find/click/type/press_key/wait_text/check_text。")
+			return nil, &err
+		}
+		reason := strings.TrimSpace(asString(stepMap["reason"]))
+		if reason == "" {
+			reason = planReason
+		}
+		step := computerPlanStep{
+			Index:              index,
+			Action:             action,
+			TargetQuery:        strings.TrimSpace(asString(stepMap["target_query"])),
+			Text:               asString(stepMap["text"]),
+			Key:                strings.TrimSpace(asString(stepMap["key"])),
+			Reason:             reason,
+			ExpectedChange:     strings.TrimSpace(asString(stepMap["expected_change"])),
+			VerifyContainsText: strings.TrimSpace(asString(stepMap["verify_contains_text"])),
+			ContainsText:       strings.TrimSpace(asString(stepMap["contains_text"])),
+			AppName:            strings.TrimSpace(asString(stepMap["app_name"])),
+			Title:              strings.TrimSpace(asString(stepMap["title"])),
+			TimeoutMS:          clampDesktopLimit(asInt(stepMap["timeout_ms"], defaultComputerWaitMS), defaultComputerWaitMS, maxComputerWaitMS),
+			ConfirmationToken:  strings.TrimSpace(asString(stepMap["confirmation_token"])),
+		}
+		if err := validateComputerPlanStep(step); err != nil {
+			return nil, err
+		}
+		steps = append(steps, step)
+	}
+	return steps, nil
+}
+
+func validateComputerPlanStep(step computerPlanStep) *agent.ToolErrorData {
+	switch step.Action {
+	case "find", "click", "type":
+		if step.TargetQuery == "" {
+			err := agent.NewToolError("computer_execute_plan_missing_target_query", step.Action+" step requires target_query", "请为 find/click/type step 提供目标描述。")
+			return &err
+		}
+	case "press_key":
+		if step.Key == "" {
+			err := agent.NewToolError("computer_execute_plan_missing_key", "press_key step requires key", "请为 press_key step 提供 key。")
+			return &err
+		}
+	case "wait_text", "check_text":
+		if firstNonEmpty(step.ContainsText, step.VerifyContainsText, step.Text) == "" {
+			err := agent.NewToolError("computer_execute_plan_missing_text", step.Action+" step requires contains_text or text", "请为等待/检查 step 提供要验证的文本。")
+			return &err
+		}
+	}
+	if step.Action == "type" && strings.TrimSpace(step.Text) == "" {
+		err := agent.NewToolError("computer_execute_plan_missing_text", "type step requires text", "请为 type step 提供要起草的文本。")
+		return &err
+	}
+	return nil
+}
+
+func normalizeComputerPlanAction(raw string) string {
+	switch normalizeComputerExecuteAction(raw) {
+	case "click":
+		return "click"
+	case "type":
+		return "type"
+	case "press_key":
+		return "press_key"
+	}
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "observe", "see":
+		return "observe"
+	case "find":
+		return "find"
+	case "wait_text", "wait":
+		return "wait_text"
+	case "check_text", "check":
+		return "check_text"
+	default:
+		return ""
+	}
+}
+
+func (t *ComputerExecutePlan) recoverComputerPlanStep(ctx context.Context, step computerPlanStep, stepIndex int, attempt int) map[string]any {
+	outcome, err := NewComputerSeeWithOCRRunner(t.driver, t.store, t.workspace, t.runner).Run(ctx, agent.ToolCallContext{Args: map[string]any{
+		"app_name": step.AppName,
+		"title":    step.Title,
+		"limit":    defaultDesktopWindowLimit,
+	}})
+	data := computerOutcomeDataMap(outcome.Data)
+	data["step_index"] = stepIndex
+	data["attempt"] = attempt
+	data["strategy"] = "computer_see_then_retry"
+	if err != nil {
+		data["status"] = agent.ToolStatusError
+		data["code"] = "computer_execute_plan_recover_failed"
+		data["message"] = err.Error()
+	}
+	return data
+}
+
+func (t *ComputerExecutePlan) computerPlanClickBinding(step computerPlanStep) (string, bool) {
+	state, err := t.store.LatestState()
+	if err != nil {
+		return "", false
+	}
+	target, _, ok := selectComputerExecuteTarget(state, step.TargetQuery, "click")
+	if !ok {
+		return "", false
+	}
+	if target.Source == computeruse.SourceOCR || target.Source == computeruse.SourceVision {
+		return strings.Join([]string{target.Source, target.ScreenshotRef, canonicalDesktopBBox(target.BBox)}, "|"), true
+	}
+	return target.ID, true
+}
+
+func (t *ComputerExecutePlan) computerPlanHandoff(reason string, steps []computerPlanStep, executed []map[string]any, failedStep computerPlanStep, code string, message string, hint string) agent.Outcome {
+	lastOutcome := map[string]any{}
+	if len(executed) > 0 {
+		lastOutcome = executed[len(executed)-1]
+	}
+	return agent.Outcome{Data: map[string]any{
+		"status":            agent.ToolStatusError,
+		"code":              code,
+		"message":           message,
+		"reason":            reason,
+		"failed_step_index": failedStep.Index,
+		"failed_step":       failedStep,
+		"executed_steps":    executed,
+		"handoff": map[string]any{
+			"failed_step_index": failedStep.Index,
+			"failed_action":     failedStep.Action,
+			"target_query":      failedStep.TargetQuery,
+			"last_outcome":      lastOutcome,
+			"recommended_next":  "请重新调用 computer_see 检查当前窗口，必要时让用户手动完成当前步骤。",
+		},
+		"remaining_steps": len(steps) - failedStep.Index - 1,
+		"hint":            hint,
+	}, NextPrompt: "\n"}
+}
+
+func computerOutcomeDataMap(data any) map[string]any {
+	switch value := data.(type) {
+	case map[string]any:
+		return value
+	case agent.ToolErrorData:
+		return map[string]any{"status": agent.ToolStatusError, "code": value.Code, "message": value.Message, "hint": value.Hint}
+	default:
+		return map[string]any{"status": agent.ToolStatusError, "code": "computer_execute_plan_bad_outcome", "message": fmt.Sprintf("unexpected outcome type %T", data)}
+	}
+}
+
+func isComputerPlanConfirmationRequired(data map[string]any) bool {
+	return data["code"] == "desktop_action_confirmation_required" || data["code"] == "computer_execute_plan_confirmation_required"
+}
+
+func isComputerPlanRecoverable(data map[string]any) bool {
+	code := strings.TrimSpace(asString(data["code"]))
+	if code == "" {
+		return false
+	}
+	return strings.Contains(code, "state_required") ||
+		strings.Contains(code, "target_not_found") ||
+		strings.Contains(code, "target_stale") ||
+		strings.Contains(code, "target_window") ||
+		strings.Contains(code, "unverified")
+}
+
+func computerPlanVerified(steps []map[string]any) bool {
+	for _, step := range steps {
+		if step["status"] != agent.ToolStatusSuccess {
+			return false
+		}
+		if value, ok := step["verified"]; ok && value != true {
+			return false
+		}
+	}
+	return len(steps) > 0
+}
+
+func asStringMap(value any) map[string]string {
+	result := map[string]string{}
+	raw, ok := value.(map[string]any)
+	if !ok {
+		return result
+	}
+	for key, item := range raw {
+		if text := strings.TrimSpace(asString(item)); text != "" {
+			result[key] = text
+		}
+	}
+	return result
+}
+
 // ComputerCheck 用最新 AX 状态验证可见文本或目标状态。
 type ComputerCheck struct {
 	driver desktop.Driver

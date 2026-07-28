@@ -198,6 +198,127 @@ func TestComputerExecuteStepTypesAndVerifiesText_BitsUT(t *testing.T) {
 	}
 }
 
+func TestComputerExecutePlanRunsObserveTypeAndVerify_BitsUT(t *testing.T) {
+	store := computeruse.NewStore(time.Minute)
+	driver := fakeComputerDriver(computerAXRoot(""))
+	driver.axSnapshots = []desktop.AXSnapshotResult{
+		{PID: 123, Root: computerAXRoot("")},
+		{PID: 123, Root: computerAXRoot("")},
+		{PID: 123, Root: computerAXRoot("hello plan")},
+	}
+	driver.axFocus = desktop.AXFocusResult{PID: 123, NodeID: "ax:0/0", Action: "AXFocus", Performed: true, Focused: true}
+	driver.typeText = desktop.TypeTextResult{PID: 123, Action: "TypeText", Performed: true, ActiveBefore: true, ActiveAfter: true, TextLength: len("hello plan"), LineCount: 1}
+
+	outcome, err := NewComputerExecutePlanWithOCRRunner(driver, store, NewConfirmationStore(), NewVisualFocusStore(), t.TempDir(), nil).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{
+			"reason": "执行起草计划",
+			"steps": []any{
+				map[string]any{"action": "observe", "app_name": "WeChat", "reason": "观察聊天窗口"},
+				map[string]any{"action": "type", "target_query": "消息输入框", "text": "hello plan", "reason": "起草文本", "verify_contains_text": "hello plan"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["verified"] != true {
+		t.Fatalf("plan outcome = %#v", data)
+	}
+	steps := data["executed_steps"].([]map[string]any)
+	if len(steps) != 2 || steps[0]["step_action"] != "observe" || steps[1]["step_action"] != "type" {
+		t.Fatalf("executed steps = %#v", steps)
+	}
+	if driver.typeTextRequest.Text != "hello plan" {
+		t.Fatalf("type request = %#v", driver.typeTextRequest)
+	}
+}
+
+func TestComputerExecutePlanRecoversMissingStateWithObserve_BitsUT(t *testing.T) {
+	store := computeruse.NewStore(time.Minute)
+	driver := fakeComputerDriver(computerAXRoot(""))
+	driver.axSnapshots = []desktop.AXSnapshotResult{
+		{PID: 123, Root: computerAXRoot("")},
+		{PID: 123, Root: computerAXRoot("")},
+		{PID: 123, Root: computerAXRoot("hello recover")},
+	}
+	driver.axFocus = desktop.AXFocusResult{PID: 123, NodeID: "ax:0/0", Action: "AXFocus", Performed: true, Focused: true}
+	driver.typeText = desktop.TypeTextResult{PID: 123, Action: "TypeText", Performed: true, ActiveBefore: true, ActiveAfter: true, TextLength: len("hello recover"), LineCount: 1}
+
+	outcome, err := NewComputerExecutePlanWithOCRRunner(driver, store, NewConfirmationStore(), NewVisualFocusStore(), t.TempDir(), nil).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{
+			"reason":         "执行恢复计划",
+			"max_recoveries": 1,
+			"steps": []any{
+				map[string]any{"action": "type", "target_query": "消息输入框", "text": "hello recover", "reason": "起草文本", "verify_contains_text": "hello recover"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["verified"] != true {
+		t.Fatalf("plan outcome = %#v", data)
+	}
+	steps := data["executed_steps"].([]map[string]any)
+	if len(steps) != 1 || steps[0]["attempt"] != 1 {
+		t.Fatalf("expected recovered retry on attempt 1: %#v", steps)
+	}
+	recovery := steps[0]["recovery"].(map[string]any)
+	if recovery["strategy"] != "computer_see_then_retry" || recovery["status"] != agent.ToolStatusSuccess {
+		t.Fatalf("recovery = %#v", recovery)
+	}
+}
+
+func TestComputerExecutePlanHandoffsOnRepeatedClick_BitsUT(t *testing.T) {
+	store := computeruse.NewStore(time.Minute)
+	enabled := true
+	state := store.SaveState(computeruse.ComputerState{
+		OS:           "darwin",
+		ActivePID:    123,
+		ActiveWindow: computerTestWindowRef(),
+		Candidates: []computeruse.ComputerTarget{{
+			Label:               "表情",
+			Role:                "AXButton",
+			Confidence:          0.9,
+			Source:              computeruse.SourceAX,
+			Bounds:              desktop.Bounds{X: 400, Y: 20, Width: 70, Height: 50},
+			CoordinateSpace:     desktop.CoordinateSpaceScreenPhysical,
+			Window:              computerTestWindowRef(),
+			SuggestedAction:     computeruse.SuggestedActionClick,
+			AXNodeID:            "ax:0/1",
+			ExpectedRole:        "AXButton",
+			ExpectedTitle:       "打开表情",
+			ExpectedDescription: "",
+		}},
+	})
+	root := computerAXRoot("")
+	root.Children = append(root.Children, desktop.AXNode{ID: "ax:0/1", Role: "AXButton", Title: "打开表情", Enabled: &enabled, Bounds: desktop.Bounds{X: 400, Y: 20, Width: 70, Height: 50}})
+	driver := fakeComputerDriver(root)
+	driver.click = desktop.ClickResult{PID: 123, NodeID: "ax:0/1", Action: "Click", Performed: true, ActiveBefore: true, ActiveAfter: true, X: 435, Y: 45, CoordinateSpace: desktop.CoordinateSpaceScreenPhysical}
+
+	outcome, err := NewComputerExecutePlanWithOCRRunner(driver, store, NewConfirmationStore(), NewVisualFocusStore(), t.TempDir(), nil).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{
+			"reason": "测试重复点击阻断",
+			"steps": []any{
+				map[string]any{"action": "click", "target_query": "表情", "reason": "打开表情面板"},
+				map[string]any{"action": "click", "target_query": "表情", "reason": "再次打开表情面板"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusError || data["code"] != "computer_execute_plan_repeated_click_blocked" {
+		t.Fatalf("plan outcome = %#v state=%#v", data, state)
+	}
+	if data["failed_step_index"] != 1 {
+		t.Fatalf("failed index = %#v", data["failed_step_index"])
+	}
+}
+
 func TestComputerSeeAddsHeuristicChatInputForWebView_BitsUT(t *testing.T) {
 	store := computeruse.NewStore(time.Minute)
 	driver := fakeComputerDriver(computerOffscreenTextFieldRoot())

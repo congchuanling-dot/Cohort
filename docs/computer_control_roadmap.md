@@ -10,6 +10,8 @@
 > P1 收尾原语已实现：`computer_drop`。
 > P2 第一版已实现：`computer_visual_snapshot(mode=ocr/all)`，复用 `computer_see` 的 AX、OCR 和启发式 vision 候选，不返回截图内容。
 > P3 第一版已实现：`computer_execute_step`，支持 `target_query -> click/type/press_key -> verify_contains_text` 的单步 OAV 执行。
+> P3.1 第一版已实现：`computer_execute_plan`，支持多步 OAV steps、一次受控 retry/recover、确认中断恢复和 handoff outcome。
+> 下一步开发重点：强化 recover policy、接入真实 UI detector，并补真实 App E2E。
 
 ## 1. 目标定义
 
@@ -306,6 +308,11 @@ computer_see
 - 动作执行继续复用 `computer_click`、`computer_type`、`computer_press`，不绕过 R2 确认和 R3 拒绝。
 - 可选 `verify_contains_text` 会在动作后自动等待并验证可见文本。
 - 返回 `action_outcome` 和 `verification_outcome`，方便定位失败阶段。
+- `computer_execute_plan` 支持 `observe/find/click/type/press_key/wait_text/check_text` 多步计划。
+- `computer_execute_plan` 每步记录 step index、action、attempt、action outcome、verification outcome。
+- target 缺失、过期或未验证时，默认执行一次 `computer_see` 恢复后重试。
+- R2 动作会中断计划并返回 `approval_request`、`resume_from_step_index` 和已执行步骤。
+- 重复点击同一 target / bbox 会直接阻断并返回 handoff outcome。
 
 验收：
 
@@ -351,6 +358,7 @@ computer_window_move
 computer_window_resize
 computer_visual_snapshot
 computer_execute_step
+computer_execute_plan
 ```
 
 它已经覆盖：
@@ -372,11 +380,173 @@ computer_execute_step
 - 窗口移动/缩放只作用于最新或指定窗口，并限制坐标和尺寸范围。
 - 视觉快照可返回 OCR/vision/AX 候选和 `target_id`，不把截图内容塞进上下文。
 - 单步 OAV 执行器可按 `target_query` 找目标、执行动作，并用 `verify_contains_text` 自动验证。
+- 多步 OAV 计划可串联 observe/find/action/wait/check，并在目标缺失或过期时做一次受控恢复。
 
-下一步进入：
+## 6. 下一步开发计划
+
+### P3.1：多步 OAV Action Plan `[完成：第一版]`
+
+目标：把 `computer_execute_step` 从“单步执行器”推进到“多步计划执行器”，让模型不用手写脆弱的 `find -> click -> wait -> check` 链路。
+
+已新增：
 
 ```text
-multi-step OAV plan / retry-recover / UI detector
+computer_execute_plan
 ```
 
-下一阶段把 `computer_execute_step` 扩成多步 action plan，加入 target 过期检查、有限 retry/recover 和 handoff；UI detector 作为视觉候选增强继续推进。
+已完成第一版能力：
+
+1. 接收结构化 steps：
+   - `observe`
+   - `find`
+   - `click`
+   - `type`
+   - `press_key`
+   - `wait_text`
+   - `check_text`
+2. 每步自动记录：
+   - step index
+   - action
+   - target query / target id
+   - before state id
+   - action outcome
+   - verification outcome
+3. target 缺失、过期或动作未验证时，自动重新 `computer_see` 后重试一次。
+4. 限制同一 target / 同一视觉 bbox 连续重复点击。
+5. 任一步命中 R2 时中断并返回 `approval_request`，拿到 token 后可用 `start_step_index` + `confirmation_tokens` 从同一步继续。
+6. 任一步命中 R3 时由底层工具拒绝，不继续执行后续步骤。
+7. 重试后仍失败时返回 handoff outcome。
+
+验收：
+
+- 起草消息类流程可以表达为一个 plan：找输入框、输入草稿、检查草稿出现。
+- 点击后等待结果类流程可以表达为一个 plan：找按钮、点击、等待目标文本、检查结果。
+- 中途 target 过期时最多自动刷新一次，不盲目重复点击。
+- 失败返回明确失败 step 和恢复建议。
+
+### P3.2：Retry / Recover / Handoff
+
+目标：让 OAV 执行器在失败时有受控恢复策略，而不是让模型直接重试同一个动作。
+
+开发项：
+
+1. 增加 retry policy：
+   - 每个 step 默认最多 1 次自动恢复。
+   - 不允许连续点击同一坐标。
+   - 不允许连续发送/提交类动作。
+2. 增加 recover policy：
+   - 重新 `computer_see`。
+   - 对同一 query 重新 rank target。
+   - AX target 失败时可切到 OCR/vision target。
+   - OCR/vision target 失败时要求重新观察或交还用户。
+3. 增加 `computer_handoff` 或在 execute plan 中返回 handoff outcome：
+   - 当前窗口。
+   - 最后一步。
+   - 失败原因。
+   - 建议用户手动完成的动作。
+
+验收：
+
+- target 不存在、窗口切走、UI 更新后，执行器能停止并说明卡在哪。
+- 不出现盲目循环点击。
+- 高风险操作不会被 retry 机制绕过确认。
+
+### P2.1：真实 UI Detector 接入
+
+目标：补足 `computer_visual_snapshot` 第一版只靠 OCR 和启发式 vision 的缺口。
+
+建议顺序：
+
+1. 先定义 detector 输出协议，不急着绑定具体模型：
+   - `label`
+   - `role`
+   - `bbox`
+   - `confidence`
+   - `source=vision`
+   - `coordinate_space=screenshot-local`
+2. 增加 `computer_visual_snapshot(mode=ui_detect)`。
+3. detector 不直接授权点击，只生成可缓存 target。
+4. 点击仍走 `computer_click`，由 manifest 映射坐标并执行风险确认。
+
+验收：
+
+- 能发现无文字图标按钮。
+- 能发现常见输入框、按钮、列表项区域。
+- 所有视觉 bbox 都绑定 screenshot manifest。
+- 不把 detector 原图或大体积中间结果塞进模型上下文。
+
+### P4：真实 App E2E 测试
+
+目标：从“单元测试通过”推进到“真实桌面可复现”。
+
+优先场景：
+
+1. Finder：
+   - 切换窗口。
+   - 搜索文件。
+   - 打开文件夹。
+   - 文件对话框选择路径。
+2. Chrome：
+   - 打开页面。
+   - 填写表单草稿。
+   - 点击低风险按钮。
+   - 等待结果文本。
+3. VS Code：
+   - 搜索文件。
+   - 聚焦编辑器。
+   - 起草文本。
+4. 聊天 App：
+   - 找输入框。
+   - 起草消息。
+   - 验证草稿。
+   - 发送动作必须停下来要求确认。
+
+验收：
+
+- 每个场景有 SOP 文档。
+- 每个场景有可重复执行的本地脚本或手工步骤。
+- 失败时保存截图、state id、target id 和最后一步 outcome。
+
+### P5：权限 Broker 和审计日志
+
+目标：把分散在各工具里的 R0/R1/R2/R3 逻辑统一成可审计的 runtime 层。
+
+开发项：
+
+1. 抽象统一 permission broker。
+2. 统一 confirmation token 的 operation、binding、reason。
+3. 为每次 desktop/computer action 写审计事件：
+   - session id
+   - tool name
+   - app / pid / window id
+   - target id
+   - risk
+   - confirmation token id
+   - before / after artifact
+   - verification result
+4. 不记录敏感正文，不记录剪贴板原内容。
+
+验收：
+
+- 出问题时能回放“模型为什么做了这个动作”。
+- R2/R3 策略不会被新工具绕过。
+- 审计日志不泄露输入正文、剪贴板内容或 secure field。
+
+### P6：跨 OS Driver
+
+目标：在 macOS 可靠后，再扩 Windows / Linux。
+
+顺序：
+
+1. 先固化 `desktop.Driver` / `computer_*` 上层协议。
+2. Windows：
+   - UI Automation。
+   - Win32 input。
+   - 截图和 OCR。
+   - UAC 边界。
+3. Linux：
+   - AT-SPI。
+   - X11 / Wayland portal。
+   - 截图和输入权限。
+
+跨 OS 不应早于 P3/P4。现在优先把 macOS 的 OAV 和真实 App E2E 做稳。

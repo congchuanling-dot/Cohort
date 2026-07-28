@@ -136,6 +136,8 @@ const (
 	ToolNameComputerVisualSnapshot = "computer_visual_snapshot"
 	// ToolNameComputerExecuteStep 执行单步 Observe-Act-Verify GUI 动作。
 	ToolNameComputerExecuteStep = "computer_execute_step"
+	// ToolNameComputerExecutePlan 执行多步 Observe-Act-Verify GUI 计划。
+	ToolNameComputerExecutePlan = "computer_execute_plan"
 )
 
 // Tool 是所有本地工具必须实现的接口。
@@ -222,6 +224,7 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameComputerWindowResize,
 		ToolNameComputerVisualSnapshot,
 		ToolNameComputerExecuteStep,
+		ToolNameComputerExecutePlan,
 		ToolNameSkillRead,
 		ToolNameUpdateWorkingCheckpoint,
 		ToolNameStartLongTermUpdate,

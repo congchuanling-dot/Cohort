@@ -463,6 +463,7 @@ computer_window_move
 computer_window_resize
 computer_visual_snapshot
 computer_execute_step
+computer_execute_plan
 ```
 
 </details>

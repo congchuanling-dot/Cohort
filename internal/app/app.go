@@ -225,6 +225,7 @@ func newRegistry(
 	registry.Register(tools.NewComputerWindowResize(desktopDriver, computerStore))
 	registry.Register(tools.NewComputerVisualSnapshot(computerStore))
 	registry.Register(tools.NewComputerExecuteStep(desktopDriver, computerStore, confirmations, visualFocuses))
+	registry.Register(tools.NewComputerExecutePlan(desktopDriver, computerStore, confirmations, visualFocuses, workspace))
 	registry.Register(tools.NewUpdateWorkingCheckpoint())
 	registry.Register(tools.NewStartLongTermUpdate(workspace))
 	registry.Register(tools.NewMemoryProposeUpdate(workspace))
