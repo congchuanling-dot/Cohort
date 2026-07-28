@@ -13,6 +13,7 @@ import (
 
 	"cohort/internal/agent"
 	"cohort/internal/app"
+	"cohort/internal/evolution"
 	"cohort/internal/mcp"
 	"cohort/internal/repl"
 	"cohort/internal/session"
@@ -86,6 +87,8 @@ func Run(args []string) error {
 		return nil
 	case "session":
 		return runSessionCommand(context.Background(), cfg, args[1:])
+	case "reflect":
+		return runReflectCommand(cfg, args[1:], os.Stdout)
 	case "tools":
 		schemas, schemasErr := app.ToolSchemas(cfg)
 		if schemasErr != nil {
@@ -793,6 +796,52 @@ func runSessionCommand(ctx context.Context, cfg app.Config, args []string) error
 	}
 }
 
+func runReflectCommand(cfg app.Config, args []string, out io.Writer) error {
+	if len(args) == 0 || args[0] != "once" {
+		return errors.New("usage: cohort reflect once --task session-archive|mine-sop-candidates|memory-quality-report|tool-failure-report")
+	}
+	task := ""
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--task":
+			if i+1 >= len(args) {
+				return errors.New("--task requires a reflection task")
+			}
+			task = args[i+1]
+			i++
+		case strings.HasPrefix(arg, "--task="):
+			task = strings.TrimPrefix(arg, "--task=")
+		default:
+			return fmt.Errorf("unknown reflect option %q", arg)
+		}
+	}
+	if task == "" {
+		return errors.New("usage: cohort reflect once --task session-archive|mine-sop-candidates|memory-quality-report|tool-failure-report")
+	}
+	manager := evolution.NewManager(cfg.Workspace)
+	result, err := manager.ReflectOnce(task, session.DefaultRootDir)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "reflect task: %s\n", result.Task)
+	fmt.Fprintf(out, "sessions_scanned: %d\n", result.SessionsScanned)
+	fmt.Fprintf(out, "history_messages: %d\n", result.HistoryMessages)
+	if result.ToolFailures > 0 {
+		fmt.Fprintf(out, "tool_failures: %d\n", result.ToolFailures)
+	}
+	if result.SOPCandidatesWritten > 0 {
+		fmt.Fprintf(out, "sop_candidates_written: %d\n", result.SOPCandidatesWritten)
+	}
+	if result.MemoryHitSessions > 0 {
+		fmt.Fprintf(out, "memory_hit_sessions: %d\n", result.MemoryHitSessions)
+	}
+	for _, path := range result.OutputPaths {
+		fmt.Fprintf(out, "output: %s\n", path)
+	}
+	return nil
+}
+
 // printSessionList 输出本地已有会话。
 //
 // 这里使用 tabwriter，是为了让不同长度的标题和 ID 在终端里对齐，
@@ -901,6 +950,8 @@ Usage:
   cohort session list     list local sessions
   cohort session resume <id>
                           resume a local session and enter REPL
+  cohort reflect once --task session-archive|mine-sop-candidates|memory-quality-report|tool-failure-report
+                          generate offline reflection reports without starting an LLM
 
 Development:
   go run .                start interactive CLI

@@ -168,6 +168,135 @@ llm:
 	}
 }
 
+func TestLoadConfigParsesLangfuseObservability_BitsUT(t *testing.T) {
+	t.Setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+	t.Setenv("LANGFUSE_SECRET_KEY", "sk-test")
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := `language: zh
+workspace: ./workspace
+log_dir: ./temp/model_responses
+max_turns: 7
+
+observability:
+  langfuse:
+    enabled: true
+    host: https://langfuse.example.com/
+    public_key: ${LANGFUSE_PUBLIC_KEY}
+    secret_key: ${LANGFUSE_SECRET_KEY}
+    environment: test
+    release: sha-123
+    timeout_seconds: 3
+
+llm:
+  provider: openai
+  name: deepseek
+  api_key: test-key
+  api_base: https://example.com/v1
+  model: test-model
+  stream: false
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	langfuse := cfg.Observability.Langfuse
+	if !langfuse.Enabled {
+		t.Fatal("langfuse enabled = false, want true")
+	}
+	if langfuse.Host != "https://langfuse.example.com" {
+		t.Fatalf("langfuse host = %q, want trimmed host", langfuse.Host)
+	}
+	if langfuse.PublicKey != "pk-test" || langfuse.SecretKey != "sk-test" {
+		t.Fatalf("langfuse keys = %q/%q, want expanded env keys", langfuse.PublicKey, langfuse.SecretKey)
+	}
+	if langfuse.Environment != "test" || langfuse.Release != "sha-123" || langfuse.TimeoutSeconds != 3 {
+		t.Fatalf("langfuse metadata = %#v, want parsed metadata", langfuse)
+	}
+}
+
+func TestLoadConfigLoadsDotEnvAndLangfuseBaseURLAlias_BitsUT(t *testing.T) {
+	root := t.TempDir()
+	oldWD, getwdErr := os.Getwd()
+	if getwdErr != nil {
+		t.Fatal(getwdErr)
+	}
+	if chdirErr := os.Chdir(root); chdirErr != nil {
+		t.Fatal(chdirErr)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(oldWD)
+	})
+	restoreEnv := snapshotEnv(t, []string{
+		"COHORT_LANGFUSE_ENABLED",
+		"LANGFUSE_HOST",
+		"LANGFUSE_BASE_URL",
+		"LANGFUSE_PUBLIC_KEY",
+		"LANGFUSE_SECRET_KEY",
+	})
+	defer restoreEnv()
+
+	dotEnv := "COHORT_LANGFUSE_ENABLED=true\n" +
+		"LANGFUSE_BASE_URL=\" `https://us.cloud.langfuse.com` \"\n" +
+		"LANGFUSE_PUBLIC_KEY=pk-dotenv\n" +
+		"LANGFUSE_SECRET_KEY=sk-dotenv\n"
+	if writeErr := os.WriteFile(filepath.Join(root, ".env"), []byte(dotEnv), 0644); writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	path := filepath.Join(root, "config.yaml")
+	content := `llm:
+  provider: openai
+  name: deepseek
+  api_key: test-key
+  api_base: https://example.com/v1
+  model: test-model
+  stream: false
+`
+	if writeErr := os.WriteFile(path, []byte(content), 0644); writeErr != nil {
+		t.Fatal(writeErr)
+	}
+
+	cfg, loadErr := LoadConfig(path)
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	langfuse := cfg.Observability.Langfuse
+	if !langfuse.Enabled {
+		t.Fatal("langfuse enabled = false, want true from .env")
+	}
+	if langfuse.Host != "https://us.cloud.langfuse.com" {
+		t.Fatalf("langfuse host = %q, want sanitized base url alias", langfuse.Host)
+	}
+	if langfuse.PublicKey != "pk-dotenv" || langfuse.SecretKey != "sk-dotenv" {
+		t.Fatalf("langfuse keys = %q/%q, want dotenv values", langfuse.PublicKey, langfuse.SecretKey)
+	}
+}
+
+func snapshotEnv(t *testing.T, keys []string) func() {
+	t.Helper()
+	values := make(map[string]string, len(keys))
+	present := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		value, ok := os.LookupEnv(key)
+		values[key] = value
+		present[key] = ok
+		_ = os.Unsetenv(key)
+	}
+	return func() {
+		for _, key := range keys {
+			if present[key] {
+				_ = os.Setenv(key, values[key])
+				continue
+			}
+			_ = os.Unsetenv(key)
+		}
+	}
+}
+
 func TestLoadConfigRejectsMissingFallbackProfile_BitsUT(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	content := `llm:

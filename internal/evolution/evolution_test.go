@@ -6,7 +6,195 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"cohort/internal/llm"
+	"cohort/internal/observability"
+	"cohort/internal/session"
 )
+
+func TestReflectSessionArchiveWritesHashesNotRawContent_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	sessionRoot := filepath.Join(t.TempDir(), "sessions")
+	store := session.NewStore(sessionRoot)
+	sess, err := store.Create("very secret task title", workspace, "test-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendHistory(sess.ID, llm.Message{Role: llm.RoleUser, Content: "very secret user request"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendHistory(sess.ID, llm.Message{
+		Role:    llm.RoleAssistant,
+		Content: "assistant raw reasoning",
+		ToolCalls: []llm.ToolCall{{
+			Function: llm.ToolFunction{Name: "file_read", Arguments: `{"path":"secret.md"}`},
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendHistory(sess.ID, llm.Message{Role: llm.RoleTool, Name: "file_read", Content: "raw tool output secret"}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewManager(workspace).ReflectOnce(ReflectTaskSessionArchive, sessionRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SessionsScanned != 1 || result.HistoryMessages != 3 {
+		t.Fatalf("result = %#v, want one session and three messages", result)
+	}
+	data, err := os.ReadFile(filepath.Join(workspace, filepath.FromSlash(RawSessionArchivePath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	for _, leaked := range []string{"very secret", "assistant raw reasoning", "raw tool output secret", "secret.md"} {
+		if strings.Contains(content, leaked) {
+			t.Fatalf("archive leaked raw content %q:\n%s", leaked, content)
+		}
+	}
+	for _, want := range []string{"sha256:", "role_counts", "file_read"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("archive missing %q:\n%s", want, content)
+		}
+	}
+}
+
+func TestReflectToolFailureReportAndSOPCandidateDedupe_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	sessionRoot := filepath.Join(t.TempDir(), "sessions")
+	writeLegacyFailureLog(t, sessionRoot, "sess-1", "desktop_click", "desktop_click_unverified", "sha256:a")
+	writeLegacyFailureLog(t, sessionRoot, "sess-2", "desktop_click", "desktop_click_unverified", "sha256:b")
+	manager := NewManager(workspace)
+
+	report, err := manager.ReflectOnce(ReflectTaskToolFailureReport, sessionRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.ToolFailures != 2 {
+		t.Fatalf("tool failures = %d, want 2", report.ToolFailures)
+	}
+	reportData, err := os.ReadFile(filepath.Join(workspace, filepath.FromSlash(FailurePatternsPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(reportData), "desktop_click / desktop_click_unverified") ||
+		!strings.Contains(string(reportData), "count: 2") {
+		t.Fatalf("failure report is incomplete:\n%s", reportData)
+	}
+
+	mined, err := manager.ReflectOnce(ReflectTaskMineSOPCandidates, sessionRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mined.SOPCandidatesWritten != 1 {
+		t.Fatalf("sop candidates written = %d, want 1", mined.SOPCandidatesWritten)
+	}
+	minedAgain, err := manager.ReflectOnce(ReflectTaskMineSOPCandidates, sessionRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if minedAgain.SOPCandidatesWritten != 0 {
+		t.Fatalf("second mining wrote %d candidates, want dedupe", minedAgain.SOPCandidatesWritten)
+	}
+	candidates, err := manager.ListSOPCandidates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || !strings.Contains(candidates[0].Title, "desktop_click") {
+		t.Fatalf("candidates = %#v, want one desktop_click candidate", candidates)
+	}
+}
+
+func TestReflectMemoryQualityReportCountsRelevantMemoryUse_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	sessionRoot := filepath.Join(t.TempDir(), "sessions")
+	sessionDir := filepath.Join(sessionRoot, "sess-memory")
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeObservationEvent(t, filepath.Join(sessionDir, "run.log.jsonl"), observability.NewEvent(
+		observability.EventContextBuilt,
+		"run-1",
+		"sess-memory",
+		1,
+		workspace,
+		"runner",
+		observability.SeverityInfo,
+		map[string]any{"relevant_memory_hit_count": 2, "injected_relevant_memory": true},
+	))
+	writeObservationEvent(t, filepath.Join(sessionDir, "run.log.jsonl"), observability.NewEvent(
+		observability.EventToolStarted,
+		"run-1",
+		"sess-memory",
+		1,
+		workspace,
+		"runner",
+		observability.SeverityInfo,
+		map[string]any{"tool": "update_working_checkpoint"},
+	))
+
+	result, err := NewManager(workspace).ReflectOnce(ReflectTaskMemoryQualityReport, sessionRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.MemoryHitSessions != 1 {
+		t.Fatalf("memory hit sessions = %d, want 1", result.MemoryHitSessions)
+	}
+	data, err := os.ReadFile(filepath.Join(workspace, filepath.FromSlash(MemoryQualityReportPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"relevant_memory_hit_sessions: 1", "relevant_memory_used_after_hit_sessions: 1", "| sess-memory |"} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("memory report missing %q:\n%s", want, data)
+		}
+	}
+}
+
+func writeLegacyFailureLog(t *testing.T, sessionRoot string, sessionID string, tool string, errorCode string, argsHash string) {
+	t.Helper()
+	sessionDir := filepath.Join(sessionRoot, sessionID)
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	entry := legacyRunLogEntry{
+		SessionID: sessionID,
+		Turn:      1,
+		Index:     0,
+		Event:     "tool_completed",
+		Tool:      tool,
+		Status:    "error",
+		ErrorCode: errorCode,
+		ArgsHash:  argsHash,
+	}
+	data, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionDir, "run.log"), append(data, '\n'), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeObservationEvent(t *testing.T, path string, event observability.Event) {
+	t.Helper()
+	data, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Write(append(data, '\n')); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestManagerEnsureStructureCreatesP0Files_BitsUT(t *testing.T) {
 	workspace := t.TempDir()

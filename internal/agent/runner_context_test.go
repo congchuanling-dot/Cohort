@@ -378,6 +378,18 @@ func TestRunnerWritesRedactedRunLog_BitsUT(t *testing.T) {
 	if !strings.Contains(entry.ArgsSummary, "[redacted]") {
 		t.Fatalf("args summary must redact token: %q", entry.ArgsSummary)
 	}
+	events, readEventsErr := os.ReadFile(filepath.Join(store.SessionDir(runner.SessionID()), observationLogFileName))
+	if readEventsErr != nil {
+		t.Fatal(readEventsErr)
+	}
+	if strings.Contains(string(events), "super-secret") {
+		t.Fatalf("run.log.jsonl leaked secret: %s", events)
+	}
+	for _, want := range []string{"RunStarted", "LLMRequestStarted", "ToolStarted", "ToolFinished", "RunFinished"} {
+		if !strings.Contains(string(events), want) {
+			t.Fatalf("run.log.jsonl missing %s:\n%s", want, events)
+		}
+	}
 }
 
 func TestRunnerPassesVerifiedEvidenceLedgerToMemoryTools_BitsUT(t *testing.T) {

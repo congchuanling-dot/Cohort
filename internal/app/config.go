@@ -26,6 +26,8 @@ type Config struct {
 	LLM LLMConfig
 	// Context 保存请求前上下文压缩和预算配置。
 	Context contextmgr.Config
+	// Observability 保存本地和外部观测输出配置。
+	Observability ObservabilityConfig
 }
 
 // LLMConfig 描述模型服务配置。
@@ -84,9 +86,26 @@ type LLMProfile struct {
 	MaxRetries int
 }
 
+// ObservabilityConfig 描述外部观测系统配置。本地 run.log.jsonl 始终由 Runner 默认写入。
+type ObservabilityConfig struct {
+	Langfuse LangfuseConfig
+}
+
+// LangfuseConfig 描述 Langfuse ingestion API 配置。
+type LangfuseConfig struct {
+	Enabled        bool
+	Host           string
+	PublicKey      string
+	SecretKey      string
+	Environment    string
+	Release        string
+	TimeoutSeconds int
+}
+
 // LoadConfig 读取项目根目录的配置文件，并用环境变量替换 ${VAR}。
 // 当前为了保持 MVP 简单，没有引入 YAML 第三方库，只解析本项目需要的简单 key/value。
 func LoadConfig(path string) (Config, error) {
+	loadDotEnvFiles(dotEnvCandidatePaths(path))
 	cfg := defaultConfig()
 	if _, err := os.Stat(path); err != nil {
 		// 配置文件不存在时也能运行，使用默认值和环境变量。
@@ -102,6 +121,7 @@ func LoadConfig(path string) (Config, error) {
 	section := ""
 	llmSubsection := ""
 	currentProfile := ""
+	observabilitySubsection := ""
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -120,6 +140,7 @@ func LoadConfig(path string) (Config, error) {
 				section = key
 				llmSubsection = ""
 				currentProfile = ""
+				observabilitySubsection = ""
 				continue
 			}
 			if section == "llm" && indent == 2 && key == "profiles" {
@@ -133,6 +154,10 @@ func LoadConfig(path string) (Config, error) {
 			if section == "llm" && llmSubsection == "profiles" && indent == 4 {
 				currentProfile = key
 				ensureLLMProfile(&cfg.LLM, currentProfile)
+				continue
+			}
+			if section == "observability" && indent == 2 && key == "langfuse" {
+				observabilitySubsection = "langfuse"
 				continue
 			}
 			continue
@@ -155,6 +180,10 @@ func LoadConfig(path string) (Config, error) {
 			}
 		} else if section == "context" {
 			applyContextValue(&cfg.Context, key, val)
+		} else if section == "observability" {
+			if observabilitySubsection == "langfuse" && indent >= 4 {
+				applyLangfuseValue(&cfg.Observability.Langfuse, key, val)
+			}
 		} else {
 			applyRootValue(&cfg, key, val)
 		}
@@ -175,6 +204,7 @@ func finalizeConfig(cfg Config) (Config, error) {
 	if err := normalizeLLMConfig(&cfg.LLM); err != nil {
 		return cfg, err
 	}
+	cfg.Observability = normalizeObservabilityConfig(cfg.Observability)
 	active := cfg.LLM.Active()
 	cfg.Context.ContextWindowTokens = contextmgr.ResolveContextWindowTokens(active.Model)
 	return cfg, nil
@@ -183,11 +213,12 @@ func finalizeConfig(cfg Config) (Config, error) {
 // defaultConfig 给出开箱即用的默认配置。
 func defaultConfig() Config {
 	return Config{
-		Language:  "zh",
-		Workspace: "./workspace",
-		LogDir:    "./temp/model_responses",
-		MaxTurns:  100,
-		Context:   contextmgr.DefaultConfig(),
+		Language:      "zh",
+		Workspace:     "./workspace",
+		LogDir:        "./temp/model_responses",
+		MaxTurns:      100,
+		Context:       contextmgr.DefaultConfig(),
+		Observability: defaultObservabilityConfig(),
 		LLM: LLMConfig{
 			Provider:              "openai",
 			Name:                  "deepseek",
@@ -198,6 +229,20 @@ func defaultConfig() Config {
 			ConnectTimeoutSeconds: int((10 * time.Second).Seconds()),
 			ReadTimeoutSeconds:    int((120 * time.Second).Seconds()),
 			MaxRetries:            2,
+		},
+	}
+}
+
+func defaultObservabilityConfig() ObservabilityConfig {
+	return ObservabilityConfig{
+		Langfuse: LangfuseConfig{
+			Enabled:        parseBoolDefault(os.Getenv("COHORT_LANGFUSE_ENABLED"), false),
+			Host:           langfuseHostFromEnvironment(),
+			PublicKey:      "${LANGFUSE_PUBLIC_KEY}",
+			SecretKey:      "${LANGFUSE_SECRET_KEY}",
+			Environment:    os.Getenv("COHORT_ENV"),
+			Release:        os.Getenv("COHORT_RELEASE"),
+			TimeoutSeconds: 2,
 		},
 	}
 }
@@ -313,6 +358,24 @@ func copyProfileToLegacyFields(cfg *LLMConfig, profile LLMProfile) {
 	cfg.MaxRetries = profile.MaxRetries
 }
 
+func normalizeObservabilityConfig(cfg ObservabilityConfig) ObservabilityConfig {
+	cfg.Langfuse.Host = normalizeHostValue(expandEnv(cfg.Langfuse.Host))
+	if cfg.Langfuse.Host == "" {
+		cfg.Langfuse.Host = normalizeHostValue(langfuseHostFromEnvironment())
+	}
+	if cfg.Langfuse.Host == "" {
+		cfg.Langfuse.Host = "https://cloud.langfuse.com"
+	}
+	cfg.Langfuse.PublicKey = strings.TrimSpace(expandEnv(cfg.Langfuse.PublicKey))
+	cfg.Langfuse.SecretKey = strings.TrimSpace(expandEnv(cfg.Langfuse.SecretKey))
+	cfg.Langfuse.Environment = strings.TrimSpace(expandEnv(cfg.Langfuse.Environment))
+	cfg.Langfuse.Release = strings.TrimSpace(expandEnv(cfg.Langfuse.Release))
+	if cfg.Langfuse.TimeoutSeconds <= 0 {
+		cfg.Langfuse.TimeoutSeconds = 2
+	}
+	return cfg
+}
+
 // applyRootValue 写入顶层配置字段。
 func applyRootValue(cfg *Config, key, val string) {
 	switch key {
@@ -381,6 +444,25 @@ func applyLLMValue(cfg *LLMConfig, key, val string) {
 		cfg.ReadTimeoutSeconds = atoiDefault(val, cfg.ReadTimeoutSeconds)
 	case "max_retries":
 		cfg.MaxRetries = atoiDefault(val, cfg.MaxRetries)
+	}
+}
+
+func applyLangfuseValue(cfg *LangfuseConfig, key, val string) {
+	switch key {
+	case "enabled":
+		cfg.Enabled = parseBoolDefault(val, cfg.Enabled)
+	case "host":
+		cfg.Host = normalizeHostValue(val)
+	case "public_key":
+		cfg.PublicKey = val
+	case "secret_key":
+		cfg.SecretKey = val
+	case "environment":
+		cfg.Environment = val
+	case "release":
+		cfg.Release = val
+	case "timeout_seconds":
+		cfg.TimeoutSeconds = atoiDefault(val, cfg.TimeoutSeconds)
 	}
 }
 
@@ -466,6 +548,91 @@ func expandEnv(v string) string {
 		return os.Getenv(strings.TrimSuffix(strings.TrimPrefix(v, "${"), "}"))
 	}
 	return os.ExpandEnv(v)
+}
+
+func langfuseHostFromEnvironment() string {
+	if host := normalizeHostValue(os.Getenv("LANGFUSE_HOST")); host != "" {
+		return host
+	}
+	return normalizeHostValue(os.Getenv("LANGFUSE_BASE_URL"))
+}
+
+func normalizeHostValue(value string) string {
+	value = strings.TrimSpace(value)
+	for _, cutset := range []string{`"'`, "`"} {
+		value = strings.Trim(value, cutset)
+		value = strings.TrimSpace(value)
+	}
+	return strings.TrimRight(value, "/")
+}
+
+func dotEnvCandidatePaths(configPath string) []string {
+	var paths []string
+	if cwd, err := os.Getwd(); err == nil {
+		paths = append(paths, filepath.Join(cwd, ".env"))
+	}
+	if trimmed := strings.TrimSpace(configPath); trimmed != "" {
+		paths = append(paths, filepath.Join(filepath.Dir(filepath.Clean(trimmed)), ".env"))
+	}
+	seen := make(map[string]bool, len(paths))
+	unique := make([]string, 0, len(paths))
+	for _, path := range paths {
+		path = filepath.Clean(path)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		unique = append(unique, path)
+	}
+	return unique
+}
+
+func loadDotEnvFiles(paths []string) {
+	for _, path := range paths {
+		loadDotEnvFile(path)
+	}
+}
+
+func loadDotEnvFile(path string) {
+	file, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		if key == "" {
+			continue
+		}
+		if _, exists := os.LookupEnv(key); exists {
+			continue
+		}
+		value := parseDotEnvValue(parts[1])
+		_ = os.Setenv(key, value)
+	}
+	_ = scanner.Err()
+}
+
+func parseDotEnvValue(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) >= 2 {
+		if (strings.HasPrefix(value, `"`) && strings.HasSuffix(value, `"`)) ||
+			(strings.HasPrefix(value, `'`) && strings.HasSuffix(value, `'`)) {
+			value = value[1 : len(value)-1]
+		}
+	}
+	return strings.TrimSpace(value)
 }
 
 // atoiDefault 解析失败时返回已有默认值，避免配置写错导致零值覆盖。

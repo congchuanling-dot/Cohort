@@ -275,6 +275,7 @@ type anthropicResponse struct {
 		Name  string          `json:"name"`
 		Input json.RawMessage `json:"input"`
 	} `json:"content"`
+	Usage anthropicUsage `json:"usage"`
 }
 
 func parseAnthropicJSON(r io.Reader) (*Response, error) {
@@ -303,12 +304,15 @@ func parseAnthropicJSON(r io.Reader) (*Response, error) {
 			})
 		}
 	}
-	return &Response{Content: content.String(), ToolCalls: normalizeToolCalls(calls)}, nil
+	return &Response{Content: content.String(), ToolCalls: normalizeToolCalls(calls), Usage: data.Usage.toUsage()}, nil
 }
 
 type anthropicStreamEvent struct {
-	Type  string `json:"type"`
-	Index int    `json:"index"`
+	Type    string `json:"type"`
+	Index   int    `json:"index"`
+	Message *struct {
+		Usage anthropicUsage `json:"usage"`
+	} `json:"message"`
 	Error *struct {
 		Type    string `json:"type"`
 		Message string `json:"message"`
@@ -325,6 +329,7 @@ type anthropicStreamEvent struct {
 		Text        string `json:"text"`
 		PartialJSON string `json:"partial_json"`
 	} `json:"delta"`
+	Usage anthropicUsage `json:"usage"`
 }
 
 type anthropicStreamBlock struct {
@@ -340,6 +345,7 @@ func parseAnthropicSSE(r io.Reader, out chan<- Event) (*Response, error) {
 	scanner.Buffer(make([]byte, 1024), 1024*1024*8)
 
 	blocks := map[int]*anthropicStreamBlock{}
+	var usage Usage
 	var raw strings.Builder
 
 	for scanner.Scan() {
@@ -364,6 +370,10 @@ func parseAnthropicSSE(r io.Reader, out chan<- Event) (*Response, error) {
 			}
 			return nil, err
 		}
+		if event.Message != nil {
+			usage.merge(event.Message.Usage.toUsage())
+		}
+		usage.merge(event.Usage.toUsage())
 		if event.Type == "error" {
 			errType := "unknown"
 			errMessage := payload
@@ -456,7 +466,46 @@ func parseAnthropicSSE(r io.Reader, out chan<- Event) (*Response, error) {
 			})
 		}
 	}
-	return &Response{Content: content.String(), ToolCalls: normalizeToolCalls(calls), Raw: raw.String()}, nil
+	return &Response{Content: content.String(), ToolCalls: normalizeToolCalls(calls), Usage: usage, Raw: raw.String()}, nil
+}
+
+type anthropicUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+}
+
+func (u anthropicUsage) toUsage() Usage {
+	usage := Usage{
+		InputTokens:              u.InputTokens,
+		OutputTokens:             u.OutputTokens,
+		CacheCreationInputTokens: u.CacheCreationInputTokens,
+		CacheReadInputTokens:     u.CacheReadInputTokens,
+	}
+	usage.TotalTokens = usage.InputTokens + usage.OutputTokens
+	return usage
+}
+
+func (u *Usage) merge(next Usage) {
+	if next.InputTokens != 0 {
+		u.InputTokens = next.InputTokens
+	}
+	if next.OutputTokens != 0 {
+		u.OutputTokens = next.OutputTokens
+	}
+	if next.TotalTokens != 0 {
+		u.TotalTokens = next.TotalTokens
+	}
+	if next.CacheCreationInputTokens != 0 {
+		u.CacheCreationInputTokens = next.CacheCreationInputTokens
+	}
+	if next.CacheReadInputTokens != 0 {
+		u.CacheReadInputTokens = next.CacheReadInputTokens
+	}
+	if u.InputTokens != 0 || u.OutputTokens != 0 {
+		u.TotalTokens = u.InputTokens + u.OutputTokens
+	}
 }
 
 func anthropicHasProgress(blocks map[int]*anthropicStreamBlock) bool {

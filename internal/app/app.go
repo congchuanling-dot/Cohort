@@ -15,6 +15,7 @@ import (
 	"cohort/internal/desktop"
 	"cohort/internal/llm"
 	"cohort/internal/mcp"
+	"cohort/internal/observability"
 	"cohort/internal/session"
 	"cohort/internal/skill"
 	"cohort/internal/tools"
@@ -75,18 +76,37 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 
 	// Runner 不直接知道具体工具类型，只依赖 ToolRunner 接口。
 	return &agent.Runner{
-		Client:         client,
-		Tools:          registry,
-		SystemPrompt:   BuildSystemPrompt(cfg, skillStore),
-		MaxTurns:       cfg.MaxTurns,
-		LogDir:         filepath.Clean(cfg.LogDir),
-		ContextManager: contextManager,
-		SessionStore:   &sessionStore,
-		SessionCWD:     cwd,
-		SessionModel:   active.Model,
-		CloseFunc:      mcpManager.Close,
-		SkillStore:     skillStore,
+		Client:           client,
+		Tools:            registry,
+		SystemPrompt:     BuildSystemPrompt(cfg, skillStore),
+		MaxTurns:         cfg.MaxTurns,
+		LogDir:           filepath.Clean(cfg.LogDir),
+		ContextManager:   contextManager,
+		SessionStore:     &sessionStore,
+		SessionCWD:       cwd,
+		SessionModel:     active.Model,
+		CloseFunc:        mcpManager.Close,
+		SkillStore:       skillStore,
+		ObservationSinks: buildObservationSinks(cfg.Observability),
 	}, nil
+}
+
+func buildObservationSinks(cfg ObservabilityConfig) []observability.Sink {
+	cfg = normalizeObservabilityConfig(cfg)
+	langfuse := cfg.Langfuse
+	if !langfuse.Enabled || strings.TrimSpace(langfuse.PublicKey) == "" || strings.TrimSpace(langfuse.SecretKey) == "" {
+		return nil
+	}
+	return []observability.Sink{
+		observability.NewLangfuseSink(observability.LangfuseSinkConfig{
+			Host:        langfuse.Host,
+			PublicKey:   langfuse.PublicKey,
+			SecretKey:   langfuse.SecretKey,
+			Environment: langfuse.Environment,
+			Release:     langfuse.Release,
+			Timeout:     time.Duration(langfuse.TimeoutSeconds) * time.Second,
+		}),
+	}
 }
 
 func buildLLMClient(cfg LLMConfig) (llm.Client, error) {

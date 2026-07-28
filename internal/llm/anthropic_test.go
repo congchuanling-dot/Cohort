@@ -50,7 +50,13 @@ func TestParseAnthropicJSONConvertsToolUse_BitsUT(t *testing.T) {
 		"content": [
 			{"type": "text", "text": "Need a file."},
 			{"type": "tool_use", "id": "toolu_1", "name": "file_read", "input": {"path": "README.md"}}
-		]
+		],
+		"usage": {
+			"input_tokens": 10,
+			"output_tokens": 5,
+			"cache_creation_input_tokens": 2,
+			"cache_read_input_tokens": 3
+		}
 	}`)
 
 	resp, err := parseAnthropicJSON(body)
@@ -67,12 +73,18 @@ func TestParseAnthropicJSONConvertsToolUse_BitsUT(t *testing.T) {
 	if call.ID != "toolu_1" || call.Function.Name != "file_read" || call.Function.Arguments != `{"path": "README.md"}` {
 		t.Fatalf("tool call = %#v, want converted Anthropic tool_use", call)
 	}
+	if resp.Usage.InputTokens != 10 || resp.Usage.OutputTokens != 5 || resp.Usage.TotalTokens != 15 || resp.Usage.CacheCreationInputTokens != 2 || resp.Usage.CacheReadInputTokens != 3 {
+		t.Fatalf("usage = %#v, want parsed Anthropic usage", resp.Usage)
+	}
 }
 
 func TestParseAnthropicSSETextAndToolUse_BitsUT(t *testing.T) {
 	sse := strings.NewReader(strings.Join([]string{
 		`event: content_block_start`,
 		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+		"",
+		`event: message_start`,
+		`data: {"type":"message_start","message":{"usage":{"input_tokens":8,"output_tokens":0,"cache_read_input_tokens":4}}}`,
 		"",
 		`event: content_block_delta`,
 		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}`,
@@ -82,6 +94,9 @@ func TestParseAnthropicSSETextAndToolUse_BitsUT(t *testing.T) {
 		"",
 		`event: content_block_delta`,
 		`data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"README.md\"}"}}`,
+		"",
+		`event: message_delta`,
+		`data: {"type":"message_delta","usage":{"output_tokens":6}}`,
 		"",
 		`event: message_stop`,
 		`data: {"type":"message_stop"}`,
@@ -103,6 +118,9 @@ func TestParseAnthropicSSETextAndToolUse_BitsUT(t *testing.T) {
 	call := resp.ToolCalls[0]
 	if call.ID != "toolu_1" || call.Function.Name != "file_read" || call.Function.Arguments != `{"path":"README.md"}` {
 		t.Fatalf("tool call = %#v, want streamed tool_use", call)
+	}
+	if resp.Usage.InputTokens != 8 || resp.Usage.OutputTokens != 6 || resp.Usage.TotalTokens != 14 || resp.Usage.CacheReadInputTokens != 4 {
+		t.Fatalf("usage = %#v, want streamed Anthropic usage", resp.Usage)
 	}
 	first := <-out
 	if first.Type != EventText || first.Text != "Hi" {
