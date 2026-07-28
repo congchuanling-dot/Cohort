@@ -275,6 +275,317 @@ func (t *ComputerFind) Run(ctx context.Context, call agent.ToolCallContext) (age
 	}, nil
 }
 
+// ComputerVisualSnapshot 返回最近 computer_see 中可用于视觉路径的候选 target。
+type ComputerVisualSnapshot struct {
+	store *computeruse.Store
+}
+
+// NewComputerVisualSnapshot 创建只读视觉候选快照工具。
+func NewComputerVisualSnapshot(store *computeruse.Store) *ComputerVisualSnapshot {
+	if store == nil {
+		store = computeruse.NewStore(computeruse.DefaultTargetTTL)
+	}
+	return &ComputerVisualSnapshot{store: store}
+}
+
+func (t *ComputerVisualSnapshot) Name() string { return ToolNameComputerVisualSnapshot }
+
+func (t *ComputerVisualSnapshot) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Return a compact visual snapshot from the latest computer_see state: OCR text targets and heuristic vision targets by default, optionally all cached candidates. It returns target_id and bbox metadata only, never screenshot bytes.",
+		Parameters: objectSchema(map[string]any{
+			"mode":       stringProp("Candidate mode: ocr (default, OCR + vision candidates) or all (AX + OCR + vision)."),
+			"query":      stringProp("Optional natural-language filter. When set, candidates are ranked like computer_find."),
+			"include_ax": boolProp("Whether to include AX targets together with OCR/vision candidates. Default false.", false),
+			"limit":      intProp("Maximum candidates to return. Default 40, max 100.", 40),
+		}),
+	}}
+}
+
+func (t *ComputerVisualSnapshot) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	state, err := t.store.LatestState()
+	if err != nil {
+		return computerCacheError("computer_visual_snapshot", err), nil
+	}
+	if state.ActivePID <= 0 || state.ScreenshotRef == "" || state.ScreenshotManifestRef == "" {
+		return computerToolError("computer_visual_snapshot_no_observation", "latest computer state has no screenshot-backed active window", "请先调用 computer_see，让 Cohert 捕获当前窗口截图和候选目标。"), nil
+	}
+	mode := strings.ToLower(strings.TrimSpace(asString(call.Args["mode"])))
+	if mode == "" {
+		mode = "ocr"
+	}
+	if mode != "ocr" && mode != "all" {
+		return computerToolError("computer_visual_snapshot_bad_mode", "mode must be ocr or all", "第一版 computer_visual_snapshot 只支持 mode=ocr 或 mode=all。"), nil
+	}
+	includeAX := asBool(call.Args["include_ax"], false) || mode == "all"
+	limit := clampDesktopLimit(asInt(call.Args["limit"], 40), 40, 100)
+	query := strings.TrimSpace(asString(call.Args["query"]))
+	candidates := filterComputerVisualSnapshotTargets(state.Candidates, includeAX)
+	sourceCounts := countComputerTargetSources(candidates)
+
+	var returned any
+	returnedCount := 0
+	if query != "" {
+		matches := rankComputerTargets(query, candidates)
+		if len(matches) > limit {
+			matches = matches[:limit]
+		}
+		returned = matches
+		returnedCount = len(matches)
+	} else {
+		if len(candidates) > limit {
+			candidates = candidates[:limit]
+		}
+		returned = candidates
+		returnedCount = len(candidates)
+	}
+	return agent.Outcome{Data: map[string]any{
+		"status":                  agent.ToolStatusSuccess,
+		"state_id":                state.ID,
+		"mode":                    mode,
+		"include_ax":              includeAX,
+		"query":                   query,
+		"active_app":              state.ActiveApp,
+		"active_pid":              state.ActivePID,
+		"active_window":           state.ActiveWindow,
+		"screenshot_ref":          state.ScreenshotRef,
+		"screenshot_manifest_ref": state.ScreenshotManifestRef,
+		"screenshot_width":        state.ScreenshotWidth,
+		"screenshot_height":       state.ScreenshotHeight,
+		"coordinate_spaces":       []string{desktop.CoordinateSpaceScreenshotLocal, desktop.CoordinateSpaceScreenPhysical},
+		"ocr_status":              state.OCRStatus,
+		"ocr_line_count":          state.OCRLineCount,
+		"ocr_error":               state.OCRError,
+		"source_counts":           sourceCounts,
+		"candidates":              returned,
+		"candidate_count":         returnedCount,
+		"total_visual_candidates": len(candidates),
+		"contains_screenshot":     false,
+		"expires_at":              state.ExpiresAt.Format(time.RFC3339Nano),
+	}, NextPrompt: "\n"}, nil
+}
+
+// ComputerExecuteStep 执行一个单步 Observe-Act-Verify GUI 动作。
+type ComputerExecuteStep struct {
+	driver        desktop.Driver
+	store         *computeruse.Store
+	confirmations *ConfirmationStore
+	visualFocuses *VisualFocusStore
+}
+
+// NewComputerExecuteStep 创建单步 OAV 执行器。
+func NewComputerExecuteStep(driver desktop.Driver, store *computeruse.Store, confirmations *ConfirmationStore, visualFocuses *VisualFocusStore) *ComputerExecuteStep {
+	if store == nil {
+		store = computeruse.NewStore(computeruse.DefaultTargetTTL)
+	}
+	if confirmations == nil {
+		confirmations = NewConfirmationStore()
+	}
+	if visualFocuses == nil {
+		visualFocuses = NewVisualFocusStore()
+	}
+	return &ComputerExecuteStep{driver: driver, store: store, confirmations: confirmations, visualFocuses: visualFocuses}
+}
+
+func (t *ComputerExecuteStep) Name() string { return ToolNameComputerExecuteStep }
+
+func (t *ComputerExecuteStep) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Execute one Observe-Act-Verify GUI step from the latest computer_see state. It finds a target by query for click/type actions, delegates to the existing safe computer tools, then optionally waits for visible verification text. It does not bypass confirmation rules.",
+		Parameters: objectSchema(map[string]any{
+			"action":               stringProp("Action to execute: click, type, or press_key."),
+			"target_query":         stringProp("Required for click/type. Natural-language target query, for example 'message input box' or 'Save button'."),
+			"text":                 stringProp("Required for action=type. Text is drafted only; this tool does not send/submit."),
+			"key":                  stringProp("Required for action=press_key. Uses the same allowlist and confirmation rules as computer_press."),
+			"reason":               stringProp("Concrete user-facing reason for this step."),
+			"expected_change":      stringProp("Optional expected UI change after the action."),
+			"verify_contains_text": stringProp("Optional exact text to wait for after the action."),
+			"timeout_ms":           intProp("Verification wait timeout in milliseconds. Default 5000, max 30000.", defaultComputerWaitMS),
+			"confirmation_token":   stringProp("Optional one-time confirmation token required when the delegated action is R2."),
+		}, "action", "reason"),
+	}}
+}
+
+func (t *ComputerExecuteStep) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	action := normalizeComputerExecuteAction(asString(call.Args["action"]))
+	if action == "" {
+		return computerToolError("computer_execute_step_bad_action", "action must be click, type, or press_key", "请明确传入 action=click/type/press_key。"), nil
+	}
+	reason, reasonErr := requiredDesktopActionString(call.Args, "reason")
+	if reasonErr != nil {
+		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
+	}
+	state, err := t.store.LatestState()
+	if err != nil {
+		return computerCacheError("computer_execute_step", err), nil
+	}
+	if state.ActivePID <= 0 {
+		return computerToolError("computer_execute_step_no_target_window", "latest computer state has no active target window", "请先调用 computer_see 观察并选择目标窗口。"), nil
+	}
+
+	var selected *computerTargetMatch
+	actionArgs := map[string]any{
+		"reason":             reason,
+		"expected_change":    strings.TrimSpace(asString(call.Args["expected_change"])),
+		"confirmation_token": strings.TrimSpace(asString(call.Args["confirmation_token"])),
+	}
+	switch action {
+	case "click", "type":
+		target, targetOutcome, ok := selectComputerExecuteTarget(state, asString(call.Args["target_query"]), action)
+		if !ok {
+			return targetOutcome, nil
+		}
+		selected = &target
+		actionArgs["target_id"] = target.ID
+		if action == "type" {
+			text, textErr := requiredDesktopTypeText(call.Args)
+			if textErr != nil {
+				return agent.Outcome{Data: *textErr, NextPrompt: "\n"}, nil
+			}
+			actionArgs["text"] = text
+		}
+	case "press_key":
+		key, keyErr := requiredDesktopActionString(call.Args, "key")
+		if keyErr != nil {
+			return agent.Outcome{Data: *keyErr, NextPrompt: "\n"}, nil
+		}
+		actionArgs["key"] = key
+	default:
+		return computerToolError("computer_execute_step_bad_action", "action must be click, type, or press_key", "请明确传入 action=click/type/press_key。"), nil
+	}
+
+	actionOutcome, err := t.runComputerExecuteAction(ctx, action, actionArgs)
+	if err != nil {
+		return agent.Outcome{}, err
+	}
+	actionData, ok := actionOutcome.Data.(map[string]any)
+	if !ok {
+		return agent.Outcome{Data: map[string]any{
+			"status":         agent.ToolStatusError,
+			"code":           "computer_execute_step_action_failed",
+			"message":        "delegated action returned a non-map outcome",
+			"action":         action,
+			"action_outcome": actionOutcome.Data,
+		}, NextPrompt: "\n"}, nil
+	}
+	actionData["executor"] = "computer_execute_step"
+	actionData["executor_stage"] = "action"
+	actionData["requested_action"] = action
+	if selected != nil {
+		actionData["target_query"] = strings.TrimSpace(asString(call.Args["target_query"]))
+		actionData["selected_target"] = *selected
+	}
+	if actionData["status"] != agent.ToolStatusSuccess {
+		return agent.Outcome{Data: actionData, NextPrompt: "\n"}, nil
+	}
+
+	verifyText := strings.TrimSpace(asString(call.Args["verify_contains_text"]))
+	if verifyText == "" {
+		return agent.Outcome{Data: map[string]any{
+			"status":                agent.ToolStatusSuccess,
+			"action":                action,
+			"reason":                reason,
+			"target_query":          strings.TrimSpace(asString(call.Args["target_query"])),
+			"selected_target":       selected,
+			"action_outcome":        actionData,
+			"verification_skipped":  true,
+			"verified":              actionData["verified"] == true,
+			"next_recommended_tool": "computer_check",
+		}, NextPrompt: "\n"}, nil
+	}
+
+	timeoutMS := clampDesktopLimit(asInt(call.Args["timeout_ms"], defaultComputerWaitMS), defaultComputerWaitMS, maxComputerWaitMS)
+	verificationOutcome, err := NewComputerWait(t.driver, t.store).Run(ctx, agent.ToolCallContext{Args: map[string]any{
+		"contains_text":    verifyText,
+		"reason":           "verify computer_execute_step: " + reason,
+		"timeout_ms":       timeoutMS,
+		"poll_interval_ms": defaultComputerPollMS,
+	}})
+	if err != nil {
+		return agent.Outcome{}, err
+	}
+	verificationData, ok := verificationOutcome.Data.(map[string]any)
+	if !ok {
+		return agent.Outcome{Data: map[string]any{
+			"status":               agent.ToolStatusError,
+			"code":                 "computer_execute_step_verification_failed",
+			"message":              "verification returned a non-map outcome",
+			"action":               action,
+			"action_outcome":       actionData,
+			"verification_outcome": verificationOutcome.Data,
+			"verified":             false,
+		}, NextPrompt: "\n"}, nil
+	}
+	verified := verificationData["verified"] == true
+	status := agent.ToolStatusSuccess
+	if !verified {
+		status = agent.ToolStatusError
+	}
+	result := map[string]any{
+		"status":               status,
+		"action":               action,
+		"reason":               reason,
+		"target_query":         strings.TrimSpace(asString(call.Args["target_query"])),
+		"selected_target":      selected,
+		"verify_contains_text": verifyText,
+		"action_outcome":       actionData,
+		"verification_outcome": verificationData,
+		"verified":             verified,
+	}
+	if !verified {
+		result["code"] = "computer_execute_step_unverified"
+		result["message"] = "action ran but verify_contains_text was not observed before timeout"
+		result["hint"] = "请重新调用 computer_see 检查当前窗口，再决定是否重试或换目标。"
+	}
+	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
+}
+
+func (t *ComputerExecuteStep) runComputerExecuteAction(ctx context.Context, action string, args map[string]any) (agent.Outcome, error) {
+	switch action {
+	case "click":
+		return NewComputerClickWithVisualFocus(t.driver, t.store, t.confirmations, t.visualFocuses).Run(ctx, agent.ToolCallContext{Args: args})
+	case "type":
+		return NewComputerType(t.driver, t.store, t.visualFocuses).Run(ctx, agent.ToolCallContext{Args: args})
+	case "press_key":
+		return NewComputerPress(t.driver, t.store, t.confirmations).Run(ctx, agent.ToolCallContext{Args: args})
+	default:
+		return computerToolError("computer_execute_step_bad_action", "action must be click, type, or press_key", "请明确传入 action=click/type/press_key。"), nil
+	}
+}
+
+func normalizeComputerExecuteAction(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "click":
+		return "click"
+	case "type", "type_text":
+		return "type"
+	case "press", "press_key":
+		return "press_key"
+	default:
+		return ""
+	}
+}
+
+func selectComputerExecuteTarget(state computeruse.ComputerState, query string, action string) (computerTargetMatch, agent.Outcome, bool) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return computerTargetMatch{}, computerToolError("computer_execute_step_bad_target_query", "target_query is required for click/type actions", "请传入要操作的目标描述，例如“消息输入框”或“保存按钮”。"), false
+	}
+	matches := rankComputerTargets(query, state.Candidates)
+	for _, match := range matches {
+		if action == "type" && match.SuggestedAction != computeruse.SuggestedActionType && !strings.Contains(strings.ToLower(match.Role), "text") {
+			continue
+		}
+		if action == "click" && match.SuggestedAction != computeruse.SuggestedActionClick {
+			continue
+		}
+		return match, agent.Outcome{}, true
+	}
+	return computerTargetMatch{}, computerToolError("computer_execute_step_target_not_found", "no cached target matched target_query and requested action", "请先调用 computer_see/computer_find 或 computer_visual_snapshot 刷新候选目标。"), false
+}
+
 // ComputerCheck 用最新 AX 状态验证可见文本或目标状态。
 type ComputerCheck struct {
 	driver desktop.Driver
@@ -605,6 +916,33 @@ func summarizeComputerTargets(targets []computeruse.ComputerTarget, limit int) [
 		return targets
 	}
 	return targets[:limit]
+}
+
+func filterComputerVisualSnapshotTargets(targets []computeruse.ComputerTarget, includeAX bool) []computeruse.ComputerTarget {
+	filtered := make([]computeruse.ComputerTarget, 0, len(targets))
+	for _, target := range targets {
+		switch target.Source {
+		case computeruse.SourceOCR, computeruse.SourceVision:
+			filtered = append(filtered, target)
+		case computeruse.SourceAX:
+			if includeAX {
+				filtered = append(filtered, target)
+			}
+		}
+	}
+	return filtered
+}
+
+func countComputerTargetSources(targets []computeruse.ComputerTarget) map[string]int {
+	counts := map[string]int{}
+	for _, target := range targets {
+		source := strings.TrimSpace(target.Source)
+		if source == "" {
+			source = "unknown"
+		}
+		counts[source]++
+	}
+	return counts
 }
 
 type computerTargetMatch struct {

@@ -20,6 +20,8 @@ const (
 	desktopPressKeyOperation = "desktop_press_key"
 	// computerDragOperation 标识基于缓存 target 的受控拖拽动作。
 	computerDragOperation = "computer_drag"
+	// computerDropOperation 标识基于缓存 source/destination target 的受控拖放动作。
+	computerDropOperation = "computer_drop"
 	// computerDoubleClickOperation 标识基于缓存 target 的受控双击动作。
 	computerDoubleClickOperation = "computer_double_click"
 	// computerMenuOperation 标识菜单选择中的受控外部影响动作。

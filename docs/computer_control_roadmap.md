@@ -7,6 +7,9 @@
 > P1 第一批操作原语已实现：`computer_scroll`、`computer_drag`、`computer_clipboard_write`、`computer_paste`。
 > P1 第二批操作原语已实现：`computer_double_click`、`computer_right_click`、`computer_window_switch`。
 > P1 第三批操作原语已实现：`computer_menu`、`computer_file_dialog`、`computer_window_move`、`computer_window_resize`。
+> P1 收尾原语已实现：`computer_drop`。
+> P2 第一版已实现：`computer_visual_snapshot(mode=ocr/all)`，复用 `computer_see` 的 AX、OCR 和启发式 vision 候选，不返回截图内容。
+> P3 第一版已实现：`computer_execute_step`，支持 `target_query -> click/type/press_key -> verify_contains_text` 的单步 OAV 执行。
 
 ## 1. 目标定义
 
@@ -116,9 +119,8 @@ DOM / JS -> CDP action -> screenshot / OCR fallback
 
 ### 3.2 操作原语还不完整
 
-当前主要覆盖点击、双击、右键、输入、按键、等待、滚动、确认拖拽、剪贴板写入、粘贴、窗口切换、菜单选择、文件对话框路径操作、窗口移动和窗口缩放。要更接近“所有操作”，还需要：
+当前主要覆盖点击、双击、右键、输入、按键、等待、滚动、确认拖拽/拖放、剪贴板写入、粘贴、窗口切换、菜单选择、文件对话框路径操作、窗口移动和窗口缩放。要更接近“所有操作”，还需要：
 
-- `computer_drop`
 - 多显示器坐标处理
 - 更完整快捷键策略
 
@@ -147,7 +149,9 @@ AX tree
 => visual candidates
 ```
 
-第一版可以先做 `mode=ocr` 候选融合；第二版再接入 UI detector。
+第一版 `mode=ocr/all` 已完成：它读取最近 `computer_see` 的截图引用、OCR 文本候选、启发式 vision 候选和可选 AX target，返回可继续操作的 `target_id`、bbox、坐标空间、置信度和风险提示，不把截图 base64 塞进模型上下文。
+
+下一步再接入真正的 UI detector。
 
 ### 3.4 Observe-Act-Verify 执行器不足
 
@@ -248,6 +252,7 @@ computer_see
 9. `computer_file_dialog` `[完成：绝对路径跳转，可选确认需授权]`
 10. `computer_window_move` `[完成：最新/指定窗口，受限坐标]`
 11. `computer_window_resize` `[完成：最新/指定窗口，受限尺寸]`
+12. `computer_drop` `[完成：source/destination target 拖放，必须一次性确认]`
 
 验收：
 
@@ -268,6 +273,13 @@ computer_see
 4. 返回候选置信度和风险提示。
 5. 后续接入 UI detector。
 
+当前完成：
+
+- `computer_visual_snapshot(mode=ocr)` 返回 OCR + heuristic vision target。
+- `computer_visual_snapshot(mode=all)` 可同时返回 AX + OCR + heuristic vision target。
+- 支持 `query` 过滤排序。
+- 只返回 screenshot artifact 引用和 bbox 元数据，不返回截图内容。
+
 验收：
 
 - 能发现 OCR 文本区域并生成可点击 target。
@@ -286,6 +298,14 @@ computer_see
 3. 动作后自动 `computer_check`。
 4. 失败自动 retry/recover。
 5. 重复失败后 handoff。
+
+当前完成：
+
+- `computer_execute_step` 支持单步 `click`、`type`、`press_key`。
+- `click/type` 动作会从最近 `computer_see` 的 target cache 中按 `target_query` 选择目标。
+- 动作执行继续复用 `computer_click`、`computer_type`、`computer_press`，不绕过 R2 确认和 R3 拒绝。
+- 可选 `verify_contains_text` 会在动作后自动等待并验证可见文本。
+- 返回 `action_outcome` 和 `verification_outcome`，方便定位失败阶段。
 
 验收：
 
@@ -319,6 +339,7 @@ computer_see
 cohert doctor computer
 computer_scroll
 computer_drag
+computer_drop
 computer_clipboard_write
 computer_paste
 computer_double_click
@@ -328,6 +349,8 @@ computer_menu
 computer_file_dialog
 computer_window_move
 computer_window_resize
+computer_visual_snapshot
+computer_execute_step
 ```
 
 它已经覆盖：
@@ -340,17 +363,20 @@ computer_window_resize
 - 只读诊断，不执行点击、输入或系统设置修改。
 - R1 滚动只作用于最近 `computer_see` 的目标窗口。
 - 拖拽必须引用缓存 target，且必须用户一次性确认。
+- 拖放必须引用同一窗口内的 source/destination target，且必须用户一次性确认。
 - 剪贴板只支持写入和粘贴，不读取原剪贴板内容，不回显文本。
 - 双击和右键必须引用缓存 target，不暴露裸坐标。
 - 窗口切换支持 app/title/window_id 匹配，并写入最新 active state。
 - 菜单选择通过 AX 菜单路径执行，外部影响动作必须确认，高危动作拒绝。
 - 文件对话框只支持绝对路径跳转；`confirm=true` 必须用户确认。
 - 窗口移动/缩放只作用于最新或指定窗口，并限制坐标和尺寸范围。
+- 视觉快照可返回 OCR/vision/AX 候选和 `target_id`，不把截图内容塞进上下文。
+- 单步 OAV 执行器可按 `target_query` 找目标、执行动作，并用 `verify_contains_text` 自动验证。
 
 下一步进入：
 
 ```text
-computer_drop / computer_visual_snapshot
+multi-step OAV plan / retry-recover / UI detector
 ```
 
-最后再做视觉 detector 和执行器。
+下一阶段把 `computer_execute_step` 扩成多步 action plan，加入 target 过期检查、有限 retry/recover 和 handoff；UI detector 作为视觉候选增强继续推进。

@@ -1148,6 +1148,128 @@ func (t *ComputerDrag) computerDragEndPoint(args map[string]any, source computer
 	return startX + deltaX, startY + deltaY, "", nil
 }
 
+// ComputerDrop 从一个缓存 target 拖放到另一个缓存 target。
+type ComputerDrop struct {
+	driver        desktop.Driver
+	store         *computeruse.Store
+	confirmations *ConfirmationStore
+}
+
+// NewComputerDrop 创建受确认保护的拖放工具。
+func NewComputerDrop(driver desktop.Driver, store *computeruse.Store, confirmations *ConfirmationStore) *ComputerDrop {
+	if store == nil {
+		store = computeruse.NewStore(computeruse.DefaultTargetTTL)
+	}
+	if confirmations == nil {
+		confirmations = NewConfirmationStore()
+	}
+	return &ComputerDrop{driver: driver, store: store, confirmations: confirmations}
+}
+
+func (t *ComputerDrop) Name() string { return ToolNameComputerDrop }
+
+func (t *ComputerDrop) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Drop a cached source target onto a cached destination target in the same computer_see window. This is stricter than computer_drag: it never accepts raw coordinates or relative deltas, and always requires one-time user confirmation.",
+		Parameters: objectSchema(map[string]any{
+			"source_target_id":      stringProp("Cached source target_id from computer_find or computer_see candidates."),
+			"destination_target_id": stringProp("Cached destination target_id from the same target window."),
+			"reason":                stringProp("Concrete user-facing reason for this drop."),
+			"expected_change":       stringProp("Optional expected UI change after the drop, used for audit and follow-up check guidance."),
+			"confirmation_token":    stringProp("Required. Obtain it from ask_user with the returned approval_request."),
+		}, "source_target_id", "destination_target_id", "reason"),
+	}}
+}
+
+func (t *ComputerDrop) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	sourceID, sourceErr := requiredDesktopActionString(call.Args, "source_target_id")
+	if sourceErr != nil {
+		return agent.Outcome{Data: *sourceErr, NextPrompt: "\n"}, nil
+	}
+	destinationID, destinationErr := requiredDesktopActionString(call.Args, "destination_target_id")
+	if destinationErr != nil {
+		return agent.Outcome{Data: *destinationErr, NextPrompt: "\n"}, nil
+	}
+	reason, reasonErr := requiredDesktopActionString(call.Args, "reason")
+	if reasonErr != nil {
+		return agent.Outcome{Data: *reasonErr, NextPrompt: "\n"}, nil
+	}
+	source, err := t.store.Target(sourceID)
+	if err != nil {
+		return computerCacheError("computer_drop", err), nil
+	}
+	destination, err := t.store.Target(destinationID)
+	if err != nil {
+		return computerCacheError("computer_drop", err), nil
+	}
+	if source.Window.PID <= 0 || destination.Window.PID <= 0 {
+		return computerToolError("computer_drop_bad_target", "source and destination targets must be bound to valid PIDs", "请重新调用 computer_see/computer_find 刷新目标。"), nil
+	}
+	if source.Window.PID != destination.Window.PID || source.Window.WindowID != destination.Window.WindowID {
+		return computerToolError("computer_drop_cross_window_unsupported", "source and destination targets must be in the same window", "当前拖放只允许同一目标窗口内的缓存 target，跨窗口拖放暂不自动执行。"), nil
+	}
+	resolvedSource, sourceOutcome, ok := resolveComputerPointerTarget(ctx, t.driver, source, "computer_drop")
+	if !ok {
+		return sourceOutcome, nil
+	}
+	resolvedDestination, destinationOutcome, ok := resolveComputerPointerTarget(ctx, t.driver, destination, "computer_drop")
+	if !ok {
+		return destinationOutcome, nil
+	}
+	approval := ActionApproval{
+		Operation: computerDropOperation,
+		PID:       source.Window.PID,
+		BBox:      resolvedSource.binding + "->" + resolvedDestination.binding,
+		Reason:    reason,
+	}
+	if !t.confirmations.Consume(strings.TrimSpace(asString(call.Args["confirmation_token"])), approval) {
+		return computerApprovalRequiredOutcome(approval, desktopRiskExternal, "computer_drop"), nil
+	}
+	if err := activateDesktopTarget(ctx, t.driver, source.Window.PID); err != nil {
+		return desktopToolError(err), nil
+	}
+	result, err := t.driver.Drag(ctx, desktop.DragRequest{
+		PID:             source.Window.PID,
+		StartX:          resolvedSource.x,
+		StartY:          resolvedSource.y,
+		EndX:            resolvedDestination.x,
+		EndY:            resolvedDestination.y,
+		CoordinateSpace: desktop.CoordinateSpaceScreenPhysical,
+	})
+	if err != nil {
+		return desktopToolError(err), nil
+	}
+	verified := result.Performed && result.ActiveBefore && result.ActiveAfter
+	data := map[string]any{
+		"status":                agent.ToolStatusSuccess,
+		"source_target_id":      source.ID,
+		"destination_target_id": destination.ID,
+		"pid":                   result.PID,
+		"action":                "Drop",
+		"driver_action":         result.Action,
+		"risk":                  desktopRiskExternal,
+		"reason":                reason,
+		"expected_change":       strings.TrimSpace(asString(call.Args["expected_change"])),
+		"start_x":               result.StartX,
+		"start_y":               result.StartY,
+		"end_x":                 result.EndX,
+		"end_y":                 result.EndY,
+		"coordinate_space":      result.CoordinateSpace,
+		"performed":             result.Performed,
+		"active_before":         result.ActiveBefore,
+		"active_after":          result.ActiveAfter,
+		"verified":              verified,
+	}
+	if !verified {
+		data["status"] = agent.ToolStatusError
+		data["code"] = "computer_drop_unverified"
+		data["message"] = "computer drop was sent but target foreground state was not verified"
+		data["hint"] = "请停止连续拖放，重新调用 computer_see 检查当前窗口和目标位置。"
+	}
+	return agent.Outcome{Data: data, NextPrompt: "\n"}, nil
+}
+
 func computerTargetScreenCenter(target computeruse.ComputerTarget) (int, int, *agent.ToolErrorData) {
 	if target.CoordinateSpace == desktop.CoordinateSpaceScreenPhysical && target.Bounds.Width > 0 && target.Bounds.Height > 0 {
 		return target.Bounds.X + target.Bounds.Width/2, target.Bounds.Y + target.Bounds.Height/2, nil

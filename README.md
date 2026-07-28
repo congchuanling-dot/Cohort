@@ -453,6 +453,7 @@ computer_wait
 computer_check
 computer_scroll
 computer_drag
+computer_drop
 computer_clipboard_write
 computer_paste
 computer_window_switch
@@ -460,6 +461,8 @@ computer_menu
 computer_file_dialog
 computer_window_move
 computer_window_resize
+computer_visual_snapshot
+computer_execute_step
 ```
 
 </details>

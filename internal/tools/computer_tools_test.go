@@ -90,6 +90,114 @@ func TestComputerSeeAndFindCachesOCRVisionTargets_BitsUT(t *testing.T) {
 	}
 }
 
+func TestComputerVisualSnapshotReturnsOCRAndVisionCandidates_BitsUT(t *testing.T) {
+	store := computeruse.NewStore(time.Minute)
+	driver := fakeComputerDriver(computerAXRoot(""))
+	runner := &fakeOCRRunner{result: vision.OCRResult{
+		Status: "success",
+		Text:   "搜索联系人",
+		Lines: []vision.OCRLine{{
+			Index:      1,
+			Text:       "搜索联系人",
+			Confidence: 0.96,
+			BBox:       []int{10, 10, 120, 32},
+		}},
+	}}
+	if _, err := NewComputerSeeWithOCRRunner(driver, store, t.TempDir(), runner).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"app_name": "WeChat"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	outcome, err := NewComputerVisualSnapshot(store).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"mode": "ocr", "query": "搜索", "limit": 10},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["contains_screenshot"] != false {
+		t.Fatalf("visual snapshot outcome = %#v", data)
+	}
+	if data["screenshot_ref"] == "" || data["screenshot_manifest_ref"] == "" {
+		t.Fatalf("missing screenshot refs: %#v", data)
+	}
+	matches := data["candidates"].([]computerTargetMatch)
+	if len(matches) == 0 {
+		t.Fatalf("expected visual matches: %#v", data)
+	}
+	for _, match := range matches {
+		if match.Source != computeruse.SourceOCR && match.Source != computeruse.SourceVision {
+			t.Fatalf("unexpected source in mode=ocr: %#v", match)
+		}
+		if match.ID == "" || match.CoordinateSpace != desktop.CoordinateSpaceScreenshotLocal {
+			t.Fatalf("bad visual target metadata: %#v", match)
+		}
+	}
+	counts := data["source_counts"].(map[string]int)
+	if counts[computeruse.SourceOCR] == 0 {
+		t.Fatalf("source counts = %#v", counts)
+	}
+}
+
+func TestComputerExecuteStepTypesAndVerifiesText_BitsUT(t *testing.T) {
+	store := computeruse.NewStore(time.Minute)
+	state := store.SaveState(computeruse.ComputerState{
+		OS:           "darwin",
+		ActivePID:    123,
+		ActiveWindow: computerTestWindowRef(),
+		Candidates: []computeruse.ComputerTarget{{
+			Label:               "消息输入框",
+			Role:                "AXTextArea",
+			Confidence:          0.9,
+			Source:              computeruse.SourceAX,
+			Bounds:              desktop.Bounds{X: 20, Y: 500, Width: 500, Height: 80},
+			CoordinateSpace:     desktop.CoordinateSpaceScreenPhysical,
+			Window:              computerTestWindowRef(),
+			SuggestedAction:     computeruse.SuggestedActionType,
+			AXNodeID:            "ax:0/0",
+			ExpectedRole:        "AXTextArea",
+			ExpectedTitle:       "消息输入框",
+			ExpectedDescription: "输入消息",
+		}},
+	})
+	driver := fakeComputerDriver(computerAXRoot(""))
+	driver.axSnapshots = []desktop.AXSnapshotResult{
+		{PID: 123, Root: computerAXRoot("")},
+		{PID: 123, Root: computerAXRoot("hello oav")},
+	}
+	driver.axFocus = desktop.AXFocusResult{PID: 123, NodeID: "ax:0/0", Action: "AXFocus", Performed: true, Focused: true}
+	driver.typeText = desktop.TypeTextResult{PID: 123, Action: "TypeText", Performed: true, ActiveBefore: true, ActiveAfter: true, TextLength: len("hello oav"), LineCount: 1}
+
+	outcome, err := NewComputerExecuteStep(driver, store, NewConfirmationStore(), NewVisualFocusStore()).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{
+			"action":               "type",
+			"target_query":         "消息输入框",
+			"text":                 "hello oav",
+			"reason":               "起草测试内容",
+			"verify_contains_text": "hello oav",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if driver.axFocusRequest.NodeID != "ax:0/0" || driver.typeTextRequest.Text != "hello oav" {
+		t.Fatalf("requests = focus:%#v type:%#v state:%#v", driver.axFocusRequest, driver.typeTextRequest, state)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["verified"] != true || data["action"] != "type" {
+		t.Fatalf("outcome = %#v", data)
+	}
+	actionData := data["action_outcome"].(map[string]any)
+	if actionData["executor"] != "computer_execute_step" || actionData["target_id"] != state.Candidates[0].ID {
+		t.Fatalf("action outcome = %#v", actionData)
+	}
+	verificationData := data["verification_outcome"].(map[string]any)
+	if verificationData["verified"] != true {
+		t.Fatalf("verification = %#v", verificationData)
+	}
+}
+
 func TestComputerSeeAddsHeuristicChatInputForWebView_BitsUT(t *testing.T) {
 	store := computeruse.NewStore(time.Minute)
 	driver := fakeComputerDriver(computerOffscreenTextFieldRoot())
@@ -493,6 +601,92 @@ func TestComputerDragRequiresConfirmation_BitsUT(t *testing.T) {
 	}
 }
 
+func TestComputerDropRequiresConfirmationAndUsesCachedTargets_BitsUT(t *testing.T) {
+	store := computeruse.NewStore(time.Minute)
+	enabled := true
+	state := store.SaveState(computeruse.ComputerState{
+		OS:           "darwin",
+		ActivePID:    123,
+		ActiveWindow: computerTestWindowRef(),
+		Candidates: []computeruse.ComputerTarget{
+			{
+				Label:               "表情",
+				Role:                "AXButton",
+				Source:              computeruse.SourceAX,
+				Bounds:              desktop.Bounds{X: 400, Y: 20, Width: 70, Height: 50},
+				CoordinateSpace:     desktop.CoordinateSpaceScreenPhysical,
+				Window:              computerTestWindowRef(),
+				SuggestedAction:     computeruse.SuggestedActionClick,
+				AXNodeID:            "ax:0/1",
+				ExpectedRole:        "AXButton",
+				ExpectedTitle:       "打开表情",
+				ExpectedDescription: "",
+			},
+			{
+				Label:               "消息输入框",
+				Role:                "AXTextArea",
+				Source:              computeruse.SourceAX,
+				Bounds:              desktop.Bounds{X: 20, Y: 500, Width: 500, Height: 80},
+				CoordinateSpace:     desktop.CoordinateSpaceScreenPhysical,
+				Window:              computerTestWindowRef(),
+				SuggestedAction:     computeruse.SuggestedActionType,
+				AXNodeID:            "ax:0/0",
+				ExpectedRole:        "AXTextArea",
+				ExpectedTitle:       "消息输入框",
+				ExpectedDescription: "输入消息",
+			},
+		},
+	})
+	root := desktop.AXNode{
+		ID:   "ax:0",
+		Role: "AXApplication",
+		Children: []desktop.AXNode{
+			{ID: "ax:0/0", Role: "AXTextArea", Title: "消息输入框", Description: "输入消息", Enabled: &enabled, Bounds: desktop.Bounds{X: 20, Y: 500, Width: 500, Height: 80}},
+			{ID: "ax:0/1", Role: "AXButton", Title: "打开表情", Enabled: &enabled, Bounds: desktop.Bounds{X: 400, Y: 20, Width: 70, Height: 50}},
+		},
+	}
+	driver := fakeComputerDriver(root)
+	driver.drag = desktop.DragResult{PID: 123, Action: "Drag", Performed: true, ActiveBefore: true, ActiveAfter: true, StartX: 435, StartY: 45, EndX: 270, EndY: 540, CoordinateSpace: desktop.CoordinateSpaceScreenPhysical}
+	confirmations := NewConfirmationStore()
+	tool := NewComputerDrop(driver, store, confirmations)
+	args := map[string]any{
+		"source_target_id":      state.Candidates[0].ID,
+		"destination_target_id": state.Candidates[1].ID,
+		"reason":                "把表情拖到输入框",
+	}
+
+	outcome, err := tool.Run(context.Background(), agent.ToolCallContext{Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	required := outcome.Data.(map[string]any)
+	if required["code"] != "desktop_action_confirmation_required" || driver.dragRequest.PID != 0 {
+		t.Fatalf("outcome = %#v, drag request = %#v", required, driver.dragRequest)
+	}
+	request := required["approval_request"].(map[string]any)
+	token, err := confirmations.Issue(ActionApproval{
+		Operation: request["operation"].(string),
+		PID:       request["pid"].(int),
+		BBox:      request["bbox"].(string),
+		Reason:    request["reason"].(string),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args["confirmation_token"] = token
+	outcome, err = tool.Run(context.Background(), agent.ToolCallContext{Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if driver.dragRequest.StartX != 435 || driver.dragRequest.StartY != 45 || driver.dragRequest.EndX != 270 || driver.dragRequest.EndY != 540 {
+		t.Fatalf("drop drag request = %#v", driver.dragRequest)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["risk"] != desktopRiskExternal || data["verified"] != true || data["action"] != "Drop" {
+		t.Fatalf("outcome = %#v", data)
+	}
+}
+
 func TestComputerDoubleClickRequiresConfirmationForExternalTarget_BitsUT(t *testing.T) {
 	store := computeruse.NewStore(time.Minute)
 	enabled := true
@@ -624,22 +818,34 @@ func TestComputerPasteWritesTextThenPastes_BitsUT(t *testing.T) {
 }
 
 func TestAskUserApprovalAcceptsComputerDrag_BitsUT(t *testing.T) {
-	approval, toolErr := parseAskUserApproval(map[string]any{
-		"approval": map[string]any{
-			"operation": computerDragOperation,
-			"pid":       123,
-			"bbox":      "source|dest||",
-			"reason":    "拖拽文件到目标区域",
-		},
-	})
-	if toolErr != nil {
-		t.Fatalf("unexpected error: %#v", toolErr)
-	}
-	if approval == nil || approval.Operation != computerDragOperation || approval.BBox != "source|dest||" {
-		t.Fatalf("approval = %#v", approval)
-	}
-	if !strings.Contains(approvalPrompt(*approval), "桌面拖拽操作") {
-		t.Fatalf("approval prompt = %q", approvalPrompt(*approval))
+	for _, tc := range []struct {
+		name      string
+		operation string
+		binding   string
+		wantText  string
+	}{
+		{name: "drag", operation: computerDragOperation, binding: "source|dest||", wantText: "桌面拖拽操作"},
+		{name: "drop", operation: computerDropOperation, binding: "source->dest", wantText: "桌面拖放操作"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			approval, toolErr := parseAskUserApproval(map[string]any{
+				"approval": map[string]any{
+					"operation": tc.operation,
+					"pid":       123,
+					"bbox":      tc.binding,
+					"reason":    "拖拽文件到目标区域",
+				},
+			})
+			if toolErr != nil {
+				t.Fatalf("unexpected error: %#v", toolErr)
+			}
+			if approval == nil || approval.Operation != tc.operation || approval.BBox != tc.binding {
+				t.Fatalf("approval = %#v", approval)
+			}
+			if !strings.Contains(approvalPrompt(*approval), tc.wantText) {
+				t.Fatalf("approval prompt = %q", approvalPrompt(*approval))
+			}
+		})
 	}
 }
 

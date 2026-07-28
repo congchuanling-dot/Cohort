@@ -116,6 +116,8 @@ const (
 	ToolNameComputerScroll = "computer_scroll"
 	// ToolNameComputerDrag 从缓存 target 拖拽到另一个 target 或相对偏移。
 	ToolNameComputerDrag = "computer_drag"
+	// ToolNameComputerDrop 从缓存 source target 拖放到缓存 destination target。
+	ToolNameComputerDrop = "computer_drop"
 	// ToolNameComputerClipboardWrite 写入系统剪贴板但不读取原内容。
 	ToolNameComputerClipboardWrite = "computer_clipboard_write"
 	// ToolNameComputerPaste 将可选文本写入剪贴板后粘贴到目标窗口。
@@ -130,6 +132,10 @@ const (
 	ToolNameComputerWindowMove = "computer_window_move"
 	// ToolNameComputerWindowResize 调整目标窗口尺寸。
 	ToolNameComputerWindowResize = "computer_window_resize"
+	// ToolNameComputerVisualSnapshot 返回最近 computer_see 的视觉候选快照。
+	ToolNameComputerVisualSnapshot = "computer_visual_snapshot"
+	// ToolNameComputerExecuteStep 执行单步 Observe-Act-Verify GUI 动作。
+	ToolNameComputerExecuteStep = "computer_execute_step"
 )
 
 // Tool 是所有本地工具必须实现的接口。
@@ -206,6 +212,7 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameComputerCheck,
 		ToolNameComputerScroll,
 		ToolNameComputerDrag,
+		ToolNameComputerDrop,
 		ToolNameComputerClipboardWrite,
 		ToolNameComputerPaste,
 		ToolNameComputerWindowSwitch,
@@ -213,6 +220,8 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameComputerFileDialog,
 		ToolNameComputerWindowMove,
 		ToolNameComputerWindowResize,
+		ToolNameComputerVisualSnapshot,
+		ToolNameComputerExecuteStep,
 		ToolNameSkillRead,
 		ToolNameUpdateWorkingCheckpoint,
 		ToolNameStartLongTermUpdate,
