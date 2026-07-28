@@ -17,7 +17,7 @@ func TestLLMResponseDataIncludesUsage_BitsUT(t *testing.T) {
 			CacheCreationInputTokens: 2,
 			CacheReadInputTokens:     3,
 		},
-	}, 20*time.Millisecond)
+	}, 20*time.Millisecond, []llm.Message{{Role: llm.RoleUser, Content: "say ok"}}, nil, "system prompt")
 
 	usage, ok := data["usage"].(map[string]any)
 	if !ok {
@@ -28,5 +28,8 @@ func TestLLMResponseDataIncludesUsage_BitsUT(t *testing.T) {
 	}
 	if usage["cache_creation_input_tokens"] != 2 || usage["cache_read_input_tokens"] != 3 {
 		t.Fatalf("usage = %#v, want cache token counts", usage)
+	}
+	if data["langfuse_input"] == nil || data["langfuse_output"] == nil {
+		t.Fatalf("langfuse io missing from response data: %#v", data)
 	}
 }

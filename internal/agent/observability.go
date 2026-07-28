@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"cohort/internal/contextmgr"
@@ -11,6 +13,8 @@ import (
 )
 
 const observationLogFileName = "run.log.jsonl"
+
+const langfusePreviewChars = 2000
 
 func (r *Runner) observationBus() observability.Bus {
 	if r.Observability != nil {
@@ -103,9 +107,14 @@ func llmRequestData(messages []llm.Message, tools []llm.ToolSchema, system strin
 	}
 }
 
-func llmResponseData(resp *llm.Response, duration time.Duration) map[string]any {
+func llmResponseData(resp *llm.Response, duration time.Duration, messages []llm.Message, tools []llm.ToolSchema, system string) map[string]any {
 	data := map[string]any{
 		"duration_ms": duration.Milliseconds(),
+		"langfuse_input": map[string]any{
+			"system":   previewString(system, langfusePreviewChars),
+			"messages": langfuseMessagePreviews(messages),
+			"tools":    langfuseToolPreviews(tools),
+		},
 	}
 	if resp == nil {
 		data["status"] = ToolStatusError
@@ -115,10 +124,80 @@ func llmResponseData(resp *llm.Response, duration time.Duration) map[string]any 
 	data["content_chars"] = len([]rune(resp.Content))
 	data["tool_call_count"] = len(resp.ToolCalls)
 	data["raw_chars"] = len([]rune(resp.Raw))
+	data["langfuse_output"] = map[string]any{
+		"message":    previewString(resp.Content, langfusePreviewChars),
+		"tool_calls": langfuseToolCallPreviews(resp.ToolCalls),
+	}
 	if !resp.Usage.IsZero() {
 		data["usage"] = usageData(resp.Usage)
 	}
 	return data
+}
+
+func langfuseMessagePreviews(messages []llm.Message) []map[string]any {
+	result := make([]map[string]any, 0, len(messages))
+	for _, message := range messages {
+		item := map[string]any{
+			"role":          message.Role,
+			"message":       previewString(message.Content, langfusePreviewChars),
+			"content_chars": len([]rune(message.Content)),
+		}
+		if message.Name != "" {
+			item["name"] = message.Name
+		}
+		if message.ToolCallID != "" {
+			item["tool_call_id"] = message.ToolCallID
+		}
+		if len(message.ToolCalls) > 0 {
+			item["tool_calls"] = langfuseToolCallPreviews(message.ToolCalls)
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
+func langfuseToolPreviews(tools []llm.ToolSchema) []map[string]any {
+	result := make([]map[string]any, 0, len(tools))
+	for _, tool := range tools {
+		result = append(result, map[string]any{
+			"name":        tool.Function.Name,
+			"description": previewString(tool.Function.Description, 240),
+		})
+	}
+	return result
+}
+
+func langfuseToolCallPreviews(calls []llm.ToolCall) []map[string]any {
+	result := make([]map[string]any, 0, len(calls))
+	for _, call := range calls {
+		result = append(result, map[string]any{
+			"id":        call.ID,
+			"name":      call.Function.Name,
+			"arguments": previewJSON(call.Function.Arguments, langfusePreviewChars),
+		})
+	}
+	return result
+}
+
+func previewJSON(value string, maxChars int) any {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	var decoded any
+	if err := json.Unmarshal([]byte(value), &decoded); err == nil {
+		return redactValue(decoded, "")
+	}
+	return previewString(value, maxChars)
+}
+
+func previewString(value string, maxChars int) string {
+	value = strings.TrimSpace(value)
+	if maxChars <= 0 || len([]rune(value)) <= maxChars {
+		return value
+	}
+	runes := []rune(value)
+	return string(runes[:maxChars]) + "...[truncated]"
 }
 
 func usageData(usage llm.Usage) map[string]any {

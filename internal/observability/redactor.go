@@ -93,6 +93,9 @@ func summarizeSecret(value string) map[string]any {
 
 func isSensitiveKey(key string) bool {
 	normalized := strings.ToLower(strings.ReplaceAll(key, "-", "_"))
+	if strings.HasSuffix(normalized, "_tokens") || normalized == "total_tokens" {
+		return false
+	}
 	needles := []string{
 		"api_key",
 		"apikey",

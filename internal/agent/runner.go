@@ -258,7 +258,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			})
 			return finishRun(RunResult{}, err)
 		}
-		r.emitObservation(ctx, obs, runID, observability.EventLLMResponseFinished, turn, observability.SeverityInfo, llmResponseData(resp, time.Since(llmStartedAt)))
+		r.emitObservation(ctx, obs, runID, observability.EventLLMResponseFinished, turn, observability.SeverityInfo, llmResponseData(resp, time.Since(llmStartedAt), messages, tools, r.SystemPrompt))
 		// 记录模型原始响应用于排查问题，不影响主流程。
 		r.logResponse(turn, resp)
 		if r.pendingSOPRead.Path != "" && !containsToolCall(resp.ToolCalls, "update_working_checkpoint") && !r.pendingSOPRead.ReminderSet {

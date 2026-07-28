@@ -146,6 +146,12 @@ func (s *LangfuseSink) generationItem(event Event) langfuseBatchItem {
 	if usage := langfuseUsage(event.Data["usage"]); len(usage) > 0 {
 		body["usage"] = usage
 	}
+	if input, ok := event.Data["langfuse_input"]; ok {
+		body["input"] = input
+	}
+	if output, ok := event.Data["langfuse_output"]; ok {
+		body["output"] = output
+	}
 	if event.Severity == SeverityError {
 		body["level"] = "ERROR"
 		if errMsg, ok := event.Data["error"].(string); ok && errMsg != "" {

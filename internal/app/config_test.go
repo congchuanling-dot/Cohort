@@ -219,6 +219,84 @@ llm:
 	}
 }
 
+func TestLoadConfigLoadsDotEnvAndLangfuseBaseURLAlias_BitsUT(t *testing.T) {
+	root := t.TempDir()
+	oldWD, getwdErr := os.Getwd()
+	if getwdErr != nil {
+		t.Fatal(getwdErr)
+	}
+	if chdirErr := os.Chdir(root); chdirErr != nil {
+		t.Fatal(chdirErr)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(oldWD)
+	})
+	restoreEnv := snapshotEnv(t, []string{
+		"COHORT_LANGFUSE_ENABLED",
+		"LANGFUSE_HOST",
+		"LANGFUSE_BASE_URL",
+		"LANGFUSE_PUBLIC_KEY",
+		"LANGFUSE_SECRET_KEY",
+	})
+	defer restoreEnv()
+
+	dotEnv := "COHORT_LANGFUSE_ENABLED=true\n" +
+		"LANGFUSE_BASE_URL=\" `https://us.cloud.langfuse.com` \"\n" +
+		"LANGFUSE_PUBLIC_KEY=pk-dotenv\n" +
+		"LANGFUSE_SECRET_KEY=sk-dotenv\n"
+	if writeErr := os.WriteFile(filepath.Join(root, ".env"), []byte(dotEnv), 0644); writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	path := filepath.Join(root, "config.yaml")
+	content := `llm:
+  provider: openai
+  name: deepseek
+  api_key: test-key
+  api_base: https://example.com/v1
+  model: test-model
+  stream: false
+`
+	if writeErr := os.WriteFile(path, []byte(content), 0644); writeErr != nil {
+		t.Fatal(writeErr)
+	}
+
+	cfg, loadErr := LoadConfig(path)
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	langfuse := cfg.Observability.Langfuse
+	if !langfuse.Enabled {
+		t.Fatal("langfuse enabled = false, want true from .env")
+	}
+	if langfuse.Host != "https://us.cloud.langfuse.com" {
+		t.Fatalf("langfuse host = %q, want sanitized base url alias", langfuse.Host)
+	}
+	if langfuse.PublicKey != "pk-dotenv" || langfuse.SecretKey != "sk-dotenv" {
+		t.Fatalf("langfuse keys = %q/%q, want dotenv values", langfuse.PublicKey, langfuse.SecretKey)
+	}
+}
+
+func snapshotEnv(t *testing.T, keys []string) func() {
+	t.Helper()
+	values := make(map[string]string, len(keys))
+	present := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		value, ok := os.LookupEnv(key)
+		values[key] = value
+		present[key] = ok
+		_ = os.Unsetenv(key)
+	}
+	return func() {
+		for _, key := range keys {
+			if present[key] {
+				_ = os.Setenv(key, values[key])
+				continue
+			}
+			_ = os.Unsetenv(key)
+		}
+	}
+}
+
 func TestLoadConfigRejectsMissingFallbackProfile_BitsUT(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	content := `llm:

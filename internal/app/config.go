@@ -105,6 +105,7 @@ type LangfuseConfig struct {
 // LoadConfig 读取项目根目录的配置文件，并用环境变量替换 ${VAR}。
 // 当前为了保持 MVP 简单，没有引入 YAML 第三方库，只解析本项目需要的简单 key/value。
 func LoadConfig(path string) (Config, error) {
+	loadDotEnvFiles(dotEnvCandidatePaths(path))
 	cfg := defaultConfig()
 	if _, err := os.Stat(path); err != nil {
 		// 配置文件不存在时也能运行，使用默认值和环境变量。
@@ -236,7 +237,7 @@ func defaultObservabilityConfig() ObservabilityConfig {
 	return ObservabilityConfig{
 		Langfuse: LangfuseConfig{
 			Enabled:        parseBoolDefault(os.Getenv("COHORT_LANGFUSE_ENABLED"), false),
-			Host:           os.Getenv("LANGFUSE_HOST"),
+			Host:           langfuseHostFromEnvironment(),
 			PublicKey:      "${LANGFUSE_PUBLIC_KEY}",
 			SecretKey:      "${LANGFUSE_SECRET_KEY}",
 			Environment:    os.Getenv("COHORT_ENV"),
@@ -358,7 +359,10 @@ func copyProfileToLegacyFields(cfg *LLMConfig, profile LLMProfile) {
 }
 
 func normalizeObservabilityConfig(cfg ObservabilityConfig) ObservabilityConfig {
-	cfg.Langfuse.Host = strings.TrimRight(strings.TrimSpace(expandEnv(cfg.Langfuse.Host)), "/")
+	cfg.Langfuse.Host = normalizeHostValue(expandEnv(cfg.Langfuse.Host))
+	if cfg.Langfuse.Host == "" {
+		cfg.Langfuse.Host = normalizeHostValue(langfuseHostFromEnvironment())
+	}
 	if cfg.Langfuse.Host == "" {
 		cfg.Langfuse.Host = "https://cloud.langfuse.com"
 	}
@@ -448,7 +452,7 @@ func applyLangfuseValue(cfg *LangfuseConfig, key, val string) {
 	case "enabled":
 		cfg.Enabled = parseBoolDefault(val, cfg.Enabled)
 	case "host":
-		cfg.Host = strings.TrimRight(val, "/")
+		cfg.Host = normalizeHostValue(val)
 	case "public_key":
 		cfg.PublicKey = val
 	case "secret_key":
@@ -544,6 +548,91 @@ func expandEnv(v string) string {
 		return os.Getenv(strings.TrimSuffix(strings.TrimPrefix(v, "${"), "}"))
 	}
 	return os.ExpandEnv(v)
+}
+
+func langfuseHostFromEnvironment() string {
+	if host := normalizeHostValue(os.Getenv("LANGFUSE_HOST")); host != "" {
+		return host
+	}
+	return normalizeHostValue(os.Getenv("LANGFUSE_BASE_URL"))
+}
+
+func normalizeHostValue(value string) string {
+	value = strings.TrimSpace(value)
+	for _, cutset := range []string{`"'`, "`"} {
+		value = strings.Trim(value, cutset)
+		value = strings.TrimSpace(value)
+	}
+	return strings.TrimRight(value, "/")
+}
+
+func dotEnvCandidatePaths(configPath string) []string {
+	var paths []string
+	if cwd, err := os.Getwd(); err == nil {
+		paths = append(paths, filepath.Join(cwd, ".env"))
+	}
+	if trimmed := strings.TrimSpace(configPath); trimmed != "" {
+		paths = append(paths, filepath.Join(filepath.Dir(filepath.Clean(trimmed)), ".env"))
+	}
+	seen := make(map[string]bool, len(paths))
+	unique := make([]string, 0, len(paths))
+	for _, path := range paths {
+		path = filepath.Clean(path)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		unique = append(unique, path)
+	}
+	return unique
+}
+
+func loadDotEnvFiles(paths []string) {
+	for _, path := range paths {
+		loadDotEnvFile(path)
+	}
+}
+
+func loadDotEnvFile(path string) {
+	file, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		if key == "" {
+			continue
+		}
+		if _, exists := os.LookupEnv(key); exists {
+			continue
+		}
+		value := parseDotEnvValue(parts[1])
+		_ = os.Setenv(key, value)
+	}
+	_ = scanner.Err()
+}
+
+func parseDotEnvValue(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) >= 2 {
+		if (strings.HasPrefix(value, `"`) && strings.HasSuffix(value, `"`)) ||
+			(strings.HasPrefix(value, `'`) && strings.HasSuffix(value, `'`)) {
+			value = value[1 : len(value)-1]
+		}
+	}
+	return strings.TrimSpace(value)
 }
 
 // atoiDefault 解析失败时返回已有默认值，避免配置写错导致零值覆盖。

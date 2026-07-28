@@ -90,6 +90,12 @@ func TestLangfuseSinkPostsGenerationUsage_BitsUT(t *testing.T) {
 	event := NewEvent(EventLLMResponseFinished, "run_1", "sess_1", 2, "/tmp/work", "runner", SeverityInfo, map[string]any{
 		"status":      "success",
 		"duration_ms": int64(120),
+		"langfuse_input": map[string]any{
+			"messages": []any{map[string]any{"role": "user", "content": "say ok"}},
+		},
+		"langfuse_output": map[string]any{
+			"content": "ok",
+		},
 		"usage": map[string]any{
 			"input_tokens":  10,
 			"output_tokens": 5,
@@ -116,6 +122,9 @@ func TestLangfuseSinkPostsGenerationUsage_BitsUT(t *testing.T) {
 	}
 	if intFromAny(usage["input"]) != 10 || intFromAny(usage["output"]) != 5 || intFromAny(usage["total"]) != 15 || usage["unit"] != "TOKENS" {
 		t.Fatalf("langfuse usage = %#v, want token usage", usage)
+	}
+	if item.Body["input"] == nil || item.Body["output"] == nil {
+		t.Fatalf("langfuse body missing input/output: %#v", item.Body)
 	}
 	metadata, ok := item.Body["metadata"].(map[string]any)
 	if !ok || metadata["environment"] != "test" || metadata["release"] != "sha-123" {

@@ -39,3 +39,13 @@ context:
   max_session_memory_chars: 20000
   max_compact_summary_chars: 60000
   enable_micro_compact: true
+
+observability:
+  langfuse:
+    enabled: ${COHORT_LANGFUSE_ENABLED}
+    host: ${LANGFUSE_HOST}
+    public_key: ${LANGFUSE_PUBLIC_KEY}
+    secret_key: ${LANGFUSE_SECRET_KEY}
+    environment: ${COHORT_ENV}
+    release: ${COHORT_RELEASE}
+    timeout_seconds: 2
