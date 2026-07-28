@@ -39,6 +39,10 @@
 </p>
 
 <p align="center">
+  <img src="docs/1785215163755.jpeg" alt="Cohert preview" width="860">
+</p>
+
+<p align="center">
   <a href="#项目叙事">项目叙事</a>
   ·
   <a href="#为什么是-cohert">为什么是 Cohert</a>
