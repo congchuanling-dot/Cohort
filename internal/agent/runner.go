@@ -12,6 +12,7 @@ import (
 	"cohort/internal/contextmgr"
 	"cohort/internal/evolution"
 	"cohort/internal/llm"
+	"cohort/internal/observability"
 	"cohort/internal/session"
 	"cohort/internal/skill"
 )
@@ -144,6 +145,8 @@ type Runner struct {
 	CloseFunc func() error
 	// SkillStore 保存启动时发现的 Skill 索引，并支持 REPL 中 reload。
 	SkillStore *skill.Store
+	// Observability 接收 Runner 生命周期事件；为空时 Runner 会写入本地 run.log.jsonl。
+	Observability observability.Bus
 	// WorkingCheckpoint 保存当前任务的短期关键约束，避免读过 SOP 后在多轮执行中遗忘。
 	WorkingCheckpoint WorkingCheckpoint
 
@@ -167,6 +170,8 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 	if r.MaxTurns <= 0 {
 		r.MaxTurns = 100
 	}
+	runID := observability.NewRunID()
+	runStartedAt := time.Now()
 	// 每次运行前确保日志目录存在，日志失败属于运行环境错误。
 	if err := r.ensureLogDir(); err != nil {
 		return RunResult{}, err
@@ -176,6 +181,32 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 	if err := r.appendMessage(llm.Message{Role: llm.RoleUser, Content: input}, input); err != nil {
 		return RunResult{}, err
 	}
+	obs := r.observationBus()
+	defer obs.Close(ctx)
+	lastTurn := 0
+	finishRun := func(result RunResult, err error) (RunResult, error) {
+		data := map[string]any{
+			"status":      result.Status,
+			"duration_ms": time.Since(runStartedAt).Milliseconds(),
+			"history_len": len(r.history),
+		}
+		severity := observability.SeverityInfo
+		if err != nil {
+			data["status"] = "error"
+			data["error"] = err.Error()
+			severity = observability.SeverityError
+		}
+		r.emitObservation(ctx, obs, runID, observability.EventRunFinished, lastTurn, severity, data)
+		return result, err
+	}
+	r.emitObservation(ctx, obs, runID, observability.EventRunStarted, 0, observability.SeverityInfo, map[string]any{
+		"max_turns":   r.MaxTurns,
+		"history_len": len(r.history),
+		"log_dir":     r.LogDir,
+	})
+	r.emitObservation(ctx, obs, runID, observability.EventUserPromptSubmitted, 0, observability.SeverityInfo, map[string]any{
+		"prompt": promptSummary(input),
+	})
 	memorySignals := longTermMemorySignals{userRequested: requestsLongTermMemory(input)}
 	evidenceLedger := []evolution.Evidence{{
 		ID:       "user:input",
@@ -185,25 +216,47 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 	}}
 	r.maybeAddLongTermMemoryHint(&memorySignals, 0)
 	r.addSOPRouteHint(input)
-	messages := r.buildRequestMessages()
+	messages, stats := r.buildRequestMessagesWithStats()
+	r.emitObservation(ctx, obs, runID, observability.EventContextBuilt, 0, observability.SeverityInfo, contextStatsData(stats))
 
 	for turn := 1; turn <= r.MaxTurns; turn++ {
+		lastTurn = turn
 		sink.WriteText(fmt.Sprintf("\nLLM Running (Turn %d) ...\n\n", turn))
+		r.emitObservation(ctx, obs, runID, observability.EventTurnStarted, turn, observability.SeverityInfo, map[string]any{
+			"history_len":       len(r.history),
+			"request_messages":  len(messages),
+			"pending_hints":     len(r.pendingHints),
+			"checkpoint_active": strings.TrimSpace(r.WorkingCheckpoint.KeyInfo) != "",
+		})
 		// 把系统提示词、历史消息、工具 schema 一起发给模型。
+		tools := r.Tools.Schemas()
+		r.emitObservation(ctx, obs, runID, observability.EventLLMRequestStarted, turn, observability.SeverityInfo, llmRequestData(messages, tools, r.SystemPrompt))
+		llmStartedAt := time.Now()
 		stream, err := r.Client.Chat(ctx, llm.ChatRequest{
 			System:   r.SystemPrompt,
 			Messages: messages,
-			Tools:    r.Tools.Schemas(),
+			Tools:    tools,
 		})
 		if err != nil {
-			return RunResult{}, err
+			r.emitObservation(ctx, obs, runID, observability.EventLLMResponseFinished, turn, observability.SeverityError, map[string]any{
+				"status":      ToolStatusError,
+				"duration_ms": time.Since(llmStartedAt).Milliseconds(),
+				"error":       err.Error(),
+			})
+			return finishRun(RunResult{}, err)
 		}
 
 		// consume 会消费流式响应：文本实时输出，最终返回完整 Response。
 		resp, err := consume(stream, sink)
 		if err != nil {
-			return RunResult{}, err
+			r.emitObservation(ctx, obs, runID, observability.EventLLMResponseFinished, turn, observability.SeverityError, map[string]any{
+				"status":      ToolStatusError,
+				"duration_ms": time.Since(llmStartedAt).Milliseconds(),
+				"error":       err.Error(),
+			})
+			return finishRun(RunResult{}, err)
 		}
+		r.emitObservation(ctx, obs, runID, observability.EventLLMResponseFinished, turn, observability.SeverityInfo, llmResponseData(resp, time.Since(llmStartedAt)))
 		// 记录模型原始响应用于排查问题，不影响主流程。
 		r.logResponse(turn, resp)
 		if r.pendingSOPRead.Path != "" && !containsToolCall(resp.ToolCalls, "update_working_checkpoint") && !r.pendingSOPRead.ReminderSet {
@@ -218,21 +271,22 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 		// 没有 tool_calls 表示模型已经给出最终回答，任务可以结束。
 		if len(resp.ToolCalls) == 0 {
 			if err := r.appendMessage(llm.Message{Role: llm.RoleAssistant, Content: resp.Content}, ""); err != nil {
-				return RunResult{}, err
+				return finishRun(RunResult{}, err)
 			}
 			if !awaitingUserInput(resp.Content) && r.maybeForceLongTermMemoryReview(&memorySignals, turn) {
-				messages = r.buildRequestMessages()
+				messages, stats = r.buildRequestMessagesWithStats()
+				r.emitObservation(ctx, obs, runID, observability.EventContextBuilt, turn, observability.SeverityInfo, contextStatsData(stats))
 				continue
 			}
 			ensureTerminalLineBreak(sink, resp.Content)
-			return RunResult{Status: RunStatusDone, Response: resp}, nil
+			return finishRun(RunResult{Status: RunStatusDone, Response: resp}, nil)
 		}
 
 		// OpenAI-compatible 工具协议要求：
 		// assistant 的 tool_calls 消息必须出现在对应 tool 结果消息之前。
 		assistantMsg := llm.Message{Role: llm.RoleAssistant, Content: resp.Content, ToolCalls: resp.ToolCalls}
 		if err := r.appendMessage(assistantMsg, ""); err != nil {
-			return RunResult{}, err
+			return finishRun(RunResult{}, err)
 		}
 
 		for i, call := range resp.ToolCalls {
@@ -241,6 +295,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			// 模型返回的工具参数是 JSON 字符串，这里先解析成 map 给工具使用。
 			toolStartedAt := time.Now()
 			args, err := parseToolArgs(call.Function.Arguments)
+			r.emitObservation(ctx, obs, runID, observability.EventToolStarted, turn, observability.SeverityInfo, toolStartedData(call, turn, i, args, err))
 			var outcome Outcome
 			if err != nil {
 				outcome = Outcome{
@@ -292,8 +347,13 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			r.recordLongTermMemorySignal(&memorySignals, call.Function.Name, args, outcome)
 			evidenceLedger = append(evidenceLedger, newToolEvidence(call, turn, i, outcome))
 			r.logToolRun(call, args, turn, i, outcome, time.Since(toolStartedAt))
+			toolSeverity := observability.SeverityInfo
+			if !outcomeSucceeded(outcome) {
+				toolSeverity = observability.SeverityWarn
+			}
+			r.emitObservation(ctx, obs, runID, observability.EventToolFinished, turn, toolSeverity, toolFinishedData(call, outcome, time.Since(toolStartedAt)))
 			if outcome.ShouldExit {
-				return RunResult{Status: RunStatusExited, Response: resp}, nil
+				return finishRun(RunResult{Status: RunStatusExited, Response: resp}, nil)
 			}
 			// 工具输出会被转成 role=tool 消息，下一轮模型才能读到工具结果。
 			resultText := stringify(outcome.Data)
@@ -304,7 +364,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 				Name:       call.Function.Name,
 				Content:    resultText,
 			}, ""); err != nil {
-				return RunResult{}, err
+				return finishRun(RunResult{}, err)
 			}
 			r.addPendingHint(outcome.NextPrompt)
 		}
@@ -314,16 +374,28 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 		r.maybeAddLongTermMemoryHint(&memorySignals, turn)
 		// 工具结果已经进入完整 history；下一轮模型请求前重新构造可见上下文。
 		// Context Manager 应根据预算决定是否压缩，而不是每轮固定裁剪。
-		messages = r.buildRequestMessages()
+		messages, stats = r.buildRequestMessagesWithStats()
+		r.emitObservation(ctx, obs, runID, observability.EventContextBuilt, turn, observability.SeverityInfo, contextStatsData(stats))
 	}
 	// 达到最大轮数说明模型一直没有收敛，返回受控状态而不是无限运行。
-	return RunResult{Status: RunStatusMaxTurnsExceeded}, nil
+	return finishRun(RunResult{Status: RunStatusMaxTurnsExceeded}, nil)
 }
 
 func (r *Runner) buildRequestMessages() []llm.Message {
+	messages, _ := r.buildRequestMessagesWithStats()
+	return messages
+}
+
+func (r *Runner) buildRequestMessagesWithStats() ([]llm.Message, contextmgr.Stats) {
 	messages := append([]llm.Message(nil), r.history...)
 	if r.ContextManager == nil {
-		return r.appendEphemeralGuidance(messages)
+		result := r.appendEphemeralGuidance(messages)
+		return result, contextmgr.Stats{
+			OriginalMessages: len(messages),
+			FinalMessages:    len(result),
+			OriginalChars:    messagesChars(messages),
+			FinalChars:       messagesChars(result),
+		}
 	}
 	result := r.ContextManager.Build(contextmgr.BuildInput{
 		Messages:   messages,
@@ -331,7 +403,11 @@ func (r *Runner) buildRequestMessages() []llm.Message {
 		SessionDir: r.sessionDir(),
 	})
 	r.logContextStats(result.Stats)
-	return r.appendEphemeralGuidance(result.Messages)
+	finalMessages := r.appendEphemeralGuidance(result.Messages)
+	stats := result.Stats
+	stats.FinalMessages = len(finalMessages)
+	stats.FinalChars = messagesChars(finalMessages)
+	return finalMessages, stats
 }
 
 // updateWorkingCheckpoint 将模型提交的短期工作记忆写回 Runner。
