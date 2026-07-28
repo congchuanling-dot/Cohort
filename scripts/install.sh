@@ -10,7 +10,11 @@ LOG_DIR="${COHERT_LOG_DIR:-"$CONFIG_DIR/logs/model_responses"}"
 GO_BIN="${GO_BIN:-go}"
 REPO_URL="${COHERT_REPO_URL:-}"
 REPO_REF="${COHERT_REPO_REF:-}"
+GITHUB_REPO="${COHERT_GITHUB_REPO:-congchuanling-dot/Cohort}"
+RELEASE_TAG="${COHERT_VERSION:-latest}"
+FROM_SOURCE="${COHERT_INSTALL_FROM_SOURCE:-0}"
 UPDATE_SHELL="${COHERT_UPDATE_SHELL:-auto}"
+DARWIN_ARCH=""
 
 info() {
   printf '%s\n' "$*"
@@ -36,6 +40,9 @@ Usage:
 Options:
   --repo <git-url>      Clone and install from a git repository when not running inside the repo.
   --ref <git-ref>       Checkout a branch, tag, or commit before building.
+  --version <tag>       Download a specific GitHub release tag. Default: latest.
+  --github-repo <repo>  GitHub repo for release downloads. Default: congchuanling-dot/Cohort.
+  --from-source         Skip release download and build from source.
   --install-dir <dir>   Install binary to this directory. Default: ~/.cohert/bin
   --config <file>       Initialize config at this path. Default: ~/.cohert/config.yaml
   --no-shell            Do not append PATH setup to ~/.zshrc.
@@ -44,6 +51,10 @@ Options:
 Environment:
   COHERT_REPO_URL       Same as --repo.
   COHERT_REPO_REF       Same as --ref.
+  COHERT_VERSION        Same as --version.
+  COHERT_GITHUB_REPO    Same as --github-repo.
+  COHERT_INSTALL_FROM_SOURCE
+                         Set to 1 to skip release download.
   COHERT_INSTALL_DIR    Same as --install-dir.
   COHERT_CONFIG         Same as --config.
   COHERT_UPDATE_SHELL   auto|never. Default: auto.
@@ -69,6 +80,28 @@ parse_args() {
         ;;
       --ref=*)
         REPO_REF="${1#--ref=}"
+        shift
+        ;;
+      --version)
+        [ "$#" -ge 2 ] || fail "--version requires a release tag"
+        RELEASE_TAG="$2"
+        shift 2
+        ;;
+      --version=*)
+        RELEASE_TAG="${1#--version=}"
+        shift
+        ;;
+      --github-repo)
+        [ "$#" -ge 2 ] || fail "--github-repo requires owner/repo"
+        GITHUB_REPO="$2"
+        shift 2
+        ;;
+      --github-repo=*)
+        GITHUB_REPO="${1#--github-repo=}"
+        shift
+        ;;
+      --from-source)
+        FROM_SOURCE="1"
         shift
         ;;
       --install-dir)
@@ -109,9 +142,39 @@ check_macos() {
   arch=$(uname -m 2>/dev/null || true)
   [ "$os" = "Darwin" ] || fail "this installer currently supports macOS only; detected: ${os:-unknown}"
   case "$arch" in
-    arm64|x86_64) ;;
+    arm64) DARWIN_ARCH="arm64" ;;
+    x86_64) DARWIN_ARCH="amd64" ;;
     *) fail "unsupported macOS architecture: ${arch:-unknown}" ;;
   esac
+}
+
+release_url() {
+  asset="$1"
+  if [ "$RELEASE_TAG" = "latest" ]; then
+    printf 'https://github.com/%s/releases/latest/download/%s\n' "$GITHUB_REPO" "$asset"
+  else
+    printf 'https://github.com/%s/releases/download/%s/%s\n' "$GITHUB_REPO" "$RELEASE_TAG" "$asset"
+  fi
+}
+
+download_release_binary() {
+  [ "$FROM_SOURCE" != "1" ] || return 1
+  command -v curl >/dev/null 2>&1 || return 1
+
+  asset="cohert-darwin-${DARWIN_ARCH}"
+  url=$(release_url "$asset")
+  info "downloading $BIN_NAME from GitHub release: $url"
+  if curl -fsSL "$url" -o "$BUILD_TMP/$asset"; then
+    checksum_url=$(release_url "$asset.sha256")
+    if command -v shasum >/dev/null 2>&1 && curl -fsSL "$checksum_url" -o "$BUILD_TMP/$asset.sha256"; then
+      (cd "$BUILD_TMP" && shasum -a 256 -c "$asset.sha256") || return 1
+    fi
+    mv "$BUILD_TMP/$asset" "$BUILD_TMP/$BIN_NAME"
+    chmod 0755 "$BUILD_TMP/$BIN_NAME"
+    return 0
+  fi
+  info "release binary unavailable; falling back to source build"
+  return 1
 }
 
 find_source_dir() {
@@ -241,11 +304,13 @@ parse_args "$@"
 check_macos
 BUILD_TMP=$(mktemp -d "${TMPDIR:-/tmp}/cohert-build.XXXXXX")
 trap 'rm -rf "$BUILD_TMP"' EXIT INT TERM
-need_cmd "$GO_BIN"
-SOURCE_DIR=$(find_source_dir)
 
-info "building $BIN_NAME from $SOURCE_DIR"
-(cd "$SOURCE_DIR" && "$GO_BIN" build -o "$BUILD_TMP/$BIN_NAME" ./cmd/cohert)
+if ! download_release_binary; then
+  need_cmd "$GO_BIN"
+  SOURCE_DIR=$(find_source_dir)
+  info "building $BIN_NAME from $SOURCE_DIR"
+  (cd "$SOURCE_DIR" && "$GO_BIN" build -o "$BUILD_TMP/$BIN_NAME" ./cmd/cohert)
+fi
 
 mkdir -p "$INSTALL_DIR"
 cp "$BUILD_TMP/$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"

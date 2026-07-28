@@ -142,10 +142,11 @@ cohert doctor
 cohert
 ```
 
-安装脚本会构建 `cohert`，安装到 `~/.cohert/bin/cohert`，并在
-`~/.cohert/config.yaml` 初始化用户级配置。脚本不会写入 API key，也不会修改
-API key。macOS zsh 下会自动把 `~/.cohert/bin` 写入 `~/.zshrc`；如不希望修改
-shell 配置，可加 `--no-shell`。
+安装脚本会优先下载 GitHub Release 里的 macOS 二进制；如果 release 不可用，
+才回退到源码构建。最终会安装到 `~/.cohert/bin/cohert`，并在
+`~/.cohert/config.yaml` 初始化用户级配置。脚本不会写入 API key。macOS zsh
+下会自动把 `~/.cohert/bin` 写入 `~/.zshrc`；如不希望修改 shell 配置，可加
+`--no-shell`。
 
 也可以手动初始化或覆盖用户级配置：
 
