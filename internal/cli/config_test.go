@@ -128,3 +128,31 @@ func TestRunDoctorCommandPassesLocalChecks_BitsUT(t *testing.T) {
 		}
 	}
 }
+
+func TestRunReflectCommandDoesNotRequireAPIKey_BitsUT(t *testing.T) {
+	root := t.TempDir()
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(oldWD)
+	})
+	workspace := filepath.Join(root, "workspace")
+	var out bytes.Buffer
+
+	if err := runReflectCommand(app.Config{Workspace: workspace}, []string{"once", "--task", "session-archive"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "reflect task: session-archive") ||
+		!strings.Contains(out.String(), "sessions_scanned: 0") ||
+		!strings.Contains(out.String(), "output:") {
+		t.Fatalf("output = %q, want reflect summary", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "memory", "raw_sessions", "all_histories.md")); err != nil {
+		t.Fatalf("expected session archive report: %v", err)
+	}
+}
