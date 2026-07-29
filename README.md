@@ -15,7 +15,7 @@
 <p align="center">
   <img alt="Go" src="https://img.shields.io/badge/Go-1.21-00ADD8?style=flat-square&logo=go&logoColor=white">
   <img alt="Stage" src="https://img.shields.io/badge/stage-active%20development-0F172A?style=flat-square">
-  <img alt="LLM" src="https://img.shields.io/badge/LLM-OpenAI%20Compatible-4F46E5?style=flat-square">
+  <img alt="LLM" src="https://img.shields.io/badge/LLM-OpenAI--compatible%20%2B%20Anthropic-4F46E5?style=flat-square">
   <img alt="Protocol" src="https://img.shields.io/badge/MCP-supported-111827?style=flat-square">
   <img alt="Browser" src="https://img.shields.io/badge/browser-Chrome%20Bridge-0F766E?style=flat-square">
   <img alt="Desktop" src="https://img.shields.io/badge/desktop-macOS%20AX-334155?style=flat-square">
@@ -156,8 +156,14 @@ cohort
 
 ```bash
 cohort init --provider deepseek
+cohort init --provider local --force
 cohort init --provider anthropic --force
 ```
+
+当前内置支持两类模型 API：
+
+- `openai` / `openai-compatible`：适合 DeepSeek、Ollama、LM Studio 和其他兼容 `/v1/chat/completions` 的网关
+- `anthropic` / `claude`：适合 Anthropic 原生 `/v1/messages` API
 
 ### 2. 本地开发运行
 
@@ -227,7 +233,7 @@ flowchart TD
     U[User Intent] --> R[CLI / REPL]
     R --> A[Agent Runner]
     A --> C[Context Manager]
-    C --> L[OpenAI-Compatible LLM]
+    C --> L[LLM Provider<br/>OpenAI-compatible / Anthropic]
     L --> A
     A --> T[Tool Registry]
     T --> F[File / Patch / Shell]
@@ -246,7 +252,7 @@ flowchart TD
 
 1. 读取当前 session、历史和上下文预算。
 2. 把 relevant memory、session memory、compact 摘要按层注入请求。
-3. 交给 OpenAI-compatible 模型做工具调用决策。
+3. 交给当前激活的 LLM provider 做工具调用决策。
 4. 在受控工具层执行文件、Shell、浏览器、桌面或 MCP 操作。
 5. 把执行证据和工具结果写回历史。
 6. 在需要时压缩上下文、更新 checkpoint，或触发长期记忆写入流程。
@@ -359,7 +365,7 @@ temp/sessions/<session_id>/
 | Browser Bridge | `internal/browser` | Chrome Bridge 的 WebSocket 协议与服务端实现 |
 | Desktop Driver | `internal/desktop` | macOS helper 的 Go 接口与 runner |
 | Session Store | `internal/session` | session 列表、恢复、历史与元数据 |
-| LLM Client | `internal/llm` | OpenAI-compatible Chat Completions client |
+| LLM Client | `internal/llm` | OpenAI-compatible Chat Completions + Anthropic Messages API client |
 | MCP | `internal/mcp` | server 管理、权限缓存、配置持久化 |
 | REPL / CLI | `internal/repl`, `internal/cli` | 交互式 shell、slash 命令、CLI 入口 |
 | Verified Memory | `internal/evolution` | 记忆校验、apply、审计 |
@@ -517,7 +523,16 @@ context:
   enable_micro_compact: true
 ```
 
-当前模型接入层使用 OpenAI-compatible Chat Completions，默认模型为 `deepseek-v4-pro`。
+当前默认模型配置为 `deepseek-v4-pro`；模型接入层支持范围见下。
+
+当前模型接入层原生支持两类协议：
+
+- `provider: openai`：走 OpenAI-compatible Chat Completions
+- `provider: anthropic`：走 Anthropic Messages API
+
+同时支持显式 `llm.profiles` 和 `fallback_profiles`，可以把多个模型配置成主链路和备用链路。
+
+这不等于“所有类型 API 都能直接用”。像 Gemini 原生 API、Bedrock、Vertex、以及 Azure OpenAI 的特殊路径或鉴权形式，目前都还没有原生适配层。
 
 ## 项目结构
 
@@ -533,7 +548,7 @@ internal/cli/           命令分发和 CLI 子命令
 internal/contextmgr/    请求构造、裁剪、记忆注入
 internal/desktop/       桌面驱动与 helper runner
 internal/evolution/     长期记忆演化与审计
-internal/llm/           OpenAI-compatible client
+internal/llm/           OpenAI-compatible + Anthropic client
 internal/mcp/           MCP server 管理
 internal/repl/          交互 shell 和 slash 命令
 internal/session/       session 存储与恢复
