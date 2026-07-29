@@ -6,7 +6,7 @@ Agent Runtime de línea de comandos, local-first, para llamadas a herramientas, 
 
 ## Qué Es Cohort
 
-Cohort es un Agent Runtime local escrito en Go. Conecta un LLM compatible con OpenAI, una capa de herramientas controlada, sesiones persistentes, automatización del navegador, Computer Use de escritorio en macOS, compactación de contexto, enrutamiento SOP y memoria de largo plazo verificada.
+Cohort es un Agent Runtime local escrito en Go. Conecta proveedores LLM OpenAI-compatible y Anthropic con una capa de herramientas controlada, sesiones persistentes, automatización del navegador, Computer Use de escritorio en macOS, compactación de contexto, enrutamiento SOP y memoria de largo plazo verificada.
 
 ```text
 Intención del usuario
@@ -52,11 +52,22 @@ go build -o cohort ./cmd/cohort
 
 La configuración predeterminada está en [`configs/config.yaml`](../../configs/config.yaml). La guía completa está en [`docs/usage.md`](../usage.md).
 
+## Proveedores LLM
+
+Cohort soporta de forma nativa dos familias de provider:
+
+- `provider: openai`: endpoints OpenAI-compatible Chat Completions como DeepSeek, Ollama, LM Studio y otros gateways compatibles con `/v1/chat/completions`
+- `provider: anthropic`: Anthropic Messages API
+
+También soporta `llm.profiles` y `fallback_profiles` para encadenar un provider principal y uno de respaldo.
+
+Eso no significa que cualquier tipo de API funcione sin adaptación. Gemini nativo, Bedrock, Vertex y las variantes específicas de autenticación o path de Azure OpenAI todavía no tienen adaptador nativo.
+
 ## Capacidades
 
 | Área | Capacidad |
 | --- | --- |
-| Agent Loop | Chat streaming compatible con OpenAI, tool calling, control de turnos |
+| Agent Loop | Chat streaming con providers OpenAI-compatible / Anthropic, tool calling, control de turnos |
 | Herramientas locales | Lectura/escritura/patch de archivos, shell, preguntas al usuario, errores estructurados |
 | Navegador | Chrome bridge, escaneo de página, JS, snapshot de elementos, click/type/key/wait/screenshot/OCR |
 | Desktop Computer Use | Permisos macOS, ventanas, activación por PID, capturas, árbol AX, OCR de escritorio, `AXPress` controlado, teclas restringidas, borradores de texto |

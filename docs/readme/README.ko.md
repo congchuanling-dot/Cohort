@@ -6,7 +6,7 @@
 
 ## Cohort 소개
 
-Cohort 는 Go 로 작성된 로컬 Agent Runtime 입니다. OpenAI-compatible LLM, 통제된 도구 계층, 영속 세션, 브라우저 자동화, macOS Desktop Computer Use, 컨텍스트 압축, SOP 라우팅, 검증된 장기 메모리를 연결합니다.
+Cohort 는 Go 로 작성된 로컬 Agent Runtime 입니다. OpenAI-compatible 및 Anthropic LLM provider, 통제된 도구 계층, 영속 세션, 브라우저 자동화, macOS Desktop Computer Use, 컨텍스트 압축, SOP 라우팅, 검증된 장기 메모리를 연결합니다.
 
 ```text
 사용자 의도
@@ -52,11 +52,22 @@ go build -o cohort ./cmd/cohort
 
 기본 설정은 [`configs/config.yaml`](../../configs/config.yaml)에 있습니다. 자세한 사용법은 [`docs/usage.md`](../usage.md)를 참고하세요.
 
+## LLM Provider
+
+현재 Cohort 가 네이티브로 지원하는 provider 계열은 두 가지입니다.
+
+- `provider: openai`: DeepSeek, Ollama, LM Studio 같은 `/v1/chat/completions` 호환 OpenAI-compatible endpoint
+- `provider: anthropic`: Anthropic Messages API
+
+또한 `llm.profiles` 와 `fallback_profiles` 로 주 체인과 예비 체인을 명시적으로 구성할 수 있습니다.
+
+하지만 이것이 모든 API 타입을 곧바로 지원한다는 뜻은 아닙니다. Gemini 네이티브 API, Bedrock, Vertex, Azure OpenAI 전용 인증/경로 변형은 아직 네이티브 어댑터가 없습니다.
+
 ## 주요 기능
 
 | 영역 | 기능 |
 | --- | --- |
-| Agent Loop | 스트리밍 대화, 도구 호출, 최대 턴 제어 |
+| Agent Loop | OpenAI-compatible / Anthropic provider 기반 스트리밍 대화, 도구 호출, 최대 턴 제어 |
 | 로컬 도구 | 파일 읽기/쓰기/patch, shell 실행, 사용자 질문, 구조화 오류 |
 | 브라우저 자동화 | Chrome bridge, 페이지 스캔, JS 실행, 요소 snapshot, click/type/key/wait/screenshot/OCR |
 | Desktop Computer Use | macOS 권한, 창 목록, PID 활성화, 스크린샷, AX tree, desktop OCR, 통제된 `AXPress`, 제한된 키 입력, 텍스트 초안 |

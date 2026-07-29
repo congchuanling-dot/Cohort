@@ -6,7 +6,7 @@
 
 ## Cohort とは
 
-Cohort は Go で書かれたローカル Agent Runtime です。OpenAI-compatible LLM、制御されたツール層、永続セッション、ブラウザ自動化、macOS Desktop Computer Use、コンテキスト圧縮、SOP ルーティング、検証済み長期メモリを接続します。
+Cohort は Go で書かれたローカル Agent Runtime です。OpenAI-compatible と Anthropic の LLM provider、制御されたツール層、永続セッション、ブラウザ自動化、macOS Desktop Computer Use、コンテキスト圧縮、SOP ルーティング、検証済み長期メモリを接続します。
 
 ```text
 ユーザー意図
@@ -52,11 +52,22 @@ go build -o cohort ./cmd/cohort
 
 設定は [`configs/config.yaml`](../../configs/config.yaml) にあります。詳しい使い方は [`docs/usage.md`](../usage.md) を参照してください。
 
+## LLM Provider
+
+Cohort が現在ネイティブ対応している provider は 2 系統です。
+
+- `provider: openai`：DeepSeek、Ollama、LM Studio など、`/v1/chat/completions` に互換な OpenAI-compatible endpoint
+- `provider: anthropic`：Anthropic Messages API
+
+また、`llm.profiles` と `fallback_profiles` により、主系統と予備系統を明示的に構成できます。
+
+ただし、すべての API 種別にそのまま対応しているわけではありません。Gemini ネイティブ API、Bedrock、Vertex、Azure OpenAI 固有の認証や path にはまだネイティブ対応していません。
+
 ## 主な機能
 
 | 領域 | 機能 |
 | --- | --- |
-| Agent Loop | ストリーミング対話、ツール呼び出し、最大ターン制御 |
+| Agent Loop | OpenAI-compatible / Anthropic provider でのストリーミング対話、ツール呼び出し、最大ターン制御 |
 | ローカルツール | ファイル読書き、patch、shell 実行、ユーザー確認、構造化エラー |
 | ブラウザ自動化 | Chrome bridge、ページ読み取り、JS 実行、要素 snapshot、click/type/key/wait/screenshot/OCR |
 | Desktop Computer Use | macOS 権限、ウィンドウ列挙、PID activation、スクリーンショット、AX tree、desktop OCR、制御済み `AXPress`、制限付きキー入力、テキスト下書き |

@@ -6,7 +6,7 @@ Local-first command-line Agent Runtime for tool calling, browser automation, des
 
 ## What Is Cohort
 
-Cohort is a Go-based local Agent Runtime. It connects an OpenAI-compatible LLM with controlled tools, persistent sessions, browser automation, macOS desktop Computer Use, context compaction, SOP routing, and verified long-term memory.
+Cohort is a Go-based local Agent Runtime. It connects OpenAI-compatible and Anthropic LLM providers with controlled tools, persistent sessions, browser automation, macOS desktop Computer Use, context compaction, SOP routing, and verified long-term memory.
 
 ```text
 User intent
@@ -52,11 +52,22 @@ go build -o cohort ./cmd/cohort
 
 Default config lives in [`configs/config.yaml`](../../configs/config.yaml). Full usage is in [`docs/usage.md`](../usage.md).
 
+## LLM Providers
+
+Cohort natively supports two provider families:
+
+- `provider: openai`: OpenAI-compatible Chat Completions endpoints such as DeepSeek, Ollama, LM Studio, and similar `/v1/chat/completions` gateways
+- `provider: anthropic`: Anthropic Messages API
+
+It also supports explicit `llm.profiles` and `fallback_profiles` for primary/backup chains.
+
+This does not mean every API type works out of the box yet. Native adapters for Gemini, Bedrock, Vertex, and Azure OpenAI-specific auth/path variants are not implemented yet.
+
 ## Features
 
 | Area | Capability |
 | --- | --- |
-| Agent Loop | Streaming OpenAI-compatible chat, tool calling, max-turn control |
+| Agent Loop | Streaming chat with OpenAI-compatible / Anthropic providers, tool calling, max-turn control |
 | Local Tools | File read/write/patch, shell execution, user questions, structured errors |
 | Browser Automation | Chrome bridge, page scan, JS execution, element snapshot, click/type/key/wait/screenshot/OCR |
 | Desktop Computer Use | macOS permissions, windows, PID activation, screenshots, AX tree, desktop OCR, controlled `AXPress`, restricted key press, text drafting |

@@ -6,7 +6,7 @@
 
 ## Cohort क्या है
 
-Cohort Go में लिखा गया local Agent Runtime है। यह OpenAI-compatible LLM, नियंत्रित tool layer, persistent sessions, browser automation, macOS desktop Computer Use, context compaction, SOP routing और verified long-term memory को जोड़ता है।
+Cohort Go में लिखा गया local Agent Runtime है। यह OpenAI-compatible और Anthropic LLM providers को नियंत्रित tool layer, persistent sessions, browser automation, macOS desktop Computer Use, context compaction, SOP routing और verified long-term memory के साथ जोड़ता है।
 
 ```text
 User intent
@@ -52,11 +52,22 @@ go build -o cohort ./cmd/cohort
 
 Default config [`configs/config.yaml`](../../configs/config.yaml) में है। पूरा usage guide [`docs/usage.md`](../usage.md) में है।
 
+## LLM Providers
+
+Cohort अभी native रूप से दो provider families को support करता है:
+
+- `provider: openai`: DeepSeek, Ollama, LM Studio और दूसरे `/v1/chat/completions` compatible OpenAI-compatible endpoints
+- `provider: anthropic`: Anthropic Messages API
+
+`llm.profiles` और `fallback_profiles` के जरिए primary और backup provider chains भी explicit तरीके से सेट की जा सकती हैं।
+
+इसका मतलब यह नहीं है कि हर API type अभी सीधे काम करेगा। Gemini native API, Bedrock, Vertex, और Azure OpenAI के special auth/path variants के लिए अभी native adapter नहीं है।
+
 ## Features
 
 | Area | Capability |
 | --- | --- |
-| Agent Loop | Streaming OpenAI-compatible chat, tool calling, max-turn control |
+| Agent Loop | OpenAI-compatible / Anthropic providers के साथ streaming chat, tool calling, max-turn control |
 | Local Tools | File read/write/patch, shell execution, user questions, structured errors |
 | Browser Automation | Chrome bridge, page scan, JS execution, element snapshot, click/type/key/wait/screenshot/OCR |
 | Desktop Computer Use | macOS permissions, windows, PID activation, screenshots, AX tree, desktop OCR, controlled `AXPress`, restricted key press, text drafting |

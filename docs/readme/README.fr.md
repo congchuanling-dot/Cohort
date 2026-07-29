@@ -6,7 +6,7 @@ Agent Runtime en ligne de commande, local-first, pour les appels d'outils, l'aut
 
 ## Qu'est-ce Que Cohort
 
-Cohort est un Agent Runtime local écrit en Go. Il connecte un LLM compatible OpenAI, une couche d'outils contrôlée, des sessions persistantes, l'automatisation du navigateur, le Computer Use de bureau sur macOS, la compactation du contexte, le routage SOP et une mémoire longue durée vérifiée.
+Cohort est un Agent Runtime local écrit en Go. Il connecte des providers LLM OpenAI-compatible et Anthropic avec une couche d'outils contrôlée, des sessions persistantes, l'automatisation du navigateur, le Computer Use de bureau sur macOS, la compactation du contexte, le routage SOP et une mémoire longue durée vérifiée.
 
 ```text
 Intention utilisateur
@@ -52,11 +52,22 @@ go build -o cohort ./cmd/cohort
 
 La configuration par défaut se trouve dans [`configs/config.yaml`](../../configs/config.yaml). Le guide complet est dans [`docs/usage.md`](../usage.md).
 
+## Providers LLM
+
+Cohort prend aujourd'hui en charge nativement deux familles de provider :
+
+- `provider: openai` : endpoints OpenAI-compatible Chat Completions comme DeepSeek, Ollama, LM Studio et autres passerelles compatibles `/v1/chat/completions`
+- `provider: anthropic` : Anthropic Messages API
+
+`llm.profiles` et `fallback_profiles` permettent aussi de chaîner explicitement un provider principal et un provider de secours.
+
+Cela ne veut pas dire que tous les types d'API fonctionnent déjà sans adaptation. Gemini natif, Bedrock, Vertex et les variantes d'authentification ou de chemin propres à Azure OpenAI n'ont pas encore d'adaptateur natif.
+
 ## Fonctionnalités
 
 | Domaine | Capacité |
 | --- | --- |
-| Agent Loop | Chat streaming compatible OpenAI, tool calling, contrôle du nombre de tours |
+| Agent Loop | Chat streaming avec providers OpenAI-compatible / Anthropic, tool calling, contrôle du nombre de tours |
 | Outils locaux | Lecture/écriture/patch de fichiers, shell, questions utilisateur, erreurs structurées |
 | Navigateur | Chrome bridge, scan de page, JS, snapshot d'éléments, click/type/key/wait/screenshot/OCR |
 | Desktop Computer Use | Permissions macOS, fenêtres, activation PID, captures, arbre AX, OCR bureau, `AXPress` contrôlé, touches restreintes, brouillon texte |

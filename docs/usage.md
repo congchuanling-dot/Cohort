@@ -73,6 +73,15 @@ cohort init --provider anthropic --force
 cohort --config ./my-cohort.yaml init --provider local
 ```
 
+当前内置原生支持两类模型 API：
+
+- `provider: openai` / `openai-compatible`：适合 DeepSeek、Ollama、LM Studio 和其他兼容 `/v1/chat/completions` 的服务
+- `provider: anthropic` / `claude`：适合 Anthropic 原生 `/v1/messages` API
+
+也支持显式 `llm.profiles` 和 `fallback_profiles`，可以把多个 provider 组成主链路和备用链路。
+
+这还不等于“所有类型 API 都能直接用”。Gemini 原生 API、Bedrock、Vertex，以及 Azure OpenAI 的特殊路径或鉴权形式，目前还没有原生适配层。
+
 诊断当前环境：
 
 ```bash
@@ -89,10 +98,18 @@ cohort doctor computer
 
 如果只是查看配置、工具列表、session 列表，不需要 API Key。
 
-如果要让模型真正回答问题或继续 session，需要先设置：
+如果要让模型真正回答问题或继续 session，需要给当前激活 profile 设置 API Key 或占位 key，例如：
 
 ```bash
+# DeepSeek / 其他 OpenAI-compatible 云服务
 export DEEPSEEK_API_KEY="sk-xxx"
+
+# Anthropic Claude
+export ANTHROPIC_API_KEY="sk-ant-xxx"
+
+# 本地 OpenAI-compatible 网关（如 Ollama / LM Studio）
+# 如果服务端不校验鉴权，也需要给一个非空值
+export LOCAL_OPENAI_API_KEY="dummy"
 ```
 
 检查配置：
@@ -307,7 +324,7 @@ desktop_type_text
 go run . config
 ```
 
-作用：查看模型、API 地址、工作区、API Key 是否已设置。
+作用：查看当前 provider、模型、API 地址、工作区、API Key 是否已设置。
 
 这个命令不需要 API Key。
 
@@ -1003,6 +1020,7 @@ cohort --config ~/.cohort/config.yaml config
 
 # 初始化配置
 cohort init
+cohort init --provider local --force
 cohort init --provider anthropic --force
 
 # 诊断环境
