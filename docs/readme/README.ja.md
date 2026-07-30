@@ -25,6 +25,7 @@ Cohort は Go で書かれたローカル Agent Runtime です。OpenAI-compatib
 ```bash
 npm install -g @cohort-ai/cohort@latest
 export DEEPSEEK_API_KEY="sk-xxx"
+cohort --version
 cohort
 ```
 

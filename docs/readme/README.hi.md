@@ -25,6 +25,7 @@ User intent
 ```bash
 npm install -g @cohort-ai/cohort@latest
 export DEEPSEEK_API_KEY="sk-xxx"
+cohort --version
 cohort
 ```
 

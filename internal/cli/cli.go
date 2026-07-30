@@ -18,6 +18,7 @@ import (
 	"cohort/internal/repl"
 	"cohort/internal/session"
 	"cohort/internal/skill"
+	"cohort/internal/version"
 )
 
 const mcpProbeTimeout = 90 * time.Second
@@ -40,6 +41,10 @@ func Run(args []string) error {
 	}
 	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		printHelp()
+		return nil
+	}
+	if args[0] == "version" || args[0] == "--version" || args[0] == "-v" {
+		printVersion(os.Stdout)
 		return nil
 	}
 	if args[0] == "init" {
@@ -924,6 +929,7 @@ Usage:
   cohort [--config file]  start interactive CLI
   cohort [--config file] ask "task"
                           run one task without entering REPL
+  cohort --version        show version, commit, and build time
   cohort config           show effective config and config path
   cohort init [--provider deepseek|local|anthropic] [--force]
                           create a user config at ~/.cohort/config.yaml
@@ -983,4 +989,11 @@ Environment:
   COHORT_CONFIG          optional config file path
   DEEPSEEK_API_KEY       required unless active config contains api_key
 `)
+}
+
+func printVersion(out io.Writer) {
+	info := version.Current()
+	fmt.Fprintf(out, "cohort %s\n", info.Version)
+	fmt.Fprintf(out, "commit: %s\n", info.Commit)
+	fmt.Fprintf(out, "built_at: %s\n", info.BuiltAt)
 }

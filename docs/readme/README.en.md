@@ -25,6 +25,7 @@ The core rule is simple: the model reasons, but execution must be explicit, audi
 ```bash
 npm install -g @cohort-ai/cohort@latest
 export DEEPSEEK_API_KEY="sk-xxx"
+cohort --version
 cohort
 ```
 

@@ -45,10 +45,13 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
+          commit="${GITHUB_SHA::12}"
+          built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          ldflags="-s -w -X cohort/internal/version.Version=${{ steps.tag.outputs.tag }} -X cohort/internal/version.Commit=${commit} -X cohort/internal/version.BuiltAt=${built_at}"
           for arch in arm64 amd64; do
             output="dist/cohort-darwin-${arch}"
             GOOS=darwin GOARCH="${arch}" CGO_ENABLED=0 \
-              go build -trimpath -ldflags="-s -w" -o "${output}" ./cmd/cohort
+              go build -trimpath -ldflags="${ldflags}" -o "${output}" ./cmd/cohort
             (cd dist && shasum -a 256 "cohort-darwin-${arch}" > "cohort-darwin-${arch}.sha256")
           done
 

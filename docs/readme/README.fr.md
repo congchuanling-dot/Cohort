@@ -25,6 +25,7 @@ La règle principale : le modèle raisonne, mais l'exécution doit être explici
 ```bash
 npm install -g @cohort-ai/cohort@latest
 export DEEPSEEK_API_KEY="sk-xxx"
+cohort --version
 cohort
 ```
 

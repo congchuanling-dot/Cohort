@@ -5,6 +5,7 @@ This package installs the `cohort` command by downloading the matching macOS bin
 ```bash
 npm install -g @cohort-ai/cohort@latest
 export DEEPSEEK_API_KEY="sk-xxx"
+cohort --version
 cohort
 ```
 
@@ -22,7 +23,7 @@ The npm package is a thin wrapper. During `postinstall`, it:
 
 - Node.js 16 or newer.
 - macOS arm64 or x64.
-- A GitHub Release asset matching the npm package version, for example npm `0.2.2` downloads release `v0.2.2`.
+- A GitHub Release asset matching the npm package version, for example npm `0.2.3` downloads release `v0.2.3`.
 
 ## Environment Overrides
 

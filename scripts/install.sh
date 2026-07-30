@@ -339,7 +339,19 @@ if ! download_release_binary; then
   need_cmd "$GO_BIN"
   SOURCE_DIR=$(find_source_dir)
   info "building $BIN_NAME from $SOURCE_DIR"
-  (cd "$SOURCE_DIR" && "$GO_BIN" build -o "$BUILD_TMP/$BIN_NAME" ./cmd/cohort)
+  BUILD_VERSION="dev"
+  BUILD_COMMIT="unknown"
+  if [ "$RELEASE_TAG" != "latest" ]; then
+    BUILD_VERSION="$RELEASE_TAG"
+  elif command -v git >/dev/null 2>&1 && [ -d "$SOURCE_DIR/.git" ]; then
+    BUILD_VERSION=$(cd "$SOURCE_DIR" && git describe --tags --dirty --always 2>/dev/null || printf 'dev')
+  fi
+  if command -v git >/dev/null 2>&1 && [ -d "$SOURCE_DIR/.git" ]; then
+    BUILD_COMMIT=$(cd "$SOURCE_DIR" && git rev-parse --short=12 HEAD 2>/dev/null || printf 'unknown')
+  fi
+  BUILD_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date)
+  BUILD_LDFLAGS="-s -w -X cohort/internal/version.Version=$BUILD_VERSION -X cohort/internal/version.Commit=$BUILD_COMMIT -X cohort/internal/version.BuiltAt=$BUILD_AT"
+  (cd "$SOURCE_DIR" && "$GO_BIN" build -trimpath -ldflags "$BUILD_LDFLAGS" -o "$BUILD_TMP/$BIN_NAME" ./cmd/cohort)
 fi
 
 mkdir -p "$INSTALL_DIR"
