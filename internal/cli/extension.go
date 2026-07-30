@@ -100,6 +100,7 @@ func openChromeExtensionsPage() error {
 	switch runtime.GOOS {
 	case "darwin":
 		cmds = [][]string{
+			{"open", "-a", "Google Chrome", "--args", url},
 			{"open", "-a", "Google Chrome", url},
 			{"open", url},
 		}

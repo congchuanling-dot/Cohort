@@ -157,7 +157,7 @@ Cohort 的判断很明确:
 
 ### 1. npm 全局安装
 
-推荐使用 npm 官方 registry 全局安装。npm 包会从 GitHub Release 下载匹配当前 macOS 架构的 `cohort` 二进制，并校验 SHA256。当前已验证版本为 `v0.2.4`。
+推荐使用 npm 官方 registry 全局安装。npm 包会从 GitHub Release 下载匹配当前 macOS 架构的 `cohort` 二进制，并校验 SHA256。当前已验证版本为 `v0.2.5`。
 
 ```bash
 npm install -g @cohort-ai/cohort@latest
