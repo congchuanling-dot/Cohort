@@ -1,6 +1,6 @@
 {
   "name": "@cohort-ai/cohort",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Local-first Agent Runtime for tool calling, browser automation, desktop Computer Use, context management, and verified memory.",
   "license": "MIT",
   "homepage": "https://github.com/congchuanling-dot/Cohort#readme",
