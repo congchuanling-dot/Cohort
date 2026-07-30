@@ -1141,7 +1141,7 @@ func browserToolError(err error) agent.Outcome {
 	hint := "确认 Chrome 已安装 Cohort Browser Bridge 插件，并且 Cohort 正在运行；插件会连接 ws://127.0.0.1:18777/browser。"
 	if errors.Is(err, browser.ErrNotConnected) {
 		code = "browser_not_connected"
-		hint = "请在 Chrome 的 chrome://extensions 中加载 assert/cohort_browser_bridge，并打开任意 http/https 页面；然后重试。"
+		hint = "请运行 cohort extension open，在 Chrome 的 chrome://extensions 中加载输出的 unpacked extension 目录，并打开任意 http/https 页面；然后重试。"
 	}
 	return agent.Outcome{
 		Data:       agent.NewToolError(code, err.Error(), hint),

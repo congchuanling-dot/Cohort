@@ -1,6 +1,6 @@
 {
   "name": "@cohort-ai/cohort",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Local-first Agent Runtime for tool calling, browser automation, desktop Computer Use, context management, and verified memory.",
   "license": "MIT",
   "homepage": "https://github.com/congchuanling-dot/Cohort#readme",
@@ -16,11 +16,13 @@
     "cohort": "bin/cohort.js"
   },
   "scripts": {
+    "prepack": "node scripts/sync-extension.js",
     "postinstall": "node scripts/install.js",
     "test": "node scripts/install.js --dry-run"
   },
   "files": [
     "bin/",
+    "extension/",
     "scripts/",
     "vendor/.gitkeep",
     "README.md"

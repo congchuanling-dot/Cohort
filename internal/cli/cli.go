@@ -47,6 +47,9 @@ func Run(args []string) error {
 		printVersion(os.Stdout)
 		return nil
 	}
+	if args[0] == "extension" {
+		return runExtensionCommand(args[1:], os.Stdout)
+	}
 	if args[0] == "init" {
 		return runInitCommand(opts, args[1:], os.Stdout)
 	}
@@ -930,6 +933,8 @@ Usage:
   cohort [--config file] ask "task"
                           run one task without entering REPL
   cohort --version        show version, commit, and build time
+  cohort extension path   print local Chrome extension directory
+  cohort extension open   open Chrome extensions page and print loading steps
   cohort config           show effective config and config path
   cohort init [--provider deepseek|local|anthropic] [--force]
                           create a user config at ~/.cohort/config.yaml
@@ -987,6 +992,8 @@ Interactive slash commands:
 
 Environment:
   COHORT_CONFIG          optional config file path
+  COHORT_BROWSER_EXTENSION_DIR
+                         optional Cohort Browser Bridge extension directory
   DEEPSEEK_API_KEY       required unless active config contains api_key
 `)
 }

@@ -157,7 +157,7 @@ Cohort 的判断很明确:
 
 ### 1. npm 全局安装
 
-推荐使用 npm 官方 registry 全局安装。npm 包会从 GitHub Release 下载匹配当前 macOS 架构的 `cohort` 二进制，并校验 SHA256。当前已验证版本为 `v0.2.3`。
+推荐使用 npm 官方 registry 全局安装。npm 包会从 GitHub Release 下载匹配当前 macOS 架构的 `cohort` 二进制，并校验 SHA256。当前已验证版本为 `v0.2.4`。
 
 ```bash
 npm install -g @cohort-ai/cohort@latest
@@ -353,11 +353,14 @@ open
 
 只有在 DOM 文本拿不到内容时，才降级到 `browser_ocr`。OCR 返回的是 `screenshot-local` bbox，不直接变成系统鼠标坐标。
 
-Chrome 扩展路径：
+Chrome Bridge 需要加载本地扩展。npm 和 installer 都会准备扩展目录；用下面的命令查看路径或打开 Chrome 扩展页：
 
-```text
-assert/cohort_browser_bridge
+```bash
+cohort extension path
+cohort extension open
 ```
+
+然后在 `chrome://extensions` 开启 Developer mode，点击 `Load unpacked`，选择 `cohort extension path` 输出的目录。
 
 ### 2. 桌面自动化不是任意乱点
 

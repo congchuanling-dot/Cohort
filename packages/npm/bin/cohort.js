@@ -7,6 +7,7 @@ const { spawnSync } = require("child_process");
 
 const packageRoot = path.resolve(__dirname, "..");
 const binary = path.join(packageRoot, "vendor", process.platform === "win32" ? "cohort.exe" : "cohort");
+const extensionDir = path.join(packageRoot, "extension", "cohort_browser_bridge");
 
 if (!fs.existsSync(binary)) {
   console.error("[cohort] binary not found. Reinstall the npm package or run:");
@@ -14,7 +15,13 @@ if (!fs.existsSync(binary)) {
   process.exit(1);
 }
 
+const env = { ...process.env };
+if (!env.COHORT_BROWSER_EXTENSION_DIR && fs.existsSync(path.join(extensionDir, "manifest.json"))) {
+  env.COHORT_BROWSER_EXTENSION_DIR = extensionDir;
+}
+
 const result = spawnSync(binary, process.argv.slice(2), {
+  env,
   stdio: "inherit"
 });
 

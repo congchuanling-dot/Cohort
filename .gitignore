@@ -13,5 +13,6 @@
 /packages/npm/vendor/cohort
 /packages/npm/vendor/*.download
 /packages/npm/*.tgz
+/packages/npm/extension/
 
 *.log

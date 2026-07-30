@@ -127,7 +127,7 @@ Optional OCR dependencies:
 python3 -m pip install rapidocr-onnxruntime pillow numpy
 ```
 
-If browser tools report `browser_not_connected`, load the Chrome extension from `assert/cohort_browser_bridge`.
+If browser tools report `browser_not_connected`, run `cohort extension path` to get the local extension directory, or `cohort extension open` to open `chrome://extensions` and load it.
 
 ## Desktop Computer Use
 

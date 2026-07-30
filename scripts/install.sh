@@ -8,6 +8,8 @@ CONFIG_PATH="${COHORT_CONFIG:-"$CONFIG_DIR/config.yaml"}"
 WORKSPACE_DIR="${COHORT_WORKSPACE:-"$CONFIG_DIR/workspace"}"
 LOG_DIR="${COHORT_LOG_DIR:-"$CONFIG_DIR/logs/model_responses"}"
 SCRIPTS_DIR="${COHORT_SCRIPTS_DIR:-"$CONFIG_DIR/scripts"}"
+EXTENSIONS_DIR="${COHORT_EXTENSIONS_DIR:-"$CONFIG_DIR/extensions"}"
+BROWSER_EXTENSION_DIR="$EXTENSIONS_DIR/cohort_browser_bridge"
 GO_BIN="${GO_BIN:-go}"
 REPO_URL="${COHORT_REPO_URL:-}"
 REPO_REF="${COHORT_REPO_REF:-}"
@@ -160,6 +162,11 @@ release_url() {
 
 raw_script_url() {
   script="$1"
+  raw_repo_file_url "scripts/$script"
+}
+
+raw_repo_file_url() {
+  file="$1"
   ref="$REPO_REF"
   if [ -z "$ref" ]; then
     if [ "$RELEASE_TAG" = "latest" ]; then
@@ -168,7 +175,7 @@ raw_script_url() {
       ref="$RELEASE_TAG"
     fi
   fi
-  printf 'https://raw.githubusercontent.com/%s/%s/scripts/%s\n' "$GITHUB_REPO" "$ref" "$script"
+  printf 'https://raw.githubusercontent.com/%s/%s/%s\n' "$GITHUB_REPO" "$ref" "$file"
 }
 
 download_release_binary() {
@@ -204,6 +211,21 @@ install_runtime_scripts() {
     info "downloading helper script: $url"
     curl -fsSL "$url" -o "$SCRIPTS_DIR/$script" || fail "failed to download helper script: $script"
     chmod 0755 "$SCRIPTS_DIR/$script"
+  done
+}
+
+install_browser_extension() {
+  mkdir -p "$BROWSER_EXTENSION_DIR"
+  files="manifest.json background.js config.js content.js popup.html popup.js README.md"
+  for file in $files; do
+    if [ -n "${SOURCE_DIR:-}" ] && [ -f "$SOURCE_DIR/assert/cohort_browser_bridge/$file" ]; then
+      cp "$SOURCE_DIR/assert/cohort_browser_bridge/$file" "$BROWSER_EXTENSION_DIR/$file"
+      continue
+    fi
+    command -v curl >/dev/null 2>&1 || fail "curl is required to install browser extension file: $file"
+    url=$(raw_repo_file_url "assert/cohort_browser_bridge/$file")
+    info "downloading browser extension file: $url"
+    curl -fsSL "$url" -o "$BROWSER_EXTENSION_DIR/$file" || fail "failed to download browser extension file: $file"
   done
 }
 
@@ -358,11 +380,13 @@ mkdir -p "$INSTALL_DIR"
 cp "$BUILD_TMP/$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
 chmod 0755 "$INSTALL_DIR/$BIN_NAME"
 install_runtime_scripts
+install_browser_extension
 write_default_config
 update_shell_path
 
 info "installed: $INSTALL_DIR/$BIN_NAME"
 info "helpers:   $SCRIPTS_DIR"
+info "extension: $BROWSER_EXTENSION_DIR"
 info "config:    $CONFIG_PATH"
 
 case ":$PATH:" in

@@ -127,7 +127,7 @@ OCR 선택 의존성:
 python3 -m pip install rapidocr-onnxruntime pillow numpy
 ```
 
-`browser_not_connected` 가 나오면 `assert/cohort_browser_bridge` 에서 Chrome 확장을 로드하세요.
+`browser_not_connected` 가 나오면 `cohort extension path` 로 로컬 확장 디렉터리를 확인하거나 `cohort extension open` 으로 `chrome://extensions` 를 열어 로드하세요.
 
 ## Desktop Computer Use
 

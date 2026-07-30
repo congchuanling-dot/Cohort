@@ -264,7 +264,7 @@ func checkBrowserBridge(ctx context.Context, out io.Writer, summary *doctorSumma
 	tabs, err := deps.Browser.Tabs(reqCtx)
 	if err != nil {
 		if errors.Is(err, browser.ErrNotConnected) || strings.Contains(err.Error(), browser.ErrNotConnected.Error()) {
-			summary.warn(out, "browser.bridge.connection", "Chrome bridge is not connected; enable the Cohort Chrome extension")
+			summary.warn(out, "browser.bridge.connection", "Chrome bridge is not connected; run `cohort extension open`, load the unpacked extension, then open any http/https page")
 			return
 		}
 		summary.warn(out, "browser.bridge.connection", err.Error())

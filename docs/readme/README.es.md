@@ -127,7 +127,7 @@ Dependencias opcionales de OCR:
 python3 -m pip install rapidocr-onnxruntime pillow numpy
 ```
 
-Si aparece `browser_not_connected`, cargue la extensión de Chrome desde `assert/cohort_browser_bridge`.
+Si aparece `browser_not_connected`, ejecute `cohort extension path` para obtener el directorio local de la extensión, o `cohort extension open` para abrir `chrome://extensions` y cargarla.
 
 ## Desktop Computer Use
 

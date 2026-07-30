@@ -21,7 +21,7 @@ cohort --version
 cohort
 ```
 
-npm 包已发布到 npm 官方 registry。安装时会从 GitHub Release 下载匹配当前 macOS 架构的二进制，并校验 SHA256。当前已验证版本为 `v0.2.3`。
+npm 包已发布到 npm 官方 registry。安装时会从 GitHub Release 下载匹配当前 macOS 架构的二进制，并校验 SHA256。当前已验证版本为 `v0.2.4`。
 
 如果不想使用 npm，也可以直接使用 GitHub installer：
 
@@ -57,7 +57,7 @@ curl -fsSL https://raw.githubusercontent.com/congchuanling-dot/Cohort/master/scr
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/congchuanling-dot/Cohort/master/scripts/install.sh | sh -s -- \
-  --version v0.2.3
+  --version v0.2.4
 ```
 
 Cohort 配置文件查找顺序：
@@ -108,6 +108,24 @@ cohort doctor computer
 `doctor` 默认检查配置解析、API key、provider、api_base 格式、workspace 和 log 目录可写性。`--connect` 会额外访问 `api_base` 检查网络可达性，但不会发起模型补全请求。
 
 `doctor computer` 检查 macOS Computer Use 环境，包括 Accessibility、Screen Recording、desktop helper、OCR helper、Chrome bridge 和截图/OCR artifact 目录。它只做只读诊断，不会默认点击、输入或修改系统设置。
+
+## 0.2 Chrome Bridge 扩展
+
+浏览器工具依赖 Cohort Browser Bridge Chrome 扩展。npm 和 GitHub installer 都会准备本地扩展目录，但 Chrome 出于安全限制仍需要用户手动加载 unpacked extension。
+
+查看扩展目录：
+
+```bash
+cohort extension path
+```
+
+打开 Chrome 扩展页并打印加载步骤：
+
+```bash
+cohort extension open
+```
+
+然后在 `chrome://extensions` 开启 Developer mode，点击 `Load unpacked`，选择 `cohort extension path` 输出的目录。
 
 ## 1. 准备 API Key
 
