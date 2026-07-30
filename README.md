@@ -15,6 +15,7 @@
 <p align="center">
   <img alt="Go" src="https://img.shields.io/badge/Go-1.21-00ADD8?style=flat-square&logo=go&logoColor=white">
   <img alt="Stage" src="https://img.shields.io/badge/stage-active%20development-0F172A?style=flat-square">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-16A34A?style=flat-square">
   <img alt="LLM" src="https://img.shields.io/badge/LLM-OpenAI--compatible%20%2B%20Anthropic-4F46E5?style=flat-square">
   <img alt="Protocol" src="https://img.shields.io/badge/MCP-supported-111827?style=flat-square">
   <img alt="Browser" src="https://img.shields.io/badge/browser-Chrome%20Bridge-0F766E?style=flat-square">
@@ -43,11 +44,17 @@
 </p>
 
 <p align="center">
+  <a href="#30-秒看懂-cohort">30 秒看懂</a>
+  ·
   <a href="#项目叙事">项目叙事</a>
   ·
   <a href="#为什么是-cohort">为什么是 Cohort</a>
   ·
   <a href="#快速开始">快速开始</a>
+  ·
+  <a href="#真实示例">真实示例</a>
+  ·
+  <a href="#当前边界">当前边界</a>
   ·
   <a href="#能力矩阵">能力矩阵</a>
   ·
@@ -61,6 +68,26 @@
 </p>
 
 ---
+
+## 30 秒看懂 Cohort
+
+Cohort 是一个本地优先的 Agent Runtime。它把 LLM 推理接到受控工具、浏览器、桌面、MCP、上下文治理和可验证记忆上，让 Agent 从“会回答”走向“能稳定执行”。
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/congchuanling-dot/Cohort/master/scripts/install.sh | sh -s -- --repo https://github.com/congchuanling-dot/Cohort.git
+export PATH="$HOME/.cohort/bin:$PATH"
+export DEEPSEEK_API_KEY="sk-xxx"
+cohort
+```
+
+| 你得到什么 | Cohort 怎么做 |
+| --- | --- |
+| 真实执行闭环 | LLM 负责推理，runtime 负责工具、权限、证据和恢复 |
+| 浏览器自动化 | 通过 Chrome Bridge 读 DOM、执行 JS、点击、输入、等待和截图 |
+| 桌面 Computer Use | 基于 macOS Accessibility / AX 做窗口、控件、键盘和受控动作 |
+| 长任务能力 | session、history、compact、memory 分层管理上下文 |
+| 可验证记忆 | 长期记忆必须引用工具证据，写入后回读确认 |
+| 可观测性 | 本地 `run.log.jsonl`，可选 Langfuse trace 上报 |
 
 > 我们并不缺新的聊天框。  
 > 我们缺的是一个足够可靠的运行时层, 让模型的判断可以穿过工具、浏览器、桌面和长期任务，真正抵达现实世界。
@@ -168,7 +195,7 @@ cohort init --provider anthropic --force
 ### 2. 本地开发运行
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/congchuanling-dot/Cohort.git
 cd Cohort
 export DEEPSEEK_API_KEY="sk-xxx"
 go run .
@@ -210,6 +237,43 @@ go build -o cohort ./cmd/cohort
 ```
 
 默认项目配置见 [configs/config.yaml](/Users/bytedance/Desktop/myOwnProject/Cohort/configs/config.yaml)。全局运行时会按 `--config`、`COHORT_CONFIG`、项目配置、`~/.cohort/config.yaml` 的顺序查找配置。更完整的命令和 REPL 说明见 [docs/usage.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/usage.md)。
+
+## 真实示例
+
+### 1. 让 Cohort 理解一个仓库
+
+```bash
+cohort ask "阅读 README.md、docs/README.md 和 go.mod，用 8 条 bullet 总结这个项目的架构和运行方式"
+```
+
+适合首次接手项目、做技术调研、生成 onboarding 摘要。Cohort 会通过受控文件工具读取仓库内容，并把执行证据写入 session history。
+
+### 2. 检查浏览器里的页面状态
+
+```bash
+cohort ask "打开本地 Web 页面，等待加载完成，读取 DOM 摘要，确认页面标题和主要按钮是否存在"
+```
+
+适合本地 Web 调试和轻量 UI 验证。浏览器路径优先使用 DOM、selector、URL 和稳定等待；只有 DOM 信息不足时才降级到 OCR。
+
+### 3. 操作 macOS 桌面工作流
+
+```bash
+cohort ask "列出当前桌面窗口，激活 Chrome，读取前台窗口的 AX 控件树，并告诉我下一步可以安全执行什么"
+```
+
+适合跨应用桌面任务的观察、定位和受控执行。桌面路径优先使用 Accessibility / AX，不把自由坐标点击作为默认能力；外部副作用动作需要确认，高风险动作直接拒绝。
+
+## 当前边界
+
+Cohort 当前已经适合做本地 Agent Runtime 的公开预览，但它不是一个“无限权限自动电脑人”。
+
+- 模型 API：原生支持 OpenAI-compatible Chat Completions 和 Anthropic Messages API；Gemini 原生 API、Bedrock、Vertex、Azure OpenAI 特殊鉴权/路径还没有原生 adapter。
+- 操作系统：Desktop Computer Use 当前聚焦 macOS；跨 OS driver 还在路线图里。
+- 浏览器：需要加载本地 Chrome Bridge 扩展。
+- 桌面：需要给运行 Cohort 的终端或 IDE 授予 Accessibility 和 Screen Recording 权限。
+- 安全：外部副作用动作需要确认；支付、审批、授权、登录验证、破坏性删除等高风险动作不自动执行。
+- 数据：session、日志、截图、记忆默认本地存储；启用外部 tracing 前应确认数据边界。
 
 ## 能力矩阵
 
@@ -560,6 +624,8 @@ temp/                   session、日志和运行时输出
 
 ## 文档索引
 
+- [CHANGELOG.md](/Users/bytedance/Desktop/myOwnProject/Cohort/CHANGELOG.md): 版本变更与已知限制
+- [SECURITY.md](/Users/bytedance/Desktop/myOwnProject/Cohort/SECURITY.md): 安全边界、漏洞报告和加固建议
 - [docs/usage.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/usage.md): 使用方法、命令、session 恢复
 - [docs/context_management_design.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/context_management_design.md): 上下文裁剪与 compact 设计
 - [docs/browser_operation_design.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/browser_operation_design.md): 浏览器操作设计
