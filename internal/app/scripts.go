@@ -11,6 +11,12 @@ const (
 	DesktopDarwinHelperPath = "scripts/desktop_darwin.py"
 	// BrowserOCRHelperPath 是 OCR helper 在源码仓库中的相对路径。
 	BrowserOCRHelperPath = "scripts/browser_ocr.py"
+	// EnvRuntimeScriptsDir 显式指定 Cohort 运行时 helper 脚本目录。
+	EnvRuntimeScriptsDir = "COHORT_RUNTIME_SCRIPTS_DIR"
+	// EnvDesktopDarwinHelperPath 显式指定 macOS 桌面 helper 脚本路径。
+	EnvDesktopDarwinHelperPath = "COHORT_DESKTOP_DARWIN_HELPER_PATH"
+	// EnvBrowserOCRHelperPath 显式指定 OCR helper 脚本路径。
+	EnvBrowserOCRHelperPath = "COHORT_BROWSER_OCR_HELPER_PATH"
 )
 
 // ResolveRuntimeScriptPath 按源码仓库、全局安装目录、当前目录的顺序解析运行时脚本。
@@ -23,6 +29,12 @@ func ResolveRuntimeScriptPath(workspace string, relativePath string) string {
 		return ""
 	}
 	candidates := make([]string, 0, 5)
+	if env := scriptPathEnvFor(relativePath); env != "" {
+		candidates = append(candidates, os.Getenv(env))
+	}
+	if runtimeScriptsDir := strings.TrimSpace(os.Getenv(EnvRuntimeScriptsDir)); runtimeScriptsDir != "" {
+		candidates = append(candidates, filepath.Join(runtimeScriptsDir, filepath.Base(relativePath)))
+	}
 	if root := findProjectRoot(workspace); root != "" {
 		candidates = append(candidates, filepath.Join(root, relativePath))
 	}
@@ -58,4 +70,15 @@ func ResolveRuntimeScriptPath(workspace string, relativePath string) string {
 		}
 	}
 	return relativePath
+}
+
+func scriptPathEnvFor(relativePath string) string {
+	switch filepath.Base(relativePath) {
+	case "desktop_darwin.py":
+		return EnvDesktopDarwinHelperPath
+	case "browser_ocr.py":
+		return EnvBrowserOCRHelperPath
+	default:
+		return ""
+	}
 }

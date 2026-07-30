@@ -994,6 +994,12 @@ Environment:
   COHORT_CONFIG          optional config file path
   COHORT_BROWSER_EXTENSION_DIR
                          optional Cohort Browser Bridge extension directory
+  COHORT_RUNTIME_SCRIPTS_DIR
+                         optional runtime helper script directory
+  COHORT_DESKTOP_DARWIN_HELPER_PATH
+                         optional macOS desktop helper script path
+  COHORT_BROWSER_OCR_HELPER_PATH
+                         optional OCR helper script path
   DEEPSEEK_API_KEY       required unless active config contains api_key
 `)
 }

@@ -4,6 +4,17 @@ All notable changes to Cohort will be documented in this file.
 
 The format follows the spirit of [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses semantic versioning for public releases.
 
+## [0.2.6] - 2026-07-30
+
+### Changed
+
+- Raise the default Agent `max_turns` limit from 100 to 300.
+
+### Fixed
+
+- Bundle macOS desktop and OCR helper scripts in the npm package so desktop Computer Use works after `npm install -g`.
+- Add explicit runtime script path environment overrides for npm and advanced installs.
+
 ## [0.2.5] - 2026-07-30
 
 ### Fixed

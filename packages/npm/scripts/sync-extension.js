@@ -6,18 +6,38 @@ const path = require("path");
 
 const packageRoot = path.resolve(__dirname, "..");
 const repoRoot = path.resolve(packageRoot, "..", "..");
-const source = path.join(repoRoot, "assert", "cohort_browser_bridge");
-const target = path.join(packageRoot, "extension", "cohort_browser_bridge");
+const extensionSource = path.join(repoRoot, "assert", "cohort_browser_bridge");
+const extensionTarget = path.join(packageRoot, "extension", "cohort_browser_bridge");
+const runtimeScriptsSource = path.join(repoRoot, "scripts");
+const runtimeScriptsTarget = path.join(packageRoot, "runtime-scripts");
 
 main();
 
 function main() {
-  if (!fs.existsSync(path.join(source, "manifest.json"))) {
-    throw new Error(`browser extension source not found: ${source}`);
+  syncBrowserExtension();
+  syncRuntimeScripts();
+}
+
+function syncBrowserExtension() {
+  if (!fs.existsSync(path.join(extensionSource, "manifest.json"))) {
+    throw new Error(`browser extension source not found: ${extensionSource}`);
   }
-  fs.rmSync(target, { recursive: true, force: true });
-  copyDir(source, target);
-  console.log(`[cohort] synced browser extension to ${target}`);
+  fs.rmSync(extensionTarget, { recursive: true, force: true });
+  copyDir(extensionSource, extensionTarget);
+  console.log(`[cohort] synced browser extension to ${extensionTarget}`);
+}
+
+function syncRuntimeScripts() {
+  fs.rmSync(runtimeScriptsTarget, { recursive: true, force: true });
+  fs.mkdirSync(runtimeScriptsTarget, { recursive: true });
+  for (const name of ["desktop_darwin.py", "browser_ocr.py"]) {
+    const source = path.join(runtimeScriptsSource, name);
+    if (!fs.existsSync(source)) {
+      throw new Error(`runtime script not found: ${source}`);
+    }
+    fs.copyFileSync(source, path.join(runtimeScriptsTarget, name));
+  }
+  console.log(`[cohort] synced runtime scripts to ${runtimeScriptsTarget}`);
 }
 
 function copyDir(from, to) {

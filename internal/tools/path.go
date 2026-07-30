@@ -6,6 +6,13 @@ import (
 	"strings"
 )
 
+const (
+	envRuntimeScriptsDir      = "COHORT_RUNTIME_SCRIPTS_DIR"
+	envBrowserOCRHelperPath   = "COHORT_BROWSER_OCR_HELPER_PATH"
+	browserOCRHelperFileName  = "browser_ocr.py"
+	userRuntimeScriptsDirName = ".cohort/scripts"
+)
+
 // workspaceTool 保存工具工作区，并提供路径解析能力。
 // 相对路径会落在 workspace 下，绝对路径会直接清理后使用。
 type workspaceTool struct {
@@ -90,6 +97,60 @@ func findGitRoot(path string) string {
 		}
 		path = parent
 	}
+}
+
+func resolveRuntimeScriptPath(workspace string, scriptName string) string {
+	scriptName = filepath.Base(strings.TrimSpace(scriptName))
+	if scriptName == "" || scriptName == "." {
+		return ""
+	}
+	candidates := make([]string, 0, 7)
+	if scriptName == browserOCRHelperFileName {
+		candidates = append(candidates, os.Getenv(envBrowserOCRHelperPath))
+	}
+	if runtimeScriptsDir := strings.TrimSpace(os.Getenv(envRuntimeScriptsDir)); runtimeScriptsDir != "" {
+		candidates = append(candidates, filepath.Join(runtimeScriptsDir, scriptName))
+	}
+	workspaceRoot := newWorkspaceTool(workspace).workspace
+	if root := findGitRoot(workspaceRoot); root != "" {
+		candidates = append(candidates, filepath.Join(root, "scripts", scriptName))
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		if root := findGitRoot(cwd); root != "" {
+			candidates = append(candidates, filepath.Join(root, "scripts", scriptName))
+		}
+		candidates = append(candidates, filepath.Join(cwd, "scripts", scriptName))
+	}
+	if exe, err := os.Executable(); err == nil {
+		installRoot := filepath.Dir(filepath.Dir(exe))
+		candidates = append(candidates, filepath.Join(installRoot, "runtime-scripts", scriptName))
+		candidates = append(candidates, filepath.Join(installRoot, "scripts", scriptName))
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates, filepath.Join(home, userRuntimeScriptsDirName, scriptName))
+	}
+	return firstExistingPath(candidates, filepath.Join("scripts", scriptName))
+}
+
+func firstExistingPath(candidates []string, fallback string) string {
+	seen := map[string]bool{}
+	for _, candidate := range candidates {
+		candidate = filepath.Clean(strings.TrimSpace(candidate))
+		if candidate == "" || candidate == "." || seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	for _, candidate := range candidates {
+		candidate = filepath.Clean(strings.TrimSpace(candidate))
+		if candidate != "" && candidate != "." {
+			return candidate
+		}
+	}
+	return fallback
 }
 
 // ensureParent 确保目标文件的父目录存在，写文件前使用。

@@ -14,5 +14,6 @@
 /packages/npm/vendor/*.download
 /packages/npm/*.tgz
 /packages/npm/extension/
+/packages/npm/runtime-scripts/
 
 *.log

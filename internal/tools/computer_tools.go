@@ -1535,11 +1535,8 @@ func firstNonEmpty(values ...string) string {
 }
 
 func newComputerOCRRunner(workspace string) vision.OCRRunner {
-	workspaceRoot := newWorkspaceTool(workspace).workspace
-	scriptPath := filepath.Join("scripts", "browser_ocr.py")
-	if root := findGitRoot(workspaceRoot); root != "" {
-		scriptPath = filepath.Join(root, "scripts", "browser_ocr.py")
-	} else if absolutePath, err := filepath.Abs(scriptPath); err == nil {
+	scriptPath := resolveRuntimeScriptPath(workspace, browserOCRHelperFileName)
+	if absolutePath, err := filepath.Abs(scriptPath); err == nil {
 		scriptPath = absolutePath
 	}
 	return vision.NewPythonOCRRunner("python3", scriptPath, vision.DefaultOCRTimeout)

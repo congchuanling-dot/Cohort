@@ -372,11 +372,8 @@ type DesktopOCR struct {
 
 // NewDesktopOCR 构造默认 Python OCR runner，并从项目根目录定位 helper 脚本。
 func NewDesktopOCR(workspace string) *DesktopOCR {
-	workspaceRoot := newWorkspaceTool(workspace).workspace
-	scriptPath := filepath.Join("scripts", "browser_ocr.py")
-	if root := findGitRoot(workspaceRoot); root != "" {
-		scriptPath = filepath.Join(root, "scripts", "browser_ocr.py")
-	} else if absolutePath, err := filepath.Abs(scriptPath); err == nil {
+	scriptPath := resolveRuntimeScriptPath(workspace, browserOCRHelperFileName)
+	if absolutePath, err := filepath.Abs(scriptPath); err == nil {
 		scriptPath = absolutePath
 	}
 	return NewDesktopOCRWithRunner(
