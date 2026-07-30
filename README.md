@@ -573,7 +573,7 @@ computer_execute_plan
 language: zh
 workspace: ./workspace
 log_dir: ./temp/model_responses
-max_turns: 100
+max_turns: 300
 
 llm:
   provider: openai

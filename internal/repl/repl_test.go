@@ -697,7 +697,7 @@ func testConfig() app.Config {
 		Language:  "zh",
 		Workspace: "./workspace",
 		LogDir:    "./temp/model_responses",
-		MaxTurns:  100,
+		MaxTurns:  300,
 		LLM: app.LLMConfig{
 			Provider: "openai",
 			Name:     "deepseek",

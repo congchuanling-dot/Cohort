@@ -216,7 +216,7 @@ func defaultConfig() Config {
 		Language:      "zh",
 		Workspace:     "./workspace",
 		LogDir:        "./temp/model_responses",
-		MaxTurns:      100,
+		MaxTurns:      300,
 		Context:       contextmgr.DefaultConfig(),
 		Observability: defaultObservabilityConfig(),
 		LLM: LLMConfig{

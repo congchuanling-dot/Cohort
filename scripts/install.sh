@@ -268,7 +268,7 @@ write_default_config() {
 language: zh
 workspace: "$WORKSPACE_DIR"
 log_dir: "$LOG_DIR"
-max_turns: 100
+max_turns: 300
 
 llm:
   active_profile: deepseek

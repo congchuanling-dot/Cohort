@@ -170,7 +170,7 @@ type Runner struct {
 func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunResult, error) {
 	// 没配置最大轮数时给一个保守默认值，避免无限循环。
 	if r.MaxTurns <= 0 {
-		r.MaxTurns = 100
+		r.MaxTurns = 300
 	}
 	runID := observability.NewRunID()
 	runStartedAt := time.Now()

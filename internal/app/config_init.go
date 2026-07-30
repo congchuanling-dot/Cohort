@@ -60,7 +60,7 @@ func DefaultConfigContent(workspace string, logDir string, activeProfile string)
 	return fmt.Sprintf(`language: zh
 workspace: "%s"
 log_dir: "%s"
-max_turns: 100
+max_turns: 300
 
 llm:
   active_profile: %s
