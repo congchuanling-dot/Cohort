@@ -3,7 +3,7 @@
 This package installs the `cohort` command by downloading the matching macOS binary from GitHub Releases.
 
 ```bash
-npm install -g @cohort-ai/cohort
+npm install -g @cohort-ai/cohort@latest
 export DEEPSEEK_API_KEY="sk-xxx"
 cohort
 ```

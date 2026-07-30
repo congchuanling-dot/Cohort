@@ -16,6 +16,7 @@
   <img alt="Go" src="https://img.shields.io/badge/Go-1.21-00ADD8?style=flat-square&logo=go&logoColor=white">
   <img alt="Stage" src="https://img.shields.io/badge/stage-active%20development-0F172A?style=flat-square">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-16A34A?style=flat-square">
+  <img alt="npm" src="https://img.shields.io/npm/v/@cohort-ai/cohort?style=flat-square&logo=npm&logoColor=white&color=CB3837">
   <img alt="LLM" src="https://img.shields.io/badge/LLM-OpenAI--compatible%20%2B%20Anthropic-4F46E5?style=flat-square">
   <img alt="Protocol" src="https://img.shields.io/badge/MCP-supported-111827?style=flat-square">
   <img alt="Browser" src="https://img.shields.io/badge/browser-Chrome%20Bridge-0F766E?style=flat-square">
@@ -74,7 +75,7 @@
 Cohort 是一个本地优先的 Agent Runtime。它把 LLM 推理接到受控工具、浏览器、桌面、MCP、上下文治理和可验证记忆上，让 Agent 从“会回答”走向“能稳定执行”。
 
 ```bash
-npm install -g @cohort-ai/cohort
+npm install -g @cohort-ai/cohort@latest
 export DEEPSEEK_API_KEY="sk-xxx"
 cohort
 ```
@@ -155,10 +156,10 @@ Cohort 的判断很明确:
 
 ### 1. npm 全局安装
 
-推荐使用 npm 全局安装。npm 包会从 GitHub Release 下载匹配当前 macOS 架构的 `cohort` 二进制，并校验 SHA256。
+推荐使用 npm 官方 registry 全局安装。npm 包会从 GitHub Release 下载匹配当前 macOS 架构的 `cohort` 二进制，并校验 SHA256。当前已验证版本为 `v0.2.2`。
 
 ```bash
-npm install -g @cohort-ai/cohort
+npm install -g @cohort-ai/cohort@latest
 export DEEPSEEK_API_KEY="sk-xxx"
 cohort
 ```

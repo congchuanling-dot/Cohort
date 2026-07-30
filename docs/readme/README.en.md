@@ -23,34 +23,35 @@ The core rule is simple: the model reasons, but execution must be explicit, audi
 ## Quick Start
 
 ```bash
-git clone <repo-url>
-cd Cohort
+npm install -g @cohort-ai/cohort@latest
 export DEEPSEEK_API_KEY="sk-xxx"
-go run .
+cohort
 ```
 
 Run one task:
 
 ```bash
-go run . ask "read README.md and summarize the runtime capabilities"
+cohort ask "read README.md and summarize the runtime capabilities"
 ```
 
 Inspect the runtime:
 
 ```bash
-go run . config
-go run . tools
-go run . session list
+cohort config
+cohort doctor
+cohort session list
 ```
 
-Build:
+Run from source for development:
 
 ```bash
+git clone https://github.com/congchuanling-dot/Cohort.git
+cd Cohort
 go build -o cohort ./cmd/cohort
 ./cohort
 ```
 
-Default config lives in [`configs/config.yaml`](../../configs/config.yaml). Full usage is in [`docs/usage.md`](../usage.md).
+The npm package is published on the public npm registry and downloads the verified macOS binary from GitHub Releases during installation. Default config lives in [`configs/config.yaml`](../../configs/config.yaml). Full usage is in [`docs/usage.md`](../usage.md).
 
 ## LLM Providers
 

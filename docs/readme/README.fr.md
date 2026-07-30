@@ -23,34 +23,35 @@ La règle principale : le modèle raisonne, mais l'exécution doit être explici
 ## Démarrage Rapide
 
 ```bash
-git clone <repo-url>
-cd Cohort
+npm install -g @cohort-ai/cohort@latest
 export DEEPSEEK_API_KEY="sk-xxx"
-go run .
+cohort
 ```
 
 Exécuter une tâche :
 
 ```bash
-go run . ask "lis README.md et résume les capacités actuelles du runtime"
+cohort ask "lis README.md et résume les capacités actuelles du runtime"
 ```
 
 Inspecter le runtime :
 
 ```bash
-go run . config
-go run . tools
-go run . session list
+cohort config
+cohort doctor
+cohort session list
 ```
 
-Compiler :
+Exécuter depuis les sources pour le développement :
 
 ```bash
+git clone https://github.com/congchuanling-dot/Cohort.git
+cd Cohort
 go build -o cohort ./cmd/cohort
 ./cohort
 ```
 
-La configuration par défaut se trouve dans [`configs/config.yaml`](../../configs/config.yaml). Le guide complet est dans [`docs/usage.md`](../usage.md).
+Le package npm est publié sur le registry npm public et télécharge le binaire macOS vérifié depuis GitHub Releases pendant l'installation. La configuration par défaut se trouve dans [`configs/config.yaml`](../../configs/config.yaml). Le guide d'utilisation complet est dans [`docs/usage.md`](../usage.md).
 
 ## Providers LLM
 

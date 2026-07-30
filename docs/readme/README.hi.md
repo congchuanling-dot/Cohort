@@ -23,34 +23,35 @@ User intent
 ## Quick Start
 
 ```bash
-git clone <repo-url>
-cd Cohort
+npm install -g @cohort-ai/cohort@latest
 export DEEPSEEK_API_KEY="sk-xxx"
-go run .
+cohort
 ```
 
 एक task चलाएं:
 
 ```bash
-go run . ask "README.md पढ़ो और runtime capabilities summarize करो"
+cohort ask "README.md पढ़ो और runtime capabilities summarize करो"
 ```
 
 Runtime inspect करें:
 
 ```bash
-go run . config
-go run . tools
-go run . session list
+cohort config
+cohort doctor
+cohort session list
 ```
 
-Build:
+Development के लिए source से run करें:
 
 ```bash
+git clone https://github.com/congchuanling-dot/Cohort.git
+cd Cohort
 go build -o cohort ./cmd/cohort
 ./cohort
 ```
 
-Default config [`configs/config.yaml`](../../configs/config.yaml) में है। पूरा usage guide [`docs/usage.md`](../usage.md) में है।
+npm package public npm registry पर published है और installation के दौरान GitHub Releases से verified macOS binary download करता है। Default config [`configs/config.yaml`](../../configs/config.yaml) में है। पूरा usage guide [`docs/usage.md`](../usage.md) में है।
 
 ## LLM Providers
 

@@ -23,34 +23,35 @@ Cohort 는 Go 로 작성된 로컬 Agent Runtime 입니다. OpenAI-compatible �
 ## 빠른 시작
 
 ```bash
-git clone <repo-url>
-cd Cohort
+npm install -g @cohort-ai/cohort@latest
 export DEEPSEEK_API_KEY="sk-xxx"
-go run .
+cohort
 ```
 
 단일 작업 실행:
 
 ```bash
-go run . ask "README.md 를 읽고 현재 runtime 기능을 요약해줘"
+cohort ask "README.md 를 읽고 현재 runtime 기능을 요약해줘"
 ```
 
 상태 확인:
 
 ```bash
-go run . config
-go run . tools
-go run . session list
+cohort config
+cohort doctor
+cohort session list
 ```
 
-빌드:
+개발을 위해 소스에서 실행:
 
 ```bash
+git clone https://github.com/congchuanling-dot/Cohort.git
+cd Cohort
 go build -o cohort ./cmd/cohort
 ./cohort
 ```
 
-기본 설정은 [`configs/config.yaml`](../../configs/config.yaml)에 있습니다. 자세한 사용법은 [`docs/usage.md`](../usage.md)를 참고하세요.
+npm package 는 public npm registry 에 게시되어 있으며, 설치 중 GitHub Releases 에서 검증된 macOS binary 를 다운로드합니다. 기본 설정은 [`configs/config.yaml`](../../configs/config.yaml)에 있습니다. 자세한 사용법은 [`docs/usage.md`](../usage.md)를 참고하세요.
 
 ## LLM Provider
 

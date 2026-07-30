@@ -15,12 +15,12 @@ cd /Users/bytedance/Desktop/myOwnProject/Cohort
 也可以通过 npm 安装成用户级命令：
 
 ```bash
-npm install -g @cohort-ai/cohort
+npm install -g @cohort-ai/cohort@latest
 export DEEPSEEK_API_KEY="sk-xxx"
 cohort
 ```
 
-npm 包会从 GitHub Release 下载匹配当前 macOS 架构的二进制，并校验 SHA256。
+npm 包已发布到 npm 官方 registry。安装时会从 GitHub Release 下载匹配当前 macOS 架构的二进制，并校验 SHA256。当前已验证版本为 `v0.2.2`。
 
 如果不想使用 npm，也可以直接使用 GitHub installer：
 
@@ -56,7 +56,7 @@ curl -fsSL https://raw.githubusercontent.com/congchuanling-dot/Cohort/master/scr
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/congchuanling-dot/Cohort/master/scripts/install.sh | sh -s -- \
-  --version v0.1.0
+  --version v0.2.2
 ```
 
 Cohort 配置文件查找顺序：
