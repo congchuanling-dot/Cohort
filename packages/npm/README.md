@@ -22,7 +22,7 @@ The npm package is a thin wrapper. During `postinstall`, it:
 
 - Node.js 16 or newer.
 - macOS arm64 or x64.
-- A GitHub Release asset matching the npm package version, for example `v0.1.0`.
+- A GitHub Release asset matching the npm package version, for example npm `0.2.0` downloads release `v0.2.0`.
 
 ## Environment Overrides
 

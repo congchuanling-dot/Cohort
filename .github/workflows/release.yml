@@ -65,3 +65,34 @@ jobs:
               --title "${RELEASE_TAG}" \
               --notes "Cohort ${RELEASE_TAG}"
           fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Set npm package version from release tag
+        working-directory: packages/npm
+        shell: bash
+        run: |
+          version="${{ steps.tag.outputs.tag }}"
+          version="${version#v}"
+          npm version "${version}" --no-git-tag-version --allow-same-version
+
+      - name: Validate npm package
+        working-directory: packages/npm
+        env:
+          COHORT_NPM_RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          COHORT_NPM_TARGET_PLATFORM: darwin
+          COHORT_NPM_TARGET_ARCH: arm64
+        run: |
+          npm test
+          npm pack --dry-run
+
+      - name: Publish npm package
+        working-directory: packages/npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          COHORT_NPM_RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+        run: npm publish --access public --tag latest

@@ -4,6 +4,19 @@ All notable changes to Cohort will be documented in this file.
 
 The format follows the spirit of [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses semantic versioning for public releases.
 
+## [0.2.0] - 2026-07-30
+
+### Added
+
+- npm global install path through `npm install -g @cohort-ai/cohort`.
+- npm wrapper that downloads verified macOS binaries from GitHub Releases during `postinstall`.
+- Release workflow integration for publishing GitHub Release assets and the npm package from the same tag.
+- Manual npm publish workflow for fallback republishing and dry-run checks.
+
+### Changed
+
+- README and usage docs now recommend npm as the primary install path, with the GitHub installer kept as a fallback.
+
 ## [0.1.0] - 2026-07-28
 
 ### Added
