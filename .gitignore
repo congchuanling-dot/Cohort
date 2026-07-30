@@ -10,5 +10,8 @@
 /temp/
 /workspace/
 /.cohort/local.mcp.json
+/packages/npm/vendor/cohort
+/packages/npm/vendor/*.download
+/packages/npm/*.tgz
 
 *.log

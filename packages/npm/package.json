@@ -1,0 +1,42 @@
+{
+  "name": "@cohort-ai/cohort",
+  "version": "0.1.0",
+  "description": "Local-first Agent Runtime for tool calling, browser automation, desktop Computer Use, context management, and verified memory.",
+  "license": "MIT",
+  "homepage": "https://github.com/congchuanling-dot/Cohort#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/congchuanling-dot/Cohort.git",
+    "directory": "packages/npm"
+  },
+  "bugs": {
+    "url": "https://github.com/congchuanling-dot/Cohort/issues"
+  },
+  "bin": {
+    "cohort": "bin/cohort.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/install.js",
+    "test": "node scripts/install.js --dry-run"
+  },
+  "files": [
+    "bin/",
+    "scripts/",
+    "vendor/.gitkeep",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "agent",
+    "llm",
+    "cli",
+    "automation",
+    "mcp",
+    "computer-use"
+  ]
+}

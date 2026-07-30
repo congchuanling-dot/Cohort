@@ -9,6 +9,8 @@ The format follows the spirit of [Keep a Changelog](https://keepachangelog.com/e
 ### Added
 
 - First public macOS release of the `cohort` CLI.
+- npm wrapper package for `npm install -g @cohort-ai/cohort`, downloading verified binaries from GitHub Releases.
+- GitHub Actions workflow for publishing the npm wrapper from release tags.
 - One-line installer via `scripts/install.sh`, with GitHub Release binary download and source-build fallback.
 - OpenAI-compatible Chat Completions provider support for DeepSeek, Ollama, LM Studio, and compatible gateways.
 - Anthropic Messages API provider support through `provider: anthropic`.

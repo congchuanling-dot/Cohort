@@ -1,0 +1,86 @@
+name: Publish npm package
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "GitHub release tag to publish from, for example v0.1.0"
+        required: true
+        type: string
+      npm_tag:
+        description: "npm dist-tag"
+        required: false
+        default: latest
+        type: string
+      dry_run:
+        description: "Run checks without publishing"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish @cohort-ai/cohort
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/npm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${{ inputs.tag }}"
+            npm_tag="${{ inputs.npm_tag }}"
+            dry_run="${{ inputs.dry_run }}"
+          else
+            tag="${{ github.event.release.tag_name }}"
+            npm_tag="latest"
+            dry_run="false"
+          fi
+
+          version="${tag#v}"
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tag must look like v0.1.0 or v0.1.0-beta.1: ${tag}" >&2
+            exit 1
+          fi
+
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "npm_tag=${npm_tag:-latest}" >> "$GITHUB_OUTPUT"
+          echo "dry_run=${dry_run}" >> "$GITHUB_OUTPUT"
+
+      - name: Set package version from release tag
+        run: npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
+
+      - name: Validate package
+        env:
+          COHORT_NPM_RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          COHORT_NPM_TARGET_PLATFORM: darwin
+          COHORT_NPM_TARGET_ARCH: arm64
+        run: |
+          npm test
+          npm pack --dry-run
+
+      - name: Publish to npm
+        if: steps.version.outputs.dry_run != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          COHORT_NPM_RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: npm publish --access public --tag "${{ steps.version.outputs.npm_tag }}"

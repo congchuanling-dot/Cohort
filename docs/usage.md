@@ -12,10 +12,21 @@
 cd /Users/bytedance/Desktop/myOwnProject/Cohort
 ```
 
-也可以安装成用户级命令：
+也可以通过 npm 安装成用户级命令：
+
+```bash
+npm install -g @cohort-ai/cohort
+export DEEPSEEK_API_KEY="sk-xxx"
+cohort
+```
+
+npm 包会从 GitHub Release 下载匹配当前 macOS 架构的二进制，并校验 SHA256。
+
+如果不想使用 npm，也可以直接使用 GitHub installer：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/congchuanling-dot/Cohort/master/scripts/install.sh | sh -s -- --repo https://github.com/congchuanling-dot/Cohort.git
+export PATH="$HOME/.cohort/bin:$PATH"
 ```
 
 如果已经在仓库根目录：
@@ -27,10 +38,7 @@ cohort config
 cohort doctor
 ```
 
-安装脚本会优先下载 GitHub Release 里的 macOS 二进制；如果 release 不可用，
-才回退到源码构建。最终会把二进制写入 `~/.cohort/bin/cohort`，把用户级配置
-写入 `~/.cohort/config.yaml`。它不会写入 API key。macOS zsh 下会自动把
-`~/.cohort/bin` 写入 `~/.zshrc`；不希望修改 shell 配置时使用：
+npm wrapper 会把二进制安装到 npm 包目录并暴露 `cohort` 命令。GitHub installer 会优先下载 Release 里的 macOS 二进制；如果 release 不可用，才回退到源码构建。installer 最终会把二进制写入 `~/.cohort/bin/cohort`，把用户级配置写入 `~/.cohort/config.yaml`。它不会写入 API key。macOS zsh 下会自动把 `~/.cohort/bin` 写入 `~/.zshrc`；不希望修改 shell 配置时使用：
 
 ```bash
 ./scripts/install.sh --no-shell

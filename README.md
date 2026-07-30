@@ -74,8 +74,7 @@
 Cohort 是一个本地优先的 Agent Runtime。它把 LLM 推理接到受控工具、浏览器、桌面、MCP、上下文治理和可验证记忆上，让 Agent 从“会回答”走向“能稳定执行”。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/congchuanling-dot/Cohort/master/scripts/install.sh | sh -s -- --repo https://github.com/congchuanling-dot/Cohort.git
-export PATH="$HOME/.cohort/bin:$PATH"
+npm install -g @cohort-ai/cohort
 export DEEPSEEK_API_KEY="sk-xxx"
 cohort
 ```
@@ -154,15 +153,25 @@ Cohort 的判断很明确:
 
 ## 快速开始
 
-### 1. 一键安装到用户目录
+### 1. npm 全局安装
 
-macOS 可以用一条命令安装：
+推荐使用 npm 全局安装。npm 包会从 GitHub Release 下载匹配当前 macOS 架构的 `cohort` 二进制，并校验 SHA256。
+
+```bash
+npm install -g @cohort-ai/cohort
+export DEEPSEEK_API_KEY="sk-xxx"
+cohort
+```
+
+如果不想使用 npm，也可以直接使用 GitHub installer：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/congchuanling-dot/Cohort/master/scripts/install.sh | sh -s -- --repo https://github.com/congchuanling-dot/Cohort.git
+export PATH="$HOME/.cohort/bin:$PATH"
+cohort
 ```
 
-如果已经在仓库根目录，也可以直接执行：
+如果已经在仓库根目录，可以直接执行：
 
 ```bash
 ./scripts/install.sh
@@ -173,11 +182,7 @@ cohort doctor
 cohort
 ```
 
-安装脚本会优先下载 GitHub Release 里的 macOS 二进制；如果 release 不可用，
-才回退到源码构建。最终会安装到 `~/.cohort/bin/cohort`，并在
-`~/.cohort/config.yaml` 初始化用户级配置。脚本不会写入 API key。macOS zsh
-下会自动把 `~/.cohort/bin` 写入 `~/.zshrc`；如不希望修改 shell 配置，可加
-`--no-shell`。
+npm wrapper 会把二进制安装到 npm 包目录并暴露 `cohort` 命令。GitHub installer 会优先下载 Release 里的 macOS 二进制；如果 release 不可用，才回退到源码构建。installer 最终会安装到 `~/.cohort/bin/cohort`，并在 `~/.cohort/config.yaml` 初始化用户级配置。脚本不会写入 API key。macOS zsh 下会自动把 `~/.cohort/bin` 写入 `~/.zshrc`；如不希望修改 shell 配置，可加 `--no-shell`。
 
 也可以手动初始化或覆盖用户级配置：
 
