@@ -1,20 +1,20 @@
 <div align="center">
   <h1 align="center">Cohort</h1>
   <p align="center">
-    <strong>The Runtime Layer Between LLMs and Real Work</strong>
+    <strong>Local-first Agent Runtime for Real-World Workflows</strong>
   </p>
   <p align="center">
-    为真实世界的 Agent 提供本地优先的执行内核。
+    面向真实任务的本地 Agent 执行内核。
     <br />
-    连接模型推理、工具调用、浏览器、桌面、MCP、上下文治理与可验证记忆，
+    把 OpenAI-compatible / Anthropic 模型接入受控工具、浏览器、桌面、MCP、上下文治理与可验证记忆，
     <br />
-    让智能体从“会回答”进化为“能工作”。
+    让 Agent 不只会回答，而是能在真实环境里稳定行动、恢复和沉淀经验。
   </p>
 </div>
 
 <p align="center">
   <img alt="Go" src="https://img.shields.io/badge/Go-1.21-00ADD8?style=flat-square&logo=go&logoColor=white">
-  <img alt="Stage" src="https://img.shields.io/badge/stage-active%20development-0F172A?style=flat-square">
+  <img alt="Stage" src="https://img.shields.io/badge/stage-stable%201.0-0F172A?style=flat-square">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-16A34A?style=flat-square">
   <img alt="npm" src="https://img.shields.io/npm/v/@cohort-ai/cohort?style=flat-square&logo=npm&logoColor=white&color=CB3837">
   <img alt="LLM" src="https://img.shields.io/badge/LLM-OpenAI--compatible%20%2B%20Anthropic-4F46E5?style=flat-square">
@@ -53,6 +53,8 @@
   ·
   <a href="#快速开始">快速开始</a>
   ·
+  <a href="#ai-api-接入">AI API 接入</a>
+  ·
   <a href="#真实示例">真实示例</a>
   ·
   <a href="#当前边界">当前边界</a>
@@ -72,11 +74,19 @@
 
 ## 30 秒看懂 Cohort
 
-Cohort 是一个本地优先的 Agent Runtime。它把 LLM 推理接到受控工具、浏览器、桌面、MCP、上下文治理和可验证记忆上，让 Agent 从“会回答”走向“能稳定执行”。
+Cohort 是一个本地优先的 Agent Runtime。它不绑定某一个模型厂商，而是把 OpenAI-compatible 或 Anthropic 协议的模型，接到一套可审计、可恢复、可扩展的本地执行系统上。
+
+你可以把它理解成 Agent 的运行时层：
+
+- 模型负责理解目标、规划步骤和调用工具。
+- Runtime 负责权限、工具边界、浏览器/桌面动作、上下文治理、历史记录和安全恢复。
+- 任务过程会落到本地 session、日志、截图、记忆和审计文件中，方便复盘与继续执行。
 
 ```bash
 npm install -g @cohort-ai/cohort@latest
+cohort init --provider deepseek   # 或 local / anthropic
 export DEEPSEEK_API_KEY="sk-xxx"
+cohort doctor
 cohort --version
 cohort
 ```
@@ -155,96 +165,243 @@ Cohort 的判断很明确:
 
 ## 快速开始
 
-### 1. npm 全局安装
+### 1. 安装 Cohort
 
-推荐使用 npm 官方 registry 全局安装。npm 包会从 GitHub Release 下载匹配当前 macOS 架构的 `cohort` 二进制，并校验 SHA256，同时随包提供桌面自动化和 OCR helper。当前已验证版本为 `v1.0.0`。
+推荐使用 npm 官方 registry 全局安装。npm 包会从 GitHub Release 下载匹配当前 macOS 架构的 `cohort` 二进制并校验 SHA256，同时随包提供 Chrome Bridge 扩展、macOS desktop helper 和 OCR helper。当前已验证版本为 `v1.0.0`。
 
 ```bash
 npm install -g @cohort-ai/cohort@latest
-export DEEPSEEK_API_KEY="sk-xxx"
 cohort --version
-cohort
 ```
 
-如果不想使用 npm，也可以直接使用 GitHub installer：
+如果不想走 npm，也可以使用 GitHub installer：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/congchuanling-dot/Cohort/master/scripts/install.sh | sh -s -- --repo https://github.com/congchuanling-dot/Cohort.git
 export PATH="$HOME/.cohort/bin:$PATH"
-cohort
 ```
 
-如果已经在仓库根目录，可以直接执行：
-
-```bash
-./scripts/install.sh
-export PATH="$HOME/.cohort/bin:$PATH"
-export DEEPSEEK_API_KEY="sk-xxx"
-cohort config
-cohort doctor
-cohort
-```
-
-npm wrapper 会把二进制安装到 npm 包目录并暴露 `cohort` 命令。GitHub installer 会优先下载 Release 里的 macOS 二进制；如果 release 不可用，才回退到源码构建。installer 最终会安装到 `~/.cohort/bin/cohort`，并在 `~/.cohort/config.yaml` 初始化用户级配置。脚本不会写入 API key。macOS zsh 下会自动把 `~/.cohort/bin` 写入 `~/.zshrc`；如不希望修改 shell 配置，可加 `--no-shell`。
-
-也可以手动初始化或覆盖用户级配置：
-
-```bash
-cohort init --provider deepseek
-cohort init --provider local --force
-cohort init --provider anthropic --force
-```
-
-当前内置支持两类模型 API：
-
-- `openai` / `openai-compatible`：适合 DeepSeek、Ollama、LM Studio 和其他兼容 `/v1/chat/completions` 的网关
-- `anthropic` / `claude`：适合 Anthropic 原生 `/v1/messages` API
-
-### 2. 本地开发运行
+如果是在源码仓库内开发：
 
 ```bash
 git clone https://github.com/congchuanling-dot/Cohort.git
 cd Cohort
+./scripts/install.sh
+export PATH="$HOME/.cohort/bin:$PATH"
+```
+
+### 2. 选择 AI API
+
+Cohort 不是 DeepSeek 专用。它原生支持两类 API 协议：
+
+| 协议 | 适合接入 | provider |
+| --- | --- | --- |
+| OpenAI-compatible Chat Completions | DeepSeek、OpenAI、Ollama、LM Studio、OpenRouter、兼容 `/v1/chat/completions` 的网关 | `openai` |
+| Anthropic Messages API | Claude / Anthropic 原生 API | `anthropic` |
+
+最快方式是用 `cohort init` 生成用户级配置，然后设置对应环境变量。下面三组按需选择一组即可；如果要覆盖已有配置，再追加 `--force`。
+
+DeepSeek 或其他 OpenAI-compatible 云服务：
+
+```bash
+cohort init --provider deepseek
 export DEEPSEEK_API_KEY="sk-xxx"
-go run .
 ```
 
-### 3. 执行一次性任务
+本地 OpenAI-compatible 服务，例如 Ollama / LM Studio：
 
 ```bash
-go run . ask "读取 README.md，并总结当前 runtime 的核心能力"
+cohort init --provider local
+export LOCAL_OPENAI_API_KEY="local"
 ```
 
-### 4. 查看当前运行状态
+Anthropic Claude：
 
 ```bash
+cohort init --provider anthropic
+export ANTHROPIC_API_KEY="sk-ant-xxx"
+```
+
+也可以直接编辑 `~/.cohort/config.yaml`，把 `llm.active_profile` 指向你要使用的 profile。完整写法见 [AI API 接入](#ai-api-接入)。
+
+### 3. 检查运行环境
+
+```bash
+cohort config
+cohort doctor
+cohort doctor computer
+```
+
+`doctor` 会检查配置、API key、工作区和日志目录。`doctor computer` 会检查 macOS Accessibility、Screen Recording、desktop helper、OCR helper、Chrome Bridge 和 artifact 目录；默认只读诊断，不会点击、输入或修改系统设置。
+
+浏览器工具需要加载本地 Chrome Bridge 扩展：
+
+```bash
+cohort extension open
+```
+
+然后在 `chrome://extensions` 开启 Developer mode，点击 `Load unpacked`，选择命令输出的扩展目录。
+
+### 4. 开始使用
+
+```bash
+cohort
+```
+
+进入交互模式后直接输入任务，例如：
+
+```text
+读取当前项目 README，总结架构并指出安装步骤是否清晰
+打开豆包网页，发送“你好”，观察它的回复
+列出当前桌面窗口，告诉我哪些窗口可以被安全自动化
+```
+
+也可以执行一次性任务：
+
+```bash
+cohort ask "读取 README.md，并用 8 条 bullet 总结 Cohort 的核心能力"
+```
+
+常用命令：
+
+```bash
+cohort tools
+cohort config
+cohort session list
+cohort mcp list
+cohort mcp status
+cohort skill list
+```
+
+### 5. 源码开发
+
+```bash
+git clone https://github.com/congchuanling-dot/Cohort.git
+cd Cohort
 go run . config
-go run . doctor
-go run . doctor computer
 go run . tools
-go run . mcp list
-go run . mcp status
-go run . skill install ./path/to/skill
-go run . skill install --yes ./path/to/skill
-go run . skill install --pin v1.2.3 https://example.com/org/skill-repo.git
-go run . skill doctor project/<skill_name>
-go run . skill update --check project/<skill_name>
-go run . skill update project/<skill_name>
-go run . skill uninstall project/<skill_name>
-go run . skill list
-go run . session list
-```
-
-`doctor computer` 会检查 macOS Accessibility、Screen Recording、desktop helper、OCR helper、Chrome bridge 和 artifact 目录；默认只读诊断，不会点击、输入或修改系统设置。
-
-### 5. 构建二进制
-
-```bash
+go run . ask "读取 configs/config.yaml 并解释关键字段"
 go build -o cohort ./cmd/cohort
 ./cohort
 ```
 
-默认项目配置见 [configs/config.yaml](/Users/bytedance/Desktop/myOwnProject/Cohort/configs/config.yaml)。全局运行时会按 `--config`、`COHORT_CONFIG`、项目配置、`~/.cohort/config.yaml` 的顺序查找配置。更完整的命令和 REPL 说明见 [docs/usage.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/usage.md)。
+默认项目配置见 [configs/config.yaml](configs/config.yaml)。全局运行时会按 `--config`、`COHORT_CONFIG`、项目配置、`~/.cohort/config.yaml` 的顺序查找配置。更完整的命令和 REPL 说明见 [docs/usage.md](docs/usage.md)。
+
+## AI API 接入
+
+Cohort 的模型层按“协议”接入，而不是按单一厂商硬编码。只要服务兼容 OpenAI Chat Completions，通常都可以通过 `provider: openai` 接入；Anthropic Claude 使用 `provider: anthropic`。
+
+### OpenAI-compatible 云服务
+
+适合 DeepSeek、OpenAI、OpenRouter、兼容网关等服务。核心字段是 `api_base`、`api_key`、`model`。
+
+```yaml
+llm:
+  active_profile: deepseek
+  profiles:
+    deepseek:
+      provider: openai
+      name: deepseek
+      api_key: ${DEEPSEEK_API_KEY}
+      api_base: https://api.deepseek.com
+      model: deepseek-v4-pro
+      stream: true
+
+    openai:
+      provider: openai
+      name: openai
+      api_key: ${OPENAI_API_KEY}
+      api_base: https://api.openai.com
+      model: gpt-4.1
+      stream: true
+```
+
+使用时切换 `active_profile`，并设置对应环境变量：
+
+```bash
+export DEEPSEEK_API_KEY="sk-xxx"
+export OPENAI_API_KEY="sk-xxx"
+cohort config
+cohort doctor
+```
+
+### 本地模型：Ollama / LM Studio
+
+只要本地服务暴露 OpenAI-compatible `/v1/chat/completions`，就可以这样配：
+
+```yaml
+llm:
+  active_profile: local
+  profiles:
+    local:
+      provider: openai
+      name: local
+      api_key: ${LOCAL_OPENAI_API_KEY}
+      api_base: http://127.0.0.1:11434/v1
+      model: qwen3-coder
+      stream: true
+```
+
+本地服务如果不校验 key，可以给一个占位值：
+
+```bash
+export LOCAL_OPENAI_API_KEY="local"
+cohort doctor
+```
+
+### Anthropic Claude
+
+Claude 原生 Messages API 使用 `provider: anthropic`：
+
+```yaml
+llm:
+  active_profile: claude
+  profiles:
+    claude:
+      provider: anthropic
+      name: claude
+      api_key: ${ANTHROPIC_API_KEY}
+      api_base: https://api.anthropic.com
+      model: claude-3-5-sonnet-latest
+      stream: true
+```
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-xxx"
+cohort config
+cohort doctor
+```
+
+### 多模型与 fallback
+
+可以把多个 profile 组合成主链路和备用链路：
+
+```yaml
+llm:
+  active_profile: deepseek
+  fallback_profiles: [local, claude]
+  profiles:
+    deepseek:
+      provider: openai
+      api_key: ${DEEPSEEK_API_KEY}
+      api_base: https://api.deepseek.com
+      model: deepseek-v4-pro
+      stream: true
+    local:
+      provider: openai
+      api_key: ${LOCAL_OPENAI_API_KEY}
+      api_base: http://127.0.0.1:11434/v1
+      model: qwen3-coder
+      stream: true
+    claude:
+      provider: anthropic
+      api_key: ${ANTHROPIC_API_KEY}
+      api_base: https://api.anthropic.com
+      model: claude-3-5-sonnet-latest
+      stream: true
+```
+
+当前原生支持范围是 OpenAI-compatible Chat Completions 和 Anthropic Messages API。Gemini 原生 API、Bedrock、Vertex、Azure OpenAI 特殊路径/鉴权还没有内置 adapter；如果这些平台提供 OpenAI-compatible 网关，可以先按 `provider: openai` 接入。
 
 ## 真实示例
 
@@ -567,7 +724,7 @@ computer_execute_plan
 
 ## 配置
 
-最小配置如下，已经和仓库默认值保持一致：
+推荐配置使用 `active_profile + profiles`。下面是一份可直接扩展的多模型配置：
 
 ```yaml
 language: zh
@@ -576,15 +733,41 @@ log_dir: ./temp/model_responses
 max_turns: 300
 
 llm:
-  provider: openai
-  name: deepseek
-  api_key: ${DEEPSEEK_API_KEY}
-  api_base: https://api.deepseek.com
-  model: deepseek-v4-pro
-  stream: true
-  connect_timeout_seconds: 10
-  read_timeout_seconds: 120
-  max_retries: 2
+  active_profile: deepseek
+  fallback_profiles: [local]
+  profiles:
+    deepseek:
+      provider: openai
+      name: deepseek
+      api_key: ${DEEPSEEK_API_KEY}
+      api_base: https://api.deepseek.com
+      model: deepseek-v4-pro
+      stream: true
+      connect_timeout_seconds: 10
+      read_timeout_seconds: 120
+      max_retries: 2
+
+    local:
+      provider: openai
+      name: local
+      api_key: ${LOCAL_OPENAI_API_KEY}
+      api_base: http://127.0.0.1:11434/v1
+      model: qwen3-coder
+      stream: true
+      connect_timeout_seconds: 10
+      read_timeout_seconds: 120
+      max_retries: 1
+
+    claude:
+      provider: anthropic
+      name: claude
+      api_key: ${ANTHROPIC_API_KEY}
+      api_base: https://api.anthropic.com
+      model: claude-3-5-sonnet-latest
+      stream: true
+      connect_timeout_seconds: 10
+      read_timeout_seconds: 120
+      max_retries: 2
 
 context:
   max_history_messages: 40
@@ -598,16 +781,14 @@ context:
   enable_micro_compact: true
 ```
 
-当前默认模型配置为 `deepseek-v4-pro`；模型接入层支持范围见下。
+配置文件查找顺序：
 
-当前模型接入层原生支持两类协议：
+1. `--config <file>` 或 `-c <file>`
+2. `COHORT_CONFIG`
+3. 当前目录的 `configs/config.yaml`
+4. `~/.cohort/config.yaml`
 
-- `provider: openai`：走 OpenAI-compatible Chat Completions
-- `provider: anthropic`：走 Anthropic Messages API
-
-同时支持显式 `llm.profiles` 和 `fallback_profiles`，可以把多个模型配置成主链路和备用链路。
-
-这不等于“所有类型 API 都能直接用”。像 Gemini 原生 API、Bedrock、Vertex、以及 Azure OpenAI 的特殊路径或鉴权形式，目前都还没有原生适配层。
+API key 推荐使用环境变量注入，不要写死在配置文件里。运行 `cohort config` 可以查看当前激活 profile、模型、上下文窗口和 key 是否已设置；运行 `cohort doctor` 可以做启动前诊断。
 
 ## 项目结构
 
@@ -635,15 +816,15 @@ temp/                   session、日志和运行时输出
 
 ## 文档索引
 
-- [CHANGELOG.md](/Users/bytedance/Desktop/myOwnProject/Cohort/CHANGELOG.md): 版本变更与已知限制
-- [SECURITY.md](/Users/bytedance/Desktop/myOwnProject/Cohort/SECURITY.md): 安全边界、漏洞报告和加固建议
-- [docs/usage.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/usage.md): 使用方法、命令、session 恢复
-- [docs/context_management_design.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/context_management_design.md): 上下文裁剪与 compact 设计
-- [docs/browser_operation_design.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/browser_operation_design.md): 浏览器操作设计
-- [docs/desktop_computer_use_technical_design.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/desktop_computer_use_technical_design.md): 桌面 Computer Use 技术设计
-- [docs/cohort_mcp_integration_design.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/cohort_mcp_integration_design.md): MCP 集成设计
-- [docs/cohort_self_evolution_research.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/cohort_self_evolution_research.md): 自演化与记忆方向研究
-- [docs/agent_observability_technical_design.md](/Users/bytedance/Desktop/myOwnProject/Cohort/docs/agent_observability_technical_design.md): Agent 可观测性、tracing 和调优方案
+- [CHANGELOG.md](CHANGELOG.md): 版本变更与已知限制
+- [SECURITY.md](SECURITY.md): 安全边界、漏洞报告和加固建议
+- [docs/usage.md](docs/usage.md): 使用方法、命令、session 恢复
+- [docs/context_management_design.md](docs/context_management_design.md): 上下文裁剪与 compact 设计
+- [docs/browser_operation_design.md](docs/browser_operation_design.md): 浏览器操作设计
+- [docs/desktop_computer_use_technical_design.md](docs/desktop_computer_use_technical_design.md): 桌面 Computer Use 技术设计
+- [docs/cohort_mcp_integration_design.md](docs/cohort_mcp_integration_design.md): MCP 集成设计
+- [docs/cohort_self_evolution_research.md](docs/cohort_self_evolution_research.md): 自演化与记忆方向研究
+- [docs/agent_observability_technical_design.md](docs/agent_observability_technical_design.md): Agent 可观测性、tracing 和调优方案
 
 ## 开发与测试
 
