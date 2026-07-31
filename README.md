@@ -993,6 +993,7 @@ temp/                   session、日志和运行时输出
 - [docs/desktop_computer_use_technical_design.md](docs/desktop_computer_use_technical_design.md): 桌面 Computer Use 技术设计
 - [docs/cohort_mcp_integration_design.md](docs/cohort_mcp_integration_design.md): MCP 集成设计
 - [docs/cohort_self_evolution_research.md](docs/cohort_self_evolution_research.md): 自演化与记忆方向研究
+- [docs/capability_evolution_technical_design.md](docs/capability_evolution_technical_design.md): 能力边界拓展、依赖安装、Skill/Tool 生成与验证闭环方案
 - [docs/agent_observability_technical_design.md](docs/agent_observability_technical_design.md): Agent 可观测性、tracing 和调优方案
 
 ## 开发与测试

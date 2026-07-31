@@ -415,6 +415,44 @@ go run . mcp remove --scope local github
 
 MCP 工具会自动变成 `mcp_<server>_<tool>` 并进入 Agent Tool Registry。没有显式项目规则的外部工具默认按 `R2 + ask` 处理；用户可选择一次、同参数 session 或同参数 project 授权。名称明确包含删除、审批、授权和支付语义的工具默认 `R3 + deny`。显式配置为 `R1 + allow` 的只读工具才会直接执行。
 
+### 4.6.1 能力边界拓展
+
+`capability` 命令用于记录“当前 Cohort 做不到什么”，并生成后续补能力方案草案。它不需要 API Key，也不会自动安装依赖或启用新工具。
+
+查看已注册能力：
+
+```bash
+cohort capability list
+```
+
+查看已记录的能力缺口：
+
+```bash
+cohort capability gaps
+```
+
+手动记录一个能力缺口并生成 proposal：
+
+```bash
+cohort capability propose "处理一种新的本地文件格式"
+```
+
+查看某个 capability、gap 或 proposal：
+
+```bash
+cohort capability show <id>
+```
+
+首版会把数据写到当前项目的：
+
+```text
+.cohort/capabilities/registry.json
+```
+
+交互运行时，如果模型没有调用工具就明确表示“缺少工具 / 无法处理 / 不支持该能力”，Runner 会自动记录一个 `runner:no_tool` 来源的 capability gap，并在 `run.log.jsonl` 里写入 `CapabilityGapRecorded` 观测事件。
+
+注意：当前 Cohort 可以通过 `code_run` 执行 shell 命令，因此技术上可以运行 `python3 -m pip install --user xxx` 这类安装命令。但这还不是完整自进化能力。依赖安装、Skill/Tool 生成、smoke test 和 promote 仍需要后续按 [能力边界拓展技术方案](capability_evolution_technical_design.md) 继续实现。
+
 ### 4.7 查看 session 列表
 
 推荐在交互模式里输入：

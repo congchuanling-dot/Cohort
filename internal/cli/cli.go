@@ -50,6 +50,9 @@ func Run(args []string) error {
 	if args[0] == "extension" {
 		return runExtensionCommand(args[1:], os.Stdout)
 	}
+	if args[0] == "capability" {
+		return runCapabilityCommand(args[1:], os.Stdout)
+	}
 	if args[0] == "init" {
 		return runInitCommand(opts, args[1:], os.Stdout)
 	}
@@ -935,6 +938,12 @@ Usage:
   cohort --version        show version, commit, and build time
   cohort extension path   print local Chrome extension directory
   cohort extension open   open Chrome extensions page and print loading steps
+  cohort capability list  list registered capabilities
+  cohort capability gaps  list recorded capability gaps
+  cohort capability show <id>
+                          show a capability, gap, or proposal
+  cohort capability propose "task"
+                          record a gap and generate a proposal draft
   cohort config           show effective config and config path
   cohort init [--provider deepseek|local|anthropic] [--force]
                           create a user config at ~/.cohort/config.yaml

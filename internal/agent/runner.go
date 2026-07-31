@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"cohort/internal/capability"
 	"cohort/internal/contextmgr"
 	"cohort/internal/evolution"
 	"cohort/internal/llm"
@@ -275,6 +276,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			if err := r.appendMessage(llm.Message{Role: llm.RoleAssistant, Content: resp.Content}, ""); err != nil {
 				return finishRun(RunResult{}, err)
 			}
+			r.maybeRecordCapabilityGap(ctx, obs, runID, turn, input, resp.Content)
 			if !awaitingUserInput(resp.Content) && r.maybeForceLongTermMemoryReview(&memorySignals, turn) {
 				messages, stats = r.buildRequestMessagesWithStats()
 				r.emitObservation(ctx, obs, runID, observability.EventContextBuilt, turn, observability.SeverityInfo, contextStatsData(stats))
@@ -554,6 +556,55 @@ func awaitingUserInput(content string) bool {
 		}
 	}
 	return strings.Contains(lower, "?") || strings.Contains(lower, "？")
+}
+
+func (r *Runner) maybeRecordCapabilityGap(ctx context.Context, obs observability.Bus, runID string, turn int, task string, content string) {
+	if !looksLikeCapabilityGap(content) {
+		return
+	}
+	projectRoot := strings.TrimSpace(r.SessionCWD)
+	if projectRoot == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			projectRoot = cwd
+		}
+	}
+	store := capability.NewStore(projectRoot)
+	gap := capability.NewGapFromTask(task)
+	gap.Source = "runner:no_tool"
+	gap.Evidence = []string{"assistant ended without tool_calls and described a missing capability"}
+	recorded, err := store.AddGap(gap)
+	data := map[string]any{
+		"task":               promptSummary(task),
+		"missing_capability": gap.MissingCapability,
+		"registry_path":      store.RegistryPath(),
+	}
+	severity := observability.SeverityInfo
+	if err != nil {
+		data["status"] = ToolStatusError
+		data["error"] = err.Error()
+		severity = observability.SeverityWarn
+	} else {
+		data["status"] = ToolStatusSuccess
+		data["gap_id"] = recorded.ID
+	}
+	r.emitObservation(ctx, obs, runID, observability.EventCapabilityGapRecorded, turn, severity, data)
+}
+
+func looksLikeCapabilityGap(content string) bool {
+	lower := strings.ToLower(strings.TrimSpace(content))
+	if lower == "" {
+		return false
+	}
+	keywords := []string{
+		"没有可用工具", "没有工具", "缺少工具", "缺少能力", "能力不足", "暂不支持", "不支持该", "无法处理", "无法解析", "无法读取",
+		"no available tool", "no tool", "missing tool", "missing capability", "unsupported", "not supported", "cannot process", "can't process", "cannot parse", "can't parse",
+	}
+	for _, keyword := range keywords {
+		if strings.Contains(lower, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 // longTermMemoryReasons 将内部布尔状态转换成人和模型都可理解的触发原因。

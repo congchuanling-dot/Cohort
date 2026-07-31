@@ -11,15 +11,16 @@ const SchemaVersion = 1
 type EventType string
 
 const (
-	EventRunStarted          EventType = "RunStarted"
-	EventUserPromptSubmitted EventType = "UserPromptSubmitted"
-	EventTurnStarted         EventType = "TurnStarted"
-	EventContextBuilt        EventType = "ContextBuilt"
-	EventLLMRequestStarted   EventType = "LLMRequestStarted"
-	EventLLMResponseFinished EventType = "LLMResponseFinished"
-	EventToolStarted         EventType = "ToolStarted"
-	EventToolFinished        EventType = "ToolFinished"
-	EventRunFinished         EventType = "RunFinished"
+	EventRunStarted            EventType = "RunStarted"
+	EventUserPromptSubmitted   EventType = "UserPromptSubmitted"
+	EventTurnStarted           EventType = "TurnStarted"
+	EventContextBuilt          EventType = "ContextBuilt"
+	EventLLMRequestStarted     EventType = "LLMRequestStarted"
+	EventLLMResponseFinished   EventType = "LLMResponseFinished"
+	EventToolStarted           EventType = "ToolStarted"
+	EventToolFinished          EventType = "ToolFinished"
+	EventCapabilityGapRecorded EventType = "CapabilityGapRecorded"
+	EventRunFinished           EventType = "RunFinished"
 )
 
 type Severity string

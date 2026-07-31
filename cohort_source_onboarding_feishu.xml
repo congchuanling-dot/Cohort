@@ -1,0 +1,556 @@
+<title>Cohort 源码全景讲解：从零理解 Agent Runtime</title>
+
+<h1>写在前面：这份文档怎么读</h1>
+<p>这份文档面向完全没有接触过 Cohort、Agent Runtime、MCP、浏览器自动化、桌面自动化和上下文治理的新同学。它不是一份 README 摘要，而是一份源码导读手册：目标是让读者看完后知道 Cohort 是什么、为什么这样设计、每个目录负责什么、一次用户请求怎样穿过 CLI、Runner、LLM、工具、上下文、记忆、日志与外设自动化系统，并且知道后续做二次开发应该从哪里下手。</p>
+<p>仓库目录名是 <code>Cohort</code>，但旧文档和部分历史描述里偶尔会写成 <code>Cohert</code>。这不是两个系统，本项目当前统一理解为 Cohort：一个本地优先的 Agent Runtime。后文会尽量使用 Cohort，只在引用历史文件名或旧文档时保留原样。</p>
+<p>本文基于当前本地源码阅读生成，重点覆盖 <code>main.go</code>、<code>internal/cli</code>、<code>internal/app</code>、<code>internal/agent</code>、<code>internal/llm</code>、<code>internal/tools</code>、<code>internal/contextmgr</code>、<code>internal/session</code>、<code>internal/browser</code>、<code>internal/desktop</code>、<code>internal/computeruse</code>、<code>internal/mcp</code>、<code>internal/skill</code>、<code>internal/evolution</code>、<code>internal/observability</code>、<code>scripts</code>、<code>assert/cohort_browser_bridge</code>、<code>packages/npm</code> 和 <code>docs</code>。轻量校验已执行 <code>go test ./internal/...</code>，当前内部包测试通过。</p>
+
+<callout emoji="📌" background-color="light-blue" border-color="blue">
+  <p>一句话理解 Cohort：模型负责思考和发起工具调用，Cohort Runtime 负责把这些工具调用变成有边界、有审计、有恢复能力的本地行动。</p>
+</callout>
+
+<h1>1. 先建立整体心智模型</h1>
+<p>如果把普通聊天机器人看成“用户输入直接发给模型，模型返回一段文本”，Cohort 要解决的是更复杂的真实工作流：模型不只要回答，还要读文件、改文件、跑命令、打开网页、扫描页面、操作桌面、调用外部 MCP 工具、保存上下文、压缩历史、恢复 session、沉淀长期记忆，并且每个动作都要能审计和尽量可控。</p>
+<p>因此，Cohort 的核心不是某个模型，也不是某个单独工具，而是一个运行时层。这个运行时层把“模型产生的意图”转换成“可执行、可限制、可记录、可恢复的动作”。</p>
+
+<whiteboard type="mermaid">
+flowchart LR
+  User[用户目标] --> CLI[CLI 或 REPL]
+  CLI --> Runner[Agent Runner]
+  Runner --> Ctx[Context Manager]
+  Ctx --> LLM[OpenAI-compatible 或 Anthropic]
+  LLM --> Runner
+  Runner --> Tools[Tool Registry]
+  Tools --> File[文件和命令]
+  Tools --> Browser[Chrome Bridge]
+  Tools --> Desktop[macOS Desktop Helper]
+  Tools --> MCP[MCP Servers]
+  Tools --> Memory[长期记忆工具]
+  Tools --> Skill[Skill 读取]
+  Runner --> Session[history.jsonl 与 meta.json]
+  Runner --> Obs[run.log.jsonl 与 Langfuse]
+</whiteboard>
+
+<p>这张图要表达三件事。第一，模型不是直接碰文件系统、浏览器或桌面；它只返回 tool call。第二，所有 tool call 都经过 Runner 和 Registry 这条统一边界。第三，运行过程不断落盘：session 保存完整历史，observability 保存生命周期事件，context manager 只处理本轮请求副本，不会破坏完整历史。</p>
+
+<h1>2. 项目目录一览</h1>
+<p>先看目录能帮助新同学定位每一块代码的责任边界。</p>
+<table>
+  <thead>
+    <tr><th background-color="light-gray">路径</th><th background-color="light-gray">作用</th><th background-color="light-gray">新人应该怎么看</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>main.go</code>、<code>cmd/cohort/main.go</code></td><td>程序入口，最终调用 <code>cli.Run</code></td><td>只要知道入口极薄，真正逻辑都在 internal 包</td></tr>
+    <tr><td><code>internal/cli</code></td><td>命令行参数解析、子命令分发、doctor、mcp、skill、session、reflect 等命令</td><td>想新增命令或理解用户怎么启动 Cohort，从这里看</td></tr>
+    <tr><td><code>internal/repl</code></td><td>交互式命令行，会处理 <code>/help</code>、<code>/session</code>、<code>/compact</code>、<code>/skill</code> 等 slash 命令</td><td>想改交互体验、补 slash 命令，从这里看</td></tr>
+    <tr><td><code>internal/app</code></td><td>配置加载、默认配置生成、Runner 装配、工具注册、MCP 和 Skill Store 加载</td><td>这是依赖注入中心，理解系统组合方式必须看</td></tr>
+    <tr><td><code>internal/agent</code></td><td>Agent 主循环、工具执行、上下文构造、session 追加、compact、观测事件</td><td>这是 Runtime 心脏，最重要</td></tr>
+    <tr><td><code>internal/llm</code></td><td>统一模型协议，适配 OpenAI-compatible 与 Anthropic，支持流式事件和工具调用</td><td>想接新模型供应商或调试 tool call 解析，从这里看</td></tr>
+    <tr><td><code>internal/tools</code></td><td>全部本地工具实现，包括文件、命令、浏览器、桌面、Computer Use、MCP、Skill、记忆</td><td>想新增模型可调用能力，从这里看</td></tr>
+    <tr><td><code>internal/contextmgr</code></td><td>请求前上下文治理、工具结果压缩、长期记忆注入、session memory 和 compact summary 注入</td><td>想解决长上下文、上下文爆炸、记忆检索，从这里看</td></tr>
+    <tr><td><code>internal/session</code></td><td>本地 session 存储，维护 <code>meta.json</code> 和 <code>history.jsonl</code></td><td>想理解恢复会话、历史落盘，从这里看</td></tr>
+    <tr><td><code>internal/browser</code></td><td>Go 侧 Chrome Bridge WebSocket 服务和浏览器协议封装</td><td>想理解浏览器工具如何连到扩展，从这里看</td></tr>
+    <tr><td><code>assert/cohort_browser_bridge</code></td><td>Chrome MV3 扩展，负责连接 Go WebSocket 并在页面中执行命令</td><td>想改浏览器页面读取、点击、输入、wait，从这里看</td></tr>
+    <tr><td><code>internal/desktop</code></td><td>Go 侧 macOS helper Driver，调用 Python 脚本完成 AX、截图、输入等平台动作</td><td>想理解桌面自动化边界，从这里看</td></tr>
+    <tr><td><code>scripts/desktop_darwin.py</code></td><td>macOS 具体平台实现，负责 Accessibility、Quartz、Cocoa 等操作</td><td>Go 侧负责安全边界，Python 侧负责系统 API</td></tr>
+    <tr><td><code>internal/computeruse</code></td><td>Computer Use 高层状态、目标缓存、目标结构</td><td>它把低层桌面 AX、OCR、截图候选变成模型可引用的 target</td></tr>
+    <tr><td><code>internal/mcp</code></td><td>MCP 配置、连接、工具发现、权限规则</td><td>想接外部 MCP server，从这里看</td></tr>
+    <tr><td><code>internal/skill</code></td><td>Skill 扫描、安装、更新、读取和诊断</td><td>Skill 是“可按需读取的工作流文档”，不是工具本身</td></tr>
+    <tr><td><code>internal/evolution</code></td><td>长期记忆与 SOP 候选沉淀，包含证据校验、allowlist 和 audit</td><td>想理解“经验怎么安全写入”，从这里看</td></tr>
+    <tr><td><code>internal/observability</code></td><td>生命周期事件、JSONL sink、Langfuse sink、脱敏</td><td>想调试一次任务为什么走成这样，从这里看</td></tr>
+    <tr><td><code>internal/vision</code></td><td>OCR runner，调用 Python OCR helper 并解析结果</td><td>浏览器和桌面 OCR 都会复用</td></tr>
+    <tr><td><code>packages/npm</code></td><td>npm 包装与安装脚本，把 release 二进制、扩展和 helper 安装到用户机器</td><td>想发布或排查 npm 安装，从这里看</td></tr>
+    <tr><td><code>docs</code>、<code>sops</code></td><td>设计文档、使用文档、状态导航和操作规程</td><td>设计不等于已实现，以 <code>docs/README.md</code> 状态表和代码为准</td></tr>
+  </tbody>
+</table>
+
+<h1>3. 从启动开始：CLI 如何把用户带到 Runner</h1>
+<p>Cohort 的入口很薄。<code>main.go</code> 和 <code>cmd/cohort/main.go</code> 基本只做一件事：调用 <code>internal/cli.Run(os.Args[1:])</code>。真正的命令分发在 <code>internal/cli/cli.go</code>。</p>
+<p><code>cli.Run</code> 先解析全局参数，例如 <code>--config</code>。如果没有任何子命令，就默认变成 <code>run</code>，进入交互式 REPL。它会优先处理不需要模型的轻量命令，例如 <code>help</code>、<code>version</code>、<code>extension</code>、<code>init</code>、<code>doctor</code>、<code>config</code>、<code>tools</code>、<code>mcp</code>、<code>skill</code>、<code>session</code>、<code>reflect</code>。只有真正要执行用户任务时，才会调用 <code>app.NewRunner(cfg)</code> 创建 Runner。</p>
+
+<whiteboard type="mermaid">
+flowchart TD
+  A[main.go] --> B[cli.Run]
+  B --> C{子命令}
+  C -->|help/version/init/doctor/config/tools| D[轻量命令 不初始化 LLM]
+  C -->|mcp/skill/session/reflect| E[运行本地管理命令]
+  C -->|run| F[app.NewRunner]
+  C -->|ask task| F
+  F --> G[agent.Runner]
+  G -->|run| H[REPL Start]
+  G -->|ask| I[Runner.Run 单次任务]
+</whiteboard>
+
+<p>这个设计有一个非常实用的好处：查看配置、列工具、初始化配置、检查环境，不需要 API Key，也不需要真的创建 LLM Client。只有 <code>run</code> 和 <code>ask</code> 需要完整 Runner。</p>
+
+<h1>4. 配置系统：从默认值、配置文件到 profile</h1>
+<p>配置主要在 <code>internal/app/config.go</code>。它没有引入完整 YAML 解析器，而是实现了一个只覆盖项目所需字段的轻量解析器。默认配置来自 <code>defaultConfig()</code>，默认语言是中文，默认 workspace 是 <code>./workspace</code>，默认日志目录是 <code>./temp/model_responses</code>，默认模型 profile 是 DeepSeek OpenAI-compatible。</p>
+<p>配置查找顺序由 <code>app.ResolveConfigPath</code> 相关逻辑控制，使用文档中描述的顺序是：显式 <code>--config</code>，环境变量 <code>COHORT_CONFIG</code>，当前目录 <code>configs/config.yaml</code>，最后是用户级配置。<code>cohort init</code> 会通过 <code>app.WriteDefaultConfig</code> 写入用户级配置模板。</p>
+<p>新版配置支持 <code>llm.active_profile</code>、<code>llm.profiles</code> 和 <code>fallback_profiles</code>。这意味着一个配置文件里可以同时写 DeepSeek、本地 OpenAI-compatible、Anthropic Claude 等 profile。<code>normalizeLLMConfig</code> 会校验 active profile 存在、fallback 不包含 active、profile 字段补默认值，并把 active profile 回填到旧字段，兼容旧调用点。</p>
+
+<table>
+  <thead>
+    <tr><th background-color="light-gray">配置字段</th><th background-color="light-gray">意义</th><th background-color="light-gray">影响范围</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>language</code></td><td>系统提示词和默认回复语言</td><td><code>app.BuildSystemPrompt</code></td></tr>
+    <tr><td><code>workspace</code></td><td>文件、命令、截图、记忆等工具解析相对路径的根</td><td><code>tools.workspaceTool</code>、<code>evolution.Manager</code></td></tr>
+    <tr><td><code>log_dir</code></td><td>模型原始响应和无 session 时的观测日志目录</td><td><code>agent.logResponse</code>、observability fallback</td></tr>
+    <tr><td><code>max_turns</code></td><td>一次任务最多模型循环轮数</td><td><code>Runner.Run</code></td></tr>
+    <tr><td><code>llm.profiles</code></td><td>多个模型供应商或网关配置</td><td><code>app.buildLLMClient</code></td></tr>
+    <tr><td><code>fallback_profiles</code></td><td>主 profile 失败且未产生模型输出时的备用链路</td><td><code>llm.FallbackClient</code></td></tr>
+    <tr><td><code>context.*</code></td><td>上下文窗口、压缩、工具结果裁剪和请求字符预算</td><td><code>contextmgr.Manager</code></td></tr>
+    <tr><td><code>observability.langfuse</code></td><td>可选 Langfuse trace 上报</td><td><code>app.buildObservationSinks</code></td></tr>
+  </tbody>
+</table>
+
+<h1>5. app.NewRunner：依赖装配中心</h1>
+<p><code>internal/app/app.go</code> 的 <code>NewRunner</code> 是整个系统最像依赖注入容器的地方。它负责创建工作区目录、日志目录、LLM Client、MCP Manager、MCP Permission Store、Skill Store、Browser Client、Tool Registry、Session Store、Context Manager、Observation Sinks，最后把这些依赖塞进 <code>agent.Runner</code>。</p>
+<p>新同学要记住：Runner 本身不直接知道浏览器怎么连、桌面怎么点、MCP 怎么握手、Skill 怎么扫描。Runner 只拿到一组接口和组件。具体工具都在 app 装配层注册好。</p>
+
+<whiteboard type="mermaid">
+flowchart TD
+  Cfg[app.Config] --> NR[app.NewRunner]
+  NR --> LLM[buildLLMClient]
+  NR --> MCP[loadMCPManager]
+  NR --> Perm[loadMCPPermissions]
+  NR --> Skill[LoadSkillStore]
+  NR --> Browser[newBrowserClient]
+  NR --> Registry[newRegistry]
+  NR --> Session[session.NewStore]
+  NR --> Context[contextmgr.Manager]
+  NR --> Obs[buildObservationSinks]
+  LLM --> Runner[agent.Runner]
+  Registry --> Runner
+  Session --> Runner
+  Context --> Runner
+  Skill --> Runner
+  Obs --> Runner
+</whiteboard>
+
+<p><code>newRegistry</code> 是工具列表的集中注册点。当前注册了文件工具、命令工具、浏览器工具、桌面低层工具、Computer Use 高层工具、工作 checkpoint、长期记忆工具、ask_user、skill_read，以及动态发现到的 MCP 工具。想新增一个模型可调用工具，通常需要实现 <code>tools.Tool</code> 接口，然后在 <code>newRegistry</code> 中注册。</p>
+
+<h1>6. Runner 主循环：一次任务如何运行</h1>
+<p><code>internal/agent/runner.go</code> 的 <code>Runner.Run</code> 是 Cohort 的心脏。它把一次用户输入变成多轮模型请求和工具执行，直到模型不再返回工具调用，或工具要求退出，或达到最大轮数。</p>
+<p>流程可以分成十步。第一，确保日志目录存在。第二，把用户输入追加进内存历史和本地 session。第三，创建 observability bus 并发出 RunStarted、UserPromptSubmitted。第四，记录长期记忆触发信号和 SOP 路由提示。第五，通过 Context Manager 构造本轮真正发给模型的 messages。第六，带着 system prompt、messages 和 tool schemas 调 LLM。第七，消费流式输出，实时写给 sink，并得到完整 response。第八，如果 response 没有 tool calls，就把 assistant 文本追加历史并结束。第九，如果有 tool calls，就逐个解析参数、执行工具、记录日志、把工具结果作为 role=tool 消息追加历史。第十，重新构造上下文，进入下一轮。</p>
+
+<whiteboard type="mermaid">
+sequenceDiagram
+  participant U as User
+  participant R as Runner
+  participant C as ContextManager
+  participant M as LLM Client
+  participant T as Tool Registry
+  participant S as Session Store
+  participant O as Observability
+  U->>R: input
+  R->>S: append user message
+  R->>O: RunStarted and UserPromptSubmitted
+  R->>C: Build(request messages)
+  C-->>R: visible messages plus stats
+  loop turn <= MaxTurns
+    R->>M: Chat(system, messages, tool schemas)
+    M-->>R: stream text and final Response
+    alt no tool calls
+      R->>S: append assistant message
+      R->>O: RunFinished
+      R-->>U: final answer
+    else has tool calls
+      R->>S: append assistant tool_calls
+      loop each tool call
+        R->>T: Run(tool name, args)
+        T-->>R: Outcome
+        R->>S: append tool result
+        R->>O: ToolStarted and ToolFinished
+      end
+      R->>C: Build again after tool results
+    end
+  end
+</whiteboard>
+
+<p>Runner 的几个设计细节很重要。工具失败通常不会让 Go 流程直接报错退出，而是返回结构化工具错误，再作为工具结果交回模型，让模型有机会修正参数重试。模型如果生成非法 JSON 参数，也会被转换成 <code>bad_json</code> 工具错误。达到最大轮数时返回 <code>max_turns_exceeded</code>，避免无限循环。</p>
+
+<h1>7. ToolRunner 和 Outcome：工具为什么可以统一管理</h1>
+<p><code>agent.ToolRunner</code> 是 Runner 对工具系统的最小依赖，只需要两个方法：<code>Schemas()</code> 返回模型可见工具定义，<code>Run(ctx, call)</code> 执行一次工具调用。具体工具接口在 <code>internal/tools/registry.go</code>，每个工具都实现 <code>Name()</code>、<code>Schema()</code>、<code>Run()</code>。</p>
+<p>工具执行结果统一成 <code>agent.Outcome</code>。<code>Data</code> 会回灌给模型，<code>NextPrompt</code> 是下一轮临时提示，<code>ShouldExit</code> 可以要求 Runner 结束任务，<code>Audit</code> 是只写日志、不回灌给模型的安全审计元数据。</p>
+<p>这种统一结构让 Cohort 可以把本地文件工具、浏览器工具、桌面工具、MCP 工具、长期记忆工具放在同一个循环里。模型看到的是 JSON Schema，Runner 看到的是统一 Outcome，具体实现藏在工具内部。</p>
+
+<h1>8. LLM 层：统一 OpenAI-compatible 和 Anthropic</h1>
+<p><code>internal/llm/types.go</code> 定义了 Cohort 内部统一模型协议：<code>Message</code>、<code>ToolCall</code>、<code>ToolSchema</code>、<code>Response</code>、<code>Usage</code>、<code>ChatRequest</code>、<code>Event</code>、<code>Client</code>。Runner 只依赖 <code>Client.Chat</code> 返回的事件流，不关心底层是 DeepSeek、OpenAI-compatible 网关、本地 Ollama 还是 Anthropic。</p>
+<p>OpenAI-compatible 实现在 <code>internal/llm/openai.go</code>。它请求 <code>/v1/chat/completions</code>，把 system prompt 放到 messages 最前面，开启 tool_choice auto，并在流式模式下用 SSE 解析文本 delta 和 tool_calls delta。工具调用的函数名和 arguments 可能被分片返回，所以 <code>parseOpenAISSE</code> 会按 index 拼接。</p>
+<p>Anthropic 实现在 <code>internal/llm/anthropic.go</code>。Anthropic 的 Messages API 不使用 OpenAI 的 role=tool 形状，因此 Cohort 在 <code>buildAnthropicMessages</code> 中把 assistant tool calls 转成 <code>tool_use</code> block，把 tool result 转成 user 角色下的 <code>tool_result</code> block。解析结果时再转回 Cohort 内部的 <code>ToolCall</code>。</p>
+
+<whiteboard type="mermaid">
+flowchart LR
+  Runner[Runner ChatRequest] --> Common[llm.Client interface]
+  Common --> OAI[OpenAIClient]
+  Common --> ANT[AnthropicClient]
+  OAI --> OAIAPI[/v1/chat/completions SSE]
+  ANT --> ANTAPI[/v1/messages SSE]
+  OAIAPI --> Normalize[Response and ToolCalls]
+  ANTAPI --> Normalize
+  Normalize --> Runner
+  Common --> FB[FallbackClient]
+  FB -->|only before visible progress| OAI
+  FB -->|next profile| ANT
+</whiteboard>
+
+<p><code>FallbackClient</code> 的原则很保守：只有当前客户端失败时还没有任何可见文本，也没有收到工具调用增量，才允许切到下一个 profile。原因是如果模型已经产生了部分输出，再换模型重放同一轮，很容易产生重复工具调用或不一致的执行链。</p>
+
+<h1>9. Context Manager：完整历史不动，只压缩请求副本</h1>
+<p>长任务最容易出问题的地方是上下文。Cohort 的关键设计是：<code>Runner.history</code> 和 <code>history.jsonl</code> 保存完整消息，不在 Context Manager 里裁剪。<code>contextmgr.Manager.Build</code> 只处理“本轮发给模型的请求副本”。这意味着恢复、审计和重新压缩仍然有完整原始数据。</p>
+<p><code>Build</code> 的顺序非常明确。先 clone 完整历史，避免误改调用方。再清理协议非法的孤立 tool 消息。然后注入长期记忆 index、相关长期记忆、session memory、compact summary。之后估算 token，如果低于 70% 阈值，直接返回。如果超过阈值，先 micro compact 旧工具结果，只保留头尾。如果仍超预算，才按 message group 裁剪旧历史，并插入 context notice 告诉模型早期消息已省略。</p>
+
+<whiteboard type="mermaid">
+flowchart TD
+  H[完整 Runner.history] --> Clone[复制请求副本]
+  Clone --> Clean[清理孤立 tool result]
+  Clean --> Index[注入 memory index]
+  Index --> Relevant[注入 relevant long-term memory]
+  Relevant --> SessionMem[注入 session memory.md]
+  SessionMem --> Compact[注入 compact.md]
+  Compact --> Budget{低于压缩阈值?}
+  Budget -->|是| Return[返回请求 messages]
+  Budget -->|否| Micro[压缩旧 tool result 头尾保留]
+  Micro --> Fit{是否已放入预算?}
+  Fit -->|是| Return
+  Fit -->|否| Trim[按 message group 裁旧历史]
+  Trim --> Notice[插入 context notice]
+  Notice --> Return
+  H -.不修改.-> Disk[history.jsonl 完整保留]
+</whiteboard>
+
+<p>这里的“message group”很重要。OpenAI-compatible tool calling 要求 assistant 的 tool_calls 消息必须在对应 tool 结果前面。如果粗暴裁掉 assistant 但留下 tool，就会构造非法请求。因此 trim 逻辑必须保护协议完整性。</p>
+
+<h1>10. Session：为什么用 meta.json 加 history.jsonl</h1>
+<p><code>internal/session</code> 管理本地会话目录。默认根目录是 <code>temp/sessions</code>。每个 session 一个目录，包含 <code>meta.json</code> 和 <code>history.jsonl</code>。<code>meta.json</code> 只保存标题、CWD、模型、创建时间、更新时间等轻量信息；<code>history.jsonl</code> 才保存真正的 user、assistant、tool 消息。</p>
+<p>使用 jsonl 的好处是追加简单。Runner 每产生一条消息就追加一行 <code>HistoryEntry</code>。即使进程中途退出，已经写入的历史也保留。列 session 时只需要读取 meta 和统计 history 行数，不必把所有历史消息都加载进内存。</p>
+
+<whiteboard type="mermaid">
+flowchart TD
+  SessionRoot[temp/sessions] --> SID[session_id]
+  SID --> Meta[meta.json]
+  SID --> Hist[history.jsonl]
+  SID --> Mem[memory.md 可选]
+  SID --> Compact[compact.md 可选]
+  SID --> RunLog[run.log.jsonl]
+  Meta --> Summary[session list 快速展示]
+  Hist --> Resume[恢复完整 llm.Message 历史]
+  Mem --> Context[后续请求注入]
+  Compact --> Context
+</whiteboard>
+
+<p><code>Session.CWD</code> 也很关键。用户在不同目录下说“读取 README.md”会指向不同文件，所以 session 必须记住启动时的工作目录。恢复 session 时这个信息能帮助解释工具路径和上下文。</p>
+
+<h1>11. REPL：交互式运行时控制面板</h1>
+<p><code>internal/repl/repl.go</code> 启动交互模式。普通输入会交给 <code>Runner.Run</code>，以 <code>/</code> 开头的输入会作为本地 slash 命令处理，不会发送给模型。这样用户可以在对话过程中查看工具、切 session、compact、查看 memory、管理 skill、查看 MCP，而不需要退出 CLI。</p>
+<p>REPL 支持真实终端和非交互输入两种模式。真实终端下用 <code>readline</code> 提供提示符和补全；非交互输入下用 scanner 逐行读，适合测试和管道。</p>
+<table>
+  <thead>
+    <tr><th background-color="light-gray">命令</th><th background-color="light-gray">作用</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>/tools</code></td><td>列当前工具 schema 名称</td></tr>
+    <tr><td><code>/model</code>、<code>/config</code></td><td>查看当前模型和配置</td></tr>
+    <tr><td><code>/session list</code>、<code>/resume</code></td><td>查看和恢复本地 session</td></tr>
+    <tr><td><code>/compact</code></td><td>生成当前 session 的 <code>memory.md</code></td></tr>
+    <tr><td><code>/full-compact</code></td><td>生成当前 session 的 <code>compact.md</code></td></tr>
+    <tr><td><code>/memory</code></td><td>查看当前 session memory</td></tr>
+    <tr><td><code>/skill</code></td><td>管理和读取 Skill</td></tr>
+    <tr><td><code>/mcp</code></td><td>查看 MCP 配置、状态和工具</td></tr>
+    <tr><td><code>/clear</code></td><td>清空当前内存上下文并开启新 session</td></tr>
+  </tbody>
+</table>
+
+<h1>12. 文件和命令工具：最基础的执行边界</h1>
+<p>文件和命令工具是 Agent 最常用的能力。<code>file_read</code>、<code>file_write</code>、<code>file_patch</code>、<code>code_run</code> 都在 <code>internal/tools</code> 中。它们共享 <code>workspaceTool</code> 的路径解析能力：相对路径落在 workspace 下，绝对路径会被清理后使用。</p>
+<p><code>file_read</code> 支持按行号读取，并默认带行号。它读取失败通常返回字符串错误，不直接让 Runner 退出。它还对 SOP 路径有特殊 fallback：普通相对路径仍严格相对 workspace，但 <code>sops/</code> 前缀的读取请求可以在 workspace、Git 根和父目录中查找，避免工作区配置导致规程不可见。</p>
+<p><code>file_write</code> 支持 overwrite、append、prepend，写入前会创建父目录。<code>code_run</code> 在 workspace 中通过 shell 执行命令，有默认 60 秒、最大 120 秒超时，并把输出裁剪到上限，避免工具结果撑爆上下文。Unix 下使用 <code>bash -c</code>，Windows 下使用 PowerShell。</p>
+
+<h1>13. Browser Bridge：网页能力如何落地</h1>
+<p>浏览器自动化由两部分组成：Go 侧 <code>internal/browser</code> 的 WebSocket Bridge，以及 Chrome MV3 扩展 <code>assert/cohort_browser_bridge</code>。Go 侧监听本机 WebSocket，扩展主动连接。工具层调用 tabs、open、scan、dom_summary、execute_js、click、type、wait、screenshot 等能力时，Bridge 给扩展发送带 request id 的命令，扩展执行后以同一个 id 回传 result 或 error。</p>
+
+<whiteboard type="mermaid">
+sequenceDiagram
+  participant Tool as browser_* tool
+  participant Go as Go Bridge
+  participant Ext as Chrome Extension
+  participant Page as Web Page
+  Ext->>Go: ext_ready and tabs_update
+  Tool->>Go: command with id
+  Go->>Ext: WebSocket JSON command
+  Ext->>Page: chrome.scripting or debugger operation
+  Page-->>Ext: result
+  Ext-->>Go: result with same id
+  Go-->>Tool: typed result
+</whiteboard>
+
+<p>扩展第一版刻意降低权限：只处理 http/https 可脚本页面，不读取 cookies，不移除 CSP，不管理其他扩展，不修改 content settings。普通页面读取优先 <code>browser_scan</code> 或 <code>browser_dom_summary</code>，实在需要视觉判断才走 screenshot 和 OCR。</p>
+<p>浏览器工具有多个层次。<code>browser_tabs</code> 用于发现当前 tab。<code>browser_open</code> 打开或导航 URL。<code>browser_scan</code> 读取 title、URL、body.innerText。<code>browser_dom_summary</code> 返回低噪声 DOM、表单、iframe、shadowRoot 和 fixed overlay 摘要。<code>browser_execute_js</code> 在页面上下文执行 JS。等待工具用于等待 load、selector、text、URL、stable。截图和 OCR 则用于 DOM 不够时的视觉兜底。</p>
+
+<h1>14. Desktop Driver：macOS 桌面自动化的底层边界</h1>
+<p>桌面能力分成 Go 侧工具、Go 侧 Driver 和 Python helper 三层。<code>internal/desktop/types.go</code> 定义平台无关的请求和响应结构。<code>internal/desktop/runner.go</code> 的 <code>PythonDriver</code> 负责通过子进程调用 <code>scripts/desktop_darwin.py</code>。Python helper 负责真正访问 macOS Accessibility、Quartz、Cocoa 等平台 API。</p>
+<p>Go 侧 <code>PythonDriver.call</code> 是所有桌面方法共享的边界：检查平台是否 darwin、检查 helper 是否存在、序列化请求 JSON、设置超时、运行子进程、解析 helper envelope、把错误转换成安全的 <code>ToolError</code>。这样平台 API 的复杂性集中在 Python，安全边界和错误脱敏集中在 Go。</p>
+
+<whiteboard type="mermaid">
+flowchart LR
+  Model[模型 tool call] --> Tool[desktop_* tool]
+  Tool --> Risk[参数校验和风险判断]
+  Risk --> Driver[desktop.PythonDriver]
+  Driver --> Helper[scripts/desktop_darwin.py]
+  Helper --> OS[macOS AX / Quartz / Cocoa]
+  OS --> Helper
+  Helper --> Envelope[success/error JSON envelope]
+  Envelope --> Driver
+  Driver --> Tool
+  Tool --> Outcome[Outcome 回灌模型]
+</whiteboard>
+
+<p>桌面工具包括只读感知和副作用动作。只读感知有 <code>desktop_permissions</code>、<code>desktop_windows</code>、<code>desktop_activate</code>、<code>desktop_screenshot</code>、<code>desktop_ax_snapshot</code>、<code>desktop_ocr</code>。副作用动作包括 <code>desktop_ax_press</code>、<code>desktop_ax_focus</code>、<code>desktop_click</code>、<code>desktop_visual_click</code>、<code>desktop_press_key</code>、<code>desktop_type_text</code>。</p>
+<p>坐标系统是桌面自动化最容易出错的地方。项目明确区分 <code>screen-physical</code> 和 <code>screenshot-local</code>。截图时会写 manifest，把截图文件、PID、window_id、截图大小、窗口物理边界绑定起来。视觉点击必须读取并校验 manifest，不能只凭模型传来的图片路径和坐标执行。</p>
+
+<h1>15. ConfirmationStore：副作用动作为什么需要令牌</h1>
+<p>桌面和 Computer Use 中的高风险动作会用 <code>ConfirmationStore</code> 或 <code>VisualFocusStore</code>。<code>ConfirmationStore</code> 发行一次性随机令牌，绑定 operation、PID、node_id 或 key、reason、图片路径和 bbox。令牌只在当前进程内有效，默认 5 分钟过期，消费后立即删除。</p>
+<p>这样做是为了避免“用户同意过一次”被模型扩大成“允许其他控件、其他按键、其他进程”。授权必须精确匹配目标动作。视觉焦点令牌更短，默认 45 秒，只允许 <code>desktop_type_text</code> 在 AX 无法证明输入框焦点时起草文本，不授权发送或提交。</p>
+
+<h1>16. Computer Use 高层工具：从目标缓存到 Observe-Act-Verify</h1>
+<p><code>internal/computeruse</code> 和 <code>internal/tools/computer_tools.go</code> 提供比 desktop_* 更高层的 GUI 操作语义。低层 desktop 工具需要模型直接处理 PID、AX node、bbox、截图 manifest，而 computer_* 工具希望模型先观察状态，再引用 runtime 缓存的 target。</p>
+<p><code>computer_see</code> 会观察当前电脑状态：窗口、截图、AX 树、OCR 文本和候选目标，并保存到 <code>computeruse.Store</code>，每个 target 有 45 秒 TTL。<code>computer_find</code> 可以从最近状态里按文本查找 target。<code>computer_click</code>、<code>computer_type</code>、<code>computer_press</code>、<code>computer_wait</code>、<code>computer_check</code> 等会基于 target ID 执行动作，而不是让模型直接传任意坐标。</p>
+
+<whiteboard type="mermaid">
+flowchart TD
+  See[computer_see] --> State[ComputerState]
+  State --> Windows[窗口快照]
+  State --> Screenshot[截图和 manifest]
+  State --> AX[AX 控件树]
+  State --> OCR[OCR 文本]
+  AX --> Candidates[ComputerTarget 候选]
+  OCR --> Candidates
+  Screenshot --> Candidates
+  Candidates --> Store[TTL 目标缓存]
+  Store --> Find[computer_find]
+  Store --> Act[computer_click/type/press/drag/drop]
+  Act --> Verify[computer_check 或动作后验证]
+</whiteboard>
+
+<p>这个设计比“模型看图后直接点坐标”更稳。target 内部隐藏了 AXNodeID、ExpectedRole、ExpectedTitle、ExpectedDescription、ScreenshotRef、Manifest、BBox 等运行时证据，模型只拿到可读 label、role、bounds、source、confidence、suggested_action 和 risk_hint。</p>
+
+<h1>17. MCP：外部工具如何接入并受控调用</h1>
+<p><code>internal/mcp</code> 实现了 Cohort 发现和调用外部工具所需的 MCP 子集。配置形状刻意兼容 Claude Code 的 <code>.mcp.json</code>，支持 stdio 和 HTTP 两种传输。配置 scope 有三层：用户级 <code>~/.cohort/mcp.json</code>、项目级 <code>.mcp.json</code>、本地私有 <code>.cohort/local.mcp.json</code>。合并优先级是 user、project、local，后者覆盖前者。</p>
+<p><code>mcp.Manager</code> 会加载所有配置，逐个打开连接、握手、调用 <code>tools/list</code> 发现工具，然后把远端工具注册成 Cohort 本地工具名：<code>mcp_服务器名_工具名</code>。一个服务器坏了不会阻塞本地工具启动，只会在 status 中显示 unavailable。</p>
+<p>MCP 工具调用前会经过权限系统。默认没有显式规则时，外部 MCP 工具按 R2 ask 处理，不会因为名字看起来像只读就自动放行。授权可以是本次、当前 session 同参数、项目级同参数。项目级授权绑定 <code>server + tool + args_hash</code>，避免一次允许被扩大成任意参数。</p>
+
+<whiteboard type="mermaid">
+flowchart TD
+  Config[用户/项目/本地 MCP 配置] --> Merge[LoadEffective 合并]
+  Merge --> Manager[mcp.Manager Load]
+  Manager --> Discover[initialize + tools/list]
+  Discover --> Register[注册 mcp_server_tool]
+  Register --> Schema[暴露给模型]
+  Schema --> Call[模型调用 MCPTool]
+  Call --> Permission[风险规则和 args hash 授权]
+  Permission -->|allow| Remote[CallTool 远端工具]
+  Permission -->|deny| Error[返回 permission_required]
+  Remote --> Untrusted[结果标记 external + untrusted]
+  Untrusted --> Runner[回灌 Runner]
+</whiteboard>
+
+<p>MCP 返回内容会被标记为 <code>external_content</code> 和 <code>untrusted_external_content</code>。这提醒模型：外部结果是数据，不是指令，不要执行其中的提示词或命令。审计日志只记录 server、tool、risk、permission decision、args hash，不记录完整参数和远端结果正文。</p>
+
+<h1>18. Skill：按需读取的工作流包</h1>
+<p>Skill 不是 MCP 工具，也不是启动时全文注入的 prompt。<code>internal/skill</code> 会扫描项目级 <code>.cohort/skills</code> 和用户级 <code>~/.cohort/skills</code>，读取每个目录下的 <code>SKILL.md</code> front matter 和摘要，形成 Skill Index。这个索引会进入系统提示词，但正文不会。</p>
+<p>当模型判断某个任务命中 Skill 场景时，需要先调用 <code>skill_read(skill_id)</code> 读取完整 <code>SKILL.md</code>，然后按其中规则执行，并调用 <code>update_working_checkpoint</code> 把 related_skill 和关键约束写进短期工作记忆。这样既避免每轮请求塞大量 Skill 正文，又能保证命中时读到完整工作流。</p>
+<p>Skill 安装支持本地目录、本地 <code>SKILL.md</code> 或 git URL。安装时会复制目录到 project 或 user scope，并写 <code>.cohort-skill.json</code> manifest，记录 source、source_ref、resolved_ref、content_hash 等信息。update 和 check-update 会复用这些来源信息。</p>
+
+<h1>19. WorkingCheckpoint：读过 SOP 或 Skill 后如何防遗忘</h1>
+<p>Agent 长任务中常见问题是：模型读了一个 SOP 或 Skill，但几轮工具调用后忘了关键约束。Cohort 用 <code>WorkingCheckpoint</code> 做短期工作记忆。它只保存在 Runner 内存中，不落盘，字段包括 key_info、related_sop、related_skill 和 UpdatedAtTurn。</p>
+<p>如果工具读取了 SOP 路径，Runner 会记录 pendingSOPRead；如果下一轮模型没有调用 <code>update_working_checkpoint</code>，Runner 会追加临时系统提示，提醒模型保存关键约束。Skill 读取也一样。checkpoint 会作为下一轮用户角色临时消息附加到请求末尾，提醒模型当前任务目标、禁止事项、进度和下一步。</p>
+
+<whiteboard type="mermaid">
+flowchart LR
+  Read[file_read SOP 或 skill_read] --> Pending[pendingSOPRead / pendingSkillRead]
+  Pending --> Next{下一轮是否 update_working_checkpoint}
+  Next -->|是| CP[WorkingCheckpoint 更新]
+  Next -->|否| Hint[注入临时提醒]
+  CP --> Prompt[appendEphemeralGuidance]
+  Hint --> Prompt
+  Prompt --> LLM[下一轮模型请求]
+</whiteboard>
+
+<h1>20. 长期记忆与 Evolution：No Execution, No Memory</h1>
+<p><code>internal/evolution</code> 和 <code>internal/tools/memory_evolution.go</code> 实现受控长期记忆。这里的核心原则是：没有执行证据，就不能写长期记忆。用户输入、工具成功、成功测试、已读文件、浏览器确认等会形成 Evidence Ledger。模型如果要沉淀经验，需要先调用 <code>start_long_term_update</code>，再调用 <code>memory_propose_update</code> 提交候选，最后只有验证通过的低风险 append 候选才能通过 <code>memory_apply_update</code> 写入。</p>
+<p>长期记忆的结构包括 <code>memory/index.md</code>、<code>memory/global.md</code>、项目专属 memory 文件、<code>memory/reflection/sop_candidates.md</code>、<code>memory/audit.jsonl</code>。P0 只允许 append 到 allowlist 中的目标路径，不允许任意覆盖文件。写入前会检查 target、action、内容是否为空、证据 ID 是否存在且 verified、是否包含敏感材料、是否重复、是否需要用户确认。</p>
+
+<whiteboard type="mermaid">
+sequenceDiagram
+  participant R as Runner
+  participant M as Model
+  participant E as Evidence Ledger
+  participant EV as evolution.Manager
+  participant FS as memory files
+  R->>E: collect user and tool evidence
+  R->>M: long-term memory hint when useful
+  M->>EV: start_long_term_update
+  EV-->>M: policy, allowed targets, evidence list
+  M->>EV: memory_propose_update candidates
+  EV-->>M: validation results
+  M->>EV: memory_apply_update valid candidate
+  EV->>FS: append memory and audit.jsonl
+  EV->>FS: read back confirmation
+  EV-->>M: applied result
+</whiteboard>
+
+<p>这套流程避免把一次性任务事实、猜测、失败假设、敏感信息或临时页面内容写入长期记忆。长期记忆不是“模型觉得重要就保存”，而是经过 evidence、allowlist、风险和回读确认的受控写入。</p>
+
+<h1>21. Observability：运行时发生了什么如何追踪</h1>
+<p><code>internal/observability</code> 定义统一事件信封，事件类型包括 RunStarted、UserPromptSubmitted、TurnStarted、ContextBuilt、LLMRequestStarted、LLMResponseFinished、ToolStarted、ToolFinished、RunFinished。Runner 默认写本地 <code>run.log.jsonl</code>，如果 session 已创建，日志写到 session 目录；否则写到 log_dir。可选 Langfuse sink 会在配置开启且 key 完整时启用。</p>
+<p>观测链路必须是旁路能力。EventBus 会广播给多个 sink，但任何 sink 写入失败都不能中断 Agent 主流程。事件写入前会经过 <code>RedactEvent</code> 脱敏，大文本、密钥、剪贴板正文、截图 base64 等内容不应该直接进入事件 data。</p>
+<p>除了 observability 事件，老的 <code>run.log</code> 和 <code>context.log</code> 也用于调试工具调用和上下文构造。工具日志会记录工具名、耗时、状态、输出字符数、参数 hash 等，不应把完整敏感参数或外部结果复制到审计日志里。</p>
+
+<h1>22. Browser、Desktop、MCP 的安全边界对比</h1>
+<table>
+  <thead>
+    <tr><th background-color="light-gray">能力</th><th background-color="light-gray">主要风险</th><th background-color="light-gray">源码里的边界</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>文件工具</td><td>误读/误写路径、上下文过长</td><td>workspace 路径解析、写入前创建父目录、读取可分页、输出裁剪</td></tr>
+    <tr><td>code_run</td><td>命令长时间运行、输出爆炸</td><td>默认 60 秒、最大 120 秒、输出头尾裁剪、超时杀进程组</td></tr>
+    <tr><td>浏览器工具</td><td>读取敏感页面、页面注入、DOM 噪声</td><td>只处理 http/https、扩展低权限、不读 cookies、结果截断、DOM 优先于 OCR</td></tr>
+    <tr><td>桌面工具</td><td>误点、误输入、坐标漂移、提交副作用</td><td>AX 语义校验、manifest 坐标绑定、风险分级、确认令牌、视觉焦点令牌</td></tr>
+    <tr><td>Computer Use</td><td>模型直接操作坐标不可靠</td><td>computer_see 目标缓存、target TTL、窗口绑定、Observe-Act-Verify</td></tr>
+    <tr><td>MCP</td><td>外部工具可能写数据或返回恶意指令</td><td>默认 R2 ask、args hash 授权、结果标记 untrusted、审计只记元数据</td></tr>
+    <tr><td>长期记忆</td><td>把猜测、敏感信息、一次性事实写成长期规则</td><td>Evidence Ledger、allowlist、append-only、敏感检测、重复检测、audit 和回读</td></tr>
+  </tbody>
+</table>
+
+<h1>23. 系统提示词：能力索引和行为约束在哪里进入模型</h1>
+<p>系统提示词由 <code>app.BuildSystemPrompt</code> 相关逻辑生成。它会包含运行时身份、工具使用规则、语言规则、工具前后说明要求、缺少用户决策时使用 <code>ask_user</code> 的要求，以及 Skill Index。重要的是：系统提示词不是唯一约束源。Runner 还会在运行中追加 pending hints、working checkpoint、long-term memory hints、SOP hints、工具返回的 NextPrompt。</p>
+<p>这体现了 Cohort 的一个设计风格：稳定规则放 system prompt，运行态约束通过短期提示动态注入，完整过程通过 history 和 logs 保存。这样既避免每轮 system prompt 无限膨胀，也能针对当前任务补充必要约束。</p>
+
+<h1>24. npm 包和安装脚本：从源码到用户命令</h1>
+<p><code>packages/npm</code> 是 npm 包装层。<code>packages/npm/bin/cohort.js</code> 暴露 <code>cohort</code> 命令，<code>scripts/install.js</code> 会从 GitHub Release 下载匹配当前平台和架构的二进制，校验 SHA256，并随包同步 Chrome Bridge 扩展、desktop helper 和 OCR helper。根目录 <code>scripts/install.sh</code> 则提供 GitHub installer 路径，优先下载 Release 二进制，失败时可回退源码构建。</p>
+<p>这意味着本地开发和用户安装路径不同。本地开发常用 <code>go run .</code> 或 <code>go build -o cohort ./cmd/cohort</code>；用户安装常用 npm 或 shell installer。排查“我本地源码能跑，npm 安装不能跑”时，要同时检查二进制版本、随包 runtime scripts、Chrome 扩展目录和环境变量。</p>
+
+<h1>25. doctor：环境诊断如何工作</h1>
+<p><code>cohort doctor</code> 在 <code>internal/cli/init_doctor.go</code>，它检查配置文件是否存在、配置是否能解析、当前 LLM profile、API key 是否设置、provider 是否支持、api_base 是否合法、workspace 和 log_dir 是否可写。加 <code>--connect</code> 时会访问 api_base 检查网络可达，但不会发起模型补全。</p>
+<p><code>cohort doctor computer</code> 在 <code>internal/cli/doctor_computer.go</code>，它检查 workspace、computer artifacts 目录、平台是否 macOS、desktop helper 是否存在、Accessibility 和 Screen Recording 权限、OCR helper 和依赖、Browser Bridge 服务是否能启动、扩展是否连接。这个命令只做诊断，不应默认点击、输入或修改系统设置。</p>
+
+<h1>26. 当前实现状态和设计文档如何判断</h1>
+<p><code>docs/README.md</code> 是项目文档导航与实现状态入口。它明确说明：代码和 <code>go test ./...</code> 是最终事实来源；设计文档不因为保留方案文字就代表功能已经上线。状态分为完成、部分完成、规划、历史、维护。</p>
+<p>当前路径里，MCP、上下文管理、浏览器操作、桌面 Computer Use、自进化长期记忆等大多是“部分完成”：主链路可用，但扩展能力、真实服务验收或可靠性工作仍有后续项。比如 FinishGuard、严格文本 <code>&lt;tool_use&gt;</code> 兜底、完整 Runner 生命周期 Hook、Project/Plan Mode、Plugin、LSP、多模型和 daemon 等仍在后续规划中。</p>
+
+<h1>27. 如果你要二次开发，应该从哪里开始</h1>
+<p><b>新增 CLI 子命令。</b> 从 <code>internal/cli/cli.go</code> 开始，判断这个命令是否需要 LLM。轻量命令应尽量放在创建 Runner 前，避免无谓要求 API Key。交互式 slash 命令则看 <code>internal/repl/repl.go</code>。</p>
+<p><b>新增模型供应商。</b> 从 <code>internal/llm/types.go</code> 理解统一接口，再仿照 <code>openai.go</code> 或 <code>anthropic.go</code> 实现新的 <code>Client</code>。最后在 factory 中接入 provider，并在 config init 模板或文档中补配置。</p>
+<p><b>新增本地工具。</b> 在 <code>internal/tools</code> 下实现 <code>Tool</code> 接口，写清楚 schema、参数校验、返回结构和错误 hint，再到 <code>app.newRegistry</code> 注册。工具输出要考虑上下文大小，不要无限返回原始数据。</p>
+<p><b>新增浏览器能力。</b> 同时看 Go 侧 <code>internal/browser</code>、工具层 <code>internal/tools/browser_tools.go</code> 和扩展侧 <code>assert/cohort_browser_bridge/background.js</code>。新增命令一般要扩展 WebSocket 协议、Bridge 方法和工具 schema。</p>
+<p><b>新增桌面能力。</b> 先在 <code>internal/desktop/types.go</code> 定义请求响应，再在 <code>PythonDriver</code> 加方法，最后补 Python helper 命令和工具层封装。高风险动作必须考虑确认令牌、坐标空间、目标绑定和后验验证。</p>
+<p><b>新增 MCP 功能。</b> 先看 <code>internal/mcp/store.go</code> 和 <code>manager.go</code>。如果是配置和诊断命令，改 CLI；如果是调用行为，改 <code>tools/mcp_tool.go</code> 和权限逻辑。</p>
+<p><b>新增上下文策略。</b> 从 <code>contextmgr.Manager.Build</code> 入手。一定记住只能改请求副本，不能破坏 <code>Runner.history</code> 和 <code>history.jsonl</code>。</p>
+<p><b>新增长期记忆规则。</b> 从 <code>internal/evolution</code> 开始。任何写入都要保持 evidence、allowlist、append-only、audit 和 read-back confirmation 的原则。</p>
+
+<h1>28. 新人阅读源码推荐顺序</h1>
+<ol>
+  <li seq="auto">先读 <code>README.md</code> 和 <code>docs/usage.md</code>，建立产品和命令使用概念。</li>
+  <li seq="auto">读 <code>internal/cli/cli.go</code>，理解命令如何分发。</li>
+  <li seq="auto">读 <code>internal/app/app.go</code>，理解 Runner 是怎么被装配出来的。</li>
+  <li seq="auto">读 <code>internal/agent/types.go</code> 和 <code>internal/agent/runner.go</code>，理解 Agent 主循环。</li>
+  <li seq="auto">读 <code>internal/llm/types.go</code>、<code>openai.go</code>、<code>anthropic.go</code>，理解模型协议归一化。</li>
+  <li seq="auto">读 <code>internal/tools/registry.go</code> 和几个简单工具，如 <code>file_read.go</code>、<code>code_run.go</code>，理解工具接口。</li>
+  <li seq="auto">读 <code>internal/contextmgr/manager.go</code>，理解为什么完整历史不被裁剪。</li>
+  <li seq="auto">读 <code>internal/session/store.go</code>，理解 session 落盘。</li>
+  <li seq="auto">按兴趣选择浏览器、桌面、MCP、Skill、长期记忆或 observability 深入。</li>
+  <li seq="auto">最后读测试文件。测试能告诉你哪些行为是项目作者明确想固定下来的。</li>
+</ol>
+
+<h1>29. 一个完整任务的落盘产物</h1>
+<p>当你运行一次 Cohort 任务时，可能产生多类文件。workspace 下会有工具写入的业务文件、截图、OCR artifact、memory 文件。session 目录下会有 meta、history、run log、memory 和 compact。log_dir 下可能有模型原始响应。MCP 本地配置可能写在 <code>.cohort/local.mcp.json</code>，MCP 权限可能写在 <code>.cohort/mcp.permissions.json</code>。Skill 安装会写到 <code>.cohort/skills</code> 或 <code>~/.cohort/skills</code>。</p>
+
+<whiteboard type="mermaid">
+flowchart TD
+  Run[一次 Cohort 任务] --> Workspace[workspace]
+  Run --> Session[temp/sessions/session_id]
+  Run --> Config[配置和本地元数据]
+  Workspace --> Files[文件工具写入]
+  Workspace --> Screens[.cohort screenshots/OCR]
+  Workspace --> Memory[memory/index global project audit]
+  Session --> Meta[meta.json]
+  Session --> Hist[history.jsonl]
+  Session --> Obs[run.log.jsonl]
+  Session --> SMem[memory.md]
+  Session --> Cmp[compact.md]
+  Config --> MCP[.mcp.json 或 .cohort/local.mcp.json]
+  Config --> Skill[.cohort/skills]
+</whiteboard>
+
+<h1>30. 常见误解澄清</h1>
+<p><b>误解一：Context Manager 会删除历史。</b> 不会。它只裁剪本轮请求副本，完整历史仍在 Runner.history 和 history.jsonl。</p>
+<p><b>误解二：Skill 是启动时全部灌进模型的 prompt。</b> 不是。启动时只给索引，正文要用 skill_read 按需读取。</p>
+<p><b>误解三：MCP 工具发现后就能自动调用。</b> 不是。默认外部工具按 R2 ask，需要权限规则或用户授权。</p>
+<p><b>误解四：桌面视觉点击就是点图片坐标。</b> 不是。视觉点击必须通过截图 manifest 把 screenshot-local bbox 映射到 screen-physical，并绑定 PID、窗口和图片。</p>
+<p><b>误解五：长期记忆是模型自由写总结。</b> 不是。长期记忆需要 evidence、候选校验、allowlist、append-only、audit 和回读确认。</p>
+<p><b>误解六：README 里的设计都已经实现。</b> 不一定。以 <code>docs/README.md</code> 状态表、源码和测试为准。</p>
+
+<h1>31. 当前测试结果</h1>
+<p>本次阅读后执行了轻量内部测试：</p>
+<pre lang="bash" caption="轻量校验命令"><code>go test ./internal/...</code></pre>
+<p>结果：<code>cohort/internal/agent</code>、<code>app</code>、<code>browser</code>、<code>cli</code>、<code>contextmgr</code>、<code>desktop</code>、<code>evolution</code>、<code>llm</code>、<code>mcp</code>、<code>observability</code>、<code>repl</code>、<code>session</code>、<code>skill</code>、<code>tools</code>、<code>vision</code> 均通过；<code>computeruse</code> 和 <code>version</code> 当前无测试文件。</p>
+
+<h1>32. 最后的架构总结</h1>
+<p>Cohort 的核心价值不在于“又包了一层模型 API”，而在于它把 Agent 执行拆成了清晰的运行时边界：命令入口负责分发，app 层负责装配，Runner 负责循环，LLM 层负责供应商协议归一化，Tool Registry 负责能力分发，Context Manager 负责请求前上下文治理，Session Store 负责完整历史，Observability 负责运行轨迹，Browser/Desktop/MCP/Skill/Memory 分别提供可控外部能力。</p>
+<p>如果用一句工程语言概括：Cohort 是一个把 LLM 工具调用变成可执行系统调用的本地 Runtime，并且在每一步都尽量补上边界、证据、上下文预算、恢复和审计。</p>
+
+<whiteboard type="mermaid">
+flowchart TB
+  subgraph Interface[用户接口层]
+    CLI[CLI]
+    REPL[REPL]
+  end
+  subgraph Runtime[Agent Runtime 核心]
+    App[App 装配]
+    Runner[Runner 循环]
+    Context[Context Manager]
+    Session[Session Store]
+    Obs[Observability]
+  end
+  subgraph Intelligence[模型层]
+    LLM[统一 LLM Client]
+    OAI[OpenAI-compatible]
+    Claude[Anthropic]
+  end
+  subgraph Capabilities[能力层]
+    Tools[Tool Registry]
+    File[文件/命令]
+    Web[浏览器]
+    Desk[桌面/Computer Use]
+    MCP[MCP]
+    Skills[Skill]
+    Memory[长期记忆]
+  end
+  Interface --> App
+  App --> Runner
+  Runner --> Context
+  Runner --> LLM
+  LLM --> OAI
+  LLM --> Claude
+  Runner --> Tools
+  Tools --> File
+  Tools --> Web
+  Tools --> Desk
+  Tools --> MCP
+  Tools --> Skills
+  Tools --> Memory
+  Runner --> Session
+  Runner --> Obs
+</whiteboard>
+
+<h1>33. 继续开发前的检查清单</h1>
+<checkbox done="false">确认你要改的是 CLI、Runner、工具、上下文、外设、MCP、Skill、记忆还是观测层，避免跨层乱改。</checkbox>
+<checkbox done="false">如果改工具，先定义清楚参数 schema、错误码、输出大小上限和审计字段。</checkbox>
+<checkbox done="false">如果改上下文，确保只改请求副本，不改完整 history。</checkbox>
+<checkbox done="false">如果改桌面或浏览器副作用动作，补充目标绑定、权限、确认和后验验证。</checkbox>
+<checkbox done="false">如果改 MCP，检查默认权限和 untrusted external content 标记是否仍然成立。</checkbox>
+<checkbox done="false">如果改长期记忆，保持 No Execution, No Memory，不保存未验证和敏感内容。</checkbox>
+<checkbox done="false">如果改配置或安装，记得同步 README、docs/usage.md、docs/README.md 和 npm/install 脚本。</checkbox>
+<checkbox done="false">提交前至少运行相关包测试；本仓库轻量内部测试命令是 <code>go test ./internal/...</code>。</checkbox>
+
