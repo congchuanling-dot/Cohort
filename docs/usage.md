@@ -21,7 +21,7 @@ cohort --version
 cohort
 ```
 
-npm 包已发布到 npm 官方 registry。安装时会从 GitHub Release 下载匹配当前 macOS 架构的二进制，并校验 SHA256，同时随包提供桌面自动化和 OCR helper。当前已验证版本为 `v0.2.6`。
+npm 包已发布到 npm 官方 registry。安装时会从 GitHub Release 下载匹配当前 macOS 架构的二进制，并校验 SHA256，同时随包提供桌面自动化和 OCR helper。当前已验证版本为 `v1.0.0`。
 
 如果不想使用 npm，也可以直接使用 GitHub installer：
 
@@ -57,7 +57,7 @@ curl -fsSL https://raw.githubusercontent.com/congchuanling-dot/Cohort/master/scr
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/congchuanling-dot/Cohort/master/scripts/install.sh | sh -s -- \
-  --version v0.2.6
+  --version v1.0.0
 ```
 
 Cohort 配置文件查找顺序：

@@ -4,6 +4,19 @@ All notable changes to Cohort will be documented in this file.
 
 The format follows the spirit of [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses semantic versioning for public releases.
 
+## [1.0.0] - 2026-07-31
+
+### Added
+
+- First stable public release of Cohort.
+- npm global install path with verified GitHub Release binary download.
+- Bundled Chrome Browser Bridge extension assets for browser automation.
+- Bundled macOS desktop and OCR helper scripts for Computer Use after npm install.
+
+### Changed
+
+- Keep the default Agent `max_turns` limit at 300 for longer desktop and browser tasks.
+
 ## [0.2.6] - 2026-07-30
 
 ### Changed
