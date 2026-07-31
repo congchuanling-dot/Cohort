@@ -169,7 +169,9 @@ Cohort 的判断很明确:
 
 ## 快速开始
 
-### 1. 安装 Cohort
+### npm 安装后要做什么
+
+一条命令安装 Cohort：
 
 推荐使用 npm 官方 registry 全局安装。npm 包会从 GitHub Release 下载匹配当前 macOS 架构的 `cohort` 二进制并校验 SHA256，同时随包提供 Chrome Bridge 扩展、macOS desktop helper 和 OCR helper。当前已验证版本为 `v1.0.0`。
 
@@ -178,32 +180,26 @@ npm install -g @cohort-ai/cohort@latest
 cohort --version
 ```
 
-如果不想走 npm，也可以使用 GitHub installer：
+安装完成后按下面顺序配置：
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/congchuanling-dot/Cohort/master/scripts/install.sh | sh -s -- --repo https://github.com/congchuanling-dot/Cohort.git
-export PATH="$HOME/.cohort/bin:$PATH"
-```
+| 步骤 | 你要做什么 | 验收命令 |
+| --- | --- | --- |
+| 1 | 初始化模型 API 配置 | `cohort config` |
+| 2 | 设置对应 API key 环境变量 | `cohort doctor` |
+| 3 | 把 Chrome Bridge 插件加载进浏览器 | `cohort doctor computer` |
+| 4 | 授权 macOS Accessibility / Screen Recording | `cohort doctor computer` |
+| 5 | 启动交互式 Agent | `cohort` |
 
-如果是在源码仓库内开发：
+### 1. 配置 AI API
 
-```bash
-git clone https://github.com/congchuanling-dot/Cohort.git
-cd Cohort
-./scripts/install.sh
-export PATH="$HOME/.cohort/bin:$PATH"
-```
-
-### 2. 选择 AI API
-
-Cohort 不是 DeepSeek 专用。它原生支持两类 API 协议：
+Cohort 不是 DeepSeek 专用。它按 API 协议接入模型，当前原生支持两类：
 
 | 协议 | 适合接入 | provider |
 | --- | --- | --- |
 | OpenAI-compatible Chat Completions | DeepSeek、OpenAI、Ollama、LM Studio、OpenRouter、兼容 `/v1/chat/completions` 的网关 | `openai` |
 | Anthropic Messages API | Claude / Anthropic 原生 API | `anthropic` |
 
-最快方式是用 `cohort init` 生成用户级配置，然后设置对应环境变量。下面三组按需选择一组即可；如果要覆盖已有配置，再追加 `--force`。
+选择一组你要用的模型配置即可；如果要覆盖已有配置，再追加 `--force`。
 
 DeepSeek 或其他 OpenAI-compatible 云服务：
 
@@ -226,42 +222,84 @@ cohort init --provider anthropic
 export ANTHROPIC_API_KEY="sk-ant-xxx"
 ```
 
-也可以直接编辑 `~/.cohort/config.yaml`，把 `llm.active_profile` 指向你要使用的 profile。完整写法见 [AI API 接入](#ai-api-接入)。
-
-### 3. 安装浏览器插件
-
-浏览器自动化需要把 Cohort Browser Bridge 加载进 Chrome。npm 包和 GitHub installer 都会准备扩展目录，但 Chrome 出于安全限制，不允许 CLI 静默安装 unpacked extension，所以这一步需要手动完成一次。
+检查当前生效配置：
 
 ```bash
-cohort extension open
+cohort config
+cohort doctor
 ```
 
-然后在 Chrome 里执行：
+也可以直接编辑 `~/.cohort/config.yaml`，把 `llm.active_profile` 指向你要使用的 profile。完整写法见 [AI API 接入](#ai-api-接入)。
 
-1. 打开 `chrome://extensions`
-2. 开启右上角 `Developer mode`
-3. 点击 `Load unpacked`
-4. 选择 `cohort extension open` 输出的扩展目录
+### 2. 安装 Chrome Bridge 插件
 
-也可以只查看扩展目录：
+如果你要让 Cohort 操作网页，必须把 Cohort Browser Bridge 插件加载进 Chrome。npm 安装已经把插件文件放进本机，但 Chrome 出于安全限制，不允许 CLI 静默安装 unpacked extension，所以需要你手动加载一次。
+
+先复制插件目录：
 
 ```bash
 cohort extension path
 ```
 
-完成后打开任意 `http://` 或 `https://` 页面，再运行 `cohort doctor computer` 检查 `browser.bridge.connection`。
+输出通常类似：
 
-### 4. 检查运行环境
+```text
+.../node_modules/@cohort-ai/cohort/extension/cohort_browser_bridge
+```
+
+再打开 Chrome 扩展页：
 
 ```bash
-cohort config
-cohort doctor
+cohort extension open
+```
+
+然后按下面步骤操作 Chrome：
+
+1. 打开 `chrome://extensions`
+2. 开启右上角的 `Developer mode`
+3. 点击左上角的 `Load unpacked`
+4. 选择刚才 `cohort extension path` 输出的目录
+5. 确认扩展列表里出现 `Cohort Browser Bridge`
+6. 打开任意普通网页，例如 `https://example.com`
+
+验证插件是否连上：
+
+```bash
 cohort doctor computer
 ```
 
-`doctor` 会检查配置、API key、工作区和日志目录。`doctor computer` 会检查 macOS Accessibility、Screen Recording、desktop helper、OCR helper、Chrome Bridge 和 artifact 目录；默认只读诊断，不会点击、输入或修改系统设置。
+看到下面类似结果就表示可用：
 
-### 5. 开始使用
+```text
+[pass] browser.bridge.server: 127.0.0.1:18777/browser
+[pass] browser.bridge.connection: connected
+```
+
+如果显示未连接，按顺序检查：
+
+- Chrome 扩展页里插件是否启用。
+- 是否已经打开普通 `http://` 或 `https://` 页面。
+- 不要用 `chrome://extensions`、Chrome Web Store、浏览器设置页这类 Chrome 禁止扩展注入的页面测试。
+- 如果端口被占用，退出旧的 `cohort` 进程后重试。
+
+### 3. 检查桌面权限
+
+```bash
+cohort doctor computer
+```
+
+`doctor computer` 会检查 macOS Accessibility、Screen Recording、desktop helper、OCR helper、Chrome Bridge 和 artifact 目录；默认只读诊断，不会点击、输入或修改系统设置。
+
+如果 Accessibility 或 Screen Recording 未授权，在 macOS 里给你运行 `cohort` 的终端授权：
+
+```text
+System Settings
+  -> Privacy & Security
+  -> Accessibility / Screen Recording
+  -> enable your Terminal / iTerm / VS Code
+```
+
+### 4. 启动 Cohort
 
 ```bash
 cohort
@@ -290,6 +328,24 @@ cohort session list
 cohort mcp list
 cohort mcp status
 cohort skill list
+```
+
+### 5. 其他安装方式
+
+如果不想走 npm，也可以使用 GitHub installer：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/congchuanling-dot/Cohort/master/scripts/install.sh | sh -s -- --repo https://github.com/congchuanling-dot/Cohort.git
+export PATH="$HOME/.cohort/bin:$PATH"
+```
+
+如果是在源码仓库内开发：
+
+```bash
+git clone https://github.com/congchuanling-dot/Cohort.git
+cd Cohort
+./scripts/install.sh
+export PATH="$HOME/.cohort/bin:$PATH"
 ```
 
 ### 6. 源码开发
