@@ -55,6 +55,10 @@
   ·
   <a href="#ai-api-接入">AI API 接入</a>
   ·
+  <a href="#浏览器插件安装">浏览器插件</a>
+  ·
+  <a href="#可观测性接入">可观测性</a>
+  ·
   <a href="#真实示例">真实示例</a>
   ·
   <a href="#当前边界">当前边界</a>
@@ -224,7 +228,30 @@ export ANTHROPIC_API_KEY="sk-ant-xxx"
 
 也可以直接编辑 `~/.cohort/config.yaml`，把 `llm.active_profile` 指向你要使用的 profile。完整写法见 [AI API 接入](#ai-api-接入)。
 
-### 3. 检查运行环境
+### 3. 安装浏览器插件
+
+浏览器自动化需要把 Cohort Browser Bridge 加载进 Chrome。npm 包和 GitHub installer 都会准备扩展目录，但 Chrome 出于安全限制，不允许 CLI 静默安装 unpacked extension，所以这一步需要手动完成一次。
+
+```bash
+cohort extension open
+```
+
+然后在 Chrome 里执行：
+
+1. 打开 `chrome://extensions`
+2. 开启右上角 `Developer mode`
+3. 点击 `Load unpacked`
+4. 选择 `cohort extension open` 输出的扩展目录
+
+也可以只查看扩展目录：
+
+```bash
+cohort extension path
+```
+
+完成后打开任意 `http://` 或 `https://` 页面，再运行 `cohort doctor computer` 检查 `browser.bridge.connection`。
+
+### 4. 检查运行环境
 
 ```bash
 cohort config
@@ -234,15 +261,7 @@ cohort doctor computer
 
 `doctor` 会检查配置、API key、工作区和日志目录。`doctor computer` 会检查 macOS Accessibility、Screen Recording、desktop helper、OCR helper、Chrome Bridge 和 artifact 目录；默认只读诊断，不会点击、输入或修改系统设置。
 
-浏览器工具需要加载本地 Chrome Bridge 扩展：
-
-```bash
-cohort extension open
-```
-
-然后在 `chrome://extensions` 开启 Developer mode，点击 `Load unpacked`，选择命令输出的扩展目录。
-
-### 4. 开始使用
+### 5. 开始使用
 
 ```bash
 cohort
@@ -273,7 +292,7 @@ cohort mcp status
 cohort skill list
 ```
 
-### 5. 源码开发
+### 6. 源码开发
 
 ```bash
 git clone https://github.com/congchuanling-dot/Cohort.git
@@ -402,6 +421,92 @@ llm:
 ```
 
 当前原生支持范围是 OpenAI-compatible Chat Completions 和 Anthropic Messages API。Gemini 原生 API、Bedrock、Vertex、Azure OpenAI 特殊路径/鉴权还没有内置 adapter；如果这些平台提供 OpenAI-compatible 网关，可以先按 `provider: openai` 接入。
+
+## 浏览器插件安装
+
+Cohort 的浏览器工具通过本地 Chrome Bridge 工作。CLI 会启动本地 bridge 服务，Chrome 扩展负责连接浏览器页面和本地 runtime。
+
+```text
+cohort runtime <-> 127.0.0.1:18777/browser <-> Chrome Bridge extension <-> page DOM
+```
+
+安装方式：
+
+```bash
+cohort extension open
+```
+
+这条命令会打开 `chrome://extensions`，并打印需要加载的扩展目录。你需要在 Chrome 扩展页中开启 `Developer mode`，点击 `Load unpacked`，选择该目录。
+
+如果只想复制路径：
+
+```bash
+cohort extension path
+```
+
+验证方式：
+
+```bash
+cohort doctor computer
+```
+
+看到 `browser.bridge.connection: connected` 表示浏览器扩展已连上。若仍然显示未连接，先打开任意普通网页，例如 `https://example.com`；Chrome 扩展无法注入 `chrome://`、扩展商店、部分浏览器内部页和受浏览器策略限制的页面。
+
+## 可观测性接入
+
+Cohort 默认提供本地可观测性，不依赖任何云平台。每次运行都会在 session 目录里保留可追踪证据：
+
+```text
+temp/sessions/<session_id>/
+  history.jsonl       # 对话和工具结果事实来源
+  run.log             # 工具审计摘要
+  run.log.jsonl       # Runner 生命周期事件流
+  memory.md           # session memory
+  compact.md          # 长任务 compact 摘要
+```
+
+这些文件适合本地调试、问题复盘和离线反思：
+
+```bash
+cohort session list
+cohort session resume <session_id>
+cohort reflect once --task tool-failure-report
+cohort reflect once --task session-archive
+```
+
+如果你希望在网页平台查看 trace，可以接入 Langfuse。配置环境变量后，`cohort` 和 `cohort ask` 会把 Runner 生命周期、LLM 输入输出摘要、token usage 和工具事件上报到 Langfuse。
+
+```bash
+export COHORT_LANGFUSE_ENABLED=true
+export LANGFUSE_HOST="https://cloud.langfuse.com"
+export LANGFUSE_PUBLIC_KEY="pk-lf-xxx"
+export LANGFUSE_SECRET_KEY="sk-lf-xxx"
+export COHORT_ENV="local"
+export COHORT_RELEASE="v1.0.0"
+
+cohort ask "读取 README.md，总结 Cohort 的可观测性能力"
+```
+
+也可以写入 `~/.cohort/config.yaml`：
+
+```yaml
+observability:
+  langfuse:
+    enabled: ${COHORT_LANGFUSE_ENABLED}
+    host: ${LANGFUSE_HOST}
+    public_key: ${LANGFUSE_PUBLIC_KEY}
+    secret_key: ${LANGFUSE_SECRET_KEY}
+    environment: ${COHORT_ENV}
+    release: ${COHORT_RELEASE}
+    timeout_seconds: 2
+```
+
+安全边界：
+
+- `token`、`secret`、`password` 等敏感字段会脱敏。
+- `input_tokens`、`output_tokens`、`total_tokens` 等 usage 数值会保留，方便分析成本。
+- 截图、剪贴板正文和大段工具输出不会作为明文调试垃圾直接灌进 trace；本地 artifact 仍保存在 session/workspace 目录。
+- `reflect once` 是本地离线报告，不会自动补传到 Langfuse。
 
 ## 真实示例
 
