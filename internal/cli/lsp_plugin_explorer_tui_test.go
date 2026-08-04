@@ -51,6 +51,48 @@ func TestRunLSPDoctorRejectsPositionalArgs_BitsUT(t *testing.T) {
 	}
 }
 
+func TestRunLSPDoctorInstallMissing_BitsUT(t *testing.T) {
+	dir := t.TempDir()
+	writeExecutableForCLI(t, filepath.Join(dir, "gopls"), `#!/bin/sh
+if [ "$1" = "version" ]; then echo "gopls test"; exit 0; fi
+exit 2
+`)
+	writeExecutableForCLI(t, filepath.Join(dir, "npm"), `#!/bin/sh
+pkg="$3"
+script_dir="${0%/*}"
+if [ "$pkg" = "typescript" ]; then
+  /bin/cat > "$script_dir/tsc" <<'SCRIPT'
+#!/bin/sh
+echo "Version installed-typescript"
+SCRIPT
+  /bin/chmod +x "$script_dir/tsc"
+  echo "installed typescript"
+  exit 0
+fi
+if [ "$pkg" = "pyright" ]; then
+  /bin/cat > "$script_dir/pyright" <<'SCRIPT'
+#!/bin/sh
+echo "pyright installed-pyright"
+SCRIPT
+  /bin/chmod +x "$script_dir/pyright"
+  echo "installed pyright"
+  exit 0
+fi
+exit 3
+`)
+	t.Setenv("PATH", dir)
+
+	var out bytes.Buffer
+	if err := runLSPCommand(context.Background(), []string{"doctor", "--language", "all", "--install"}, &out); err != nil {
+		t.Fatalf("doctor install error = %v\n%s", err, out.String())
+	}
+	for _, want := range []string{"install:", "npm install -g typescript", "npm install -g pyright", "typescript: ok", "python: ok"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("output = %q, want %q", out.String(), want)
+		}
+	}
+}
+
 func TestRunPluginCommandListsManifest_BitsUT(t *testing.T) {
 	wd, err := os.Getwd()
 	if err != nil {
@@ -77,6 +119,13 @@ func TestRunPluginCommandListsManifest_BitsUT(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "local") || !strings.Contains(out.String(), "0.1.0") {
 		t.Fatalf("plugin list output = %q", out.String())
+	}
+}
+
+func writeExecutableForCLI(t *testing.T, path string, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0755); err != nil {
+		t.Fatal(err)
 	}
 }
 

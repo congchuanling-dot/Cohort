@@ -25,7 +25,7 @@
 6. `[部分完成]` Project / Plan Mode：`cohort project init/status`、`.cohort/project.md`、`.cohort/config.json`、`cohort plan create/status/start/verify/block` 和 `.cohort/plan.json` 已落地；更完整 Project bootstrap 向导仍待补。
 7. `[完成]` Skill Runtime 补强和候选挖掘：内置高频 Skill 包、`SKILL.md permissions`、`/skill run` active policy、Skill 候选离线报告已落地。
 8. `[部分完成]` MCP 补全、usage/cost 和离线反思增强：MCP import/export、旧 SSE 兼容、per-tool policy CLI、Runner usage/cost 汇总、`mine-skill-candidates` 已落地；OAuth 体验深优化和 L4 闭环仍待补。
-9. `[部分完成]` LSP / Plugin / Adapter / Explorer / TUI 底座：`lsp_diagnostics` Agent tool 和 `cohort lsp doctor/diagnostics` 已支持 Go/TypeScript/Python 只读诊断（Go=`gopls`、TS=`tsc --noEmit`、Python=`pyright`）；`cohort plugin list/show/doctor` 已能发现和校验 `.cohort/plugins/*/plugin.json`；`cohort capability adapter <proposal_id> --type tool|mcp` 可生成待审查 adapter scaffold；`cohort explorer create/list/show` 可生成只读验证任务包；`cohort tui status` 可查看 plan、diff 和日志摘要。运行时自动注册、definition/references 等完整 LSP 查询、真正并行 subagent 和全屏 TUI 仍待补。
+9. `[部分完成]` LSP / Plugin / Adapter / Explorer / TUI 底座：`lsp_diagnostics` Agent tool 和 `cohort lsp doctor/diagnostics` 已支持 Go/TypeScript/Python 只读诊断（Go=`gopls`、TS=`tsc --noEmit`、Python=`pyright`）；`cohort lsp doctor --install` 可用 npm 显式补装缺失的 `typescript`/`pyright`；`cohort plugin list/show/doctor` 已能发现和校验 `.cohort/plugins/*/plugin.json`；`cohort capability adapter <proposal_id> --type tool|mcp` 可生成待审查 adapter scaffold；`cohort explorer create/list/show` 可生成只读验证任务包；`cohort tui status` 可查看 plan、diff 和日志摘要。运行时自动注册、definition/references 等完整 LSP 查询、真正并行 subagent 和全屏 TUI 仍待补。
 10. `[下一步]` 推进 OAuth 体验深优化、多模型体验、daemon、真实并行 subagent 和本地 API。
 11. `[验收支线]` 用官方飞书 MCP 完成 OAuth、只读和受控写操作的真实端到端验收。
 

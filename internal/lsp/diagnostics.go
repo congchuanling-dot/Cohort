@@ -15,14 +15,18 @@ const (
 	LanguageTypeScript = "typescript"
 	LanguagePython     = "python"
 	LanguageAll        = "all"
+
+	DefaultInstallTimeout = 180 * time.Second
 )
 
 type Diagnostics struct {
 	Root              string
 	Timeout           time.Duration
+	InstallTimeout    time.Duration
 	GoCommand         string
 	TypeScriptCommand string
 	PythonCommand     string
+	NPMCommand        string
 }
 
 type LanguageDoctorResult struct {
@@ -32,6 +36,16 @@ type LanguageDoctorResult struct {
 	Version  string `json:"version,omitempty"`
 	OK       bool   `json:"ok"`
 	Error    string `json:"error,omitempty"`
+}
+
+type InstallResult struct {
+	Language string   `json:"language"`
+	Package  string   `json:"package"`
+	Command  []string `json:"command"`
+	Output   string   `json:"output,omitempty"`
+	OK       bool     `json:"ok"`
+	Skipped  bool     `json:"skipped,omitempty"`
+	Error    string   `json:"error,omitempty"`
 }
 
 func NormalizeLanguage(language string) string {
@@ -76,6 +90,27 @@ func (d Diagnostics) Doctor(ctx context.Context, language string) []LanguageDoct
 	results := make([]LanguageDoctorResult, 0, len(languages))
 	for _, item := range languages {
 		results = append(results, d.doctorOne(ctx, item))
+	}
+	return results
+}
+
+func (d Diagnostics) InstallMissing(ctx context.Context, language string) []InstallResult {
+	doctor := d.Doctor(ctx, language)
+	results := make([]InstallResult, 0, len(doctor))
+	for _, item := range doctor {
+		if item.OK {
+			continue
+		}
+		install, ok := d.installPlan(item.Language)
+		if !ok {
+			results = append(results, InstallResult{
+				Language: item.Language,
+				Skipped:  true,
+				Error:    "automatic install is not supported for this language",
+			})
+			continue
+		}
+		results = append(results, d.runInstall(ctx, install))
 	}
 	return results
 }
@@ -128,6 +163,70 @@ func (d Diagnostics) commandAndVersionArgs(language string) (string, []string) {
 	default:
 		return language, nil
 	}
+}
+
+type installPlan struct {
+	Language string
+	Package  string
+	Command  []string
+}
+
+func (d Diagnostics) installPlan(language string) (installPlan, bool) {
+	npm := firstNonEmpty(d.NPMCommand, "npm")
+	switch language {
+	case LanguageTypeScript:
+		return installPlan{
+			Language: language,
+			Package:  "typescript",
+			Command:  []string{npm, "install", "-g", "typescript"},
+		}, true
+	case LanguagePython:
+		return installPlan{
+			Language: language,
+			Package:  "pyright",
+			Command:  []string{npm, "install", "-g", "pyright"},
+		}, true
+	default:
+		return installPlan{}, false
+	}
+}
+
+func (d Diagnostics) runInstall(ctx context.Context, plan installPlan) InstallResult {
+	result := InstallResult{
+		Language: plan.Language,
+		Package:  plan.Package,
+		Command:  plan.Command,
+	}
+	if len(plan.Command) == 0 {
+		result.Error = "empty install command"
+		return result
+	}
+	if _, err := exec.LookPath(plan.Command[0]); err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	timeout := d.InstallTimeout
+	if timeout <= 0 {
+		timeout = DefaultInstallTimeout
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(runCtx, plan.Command[0], plan.Command[1:]...)
+	if strings.TrimSpace(d.Root) != "" {
+		cmd.Dir = filepath.Clean(d.Root)
+	}
+	output, err := cmd.CombinedOutput()
+	result.Output = strings.TrimSpace(string(output))
+	if runCtx.Err() != nil {
+		result.Error = runCtx.Err().Error()
+		return result
+	}
+	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	result.OK = true
+	return result
 }
 
 func (d Diagnostics) runTypeScript(ctx context.Context, targets []string) (CheckResult, error) {

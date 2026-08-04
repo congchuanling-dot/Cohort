@@ -379,6 +379,7 @@ lsp_symbols
 - Go：检测 `gopls`，通过 `gopls check` 暴露 diagnostics。
 - TypeScript：检测 `tsc`，通过 `tsc --noEmit --pretty false` 暴露 diagnostics。
 - Python：检测 `pyright`，通过 `pyright` 暴露 diagnostics。
+- `cohort lsp doctor --install` 可通过 `npm install -g typescript` 和 `npm install -g pyright` 显式补装缺失后端；默认 doctor 仍只读。
 - definition、references、hover、symbols 仍是下一阶段。
 
 **优先级：P2**
@@ -577,7 +578,7 @@ permissions:
 
 1. Skill / Plugin manifest。当前已有 `.cohort/plugins/*/plugin.json` 发现与 doctor。
 2. MCP client。
-3. LSP tools，当前已有 `cohort lsp doctor/diagnostics --language go|typescript|python|all` 和 `lsp_diagnostics` Agent tool。
+3. LSP tools，当前已有 `cohort lsp doctor/diagnostics --language go|typescript|python|all`、`cohort lsp doctor --install` 和 `lsp_diagnostics` Agent tool。
 4. TUI。当前已有轻量 `cohort tui status`，全屏交互式 TUI 仍待补。
 5. 相关记忆语义检索。
 6. tracing sink。

@@ -73,6 +73,65 @@ exit 0
 	}
 }
 
+func TestDiagnosticsInstallMissingTypeScriptAndPython_BitsUT(t *testing.T) {
+	dir := t.TempDir()
+	writeExecutable(t, filepath.Join(dir, "gopls"), `#!/bin/sh
+if [ "$1" = "version" ]; then echo "gopls test"; exit 0; fi
+exit 2
+`)
+	writeExecutable(t, filepath.Join(dir, "npm"), `#!/bin/sh
+pkg="$3"
+script_dir="${0%/*}"
+if [ "$pkg" = "typescript" ]; then
+  /bin/cat > "$script_dir/tsc" <<'SCRIPT'
+#!/bin/sh
+echo "Version installed-typescript"
+SCRIPT
+  /bin/chmod +x "$script_dir/tsc"
+  echo "installed typescript"
+  exit 0
+fi
+if [ "$pkg" = "pyright" ]; then
+  /bin/cat > "$script_dir/pyright" <<'SCRIPT'
+#!/bin/sh
+echo "pyright installed-pyright"
+SCRIPT
+  /bin/chmod +x "$script_dir/pyright"
+  echo "installed pyright"
+  exit 0
+fi
+exit 3
+`)
+	t.Setenv("PATH", dir)
+	client := Diagnostics{Root: t.TempDir()}
+
+	before := client.Doctor(context.Background(), LanguageAll)
+	missing := 0
+	for _, item := range before {
+		if !item.OK {
+			missing++
+		}
+	}
+	if missing != 2 {
+		t.Fatalf("before = %#v, want tsc and pyright missing", before)
+	}
+	installed := client.InstallMissing(context.Background(), LanguageAll)
+	if len(installed) != 2 {
+		t.Fatalf("installed = %#v", installed)
+	}
+	for _, item := range installed {
+		if !item.OK {
+			t.Fatalf("install result = %#v", item)
+		}
+	}
+	after := client.Doctor(context.Background(), LanguageAll)
+	for _, item := range after {
+		if !item.OK {
+			t.Fatalf("after = %#v", after)
+		}
+	}
+}
+
 func writeExecutable(t *testing.T, path string, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0755); err != nil {

@@ -1324,8 +1324,8 @@ Usage:
   cohort doctor [--connect]
                           check config, API key, provider, and local paths
   cohort doctor computer  check macOS computer-use permissions and helpers
-  cohort lsp doctor [--language go|typescript|python|all]
-                          check local diagnostic backends
+  cohort lsp doctor [--language go|typescript|python|all] [--install]
+                          check local diagnostic backends; --install installs missing tsc/pyright via npm
   cohort lsp diagnostics [--language go|typescript|python] [path...]
                           run read-only language diagnostics
   cohort plugin list|show|doctor
