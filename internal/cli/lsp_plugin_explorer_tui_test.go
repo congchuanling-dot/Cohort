@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"cohort/internal/explorer"
 )
 
 func TestRunLSPCommandUsesGopls_BitsUT(t *testing.T) {
@@ -179,12 +181,22 @@ exit 2
 		t.Fatal(err)
 	}
 	id := outputValueFromText(t, out.String(), "explorer")
+	t.Setenv(explorerChildEnv, "1")
 	out.Reset()
-	if err := runExplorerCommand([]string{"run", id}, &out); err != nil {
+	if err := runExplorerCommand([]string{"run-child", id}, &out); err != nil {
 		t.Fatalf("run error = %v\n%s", err, out.String())
 	}
 	if !strings.Contains(out.String(), "status: completed") || !strings.Contains(out.String(), "git_status") {
 		t.Fatalf("run output = %q", out.String())
+	}
+}
+
+func TestExplorerChildArgs_BitsUT(t *testing.T) {
+	args := explorerChildArgs("explorer_test", explorer.RunOptions{WithTests: true, Search: "TODO"})
+	got := strings.Join(args, " ")
+	want := "explorer run-child explorer_test --with-tests --search TODO"
+	if got != want {
+		t.Fatalf("args = %q, want %q", got, want)
 	}
 }
 
@@ -234,6 +246,28 @@ func TestRunTUICommandExplorers_BitsUT(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Explorers") || !strings.Contains(out.String(), "verify explorer panel") {
 		t.Fatalf("tui explorers output = %q", out.String())
+	}
+}
+
+func TestRunTUICommandWatchOnce_BitsUT(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+
+	var out bytes.Buffer
+	if err := runTUICommand([]string{"watch", "--interval", "1ms", "--iterations", "1"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Cohort Live Panel") || !strings.Contains(out.String(), "Cohort Status") {
+		t.Fatalf("watch output = %q", out.String())
 	}
 }
 

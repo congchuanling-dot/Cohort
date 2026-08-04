@@ -1333,8 +1333,8 @@ Usage:
   cohort explorer create "question"
                           create a read-only explorer validation task
   cohort explorer list|show|run
-                          inspect or run read-only explorer tasks
-  cohort tui status|plan|diff|logs|explorers
+                          inspect or run isolated read-only explorer tasks
+  cohort tui status|plan|diff|logs|explorers|watch
                           show terminal task, plan, diff, log, and explorer panels
   cohort mcp list         list configured MCP servers
   cohort mcp status       check configured MCP server availability

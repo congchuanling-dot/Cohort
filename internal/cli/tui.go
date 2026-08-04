@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"cohort/internal/explorer"
 	"cohort/internal/plan"
@@ -52,8 +53,78 @@ func runTUICommand(args []string, out io.Writer) error {
 		}
 		printTUIExplorers(root, out)
 		return nil
+	case "watch":
+		opts, err := parseTUIWatchArgs(args[1:])
+		if err != nil {
+			return err
+		}
+		return runTUIWatch(root, opts, out)
 	default:
-		return fmt.Errorf("unknown tui command %q, use status, plan, diff, logs, or explorers", args[0])
+		return fmt.Errorf("unknown tui command %q, use status, plan, diff, logs, explorers, or watch", args[0])
+	}
+}
+
+type tuiWatchOptions struct {
+	Interval   time.Duration
+	Iterations int
+}
+
+func parseTUIWatchArgs(args []string) (tuiWatchOptions, error) {
+	opts := tuiWatchOptions{
+		Interval:   2 * time.Second,
+		Iterations: 0,
+	}
+	for len(args) > 0 {
+		arg := args[0]
+		args = args[1:]
+		switch arg {
+		case "--interval":
+			if len(args) == 0 {
+				return opts, errors.New("--interval requires a duration, for example 2s")
+			}
+			interval, err := time.ParseDuration(args[0])
+			if err != nil {
+				return opts, err
+			}
+			opts.Interval = interval
+			args = args[1:]
+		case "--iterations":
+			if len(args) == 0 {
+				return opts, errors.New("--iterations requires a number")
+			}
+			var n int
+			if _, err := fmt.Sscanf(args[0], "%d", &n); err != nil {
+				return opts, err
+			}
+			opts.Iterations = n
+			args = args[1:]
+		default:
+			return opts, fmt.Errorf("unknown tui watch option %q", arg)
+		}
+	}
+	if opts.Interval <= 0 {
+		return opts, errors.New("--interval must be positive")
+	}
+	if opts.Iterations < 0 {
+		return opts, errors.New("--iterations must be >= 0")
+	}
+	return opts, nil
+}
+
+func runTUIWatch(root string, opts tuiWatchOptions, out io.Writer) error {
+	iteration := 0
+	for {
+		iteration++
+		fmt.Fprintln(out, "\033[2J\033[H")
+		fmt.Fprintf(out, "Cohort Live Panel - %s - refresh #%d\n", time.Now().Format("15:04:05"), iteration)
+		fmt.Fprintln(out, "======================================")
+		if err := printTUIStatus(root, out); err != nil {
+			return err
+		}
+		if opts.Iterations > 0 && iteration >= opts.Iterations {
+			return nil
+		}
+		time.Sleep(opts.Interval)
 	}
 }
 
