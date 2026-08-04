@@ -142,6 +142,79 @@ func TestStorePromoteRequiresSuccessfulVerification_BitsUT(t *testing.T) {
 	}
 }
 
+func TestStoreDoctorChecksCandidateAndVerification_BitsUT(t *testing.T) {
+	projectRoot := t.TempDir()
+	store := NewStore(projectRoot)
+	gap, err := store.AddGap(NewGapFromTask("local csv analysis"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := store.AddProposal(NewProposalFromGap(gap))
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := store.Build(proposal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := store.Doctor(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.ReadyToVerify || result.ReadyToPromote {
+		t.Fatalf("doctor readiness = verify:%t promote:%t, want true/false", result.ReadyToVerify, result.ReadyToPromote)
+	}
+	for _, want := range []string{"skill_entry", "manifest", "smoke_test", "command:bash", "verification"} {
+		if !doctorHasCheck(result, want) {
+			t.Fatalf("doctor checks missing %q: %#v", want, result.Checks)
+		}
+	}
+
+	if _, _, err := store.Verify(item.ID); err != nil {
+		t.Fatal(err)
+	}
+	result, err = store.Doctor(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.ReadyToVerify || !result.ReadyToPromote {
+		t.Fatalf("doctor readiness after verify = verify:%t promote:%t, want true/true", result.ReadyToVerify, result.ReadyToPromote)
+	}
+}
+
+func TestStoreDoctorReportsMissingSmokeTest_BitsUT(t *testing.T) {
+	projectRoot := t.TempDir()
+	store := NewStore(projectRoot)
+	gap, err := store.AddGap(NewGapFromTask("local csv analysis"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := store.AddProposal(NewProposalFromGap(gap))
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := store.Build(proposal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	smoke := filepath.Join(projectRoot, ProjectDirName, "skills", item.ID, "tests", "smoke.sh")
+	if err := os.Remove(smoke); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := store.Doctor(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ReadyToVerify {
+		t.Fatalf("ready_to_verify = true, want false for missing smoke")
+	}
+	if !doctorHasCheckStatus(result, "smoke_test", doctorStatusError) {
+		t.Fatalf("doctor checks = %#v, want smoke_test error", result.Checks)
+	}
+}
+
 func TestStoreIndexPromptOnlyIncludesAvailableCapabilities_BitsUT(t *testing.T) {
 	store := NewStore(t.TempDir())
 	now := testTime()
@@ -287,4 +360,22 @@ func mustLoadRegistry(t *testing.T, store Store) Registry {
 		t.Fatal(err)
 	}
 	return registry
+}
+
+func doctorHasCheck(result DoctorResult, name string) bool {
+	for _, check := range result.Checks {
+		if check.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func doctorHasCheckStatus(result DoctorResult, name string, status string) bool {
+	for _, check := range result.Checks {
+		if check.Name == name && check.Status == status {
+			return true
+		}
+	}
+	return false
 }

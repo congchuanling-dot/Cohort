@@ -25,6 +25,10 @@ const (
 	maxCapabilityIndexTriggerCount = 3
 	defaultSuggestionMinCount      = 2
 	maxSuggestionExamples          = 3
+
+	doctorStatusOK    = "ok"
+	doctorStatusWarn  = "warn"
+	doctorStatusError = "error"
 )
 
 type Store struct {
@@ -216,6 +220,36 @@ func (s Store) Suggestions() ([]Suggestion, error) {
 	return suggestions, nil
 }
 
+func (s Store) Doctor(capabilityID string) (DoctorResult, error) {
+	capabilityID = normalizeID(capabilityID)
+	if capabilityID == "" {
+		return DoctorResult{}, errors.New("capability id is required")
+	}
+	registry, err := s.Load()
+	if err != nil {
+		return DoctorResult{}, err
+	}
+	capabilityIndex := indexCapability(registry.Capabilities, capabilityID)
+	if capabilityIndex == -1 {
+		return DoctorResult{}, fmt.Errorf("capability %q not found", capabilityID)
+	}
+	item := registry.Capabilities[capabilityIndex]
+	result := DoctorResult{Capability: item}
+	result.addCheck("registry", doctorStatusOK, "capability is registered")
+	result.addCheck("status", doctorStatusForCapability(item), doctorStatusMessage(item))
+	result.checkSkillArtifacts(s.projectRoot(), item)
+	result.checkRequirements(item.Requires)
+	if item.Verification.LastPassedAt.IsZero() {
+		result.addCheck("verification", doctorStatusWarn, "no successful verification recorded")
+	} else {
+		result.addCheck("verification", doctorStatusOK, "last successful verification at "+item.Verification.LastPassedAt.Format(time.RFC3339))
+	}
+	result.ReadyToVerify = !result.hasErrors() && item.Status != StatusDisabled
+	result.ReadyToPromote = result.ReadyToVerify && item.Status != StatusFailed && !item.Verification.LastPassedAt.IsZero()
+	result.NextActions = doctorNextActions(item, result)
+	return result, nil
+}
+
 func (s Store) Build(proposalID string) (Capability, error) {
 	proposalID = strings.TrimSpace(proposalID)
 	if proposalID == "" {
@@ -382,6 +416,9 @@ func (s Store) updateCapabilityStatus(capabilityID string, status string, requir
 	if requireVerification && item.Verification.LastPassedAt.IsZero() {
 		return Capability{}, fmt.Errorf("capability %q has no successful verification; run `cohort capability verify %s` first", capabilityID, capabilityID)
 	}
+	if requireVerification && item.Status == StatusFailed {
+		return Capability{}, fmt.Errorf("capability %q is failed; run `cohort capability verify %s` after fixing it", capabilityID, capabilityID)
+	}
 	now := time.Now().UTC()
 	item.Status = status
 	item.UpdatedAt = now
@@ -526,6 +563,142 @@ func defaultSuggestedActions() []string {
 		"generate a project-level Skill or Tool scaffold",
 		"run a smoke test before promotion",
 	}
+}
+
+func (r *DoctorResult) addCheck(name string, status string, message string) {
+	r.Checks = append(r.Checks, DoctorCheck{
+		Name:    name,
+		Status:  status,
+		Message: message,
+	})
+}
+
+func (r DoctorResult) hasErrors() bool {
+	for _, check := range r.Checks {
+		if check.Status == doctorStatusError {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *DoctorResult) checkSkillArtifacts(projectRoot string, item Capability) {
+	if item.Type != "" && item.Type != TypeSkill {
+		r.addCheck("type", doctorStatusWarn, "doctor only performs artifact checks for skill capabilities")
+		return
+	}
+	entry := strings.TrimSpace(item.Entry)
+	if entry == "" {
+		r.addCheck("skill_entry", doctorStatusError, "skill capability has no entry path")
+		return
+	}
+	entryPath := filepath.Join(projectRoot, filepath.FromSlash(entry))
+	if fileExists(entryPath) {
+		r.addCheck("skill_entry", doctorStatusOK, entry)
+	} else {
+		r.addCheck("skill_entry", doctorStatusError, "missing "+entry)
+	}
+	root := filepath.Dir(entryPath)
+	manifest := filepath.Join(root, "cohort-capability.json")
+	if fileExists(manifest) {
+		r.addCheck("manifest", doctorStatusOK, relPath(projectRoot, manifest))
+	} else {
+		r.addCheck("manifest", doctorStatusWarn, "missing "+relPath(projectRoot, manifest))
+	}
+	smoke := filepath.Join(root, "tests", "smoke.sh")
+	if fileExists(smoke) {
+		r.addCheck("smoke_test", doctorStatusOK, relPath(projectRoot, smoke))
+	} else {
+		r.addCheck("smoke_test", doctorStatusError, "missing "+relPath(projectRoot, smoke))
+	}
+}
+
+func (r *DoctorResult) checkRequirements(requires Requirements) {
+	for _, command := range requires.Commands {
+		command = strings.TrimSpace(command)
+		if command == "" {
+			continue
+		}
+		if _, err := exec.LookPath(command); err != nil {
+			r.addCheck("command:"+command, doctorStatusError, "command not found in PATH")
+		} else {
+			r.addCheck("command:"+command, doctorStatusOK, "command is available")
+		}
+	}
+	for _, env := range requires.Env {
+		env = strings.TrimSpace(env)
+		if env == "" {
+			continue
+		}
+		if _, ok := os.LookupEnv(env); ok {
+			r.addCheck("env:"+env, doctorStatusOK, "environment variable is set")
+		} else {
+			r.addCheck("env:"+env, doctorStatusError, "environment variable is not set")
+		}
+	}
+	if len(requires.Tools) > 0 {
+		r.addCheck("tools", doctorStatusOK, "declared Cohort tools: "+strings.Join(requires.Tools, ","))
+	}
+	if len(requires.Python) > 0 {
+		r.addCheck("python", doctorStatusWarn, "declared Python packages are not installed automatically: "+strings.Join(requires.Python, ","))
+	}
+}
+
+func doctorStatusForCapability(item Capability) string {
+	switch item.Status {
+	case StatusCandidate, StatusAvailable:
+		return doctorStatusOK
+	case StatusFailed, StatusDisabled:
+		return doctorStatusWarn
+	default:
+		return doctorStatusWarn
+	}
+}
+
+func doctorStatusMessage(item Capability) string {
+	switch item.Status {
+	case StatusCandidate:
+		return "candidate is ready for verification"
+	case StatusAvailable:
+		return "capability is available"
+	case StatusFailed:
+		return "last verification failed; rerun verify after fixing artifacts"
+	case StatusDisabled:
+		return "capability is disabled"
+	default:
+		return "capability status is " + firstNonEmpty(item.Status, "unknown")
+	}
+}
+
+func doctorNextActions(item Capability, result DoctorResult) []string {
+	if result.hasErrors() {
+		return []string{"fix error checks before running verify"}
+	}
+	if item.Status == StatusDisabled {
+		return []string{"capability is disabled; rebuild or re-enable it before use"}
+	}
+	if item.Status == StatusFailed {
+		return []string{"fix the failed smoke test and run: cohort capability verify " + item.ID}
+	}
+	if item.Verification.LastPassedAt.IsZero() {
+		return []string{"cohort capability verify " + item.ID}
+	}
+	if item.Status != StatusAvailable {
+		return []string{"cohort capability promote " + item.ID}
+	}
+	return []string{"capability is available"}
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func relPath(root string, path string) string {
+	if rel, err := filepath.Rel(root, path); err == nil {
+		return filepath.ToSlash(rel)
+	}
+	return filepath.ToSlash(path)
 }
 
 type suggestionAccumulator struct {

@@ -1,6 +1,6 @@
 # Cohort 能力边界拓展技术方案
 
-> 状态：部分完成。当前已完成 P0/P4 的核心闭环：本地 capability registry、手动 gap/proposal CLI、Runner no-tool 能力缺口记录、`CapabilityGapRecorded` 观测事件、项目级 Skill scaffold、smoke test、`verify/promote/disable` 状态流转、available capability 轻量索引注入、重复 gap CLI 建议。依赖安装审核、Tool/MCP adapter 生成和离线反思汇总仍为后续规划。
+> 状态：部分完成。当前已完成 P0/P4 的核心闭环：本地 capability registry、手动 gap/proposal CLI、Runner no-tool 能力缺口记录、`CapabilityGapRecorded` 观测事件、项目级 Skill scaffold、doctor 诊断、smoke test、`verify/promote/disable` 状态流转、available capability 轻量索引注入、重复 gap CLI 建议。依赖安装审核、Tool/MCP adapter 生成和离线反思汇总仍为后续规划。
 
 ## 1. 背景
 
@@ -453,6 +453,7 @@ cohort skill list
 ### P3：Verification 与 Promote
 
 - 新增 verify runner。
+- 新增 doctor 诊断，检查候选能力的文件、依赖和验证状态。
 - 验证通过后将状态改为 `available`。
 - 失败时将 capability 标记为 `failed`，保留候选文件供用户修复后重跑 verify。
 - 新增 `disable`，允许显式关闭已注册能力。
@@ -460,12 +461,13 @@ cohort skill list
 验收：
 
 ```bash
+cohort capability doctor <id>
 cohort capability verify <id>
 cohort capability promote <id>
 cohort capability disable <id>
 ```
 
-状态：已完成。`promote` 要求存在最近一次成功 verify 的 `last_passed_at`，避免未验证能力直接进入 available。
+状态：已完成。`doctor` 会检查 Skill entry、manifest、smoke test、命令/env 依赖和最近 verify 状态；`promote` 要求存在最近一次成功 verify 的 `last_passed_at`，且 failed 状态必须重新 verify 后才能 promote。
 
 ### P4：自动路由与离线反思
 

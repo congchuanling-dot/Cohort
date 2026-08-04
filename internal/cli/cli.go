@@ -944,6 +944,8 @@ Usage:
                           suggest builds for repeated unresolved gaps
   cohort capability show <id>
                           show a capability, gap, or proposal
+  cohort capability doctor <capability_id>
+                          diagnose artifacts, dependencies, and verification state
   cohort capability propose "task"
                           record a gap and generate a proposal draft
   cohort capability build <proposal_id>

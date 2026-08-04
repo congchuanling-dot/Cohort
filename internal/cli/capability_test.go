@@ -71,6 +71,14 @@ func TestRunCapabilityLifecycleCommand_BitsUT(t *testing.T) {
 	}
 
 	out.Reset()
+	if err := runCapabilityCommand([]string{"doctor", capabilityID}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "ready_to_verify: true") || !strings.Contains(out.String(), "smoke_test") {
+		t.Fatalf("doctor output = %q", out.String())
+	}
+
+	out.Reset()
 	if err := runCapabilityCommand([]string{"verify", capabilityID}, &out); err != nil {
 		t.Fatal(err)
 	}

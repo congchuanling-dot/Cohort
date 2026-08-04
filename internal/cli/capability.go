@@ -14,7 +14,7 @@ import (
 
 func runCapabilityCommand(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: cohort capability list|gaps|suggestions|show|propose|build|verify|promote|disable ...")
+		return errors.New("usage: cohort capability list|gaps|suggestions|show|doctor|propose|build|verify|promote|disable ...")
 	}
 	projectRoot, err := os.Getwd()
 	if err != nil {
@@ -33,6 +33,11 @@ func runCapabilityCommand(args []string, out io.Writer) error {
 			return errors.New("usage: cohort capability show <id>")
 		}
 		return printCapabilityItem(store, args[1], out)
+	case "doctor":
+		if len(args) != 2 {
+			return errors.New("usage: cohort capability doctor <capability_id>")
+		}
+		return doctorCapability(store, args[1], out)
 	case "propose":
 		if len(args) < 2 {
 			return errors.New(`usage: cohort capability propose "task or capability gap"`)
@@ -130,6 +135,34 @@ func printCapabilityItem(store capability.Store, id string, out io.Writer) error
 		return err
 	}
 	fmt.Fprintln(out, string(data))
+	return nil
+}
+
+func doctorCapability(store capability.Store, capabilityID string, out io.Writer) error {
+	result, err := store.Doctor(capabilityID)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "capability: %s\n", result.Capability.ID)
+	fmt.Fprintf(out, "status: %s\n", result.Capability.Status)
+	fmt.Fprintf(out, "ready_to_verify: %t\n", result.ReadyToVerify)
+	fmt.Fprintf(out, "ready_to_promote: %t\n", result.ReadyToPromote)
+	fmt.Fprintln(out, "")
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "CHECK\tSTATUS\tMESSAGE")
+	for _, check := range result.Checks {
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", check.Name, check.Status, check.Message)
+	}
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	if len(result.NextActions) > 0 {
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Next:")
+		for _, action := range result.NextActions {
+			fmt.Fprintf(out, "  - %s\n", action)
+		}
+	}
 	return nil
 }
 

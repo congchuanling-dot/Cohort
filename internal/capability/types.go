@@ -86,3 +86,17 @@ type Suggestion struct {
 	NextCommand       string    `json:"next_command"`
 	Reason            string    `json:"reason"`
 }
+
+type DoctorResult struct {
+	Capability     Capability    `json:"capability"`
+	Checks         []DoctorCheck `json:"checks"`
+	ReadyToVerify  bool          `json:"ready_to_verify"`
+	ReadyToPromote bool          `json:"ready_to_promote"`
+	NextActions    []string      `json:"next_actions,omitempty"`
+}
+
+type DoctorCheck struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
