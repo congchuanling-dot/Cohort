@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -15,6 +16,8 @@ import (
 	"cohort/internal/app"
 	"cohort/internal/evolution"
 	"cohort/internal/mcp"
+	"cohort/internal/plan"
+	"cohort/internal/project"
 	"cohort/internal/repl"
 	"cohort/internal/session"
 	"cohort/internal/skill"
@@ -22,6 +25,8 @@ import (
 )
 
 const mcpProbeTimeout = 90 * time.Second
+
+const reflectTaskUsage = "session-archive|mine-sop-candidates|mine-skill-candidates|memory-quality-report|tool-failure-report"
 
 type globalOptions struct {
 	ConfigPath string
@@ -55,6 +60,12 @@ func Run(args []string) error {
 	}
 	if args[0] == "init" {
 		return runInitCommand(opts, args[1:], os.Stdout)
+	}
+	if args[0] == "project" {
+		return runProjectCommand(args[1:], os.Stdout)
+	}
+	if args[0] == "plan" {
+		return runPlanCommand(args[1:], os.Stdout)
 	}
 
 	configPath, err := app.ResolveConfigPath(opts.ConfigPath)
@@ -161,6 +172,172 @@ func parseGlobalOptions(args []string) (globalOptions, []string, error) {
 	return opts, remaining, nil
 }
 
+func runProjectCommand(args []string, out io.Writer) error {
+	if len(args) == 0 {
+		args = []string{"status"}
+	}
+	root, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	store := project.NewStore(root)
+	switch args[0] {
+	case "init":
+		force := false
+		titleParts := make([]string, 0, len(args)-1)
+		for _, arg := range args[1:] {
+			if arg == "--force" {
+				force = true
+				continue
+			}
+			titleParts = append(titleParts, arg)
+		}
+		status, err := store.Init(strings.Join(titleParts, " "), force)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(out, "project:")
+		fmt.Fprintln(out, "  status: initialized")
+		fmt.Fprintf(out, "  project_md: %s\n", status.ProjectPath)
+		fmt.Fprintf(out, "  config: %s\n", status.ConfigPath)
+		return nil
+	case "status":
+		status, err := store.Status()
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(out, "project:")
+		fmt.Fprintf(out, "  root: %s\n", status.Root)
+		fmt.Fprintf(out, "  project_md: %s\n", status.ProjectPath)
+		fmt.Fprintf(out, "  config: %s\n", status.ConfigPath)
+		if status.Exists {
+			fmt.Fprintln(out, "  status: active")
+		} else {
+			fmt.Fprintln(out, "  status: not initialized")
+			fmt.Fprintln(out, "  next: cohort project init <title>")
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown project command %q, use project init [title] or project status", args[0])
+	}
+}
+
+func runPlanCommand(args []string, out io.Writer) error {
+	if len(args) == 0 {
+		args = []string{"status"}
+	}
+	root, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	store := plan.NewStore(root)
+	switch args[0] {
+	case "create":
+		title, steps, err := parseCLIPlanCreateArgs(args[1:])
+		if err != nil {
+			return err
+		}
+		state, err := store.Create(title, steps)
+		if err != nil {
+			return err
+		}
+		printCLIPlanState(out, state, store.Path())
+		return nil
+	case "status":
+		state, err := store.Load()
+		if errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintln(out, "plan:")
+			fmt.Fprintln(out, "  status: no active plan")
+			fmt.Fprintln(out, "  next: cohort plan create <title> -- <step1> -- <step2>")
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		printCLIPlanState(out, state, store.Path())
+		return nil
+	case "start":
+		if len(args) != 2 {
+			return errors.New("usage: cohort plan start <step_id>")
+		}
+		id, err := plan.ParseStepID(args[1])
+		if err != nil {
+			return err
+		}
+		state, err := store.StartStep(id)
+		if err != nil {
+			return err
+		}
+		printCLIPlanState(out, state, store.Path())
+		return nil
+	case "verify":
+		if len(args) < 3 {
+			return errors.New("usage: cohort plan verify <step_id> <evidence>")
+		}
+		id, err := plan.ParseStepID(args[1])
+		if err != nil {
+			return err
+		}
+		state, err := store.VerifyStep(id, strings.Join(args[2:], " "))
+		if err != nil {
+			return err
+		}
+		printCLIPlanState(out, state, store.Path())
+		return nil
+	case "block":
+		if len(args) < 2 {
+			return errors.New("usage: cohort plan block <reason>")
+		}
+		state, err := store.Block(strings.Join(args[1:], " "))
+		if err != nil {
+			return err
+		}
+		printCLIPlanState(out, state, store.Path())
+		return nil
+	default:
+		return fmt.Errorf("unknown plan command %q, use plan create|status|start|verify|block", args[0])
+	}
+}
+
+func parseCLIPlanCreateArgs(args []string) (string, []string, error) {
+	if len(args) == 0 {
+		return "", nil, errors.New("usage: cohort plan create <title> -- <step1> -- <step2>")
+	}
+	segments := [][]string{{}}
+	for _, arg := range args {
+		if arg == "--" {
+			segments = append(segments, []string{})
+			continue
+		}
+		segments[len(segments)-1] = append(segments[len(segments)-1], arg)
+	}
+	if len(segments) < 2 {
+		return "Active Plan", []string{strings.Join(args, " ")}, nil
+	}
+	title := strings.Join(segments[0], " ")
+	steps := make([]string, 0, len(segments)-1)
+	for _, segment := range segments[1:] {
+		step := strings.TrimSpace(strings.Join(segment, " "))
+		if step != "" {
+			steps = append(steps, step)
+		}
+	}
+	return title, steps, nil
+}
+
+func printCLIPlanState(out io.Writer, state plan.State, path string) {
+	fmt.Fprintln(out, "plan:")
+	fmt.Fprintf(out, "  path: %s\n", path)
+	fmt.Fprintf(out, "  title: %s\n", state.Title)
+	fmt.Fprintf(out, "  status: %s\n", state.Status)
+	for _, step := range state.Steps {
+		fmt.Fprintf(out, "  - [%s] %d. %s\n", step.Status, step.ID, step.Text)
+		if step.Evidence != "" {
+			fmt.Fprintf(out, "    evidence: %s\n", step.Evidence)
+		}
+	}
+}
+
 func runMCPCommand(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: cohort mcp add|list|status|tools|probe|remove ...")
@@ -182,6 +359,12 @@ func runMCPCommand(ctx context.Context, args []string) error {
 		return addMCPServer(store, args[1:])
 	case "remove":
 		return removeMCPServer(store, args[1:])
+	case "import":
+		return importMCPConfig(store, args[1:])
+	case "export":
+		return exportMCPConfig(store, args[1:])
+	case "policy":
+		return runMCPPolicyCommand(store, args[1:])
 	case "tools", "probe":
 		if len(args) != 2 {
 			return fmt.Errorf("usage: cohort mcp %s <server>", args[0])
@@ -190,6 +373,154 @@ func runMCPCommand(ctx context.Context, args []string) error {
 	default:
 		return fmt.Errorf("unknown mcp command %q", args[0])
 	}
+}
+
+func importMCPConfig(store mcp.Store, args []string) error {
+	scope := mcp.ScopeProject
+	merge := true
+	source := ""
+	for len(args) > 0 {
+		arg := args[0]
+		args = args[1:]
+		switch arg {
+		case "--scope":
+			if len(args) < 1 {
+				return errors.New("--scope requires project, user, or local")
+			}
+			parsed, err := mcp.ParseScope(args[0])
+			if err != nil {
+				return err
+			}
+			scope = parsed
+			args = args[1:]
+		case "--replace":
+			merge = false
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return fmt.Errorf("unknown mcp import option %q", arg)
+			}
+			if source != "" {
+				return errors.New("usage: cohort mcp import [--scope project|user|local] [--replace] <path>")
+			}
+			source = arg
+		}
+	}
+	if source == "" {
+		return errors.New("usage: cohort mcp import [--scope project|user|local] [--replace] <path>")
+	}
+	count, err := store.Import(scope, source, merge)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("mcp import: %d server(s) into %s scope\n", count, scope)
+	return nil
+}
+
+func exportMCPConfig(store mcp.Store, args []string) error {
+	scope := mcp.ScopeProject
+	target := ""
+	for len(args) > 0 {
+		arg := args[0]
+		args = args[1:]
+		switch arg {
+		case "--scope":
+			if len(args) < 1 {
+				return errors.New("--scope requires project, user, or local")
+			}
+			parsed, err := mcp.ParseScope(args[0])
+			if err != nil {
+				return err
+			}
+			scope = parsed
+			args = args[1:]
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return fmt.Errorf("unknown mcp export option %q", arg)
+			}
+			if target != "" {
+				return errors.New("usage: cohort mcp export [--scope project|user|local] <path>")
+			}
+			target = arg
+		}
+	}
+	if target == "" {
+		return errors.New("usage: cohort mcp export [--scope project|user|local] <path>")
+	}
+	if err := store.Export(scope, target); err != nil {
+		return err
+	}
+	fmt.Printf("mcp export: %s scope -> %s\n", scope, target)
+	return nil
+}
+
+func runMCPPolicyCommand(store mcp.Store, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: cohort mcp policy list|set|remove ...")
+	}
+	switch args[0] {
+	case "list":
+		config, err := store.LoadPermissions()
+		if err != nil {
+			return err
+		}
+		fmt.Println("mcp policy:")
+		if len(config.Rules) == 0 {
+			fmt.Println("  rules: none")
+			return nil
+		}
+		keys := make([]string, 0, len(config.Rules))
+		for key := range config.Rules {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			rule := config.Rules[key]
+			fmt.Printf("  - %s risk=%s decision=%s args_policy=%s\n", key, mcp.NormalizeRisk(rule.Risk), rule.Decision, rule.ArgsPolicy)
+		}
+		return nil
+	case "set":
+		return setMCPPolicyRule(store, args[1:])
+	case "remove":
+		if len(args) != 3 {
+			return errors.New("usage: cohort mcp policy remove <server> <tool>")
+		}
+		removed, _, err := store.DeletePermissionRule(args[1], args[2])
+		if err != nil {
+			return err
+		}
+		if removed {
+			fmt.Printf("mcp policy removed: %s/%s\n", args[1], args[2])
+		} else {
+			fmt.Printf("mcp policy not found: %s/%s\n", args[1], args[2])
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown mcp policy command %q, use list, set, or remove", args[0])
+	}
+}
+
+func setMCPPolicyRule(store mcp.Store, args []string) error {
+	if len(args) < 4 {
+		return errors.New("usage: cohort mcp policy set <server> <tool> <allow|ask|deny> <R1|R2|R3> [--args-policy exact_args|tool_scope]")
+	}
+	rule := mcp.ToolPermissionRule{
+		Decision:   mcp.PermissionDecision(args[2]),
+		Risk:       mcp.Risk(args[3]),
+		ArgsPolicy: mcp.ArgsPolicyExact,
+	}
+	for _, arg := range args[4:] {
+		switch {
+		case strings.HasPrefix(arg, "--args-policy="):
+			rule.ArgsPolicy = mcp.ArgsPolicy(strings.TrimPrefix(arg, "--args-policy="))
+		default:
+			return fmt.Errorf("unknown mcp policy option %q", arg)
+		}
+	}
+	if _, err := store.SetPermissionRule(args[0], args[1], rule); err != nil {
+		return err
+	}
+	fmt.Printf("mcp policy set: %s/%s risk=%s decision=%s args_policy=%s\n", args[0], args[1], mcp.NormalizeRisk(rule.Risk), rule.Decision, rule.ArgsPolicy)
+	return nil
 }
 
 func runSkillCommand(ctx context.Context, args []string) error {
@@ -527,7 +858,7 @@ func printSkillList(skills []skill.Skill) error {
 		return nil
 	}
 	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(writer, "ID\tSCOPE\tINVOKE\tREQUIRES\tNAME\tDESCRIPTION\tPATH")
+	fmt.Fprintln(writer, "ID\tSCOPE\tINVOKE\tREQUIRES\tPERMISSIONS\tNAME\tDESCRIPTION\tPATH")
 	for _, item := range skills {
 		invoke := "-"
 		if item.UserInvocable {
@@ -536,7 +867,7 @@ func printSkillList(skills []skill.Skill) error {
 				invoke += " " + item.ArgumentHint
 			}
 		}
-		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", item.ID, item.Scope, invoke, item.Requires.Summary(), item.Name, item.Description, item.Path)
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", item.ID, item.Scope, invoke, item.Requires.Summary(), item.Permissions.Summary(), item.Name, item.Description, item.Path)
 	}
 	return writer.Flush()
 }
@@ -809,7 +1140,7 @@ func runSessionCommand(ctx context.Context, cfg app.Config, args []string) error
 
 func runReflectCommand(cfg app.Config, args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] != "once" {
-		return errors.New("usage: cohort reflect once --task session-archive|mine-sop-candidates|memory-quality-report|tool-failure-report")
+		return fmt.Errorf("usage: cohort reflect once --task %s", reflectTaskUsage)
 	}
 	task := ""
 	for i := 1; i < len(args); i++ {
@@ -828,7 +1159,7 @@ func runReflectCommand(cfg app.Config, args []string, out io.Writer) error {
 		}
 	}
 	if task == "" {
-		return errors.New("usage: cohort reflect once --task session-archive|mine-sop-candidates|memory-quality-report|tool-failure-report")
+		return fmt.Errorf("usage: cohort reflect once --task %s", reflectTaskUsage)
 	}
 	manager := evolution.NewManager(cfg.Workspace)
 	result, err := manager.ReflectOnce(task, session.DefaultRootDir)
@@ -965,6 +1296,15 @@ Usage:
   cohort capability disable <capability_id>
                           disable a registered capability
   cohort config           show effective config and config path
+  cohort project init [title]
+                          bootstrap .cohort/project.md and project config entry
+  cohort project status   show Project Mode state
+  cohort plan create <title> -- <step1> -- <step2>
+                          create recoverable .cohort/plan.json
+  cohort plan start <id>  mark one plan step in progress
+  cohort plan verify <id> <evidence>
+                          complete one step with verification evidence
+  cohort plan status      show Plan Mode state
   cohort init [--provider deepseek|local|anthropic] [--force]
                           create a user config at ~/.cohort/config.yaml
   cohort doctor [--connect]
@@ -976,6 +1316,12 @@ Usage:
   cohort mcp tools <name> inspect an MCP server's tools
   cohort mcp probe <name> verify an MCP server
   cohort mcp remove <name>
+  cohort mcp import [--scope project|user|local] [--replace] <path>
+                          import Claude-compatible MCP JSON
+  cohort mcp export [--scope project|user|local] <path>
+                          export MCP JSON for one scope
+  cohort mcp policy list|set|remove ...
+                          manage per-tool MCP risk and permission policy
   cohort skill install [--yes] [--dry-run] [--pin git-ref] <path-or-git-url>
                           preview, confirm, then install a Skill
   cohort skill doctor <id>
@@ -990,7 +1336,7 @@ Usage:
   cohort session list     list local sessions
   cohort session resume <id>
                           resume a local session and enter REPL
-  cohort reflect once --task session-archive|mine-sop-candidates|memory-quality-report|tool-failure-report
+  cohort reflect once --task session-archive|mine-sop-candidates|mine-skill-candidates|memory-quality-report|tool-failure-report
                           generate offline reflection reports without starting an LLM
 
 Development:
@@ -1001,6 +1347,14 @@ Interactive slash commands:
   /help                   show in-REPL command help
   /model                  show current model
   /tools                  list tools
+  /project status         show Project Mode files and pointers
+  /project init <title>   bootstrap .cohort/project.md
+  /plan status            show recoverable plan state
+  /plan create <title> -- <step1> -- <step2>
+                          create .cohort/plan.json
+  /plan start <id>        mark one step in progress
+  /plan verify <id> <evidence>
+                          complete one step with verification evidence
   /mcp list               list configured MCP servers
   /mcp status             check MCP server availability
   /mcp tools <server>     inspect MCP server tools

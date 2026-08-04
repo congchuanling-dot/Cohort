@@ -109,6 +109,31 @@ cohort doctor computer
 
 `doctor computer` 检查 macOS Computer Use 环境，包括 Accessibility、Screen Recording、desktop helper、OCR helper、Chrome bridge 和截图/OCR artifact 目录。它只做只读诊断，不会默认点击、输入或修改系统设置。
 
+## 0.2 Project / Plan Mode
+
+Project Mode 使用显式项目文件，不依赖隐藏默认状态：
+
+```bash
+cohort project init "My Project"
+cohort project status
+```
+
+初始化后会创建：
+
+- `.cohort/project.md`：项目目标、规则、项目记忆指针、计划状态指针。
+- `.cohort/config.json`：项目级配置入口，指向 project/plan/memory 文件。
+
+Plan Mode 使用 `.cohort/plan.json` 保存可恢复计划状态：
+
+```bash
+cohort plan create "P0 hardening" -- "implement runtime guard" -- "run tests"
+cohort plan start 1
+cohort plan verify 1 "go test ./internal/agent -count=1"
+cohort plan status
+```
+
+步骤只能通过 `plan verify <id> <evidence>` 标记完成；空 evidence 会被拒绝。REPL 中同样支持 `/project ...` 和 `/plan ...`，状态变更后会刷新当前 Runner 的系统提示词。
+
 ## 0.2 Chrome Bridge 扩展
 
 浏览器工具依赖 Cohort Browser Bridge Chrome 扩展。npm 和 GitHub installer 都会准备本地扩展目录，但 Chrome 出于安全限制仍需要用户手动加载 unpacked extension。
@@ -225,6 +250,14 @@ Slash commands
   /model                查看当前模型
   /config               查看运行配置
   /tools                查看工具列表
+  /project status       查看 Project Mode 文件和指针
+  /project init <title> 初始化 .cohort/project.md
+  /plan status          查看可恢复计划状态
+  /plan create <title> -- <step1> -- <step2>
+                         创建 .cohort/plan.json
+  /plan start <id>      标记一个步骤进行中
+  /plan verify <id> <evidence>
+                         用验证证据完成步骤
   /session              查看当前 session
   /session list         列出历史 session
   /session memory       查看 session memory
@@ -250,6 +283,51 @@ Slash commands
 - `/diff show [file]`：显示完整 diff；传入文件时会限制在当前 Git 仓库内。
 - `/diff accept`：保留当前变更，只输出确认说明，不提交、不隐藏。
 - `/diff rollback <file> --confirm`：回滚单个已跟踪文件的 staged/worktree 变更；拒绝未确认、目录、仓库外路径和未跟踪文件。
+
+Skill 可以在 `SKILL.md` frontmatter 中声明运行权限：
+
+```yaml
+---
+name: safe workflow
+permissions:
+  allow-tools: [file_read, code_run]
+  deny-tools:
+    - mcp_prod_delete
+---
+```
+
+通过 `/skill run <id>` 直接执行时，Cohort 会启用 active policy：只向模型暴露允许的工具，并在运行时拒绝越权工具调用。普通任务命中 Skill 时仍需先 `skill_read`，permissions 会进入 Skill Index 供模型遵守。
+
+Cohort 默认内置 5 个只读高频 Skill：`builtin/code-review`、`builtin/unit-test`、`builtin/browser-debug`、`builtin/desktop-debug`、`builtin/release-check`。项目级同名 Skill 会优先于 builtin alias，避免内置包抢占项目定制流程。
+
+MCP 配置支持导入导出和 per-tool policy：
+
+```bash
+cohort mcp import --scope project ./mcp.json
+cohort mcp export --scope project ./backup.mcp.json
+cohort mcp policy list
+cohort mcp policy set docs search allow R1 --args-policy=tool_scope
+cohort mcp policy remove docs search
+```
+
+旧配置里的 `type: "sse"` 会按 HTTP/SSE 兼容传输处理。
+
+Runner 会在 `run.log.jsonl` 的 `RunFinished` 汇总 usage。成本估算没有隐藏默认价格，只有显式配置后才输出：
+
+```bash
+export COHORT_COST_INPUT_USD_PER_1M=0.14
+export COHORT_COST_OUTPUT_USD_PER_1M=0.28
+export COHORT_COST_CACHE_READ_USD_PER_1M=0.01
+export COHORT_COST_CACHE_WRITE_USD_PER_1M=0.20
+```
+
+离线 Skill 候选挖掘：
+
+```bash
+cohort reflect once --task mine-skill-candidates
+```
+
+报告会写入 `memory/reflection/skill_candidates.md`，只包含工具名、计数、session ID 和候选 `SKILL.md` 草案，不会自动安装或启用。
 
 ## 3. 执行单次任务
 

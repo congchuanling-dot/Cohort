@@ -265,6 +265,53 @@ func (s Store) AddExactProjectGrant(server, tool, argsHash string) (PermissionCo
 	return config, nil
 }
 
+// SetPermissionRule writes or replaces one explicit per-tool permission rule.
+func (s Store) SetPermissionRule(server, tool string, rule ToolPermissionRule) (PermissionConfig, error) {
+	config, err := s.LoadPermissions()
+	if err != nil {
+		return PermissionConfig{}, err
+	}
+	if config.Rules == nil {
+		config.Rules = map[string]ToolPermissionRule{}
+	}
+	server = strings.TrimSpace(server)
+	tool = strings.TrimSpace(tool)
+	if server == "" || tool == "" {
+		return PermissionConfig{}, fmt.Errorf("server and tool are required")
+	}
+	rule.Risk = NormalizeRisk(rule.Risk)
+	switch rule.Decision {
+	case PermissionAllow, PermissionAsk, PermissionDeny:
+	default:
+		return PermissionConfig{}, fmt.Errorf("unknown decision %q; use allow, ask, or deny", rule.Decision)
+	}
+	if rule.ArgsPolicy != ArgsPolicyToolScope {
+		rule.ArgsPolicy = ArgsPolicyExact
+	}
+	config.Rules[permissionRuleKey(server, tool)] = rule
+	if err := s.SavePermissions(config); err != nil {
+		return PermissionConfig{}, err
+	}
+	return config, nil
+}
+
+// DeletePermissionRule removes one explicit per-tool rule.
+func (s Store) DeletePermissionRule(server, tool string) (bool, PermissionConfig, error) {
+	config, err := s.LoadPermissions()
+	if err != nil {
+		return false, PermissionConfig{}, err
+	}
+	key := permissionRuleKey(server, tool)
+	if _, ok := config.Rules[key]; !ok {
+		return false, config, nil
+	}
+	delete(config.Rules, key)
+	if err := s.SavePermissions(config); err != nil {
+		return false, PermissionConfig{}, err
+	}
+	return true, config, nil
+}
+
 // ArgsHash 对参数进行稳定 JSON 编码并计算 SHA-256。encoding/json 会稳定排序 map
 // 的字符串键，因此相同语义的 map 即使构造顺序不同也会得到同一授权键。
 func ArgsHash(args map[string]any) string {

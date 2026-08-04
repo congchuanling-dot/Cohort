@@ -26,6 +26,7 @@ const (
 type Scope string
 
 const (
+	ScopeBuiltin Scope = "builtin"
 	ScopeProject Scope = "project"
 	ScopeUser    Scope = "user"
 )
@@ -33,15 +34,16 @@ const (
 // Skill 是一个可按需读取的工作流包摘要。
 // 摘要会进入系统提示词；正文只有模型显式调用 skill_read 后才进入上下文。
 type Skill struct {
-	ID            string   `json:"id"`
-	Alias         string   `json:"alias"`
-	Name          string   `json:"name"`
-	Description   string   `json:"description"`
-	UserInvocable bool     `json:"user_invocable"`
-	ArgumentHint  string   `json:"argument_hint"`
-	Requires      Requires `json:"requires,omitempty"`
-	Scope         Scope    `json:"scope"`
-	Path          string   `json:"path"`
+	ID            string      `json:"id"`
+	Alias         string      `json:"alias"`
+	Name          string      `json:"name"`
+	Description   string      `json:"description"`
+	UserInvocable bool        `json:"user_invocable"`
+	ArgumentHint  string      `json:"argument_hint"`
+	Requires      Requires    `json:"requires,omitempty"`
+	Permissions   Permissions `json:"permissions,omitempty"`
+	Scope         Scope       `json:"scope"`
+	Path          string      `json:"path"`
 }
 
 // Requires 描述 Skill 在运行前需要用户显式准备的外部依赖。
@@ -71,6 +73,30 @@ func (r Requires) Summary() string {
 	}
 	if len(r.Commands) > 0 {
 		parts = append(parts, "commands:"+strings.Join(r.Commands, ","))
+	}
+	return strings.Join(parts, " ")
+}
+
+// Permissions declares the active tool policy a Skill wants during direct /skill run.
+type Permissions struct {
+	AllowTools []string `json:"allow_tools,omitempty"`
+	DenyTools  []string `json:"deny_tools,omitempty"`
+}
+
+func (p Permissions) Empty() bool {
+	return len(p.AllowTools) == 0 && len(p.DenyTools) == 0
+}
+
+func (p Permissions) Summary() string {
+	if p.Empty() {
+		return "-"
+	}
+	parts := make([]string, 0, 2)
+	if len(p.AllowTools) > 0 {
+		parts = append(parts, "allow:"+strings.Join(p.AllowTools, ","))
+	}
+	if len(p.DenyTools) > 0 {
+		parts = append(parts, "deny:"+strings.Join(p.DenyTools, ","))
 	}
 	return strings.Join(parts, " ")
 }
@@ -170,6 +196,18 @@ func (s *Store) Find(id string) (Skill, error) {
 		return s.byID[matches[0]], nil
 	}
 	if len(matches) > 1 {
+		nonBuiltin := make([]string, 0, len(matches))
+		for _, match := range matches {
+			if s.byID[match].Scope != ScopeBuiltin {
+				nonBuiltin = append(nonBuiltin, match)
+			}
+		}
+		if len(nonBuiltin) == 1 {
+			return s.byID[nonBuiltin[0]], nil
+		}
+		if len(nonBuiltin) > 1 {
+			matches = nonBuiltin
+		}
 		return Skill{}, fmt.Errorf("skill_id %q is ambiguous; use one of: %s", id, strings.Join(matches, ", "))
 	}
 	return Skill{}, fmt.Errorf("skill %q not found", id)
@@ -180,6 +218,16 @@ func (s *Store) Read(id string) (ReadResult, error) {
 	item, err := s.Find(id)
 	if err != nil {
 		return ReadResult{}, err
+	}
+	if item.Scope == ScopeBuiltin {
+		content, ok := builtinSkillContents[item.Alias]
+		if !ok {
+			return ReadResult{}, fmt.Errorf("builtin skill %q content not found", item.ID)
+		}
+		return ReadResult{
+			Skill:   item,
+			Content: content,
+		}, nil
 	}
 	data, err := os.ReadFile(item.Path)
 	if err != nil {
@@ -207,7 +255,7 @@ func (s *Store) IndexPrompt() string {
 	b.WriteString("\n\n[Skill Index]\n")
 	b.WriteString("Skill 是可按需读取的任务工作流包，不是 MCP 工具。只有摘要在这里；命中任务场景时先调用 skill_read(skill_id) 读取完整 SKILL.md，再按其中规则执行，并调用 update_working_checkpoint 保存 related_skill 和关键约束。\n")
 	for _, item := range skills {
-		fmt.Fprintf(&b, "- id: `%s`; name: %s; scope: %s; requires: %s; description: %s\n", item.ID, item.Name, item.Scope, item.Requires.Summary(), item.Description)
+		fmt.Fprintf(&b, "- id: `%s`; name: %s; scope: %s; requires: %s; permissions: %s; description: %s\n", item.ID, item.Name, item.Scope, item.Requires.Summary(), item.Permissions.Summary(), item.Description)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -226,6 +274,7 @@ func (s *Store) scan() ([]Skill, error) {
 		}{scope: ScopeUser, path: filepath.Join(s.homeDir, filepath.FromSlash(UserSkillsDir))})
 	}
 	var skills []Skill
+	skills = append(skills, builtinSkills()...)
 	for _, root := range roots {
 		found, err := scanRoot(root.scope, root.path)
 		if err != nil {
@@ -276,6 +325,7 @@ func scanRoot(scope Scope, root string) ([]Skill, error) {
 			UserInvocable: metadata.UserInvocable,
 			ArgumentHint:  metadata.ArgumentHint,
 			Requires:      metadata.Requires,
+			Permissions:   metadata.Permissions,
 			Scope:         scope,
 			Path:          filepath.Clean(path),
 		})
@@ -289,6 +339,7 @@ type Metadata struct {
 	UserInvocable bool
 	ArgumentHint  string
 	Requires      Requires
+	Permissions   Permissions
 }
 
 func parseMetadata(data []byte, fallbackName string) Metadata {
@@ -317,6 +368,7 @@ func parseMetadata(data []byte, fallbackName string) Metadata {
 		UserInvocable: userInvocable,
 		ArgumentHint:  argumentHint,
 		Requires:      frontMatterData.Requires,
+		Permissions:   frontMatterData.Permissions,
 	}
 }
 
@@ -330,8 +382,9 @@ func parseFrontMatter(text string) map[string]string {
 }
 
 type frontMatterData struct {
-	Values   map[string]string
-	Requires Requires
+	Values      map[string]string
+	Requires    Requires
+	Permissions Permissions
 }
 
 func parseFrontMatterData(text string) frontMatterData {
@@ -372,6 +425,20 @@ func parseFrontMatterData(text string) frontMatterData {
 				requires = mergeRequires(requires, Requires{Commands: splitRequirementValue(value)})
 			}
 			data.Requires = mergeRequires(data.Requires, requires)
+			continue
+		}
+		if key == "permissions" {
+			permissions, next := parsePermissions(lines, index+1, end)
+			index = next - 1
+			data.Permissions = mergePermissions(data.Permissions, permissions)
+			continue
+		}
+		if key == "allow-tools" || key == "allow_tools" || key == "allowed-tools" {
+			data.Permissions.AllowTools = appendUniqueMany(data.Permissions.AllowTools, splitRequirementValue(value)...)
+			continue
+		}
+		if key == "deny-tools" || key == "deny_tools" || key == "denied-tools" {
+			data.Permissions.DenyTools = appendUniqueMany(data.Permissions.DenyTools, splitRequirementValue(value)...)
 			continue
 		}
 		if !isMetadataKey(key) {
@@ -436,6 +503,40 @@ func parseRequires(lines []string, start, end int) (Requires, int) {
 	return requires, index
 }
 
+func parsePermissions(lines []string, start, end int) (Permissions, int) {
+	var permissions Permissions
+	category := ""
+	index := start
+	for ; index < end; index++ {
+		line := lines[index]
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if leadingWhitespace(line) == 0 {
+			break
+		}
+		if strings.HasPrefix(trimmed, "- ") {
+			if category != "" {
+				permissions.add(category, strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
+			}
+			continue
+		}
+		key, value, ok := strings.Cut(trimmed, ":")
+		if !ok {
+			continue
+		}
+		category = normalizePermissionCategory(key)
+		if category == "" {
+			continue
+		}
+		for _, item := range splitRequirementValue(value) {
+			permissions.add(category, item)
+		}
+	}
+	return permissions, index
+}
+
 func normalizeRequirementCategory(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "mcp", "mcps", "mcp-server", "mcp-servers", "mcp_servers":
@@ -444,6 +545,17 @@ func normalizeRequirementCategory(value string) string {
 		return "env"
 	case "command", "commands", "cmd", "cmds":
 		return "commands"
+	default:
+		return ""
+	}
+}
+
+func normalizePermissionCategory(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "allow-tools", "allow_tools", "allowed-tools", "allowed_tools":
+		return "allow"
+	case "deny-tools", "deny_tools", "denied-tools", "denied_tools":
+		return "deny"
 	default:
 		return ""
 	}
@@ -483,6 +595,19 @@ func (r *Requires) add(category, value string) {
 	}
 }
 
+func (p *Permissions) add(category, value string) {
+	value = strings.Trim(strings.TrimSpace(value), `"'`)
+	if value == "" {
+		return
+	}
+	switch category {
+	case "allow":
+		p.AllowTools = appendUnique(p.AllowTools, value)
+	case "deny":
+		p.DenyTools = appendUnique(p.DenyTools, value)
+	}
+}
+
 func mergeRequires(left, right Requires) Requires {
 	for _, item := range right.MCP {
 		left.add("mcp", item)
@@ -494,6 +619,19 @@ func mergeRequires(left, right Requires) Requires {
 		left.add("commands", item)
 	}
 	return left
+}
+
+func mergePermissions(left, right Permissions) Permissions {
+	left.AllowTools = appendUniqueMany(left.AllowTools, right.AllowTools...)
+	left.DenyTools = appendUniqueMany(left.DenyTools, right.DenyTools...)
+	return left
+}
+
+func appendUniqueMany(values []string, more ...string) []string {
+	for _, value := range more {
+		values = appendUnique(values, value)
+	}
+	return values
 }
 
 func appendUnique(values []string, value string) []string {

@@ -29,8 +29,8 @@ Verify changelog and smoke tests.
 		t.Fatal(err)
 	}
 	skills := store.Skills()
-	if len(skills) != 2 {
-		t.Fatalf("skills = %d, want 2: %#v", len(skills), skills)
+	if len(skills) < 2 {
+		t.Fatalf("skills = %d, want at least 2: %#v", len(skills), skills)
 	}
 	project, err := store.Find("project/go-test")
 	if err != nil {
@@ -51,6 +51,48 @@ Verify changelog and smoke tests.
 		if !strings.Contains(index, want) {
 			t.Fatalf("index missing %q:\n%s", want, index)
 		}
+	}
+}
+
+func TestStoreIncludesBuiltinSkillsAndProjectAliasWins_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	writeSkill(t, filepath.Join(workspace, ".cohort", "skills", "code-review", SkillFileName), `---
+name: project review
+description: Project-specific review flow.
+---
+# Project Review
+`)
+	store := NewStore(workspace, t.TempDir())
+	if err := store.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	builtin, err := store.Find("builtin/unit-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if builtin.Scope != ScopeBuiltin || !builtin.UserInvocable {
+		t.Fatalf("builtin = %#v", builtin)
+	}
+	result, err := store.Read("unit-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result.Content, "# Unit Test") {
+		t.Fatalf("builtin content = %q", result.Content)
+	}
+	project, err := store.Find("code-review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if project.ID != "project/code-review" {
+		t.Fatalf("code-review alias resolved to %s, want project/code-review", project.ID)
+	}
+	doctor, err := store.Doctor("builtin/code-review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !doctor.Healthy {
+		t.Fatalf("builtin doctor = %#v", doctor.Checks)
 	}
 }
 
@@ -143,6 +185,39 @@ requires:
 	}
 	if summary := item.Requires.Summary(); !strings.Contains(summary, "mcp:docs,lark") || !strings.Contains(summary, "env:COHORT_TOKEN,COHORT_REGION") || !strings.Contains(summary, "commands:git,go") {
 		t.Fatalf("summary = %q", summary)
+	}
+}
+
+func TestStoreParsesPermissionsFrontMatter_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	writeSkill(t, filepath.Join(workspace, ".cohort", "skills", "safe", SkillFileName), `---
+name: safe
+description: Skill with active policy.
+permissions:
+  allow-tools: [file_read, code_run]
+  deny-tools:
+    - mcp_prod_delete
+---
+
+# Safe
+`)
+
+	store := NewStore(workspace, t.TempDir())
+	if err := store.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	item, err := store.Find("safe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(item.Permissions.AllowTools, ","); got != "file_read,code_run" {
+		t.Fatalf("allow tools = %q", got)
+	}
+	if got := strings.Join(item.Permissions.DenyTools, ","); got != "mcp_prod_delete" {
+		t.Fatalf("deny tools = %q", got)
+	}
+	if index := store.IndexPrompt(); !strings.Contains(index, "permissions: allow:file_read,code_run deny:mcp_prod_delete") {
+		t.Fatalf("index missing permissions:\n%s", index)
 	}
 }
 

@@ -527,7 +527,7 @@ func TestStartHandlesSkillCommandsLocally_BitsUT(t *testing.T) {
 		t.Fatalf("model calls = %d, want 0", client.calls)
 	}
 	output := out.String()
-	for _, want := range []string{"skills:", "project/go-test", "skill:", "Run focused tests.", "skill doctor project/go-test", "skills reloaded: 1"} {
+	for _, want := range []string{"skills:", "builtin/code-review", "project/go-test", "skill:", "Run focused tests.", "skill doctor project/go-test", "skills reloaded:"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output does not contain %q:\n%s", want, output)
 		}

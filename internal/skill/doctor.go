@@ -78,6 +78,24 @@ func (s *Store) Doctor(id string) (DoctorResult, error) {
 	if err != nil {
 		return DoctorResult{}, err
 	}
+	if item.Scope == ScopeBuiltin {
+		result := DoctorResult{Skill: item, Path: item.Path}
+		content, ok := builtinSkillContents[item.Alias]
+		if !ok {
+			result.add(DiagnosticError, "builtin_content", "Builtin Skill content is missing", item.ID)
+			return result.finish(), nil
+		}
+		data := []byte(content)
+		result.add(DiagnosticOK, "builtin_content", "Builtin Skill content is available", fmt.Sprintf("%d bytes", len(data)))
+		metadata := parseMetadata(data, item.Alias)
+		if metadata.Name == "" || metadata.Description == "No description provided." {
+			result.add(DiagnosticWarning, "metadata", "Builtin Skill metadata is incomplete", item.ID)
+		} else {
+			result.add(DiagnosticOK, "metadata", "Builtin Skill metadata is available", metadata.Name)
+		}
+		s.addRequirementChecks(&result, metadata.Requires)
+		return result.finish(), nil
+	}
 	result := DoctorResult{Skill: item, Path: filepath.Dir(item.Path)}
 	dir, err := s.skillDir(item)
 	if err != nil {

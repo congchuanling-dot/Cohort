@@ -21,6 +21,8 @@ import (
 	"cohort/internal/app"
 	"cohort/internal/evolution"
 	"cohort/internal/mcp"
+	"cohort/internal/plan"
+	"cohort/internal/project"
 	"cohort/internal/session"
 	"cohort/internal/skill"
 )
@@ -34,6 +36,8 @@ const (
 	commandTools       = "tools"
 	commandModel       = "model"
 	commandConfig      = "config"
+	commandProject     = "project"
+	commandPlan        = "plan"
 	commandSession     = "session"
 	commandResume      = "resume"
 	commandCompact     = "compact"
@@ -65,6 +69,15 @@ const (
 	mcpCommandStatus = "status"
 	mcpCommandTools  = "tools"
 	mcpCommandProbe  = "probe"
+
+	projectCommandInit   = "init"
+	projectCommandStatus = "status"
+
+	planCommandCreate = "create"
+	planCommandStatus = "status"
+	planCommandStart  = "start"
+	planCommandVerify = "verify"
+	planCommandBlock  = "block"
 
 	diffCommandShow     = "show"
 	diffCommandSummary  = "summary"
@@ -233,6 +246,17 @@ func slashCompleter() *readline.PrefixCompleter {
 		readline.PcItem("/model"),
 		readline.PcItem("/config"),
 		readline.PcItem("/tools"),
+		readline.PcItem("/project",
+			readline.PcItem("init"),
+			readline.PcItem("status"),
+		),
+		readline.PcItem("/plan",
+			readline.PcItem("create"),
+			readline.PcItem("status"),
+			readline.PcItem("start"),
+			readline.PcItem("verify"),
+			readline.PcItem("block"),
+		),
 		readline.PcItem("/mcp",
 			readline.PcItem("list"),
 			readline.PcItem("status"),
@@ -338,6 +362,16 @@ func selectSlashCommand(opts Options) (SlashCommand, bool, error) {
 			Usage:       "/tools",
 			Description: "查看当前可用工具",
 			Command:     SlashCommand{Raw: "/tools", Name: commandTools},
+		},
+		{
+			Usage:       "/project status",
+			Description: "查看 Project Mode 文件和指针",
+			Command:     SlashCommand{Raw: "/project status", Name: commandProject, Args: []string{projectCommandStatus}},
+		},
+		{
+			Usage:       "/plan status",
+			Description: "查看可恢复计划状态",
+			Command:     SlashCommand{Raw: "/plan status", Name: commandPlan, Args: []string{planCommandStatus}},
 		},
 		{
 			Usage:       "/mcp",
@@ -481,6 +515,10 @@ func handleSlashCommand(opts Options, cmd SlashCommand) (bool, error) {
 		printModel(opts.Out, opts.Config)
 	case commandConfig:
 		printConfig(opts.Out, opts.Config)
+	case commandProject:
+		return false, handleProjectCommand(opts, cmd.Args)
+	case commandPlan:
+		return false, handlePlanCommand(opts, cmd.Args)
 	case commandSession:
 		return false, handleSessionCommand(opts, cmd.Args)
 	case commandResume:
@@ -897,6 +935,14 @@ func printSlashHelp(out io.Writer) {
   /model                   查看当前模型配置摘要
   /config                  查看当前运行配置摘要
   /tools                   查看当前可用工具
+  /project init [title]    初始化 .cohort/project.md 和项目配置入口
+  /project status          查看 Project Mode 文件和指针
+  /plan create <title> -- <step1> -- <step2>
+                           创建可恢复 .cohort/plan.json
+  /plan start <id>         标记一个计划步骤进行中
+  /plan verify <id> <evidence>
+                           用验证证据完成一个计划步骤
+  /plan status             查看 Plan Mode 状态
   /mcp                     查看 MCP 管理命令
   /mcp list                查看已装配 MCP Server
   /mcp status              检查已装配 MCP Server 连通性
@@ -942,6 +988,11 @@ func printCommandPalette(out io.Writer) {
   /model                查看当前模型
   /config               查看运行配置
   /tools                查看工具列表
+  /project status       查看 Project Mode
+  /project init <title> 初始化项目文件
+  /plan status          查看 Plan Mode
+  /plan create ...      创建可恢复计划
+  /plan verify ...      验证并完成步骤
   /mcp                  MCP 管理命令
   /session              查看当前 session
   /session list         列出历史 session
@@ -1013,6 +1064,178 @@ func printConfig(out io.Writer, cfg app.Config) {
 	fmt.Fprintf(out, "  max_compact_summary_chars: %d\n", cfg.Context.MaxCompactSummaryChars)
 	fmt.Fprintf(out, "  enable_micro_compact:     %t\n", cfg.Context.EnableMicroCompact)
 	printModel(out, cfg)
+}
+
+func handleProjectCommand(opts Options, args []string) error {
+	if len(args) == 0 {
+		args = []string{projectCommandStatus}
+	}
+	root := opts.Runner.SessionCWD
+	store := project.NewStore(root)
+	switch strings.ToLower(args[0]) {
+	case projectCommandInit:
+		force := false
+		titleParts := make([]string, 0, len(args)-1)
+		for _, arg := range args[1:] {
+			if arg == "--force" {
+				force = true
+				continue
+			}
+			titleParts = append(titleParts, arg)
+		}
+		status, err := store.Init(strings.Join(titleParts, " "), force)
+		if err != nil {
+			return err
+		}
+		refreshSystemPrompt(opts)
+		fmt.Fprintln(opts.Out, "project:")
+		fmt.Fprintln(opts.Out, "  status: initialized")
+		fmt.Fprintf(opts.Out, "  project_md: %s\n", status.ProjectPath)
+		fmt.Fprintf(opts.Out, "  config: %s\n", status.ConfigPath)
+		return nil
+	case projectCommandStatus:
+		status, err := store.Status()
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(opts.Out, "project:")
+		fmt.Fprintf(opts.Out, "  root: %s\n", status.Root)
+		fmt.Fprintf(opts.Out, "  dir: %s\n", status.Dir)
+		fmt.Fprintf(opts.Out, "  project_md: %s\n", status.ProjectPath)
+		fmt.Fprintf(opts.Out, "  config: %s\n", status.ConfigPath)
+		if status.Exists {
+			fmt.Fprintln(opts.Out, "  status: active")
+		} else {
+			fmt.Fprintln(opts.Out, "  status: not initialized")
+			fmt.Fprintln(opts.Out, "  next: /project init <title>")
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown project command %q, use /project init [title] or /project status", args[0])
+	}
+}
+
+func handlePlanCommand(opts Options, args []string) error {
+	if len(args) == 0 {
+		args = []string{planCommandStatus}
+	}
+	store := plan.NewStore(opts.Runner.SessionCWD)
+	switch strings.ToLower(args[0]) {
+	case planCommandCreate:
+		title, steps, err := parsePlanCreateArgs(args[1:])
+		if err != nil {
+			return err
+		}
+		state, err := store.Create(title, steps)
+		if err != nil {
+			return err
+		}
+		refreshSystemPrompt(opts)
+		printPlanState(opts.Out, state, store.Path())
+		return nil
+	case planCommandStatus:
+		state, err := store.Load()
+		if os.IsNotExist(err) {
+			fmt.Fprintln(opts.Out, "plan:")
+			fmt.Fprintln(opts.Out, "  status: no active plan")
+			fmt.Fprintln(opts.Out, "  next: /plan create <title> -- <step1> -- <step2>")
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		printPlanState(opts.Out, state, store.Path())
+		return nil
+	case planCommandStart:
+		if len(args) != 2 {
+			return fmt.Errorf("usage: /plan start <step_id>")
+		}
+		id, err := plan.ParseStepID(args[1])
+		if err != nil {
+			return err
+		}
+		state, err := store.StartStep(id)
+		if err != nil {
+			return err
+		}
+		refreshSystemPrompt(opts)
+		printPlanState(opts.Out, state, store.Path())
+		return nil
+	case planCommandVerify:
+		if len(args) < 3 {
+			return fmt.Errorf("usage: /plan verify <step_id> <evidence>")
+		}
+		id, err := plan.ParseStepID(args[1])
+		if err != nil {
+			return err
+		}
+		state, err := store.VerifyStep(id, strings.Join(args[2:], " "))
+		if err != nil {
+			return err
+		}
+		refreshSystemPrompt(opts)
+		printPlanState(opts.Out, state, store.Path())
+		return nil
+	case planCommandBlock:
+		if len(args) < 2 {
+			return fmt.Errorf("usage: /plan block <reason>")
+		}
+		state, err := store.Block(strings.Join(args[1:], " "))
+		if err != nil {
+			return err
+		}
+		refreshSystemPrompt(opts)
+		printPlanState(opts.Out, state, store.Path())
+		return nil
+	default:
+		return fmt.Errorf("unknown plan command %q, use /plan create|status|start|verify|block", args[0])
+	}
+}
+
+func parsePlanCreateArgs(args []string) (string, []string, error) {
+	if len(args) == 0 {
+		return "", nil, fmt.Errorf("usage: /plan create <title> -- <step1> -- <step2>")
+	}
+	segments := [][]string{{}}
+	for _, arg := range args {
+		if arg == "--" {
+			segments = append(segments, []string{})
+			continue
+		}
+		segments[len(segments)-1] = append(segments[len(segments)-1], arg)
+	}
+	if len(segments) < 2 {
+		return "Active Plan", []string{strings.Join(args, " ")}, nil
+	}
+	title := strings.Join(segments[0], " ")
+	steps := make([]string, 0, len(segments)-1)
+	for _, segment := range segments[1:] {
+		step := strings.TrimSpace(strings.Join(segment, " "))
+		if step != "" {
+			steps = append(steps, step)
+		}
+	}
+	return title, steps, nil
+}
+
+func printPlanState(out io.Writer, state plan.State, path string) {
+	fmt.Fprintln(out, "plan:")
+	fmt.Fprintf(out, "  path: %s\n", path)
+	fmt.Fprintf(out, "  title: %s\n", state.Title)
+	fmt.Fprintf(out, "  status: %s\n", state.Status)
+	for _, step := range state.Steps {
+		fmt.Fprintf(out, "  - [%s] %d. %s\n", step.Status, step.ID, step.Text)
+		if step.Evidence != "" {
+			fmt.Fprintf(out, "    evidence: %s\n", step.Evidence)
+		}
+	}
+}
+
+func refreshSystemPrompt(opts Options) {
+	if opts.Runner == nil {
+		return
+	}
+	opts.Runner.SystemPrompt = app.BuildSystemPromptForProject(opts.Config, opts.Runner.SkillStore, opts.Runner.SessionCWD)
 }
 
 func printCurrentSession(out io.Writer, runner *agent.Runner) {
@@ -1362,8 +1585,25 @@ func runSkill(opts Options, id string, args []string) error {
 	if err != nil {
 		return err
 	}
+	restoreTools := opts.Runner.Tools
+	if !item.Permissions.Empty() {
+		opts.Runner.Tools = agent.ToolPolicyRunner{
+			Base: restoreTools,
+			Policy: agent.ToolPolicy{
+				Name:       "skill:" + item.ID,
+				AllowTools: item.Permissions.AllowTools,
+				DenyTools:  item.Permissions.DenyTools,
+			},
+		}
+		defer func() {
+			opts.Runner.Tools = restoreTools
+		}()
+	}
 	arguments := strings.Join(args, " ")
 	task := fmt.Sprintf("使用 Skill `%s` 执行。请先调用 skill_read 读取该 Skill，按其流程行动，并把 related_skill 设为 `%s`。", item.ID, item.ID)
+	if !item.Permissions.Empty() {
+		task += " 当前 active policy 来自该 Skill 的 permissions：" + item.Permissions.Summary() + "。不得调用未授权工具。"
+	}
 	if arguments == "" {
 		task += " $ARGUMENTS 为空；如果流程需要用户决策，请调用 ask_user。"
 	} else {
@@ -1380,7 +1620,7 @@ func printSkillList(out io.Writer, skills []skill.Skill) error {
 		return nil
 	}
 	writer := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(writer, "ID\tSCOPE\tINVOKE\tREQUIRES\tNAME\tDESCRIPTION\tPATH")
+	fmt.Fprintln(writer, "ID\tSCOPE\tINVOKE\tREQUIRES\tPERMISSIONS\tNAME\tDESCRIPTION\tPATH")
 	for _, item := range skills {
 		invoke := "-"
 		if item.UserInvocable {
@@ -1389,7 +1629,7 @@ func printSkillList(out io.Writer, skills []skill.Skill) error {
 				invoke += " " + item.ArgumentHint
 			}
 		}
-		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", item.ID, item.Scope, invoke, item.Requires.Summary(), item.Name, item.Description, item.Path)
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", item.ID, item.Scope, invoke, item.Requires.Summary(), item.Permissions.Summary(), item.Name, item.Description, item.Path)
 	}
 	return writer.Flush()
 }

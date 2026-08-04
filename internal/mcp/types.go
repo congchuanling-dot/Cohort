@@ -13,6 +13,8 @@ const (
 	TransportStdio = "stdio"
 	// TransportHTTP 表示 Cohort 通过 Streamable HTTP 或 JSON-RPC HTTP 与服务器通信。
 	TransportHTTP = "http"
+	// TransportSSE 是旧配置里常见的 SSE 传输名；当前实现按 HTTP/SSE 响应兼容处理。
+	TransportSSE = "sse"
 )
 
 // validName 限制服务器名称能安全用作配置键和 Cohort 工具命名空间的一部分。
@@ -77,6 +79,9 @@ func (c ServerConfig) Validate() (ServerConfig, error) {
 		return ServerConfig{}, fmt.Errorf("invalid MCP server name %q", c.Name)
 	}
 	c.Type = strings.ToLower(strings.TrimSpace(c.Type))
+	if c.Type == TransportSSE {
+		c.Type = TransportHTTP
+	}
 	if c.Type == "" {
 		if strings.TrimSpace(c.URL) != "" {
 			c.Type = TransportHTTP

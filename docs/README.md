@@ -22,8 +22,11 @@
 3. `[部分完成]` Runner 生命周期 `run.log.jsonl` 事件流：Runner、LLM、tool、permission、compact、session start/end、FinishGuard 和 TextToolUse 已落地；内部 Hook 接口仍待抽取。
 4. `[部分完成]` `cohort doctor` 总入口：已检查配置、模型、MCP、Skill、浏览器扩展、桌面/OCR helper、workspace/session/log；真实桌面权限深检仍走 `cohort doctor computer`。
 5. `[完成]` 交互式 diff、变更审阅与受限回滚边界：`/diff`、`/diff show`、`/diff accept`、`/diff rollback <file> --confirm` 已落地。
-6. `[下一步]` 推进 Project/Plan Mode、内置 Skill 包、Plugin、LSP 和 daemon。
-7. `[验收支线]` 用官方飞书 MCP 完成 OAuth、只读和受控写操作的真实端到端验收。
+6. `[部分完成]` Project / Plan Mode：`cohort project init/status`、`.cohort/project.md`、`.cohort/config.json`、`cohort plan create/status/start/verify/block` 和 `.cohort/plan.json` 已落地；更完整 Project bootstrap 向导仍待补。
+7. `[完成]` Skill Runtime 补强和候选挖掘：内置高频 Skill 包、`SKILL.md permissions`、`/skill run` active policy、Skill 候选离线报告已落地。
+8. `[部分完成]` MCP 补全、usage/cost 和离线反思增强：MCP import/export、旧 SSE 兼容、per-tool policy CLI、Runner usage/cost 汇总、`mine-skill-candidates` 已落地；OAuth 体验深优化和 L4 闭环仍待补。
+9. `[下一步]` 推进 OAuth 体验深优化、Plugin、LSP、多模型体验和 daemon。
+10. `[验收支线]` 用官方飞书 MCP 完成 OAuth、只读和受控写操作的真实端到端验收。
 
 ## 运行与使用
 
@@ -39,10 +42,10 @@
 | 状态 | 文档 | 当前判断 |
 | --- | --- | --- |
 | `[维护]` | [development_task_breakdown.md](development_task_breakdown.md) | 当前优先级和历史任务档案。 |
-| `[部分完成]` | [cohort_mcp_integration_design.md](cohort_mcp_integration_design.md) | add/list/status/tools/probe/remove 与 P1 权限审计基础已完成；导入导出、飞书真实验收、OAuth 体验和 Plugin 尚待完成。 |
+| `[部分完成]` | [cohort_mcp_integration_design.md](cohort_mcp_integration_design.md) | add/list/status/tools/probe/remove、import/export、旧 SSE 兼容、per-tool policy CLI 与 P1 权限审计基础已完成；飞书真实验收、OAuth 体验和 Plugin 尚待完成。 |
 | `[规划]` | [cohort_future_development_opportunities.md](cohort_future_development_opportunities.md) | Claude Code/OpenClaw 对标能力池；以顶部状态表判断实际进度。 |
-| `[部分完成]` | [cohort_vs_ga_current_gap.md](cohort_vs_ga_current_gap.md) | 当前差距分析；MCP、渐进式 Skill Runtime、保守 NoToolPolicy、文本 tool_use 兜底和 diff 基础已补齐，Hook、Project/Plan Mode、长期自治和前端生态仍未完成。 |
-| `[部分完成]` | [agent_observability_technical_design.md](agent_observability_technical_design.md) | 提炼 GA hook、Langfuse、checkpoint 和 L4 反射经验；Runner lifecycle events 与 Langfuse 基础已落地，usage/cost、完整 tracing sink、内部 Hook 和调优报告仍待补。 |
+| `[部分完成]` | [cohort_vs_ga_current_gap.md](cohort_vs_ga_current_gap.md) | 当前差距分析；MCP、渐进式 Skill Runtime、保守 NoToolPolicy、文本 tool_use 兜底、diff、Project/Plan Mode 基础已补齐，Hook、长期自治和前端生态仍未完成。 |
+| `[部分完成]` | [agent_observability_technical_design.md](agent_observability_technical_design.md) | 提炼 GA hook、Langfuse、checkpoint 和 L4 反射经验；Runner lifecycle events、usage/cost 汇总与 Langfuse 基础已落地，完整 tracing sink、内部 Hook 和调优报告仍待补。 |
 | `[历史]` | [cohort_vs_ga_gap.md](cohort_vs_ga_gap.md) | 早期 MVP 差距快照，已由 `cohort_vs_ga_current_gap.md` 取代。 |
 
 ## 核心能力设计
@@ -56,8 +59,8 @@
 | `[部分完成]` | [desktop_computer_use_technical_design.md](desktop_computer_use_technical_design.md) | M1、M2 受控桌面链路已完成；M3 视觉候选和更强后验验证待完成。 |
 | `[部分完成]` | [computer_control_roadmap.md](computer_control_roadmap.md) | “操控电脑的所有操作”的能力缺口、风险边界和开发顺序；P1 核心原语、`computer_visual_snapshot`、`computer_execute_step` 与 `computer_execute_plan` 第一版已完成；下一步是强化 recover、UI detector 和真实 App E2E。 |
 | `[规划]` | [human_os_operation_technical_design.md](human_os_operation_technical_design.md) | Computer Use 跨 OS 操作层方案；对模型暴露 `computer_see/find/click/type/press/check/wait`，底层键鼠输入绑定窗口、风险等级、验证和审计。 |
-| `[部分完成]` | [self_evolution_technical_design.md](self_evolution_technical_design.md) | 受控长期记忆、证据和 SOP candidate 已完成；后台反射、L4 归档和质量闭环未完成。 |
-| `[部分完成]` | [capability_evolution_technical_design.md](capability_evolution_technical_design.md) | 能力边界拓展闭环方案；本地 registry、手动 gap/proposal CLI、Runner no-tool gap 记录、项目级 Skill scaffold、doctor 诊断、依赖安装审核与审计、smoke test、registry promote、available capability 索引注入和重复 gap CLI 建议已落地；Tool/MCP adapter 和离线反思汇总待实现。 |
+| `[部分完成]` | [self_evolution_technical_design.md](self_evolution_technical_design.md) | 受控长期记忆、证据、SOP candidate、离线 session archive、failure pattern、memory quality 和 Skill candidate 报告已完成；后台反射和更强 L4 质量闭环未完成。 |
+| `[部分完成]` | [capability_evolution_technical_design.md](capability_evolution_technical_design.md) | 能力边界拓展闭环方案；本地 registry、手动 gap/proposal CLI、Runner no-tool gap 记录、项目级 Skill scaffold、doctor 诊断、依赖安装审核与审计、smoke test、registry promote、available capability 索引注入、重复 gap CLI 建议和 Skill 候选离线挖掘已落地；Tool/MCP adapter 待实现。 |
 | `[部分完成]` | [cohort_self_evolution_research.md](cohort_self_evolution_research.md) | 自进化调研及后续路线，P1-P3 仍为规划。 |
 
 ## 调研与问题记录

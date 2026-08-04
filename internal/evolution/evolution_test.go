@@ -106,6 +106,47 @@ func TestReflectToolFailureReportAndSOPCandidateDedupe_BitsUT(t *testing.T) {
 	}
 }
 
+func TestReflectMineSkillCandidatesFromToolPatterns_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	sessionRoot := filepath.Join(t.TempDir(), "sessions")
+	store := session.NewStore(sessionRoot)
+	sess, err := store.Create("secret skill task", workspace, "test-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"file_read", "code_run", "file_patch"} {
+		if err := store.AppendHistory(sess.ID, llm.Message{
+			Role: llm.RoleAssistant,
+			ToolCalls: []llm.ToolCall{{
+				Function: llm.ToolFunction{Name: name, Arguments: `{"secret":"value"}`},
+			}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := NewManager(workspace).ReflectOnce(ReflectTaskMineSkillCandidates, sessionRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SOPCandidatesWritten == 0 {
+		t.Fatalf("skill candidates written = 0, want at least one")
+	}
+	data, err := os.ReadFile(filepath.Join(workspace, filepath.FromSlash(SkillCandidatesPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	for _, want := range []string{"# Skill Candidates", "Suggested SKILL.md outline", "allow-tools"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("skill candidate report missing %q:\n%s", want, content)
+		}
+	}
+	if strings.Contains(content, "secret") {
+		t.Fatalf("skill candidate report leaked raw content:\n%s", content)
+	}
+}
+
 func TestReflectMemoryQualityReportCountsRelevantMemoryUse_BitsUT(t *testing.T) {
 	workspace := t.TempDir()
 	sessionRoot := filepath.Join(t.TempDir(), "sessions")

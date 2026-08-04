@@ -67,3 +67,26 @@ func TestPermissionStorePersistsExactProjectGrantWithoutServerDefinition(t *test
 		t.Fatalf("project .mcp.json should not be created by permission grant, err=%v", err)
 	}
 }
+
+func TestStoreSetAndDeletePermissionRule_BitsUT(t *testing.T) {
+	store := NewStore(t.TempDir())
+	config, err := store.SetPermissionRule("docs", "read", ToolPermissionRule{
+		Risk:       RiskR1,
+		Decision:   PermissionAllow,
+		ArgsPolicy: ArgsPolicyToolScope,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := config.Resolve("docs", "read")
+	if rule.Risk != RiskR1 || rule.Decision != PermissionAllow || rule.ArgsPolicy != ArgsPolicyToolScope {
+		t.Fatalf("rule = %#v", rule)
+	}
+	removed, config, err := store.DeletePermissionRule("docs", "read")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !removed || len(config.Rules) != 0 {
+		t.Fatalf("removed=%t config=%#v", removed, config)
+	}
+}

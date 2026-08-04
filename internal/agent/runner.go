@@ -188,11 +188,21 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 	obs := r.observationBus()
 	defer obs.Close(ctx)
 	lastTurn := 0
+	var totalUsage llm.Usage
 	finishRun := func(result RunResult, err error) (RunResult, error) {
 		data := map[string]any{
 			"status":      result.Status,
 			"duration_ms": time.Since(runStartedAt).Milliseconds(),
 			"history_len": len(r.history),
+		}
+		if !totalUsage.IsZero() {
+			data["usage"] = usageSummary(totalUsage)
+			if estimate := estimateUsageCost(totalUsage); estimate.OK {
+				data["estimated_cost_usd"] = estimate.USD
+				data["cost_pricing_source"] = estimate.Source
+			} else {
+				data["cost_pricing_source"] = estimate.Source
+			}
 		}
 		severity := observability.SeverityInfo
 		if err != nil {
@@ -276,6 +286,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 		r.emitObservation(ctx, obs, runID, observability.EventLLMResponseFinished, turn, observability.SeverityInfo, llmResponseData(resp, time.Since(llmStartedAt), messages, tools, r.SystemPrompt))
 		// 记录模型原始响应用于排查问题，不影响主流程。
 		r.logResponse(turn, resp)
+		mergeUsageTotals(&totalUsage, resp.Usage)
 		if len(resp.ToolCalls) == 0 && strings.Contains(resp.Content, toolUseOpenTag) {
 			parsed, parseErr := parseTextToolUseFallback(resp.Content)
 			if parseErr != nil {

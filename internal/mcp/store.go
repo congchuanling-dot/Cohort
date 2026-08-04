@@ -140,6 +140,67 @@ func (s Store) Remove(scope Scope, name string) (bool, error) {
 	return true, s.Save(scope, config)
 }
 
+// Export writes one scope's MCP config to targetPath. It does not include permission rules.
+func (s Store) Export(scope Scope, targetPath string) error {
+	config, err := s.Load(scope)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(targetPath) == "" {
+		return fmt.Errorf("export path is required")
+	}
+	targetPath = filepath.Clean(targetPath)
+	content, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(targetPath, append(content, '\n'), 0600)
+}
+
+// Import reads a Claude-compatible MCP JSON file and writes it into one scope.
+func (s Store) Import(scope Scope, sourcePath string, merge bool) (int, error) {
+	if strings.TrimSpace(sourcePath) == "" {
+		return 0, fmt.Errorf("import path is required")
+	}
+	data, err := os.ReadFile(filepath.Clean(sourcePath))
+	if err != nil {
+		return 0, err
+	}
+	var imported Config
+	if err := json.Unmarshal(data, &imported); err != nil {
+		return 0, fmt.Errorf("parse %s: %w", sourcePath, err)
+	}
+	if imported.Servers == nil {
+		imported.Servers = map[string]ServerConfig{}
+	}
+	validated := Config{Servers: map[string]ServerConfig{}}
+	for name, server := range imported.Servers {
+		server.Name = name
+		next, err := server.Validate()
+		if err != nil {
+			return 0, err
+		}
+		validated.Servers[next.Name] = withoutName(next)
+	}
+	if merge {
+		existing, err := s.Load(scope)
+		if err != nil {
+			return 0, err
+		}
+		if existing.Servers == nil {
+			existing.Servers = map[string]ServerConfig{}
+		}
+		for name, server := range validated.Servers {
+			existing.Servers[name] = server
+		}
+		validated = existing
+	}
+	return len(imported.Servers), s.Save(scope, validated)
+}
+
 // Save 以缩进 JSON 写入 scope 配置，并使用 0600 避免 HTTP 头等本地凭据被其他用户读取。
 func (s Store) Save(scope Scope, config Config) error {
 	path, err := s.Path(scope)

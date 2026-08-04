@@ -21,12 +21,14 @@ import (
 const (
 	ReflectTaskSessionArchive      = "session-archive"
 	ReflectTaskMineSOPCandidates   = "mine-sop-candidates"
+	ReflectTaskMineSkillCandidates = "mine-skill-candidates"
 	ReflectTaskMemoryQualityReport = "memory-quality-report"
 	ReflectTaskToolFailureReport   = "tool-failure-report"
 
 	RawSessionArchivePath   = "memory/raw_sessions/all_histories.md"
 	FailurePatternsPath     = "memory/reflection/failure_patterns.md"
 	MemoryQualityReportPath = "memory/reflection/quality_reports/memory_quality.md"
+	SkillCandidatesPath     = "memory/reflection/skill_candidates.md"
 )
 
 // ReflectionResult summarizes a single offline reflection task.
@@ -158,6 +160,13 @@ func (m Manager) ReflectOnce(task string, sessionRoot string) (ReflectionResult,
 		}
 		result.OutputPaths = []string{path}
 		result.ToolFailures = len(dataset.Failures)
+		result.SOPCandidatesWritten = written
+	case ReflectTaskMineSkillCandidates:
+		path, written, err := m.writeSkillCandidateReport(dataset)
+		if err != nil {
+			return ReflectionResult{}, err
+		}
+		result.OutputPaths = []string{path}
 		result.SOPCandidatesWritten = written
 	default:
 		return ReflectionResult{}, fmt.Errorf("unknown reflection task %q", task)
@@ -584,6 +593,133 @@ func (m Manager) mineSOPCandidates(dataset reflectionDataset) (string, int, erro
 		return "", written, err
 	}
 	return path, written, nil
+}
+
+func (m Manager) writeSkillCandidateReport(dataset reflectionDataset) (string, int, error) {
+	path, err := m.resolveMemoryPath(SkillCandidatesPath)
+	if err != nil {
+		return "", 0, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), defaultMemoryDirectoryPerm); err != nil {
+		return "", 0, err
+	}
+	type candidate struct {
+		Name     string
+		Reason   string
+		Sessions map[string]int
+		Tools    map[string]int
+		Count    int
+	}
+	grouped := map[string]*candidate{}
+	for _, sess := range dataset.Sessions {
+		if sess.ToolCallCount < 3 {
+			continue
+		}
+		keyTools := topToolNames(sess.ToolCounts, 4)
+		if len(keyTools) < 2 {
+			continue
+		}
+		key := strings.Join(keyTools, "+")
+		item := grouped[key]
+		if item == nil {
+			item = &candidate{
+				Name:     "skill-" + slugify(key),
+				Reason:   "Repeated multi-tool workflow observed in session histories.",
+				Sessions: map[string]int{},
+				Tools:    map[string]int{},
+			}
+			grouped[key] = item
+		}
+		item.Count++
+		item.Sessions[sess.ID]++
+		for _, tool := range keyTools {
+			item.Tools[tool] += sess.ToolCounts[tool]
+		}
+	}
+	for _, group := range groupFailures(dataset.Failures) {
+		if group.Count < 2 {
+			continue
+		}
+		key := "recover-" + group.Tool + "-" + defaultString(group.ErrorCode, group.Status)
+		item := grouped[key]
+		if item == nil {
+			item = &candidate{
+				Name:     "skill-" + slugify(key),
+				Reason:   "Repeated failure pattern needs a reusable recovery workflow.",
+				Sessions: map[string]int{},
+				Tools:    map[string]int{group.Tool: group.Count},
+			}
+			grouped[key] = item
+		}
+		item.Count += group.Count
+		for sessionID, count := range group.Sessions {
+			item.Sessions[sessionID] += count
+		}
+	}
+	keys := make([]string, 0, len(grouped))
+	for key := range grouped {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		left, right := grouped[keys[i]], grouped[keys[j]]
+		if left.Count != right.Count {
+			return left.Count > right.Count
+		}
+		return left.Name < right.Name
+	})
+	var b strings.Builder
+	b.WriteString("# Skill Candidates\n\n")
+	b.WriteString("- raw_content_policy: omitted; candidates are mined from tool names, counts, session IDs, and failure codes\n")
+	fmt.Fprintf(&b, "- sessions_scanned: %d\n", len(dataset.Sessions))
+	fmt.Fprintf(&b, "- candidate_count: %d\n\n", len(keys))
+	if len(keys) == 0 {
+		b.WriteString("No reusable Skill candidates found.\n")
+		return path, 0, os.WriteFile(path, []byte(b.String()), defaultMemoryFilePerm)
+	}
+	for _, key := range keys {
+		item := grouped[key]
+		b.WriteString("## ")
+		b.WriteString(item.Name)
+		b.WriteString("\n\n")
+		writeMemoryField(&b, "reason", item.Reason)
+		writeMemoryField(&b, "score", fmt.Sprint(item.Count))
+		writeMemoryField(&b, "sessions", strings.Join(sortedKeys(item.Sessions), ", "))
+		writeMemoryField(&b, "tools", strings.Join(formatTopCounts(item.Tools, 8), ", "))
+		b.WriteString("\nSuggested SKILL.md outline:\n\n")
+		b.WriteString("```md\n")
+		b.WriteString("---\n")
+		b.WriteString("name: " + item.Name + "\n")
+		b.WriteString("description: TODO: summarize the repeated workflow and when to invoke it.\n")
+		b.WriteString("user-invocable: false\n")
+		b.WriteString("permissions:\n")
+		b.WriteString("  allow-tools: [" + strings.Join(topToolNames(item.Tools, 8), ", ") + "]\n")
+		b.WriteString("---\n\n")
+		b.WriteString("# " + item.Name + "\n\n")
+		b.WriteString("TODO: convert the observed pattern into verified steps, validation checks, and stop conditions.\n")
+		b.WriteString("```\n\n")
+	}
+	return path, len(keys), os.WriteFile(path, []byte(b.String()), defaultMemoryFilePerm)
+}
+
+func topToolNames(counts map[string]int, limit int) []string {
+	items := sortedKeys(counts)
+	sort.Slice(items, func(i, j int) bool {
+		if counts[items[i]] != counts[items[j]] {
+			return counts[items[i]] > counts[items[j]]
+		}
+		return items[i] < items[j]
+	})
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item) == "" {
+			continue
+		}
+		out = append(out, item)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
 }
 
 type failureGroup struct {

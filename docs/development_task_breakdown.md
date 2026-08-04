@@ -14,10 +14,10 @@
 | Agent Runtime 与 REPL | `[完成]` | 工具循环、session、SOP、工作记忆、长期记忆、slash 命令已可用。 |
 | 上下文管理 | `[完成]` | token 预算、工具结果裁剪、group trim、session memory、full compact 已实现。 |
 | 浏览器与桌面 | `[完成]` | Chrome bridge、DOM/OCR、受控点击输入，以及 macOS AX/OCR 受控输入链路已实现。 |
-| MCP 核心链路 | `[部分完成]` | `.mcp.json` scope、stdio/HTTP、发现、调用、分页、status/probe、REPL `/mcp` 已实现；导入导出与旧 SSE 待补。 |
+| MCP 核心链路 | `[部分完成]` | `.mcp.json` scope、stdio/HTTP、旧 SSE 兼容、发现、调用、分页、status/probe、import/export、per-tool policy CLI、REPL `/mcp` 已实现；OAuth 体验深优化待补。 |
 | MCP P1 基础 | `[完成]` | 精确参数授权、R3 拒绝、外部结果裁剪、MCP 审计和零默认 Server 已实现。 |
-| Skill Runtime | `[部分完成]` | 本地/Git 安装、安装预览、版本锁定、manifest hash、`skill doctor`、`skill_read`、`/skill run` 和快捷 alias 已实现；运行时权限拦截、内置 Skill 包和自动候选挖掘待补。 |
-| `run.log` / lifecycle 事件流 | `[部分完成]` | 已记录工具完成事件、脱敏参数摘要、MCP 元数据、Runner/LLM/session/compact/permission/FinishGuard/TextToolUse JSONL 事件；内部 Hook 插件化和更完整 policy sink 待补。 |
+| Skill Runtime | `[完成]` | 本地/Git 安装、安装预览、版本锁定、manifest hash、`skill doctor`、`skill_read`、`/skill run`、快捷 alias、内置高频 Skill 包、`SKILL.md permissions` 和 active policy 已实现。 |
+| `run.log` / lifecycle 事件流 | `[部分完成]` | 已记录工具完成事件、脱敏参数摘要、MCP 元数据、Runner/LLM/session/compact/permission/FinishGuard/TextToolUse JSONL 事件，并在 RunFinished 汇总 usage/cost；内部 Hook 插件化和更完整 policy sink 待补。 |
 
 ### 当前优先级
 
@@ -28,16 +28,21 @@
 | 3 | Runner 生命周期事件与 `run.log` 事件流 | `[部分完成]` | 已将 Runner、LLM、tool、permission、compact、session start/end、FinishGuard 和文本 tool_use 事件写入 `run.log.jsonl`；内部 Hook 接口、policy sink 和更完整 tracing 仍待补。 |
 | 4 | `cohort doctor` 总入口 | `[部分完成]` | 已检查配置、API key、provider、api_base、workspace/log/session 可写性、MCP 配置和权限、Skill doctor、browser extension、desktop/OCR helper；`--connect` 可检查模型和 MCP 连通性；更深桌面权限和真实 App 冒烟仍走 `cohort doctor computer`。 |
 | 5 | 交互式 diff 与变更审阅 | `[完成]` | 已提供 `/diff`、`/diff show [file]`、`/diff accept` 和 `/diff rollback <file> --confirm`；回滚限制在当前 Git 仓库内的单个已跟踪文件，拒绝未确认、目录、仓库外路径和未跟踪文件。 |
-| 6 | Project / Plan Mode | `[下一步]` | 项目 bootstrap、计划状态和验证关口可在 session 中恢复。 |
-| 7 | 飞书 MCP 真实端到端验收 | `[验收支线]` | 用户显式装配官方 Server 后，完成 OAuth、只读文档、R2 写操作确认和 `run.log` 检查；不阻塞 Project/Plan Mode 主线。 |
+| 6 | Project / Plan Mode | `[部分完成]` | 已提供 `cohort project init/status`、`.cohort/project.md`、`.cohort/config.json`、`cohort plan create/status/start/verify/block`、`.cohort/plan.json`，系统提示词注入项目契约和可恢复计划状态；更完整 bootstrap 向导待补。 |
+| 7 | Skill Runtime 补强 | `[完成]` | 已解析 `SKILL.md permissions.allow-tools/deny-tools`，`/skill run` 会启用 active policy 过滤 schema 并拒绝越权工具；内置 `code-review`、`unit-test`、`browser-debug`、`desktop-debug`、`release-check` 高频 Skill 包。 |
+| 8 | Skill 自动候选挖掘 | `[部分完成]` | `cohort reflect once --task mine-skill-candidates` 已从 session、tool evidence 和 failure patterns 生成候选 Skill 报告；不会自动安装或启用。 |
+| 9 | MCP 补全 | `[部分完成]` | 已支持 `cohort mcp import/export`、旧 `type=sse` 配置兼容、`cohort mcp policy list/set/remove`；OAuth 体验深优化和飞书真实验收待补。 |
+| 10 | usage/cost 统计 | `[部分完成]` | Runner 会聚合 token/cache usage 并写入 `RunFinished`；只有显式配置 `COHORT_COST_*_USD_PER_1M` 时估算成本，避免隐藏价格默认值。 |
+| 11 | 离线反思增强 | `[部分完成]` | 已有 session archive、failure pattern、memory quality 和 skill candidate 报告；更强 L4 session archive 自动归档和闭环评分仍待补。 |
+| 12 | 飞书 MCP 真实端到端验收 | `[验收支线]` | 用户显式装配官方 Server 后，完成 OAuth、只读文档、R2 写操作确认和 `run.log` 检查；不阻塞内置 Skill 包主线。 |
 
 ### 延后项
 
-- 内置常用 Skill 包、`SKILL.md permissions` 和 `/skill run` active policy：在 FinishGuard 与事件流稳定后开始。
+- Skill 包生态扩展：继续补更多团队专用 Skill 和安装/发布体验。
 - Computer Use 跨 OS 操作层：先按 `docs/human_os_operation_technical_design.md` 建 `computer_see/find` 和 target cache，再做 `computer_click/type` 起草消息 MVP，之后接 `computer_press/check/wait` 的确认发送链路。
 - Plugin manifest、LSP、多模型 fallback：在 Project/Plan Mode 的最小形态稳定后开始。
 - Marketplace、daemon、Gateway、Cohort 作为 MCP Server：在权限、审计、运行事件和真实 MCP 验收稳定后开始。
-- 自动反射、L4 会话挖掘：在生命周期事件和质量门禁完成后开始。
+- 自动反射、L4 会话挖掘：离线报告已有基础，下一步做调度、质量评分和闭环回写。
 
 ### 更新规则
 
