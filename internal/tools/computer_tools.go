@@ -380,9 +380,9 @@ func (t *ComputerVisualSnapshot) Name() string { return ToolNameComputerVisualSn
 func (t *ComputerVisualSnapshot) Schema() llm.ToolSchema {
 	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
 		Name:        t.Name(),
-		Description: "Return a compact visual snapshot from the latest computer_see state: OCR text targets and heuristic vision targets by default, optionally all cached candidates. It returns target_id and bbox metadata only, never screenshot bytes.",
+		Description: "Return a compact visual snapshot from the latest computer_see state: OCR text targets and detector vision targets by default, detector-only candidates with mode=ui_detect, or all cached candidates. It returns target_id and bbox metadata only, never screenshot bytes.",
 		Parameters: objectSchema(map[string]any{
-			"mode":       stringProp("Candidate mode: ocr (default, OCR + vision candidates) or all (AX + OCR + vision)."),
+			"mode":       stringProp("Candidate mode: ocr (default, OCR + vision), ui_detect (detector vision only), or all (AX + OCR + vision)."),
 			"query":      stringProp("Optional natural-language filter. When set, candidates are ranked like computer_find."),
 			"include_ax": boolProp("Whether to include AX targets together with OCR/vision candidates. Default false.", false),
 			"limit":      intProp("Maximum candidates to return. Default 40, max 100.", 40),
@@ -402,14 +402,15 @@ func (t *ComputerVisualSnapshot) Run(ctx context.Context, call agent.ToolCallCon
 	if mode == "" {
 		mode = "ocr"
 	}
-	if mode != "ocr" && mode != "all" {
-		return computerToolError("computer_visual_snapshot_bad_mode", "mode must be ocr or all", "第一版 computer_visual_snapshot 只支持 mode=ocr 或 mode=all。"), nil
+	if mode != "ocr" && mode != "ui_detect" && mode != "all" {
+		return computerToolError("computer_visual_snapshot_bad_mode", "mode must be ocr, ui_detect, or all", "computer_visual_snapshot 支持 mode=ocr、mode=ui_detect 或 mode=all。"), nil
 	}
-	includeAX := asBool(call.Args["include_ax"], false) || mode == "all"
+	includeAX := mode == "all" || (mode != "ui_detect" && asBool(call.Args["include_ax"], false))
 	limit := clampDesktopLimit(asInt(call.Args["limit"], 40), 40, 100)
 	query := strings.TrimSpace(asString(call.Args["query"]))
-	candidates := filterComputerVisualSnapshotTargets(state.Candidates, includeAX)
+	candidates := filterComputerVisualSnapshotTargets(state.Candidates, includeAX, mode == "ui_detect")
 	sourceCounts := countComputerTargetSources(candidates)
+	totalCandidates := len(candidates)
 
 	var returned any
 	returnedCount := 0
@@ -447,7 +448,7 @@ func (t *ComputerVisualSnapshot) Run(ctx context.Context, call agent.ToolCallCon
 		"source_counts":           sourceCounts,
 		"candidates":              returned,
 		"candidate_count":         returnedCount,
-		"total_visual_candidates": len(candidates),
+		"total_visual_candidates": totalCandidates,
 		"contains_screenshot":     false,
 		"expires_at":              state.ExpiresAt.Format(time.RFC3339Nano),
 	}, NextPrompt: "\n"}, nil
@@ -1557,9 +1558,15 @@ func summarizeComputerTargets(targets []computeruse.ComputerTarget, limit int) [
 	return targets[:limit]
 }
 
-func filterComputerVisualSnapshotTargets(targets []computeruse.ComputerTarget, includeAX bool) []computeruse.ComputerTarget {
+func filterComputerVisualSnapshotTargets(targets []computeruse.ComputerTarget, includeAX bool, detectorOnly bool) []computeruse.ComputerTarget {
 	filtered := make([]computeruse.ComputerTarget, 0, len(targets))
 	for _, target := range targets {
+		if detectorOnly {
+			if target.Source == computeruse.SourceVision {
+				filtered = append(filtered, target)
+			}
+			continue
+		}
 		switch target.Source {
 		case computeruse.SourceOCR, computeruse.SourceVision:
 			filtered = append(filtered, target)

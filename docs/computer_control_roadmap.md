@@ -282,6 +282,7 @@ computer_see
 当前完成：
 
 - `computer_visual_snapshot(mode=ocr)` 返回 OCR + detector vision target。
+- `computer_visual_snapshot(mode=ui_detect)` 返回 detector vision target-only 视图，用于只查看 UI detector 候选。
 - `computer_visual_snapshot(mode=all)` 可同时返回 AX + OCR + detector vision target。
 - 支持 `query` 过滤排序。
 - 只返回 screenshot artifact 引用和 bbox 元数据，不返回截图内容。
@@ -470,7 +471,7 @@ computer_execute_plan
    - `source=vision`
    - `coordinate_space=screenshot-local`
 2. `[完成：第一版]` `computer_see` 接入默认 detector，输出 detector 元数据并写入 target cache。
-3. 增加 `computer_visual_snapshot(mode=ui_detect)` 或等价 detector-only 视图。
+3. `[完成]` 增加 `computer_visual_snapshot(mode=ui_detect)` detector-only 视图。
 4. detector 不直接授权点击，只生成可缓存 target。
 5. 点击仍走 `computer_click`，由 manifest 映射坐标并执行风险确认。
 

@@ -143,6 +143,50 @@ func TestComputerVisualSnapshotReturnsOCRAndVisionCandidates_BitsUT(t *testing.T
 	}
 }
 
+func TestComputerVisualSnapshotUIDetectModeReturnsDetectorCandidatesOnly_BitsUT(t *testing.T) {
+	store := computeruse.NewStore(time.Minute)
+	driver := fakeComputerDriver(computerAXRoot(""))
+	runner := &fakeOCRRunner{result: vision.OCRResult{
+		Status: "success",
+		Text:   "搜索联系人",
+		Lines: []vision.OCRLine{{
+			Index:      1,
+			Text:       "搜索联系人",
+			Confidence: 0.96,
+			BBox:       []int{10, 10, 120, 32},
+		}},
+	}}
+	if _, err := NewComputerSeeWithOCRRunner(driver, store, t.TempDir(), runner).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"app_name": "WeChat"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	outcome, err := NewComputerVisualSnapshot(store).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"mode": "ui_detect", "query": "搜索输入框", "include_ax": true, "limit": 10},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess || data["mode"] != "ui_detect" || data["include_ax"] != false {
+		t.Fatalf("visual snapshot outcome = %#v", data)
+	}
+	matches := data["candidates"].([]computerTargetMatch)
+	if len(matches) == 0 {
+		t.Fatalf("expected ui detector matches: %#v", data)
+	}
+	for _, match := range matches {
+		if match.Source != computeruse.SourceVision {
+			t.Fatalf("unexpected source in mode=ui_detect: %#v", match)
+		}
+	}
+	counts := data["source_counts"].(map[string]int)
+	if counts[computeruse.SourceVision] == 0 || counts[computeruse.SourceOCR] != 0 || counts[computeruse.SourceAX] != 0 {
+		t.Fatalf("source counts = %#v", counts)
+	}
+}
+
 func TestComputerExecuteStepTypesAndVerifiesText_BitsUT(t *testing.T) {
 	store := computeruse.NewStore(time.Minute)
 	state := store.SaveState(computeruse.ComputerState{
