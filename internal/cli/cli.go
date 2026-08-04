@@ -1328,6 +1328,10 @@ Usage:
                           check local diagnostic backends; --install installs missing tsc/pyright via npm
   cohort lsp diagnostics [--language go|typescript|python] [path...]
                           run read-only language diagnostics
+  cohort lsp definition <file.go:line:column>
+                          find Go symbol definition via gopls
+  cohort lsp references [--declaration] <file.go:line:column>
+                          find Go symbol references via gopls
   cohort plugin list|show|doctor
                           inspect .cohort/plugins manifests
   cohort explorer create "question"

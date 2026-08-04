@@ -73,6 +73,38 @@ exit 0
 	}
 }
 
+func TestGoplsDefinitionAndReferences_BitsUT(t *testing.T) {
+	dir := t.TempDir()
+	writeExecutable(t, filepath.Join(dir, "gopls"), `#!/bin/sh
+if [ "$1" = "definition" ]; then
+  echo "foo.go:3:6-9: defined symbol"
+  exit 0
+fi
+if [ "$1" = "references" ]; then
+  echo "$2 $3"
+  exit 0
+fi
+exit 2
+`)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	client := Gopls{Root: t.TempDir()}
+
+	definition, err := client.Definition(context.Background(), "foo.go:10:4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if definition.Kind != "definition" || !strings.Contains(definition.Output, "defined symbol") {
+		t.Fatalf("definition = %#v", definition)
+	}
+	references, err := client.References(context.Background(), "foo.go:10:4", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if references.Kind != "references" || !strings.Contains(strings.Join(references.Command, " "), "references -d foo.go:10:4") {
+		t.Fatalf("references = %#v", references)
+	}
+}
+
 func TestDiagnosticsInstallMissingTypeScriptAndPython_BitsUT(t *testing.T) {
 	dir := t.TempDir()
 	writeExecutable(t, filepath.Join(dir, "gopls"), `#!/bin/sh

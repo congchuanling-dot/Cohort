@@ -34,6 +34,16 @@ type CheckResult struct {
 	ExitCode int      `json:"exit_code"`
 }
 
+type QueryResult struct {
+	Language string   `json:"language,omitempty"`
+	Kind     string   `json:"kind"`
+	Position string   `json:"position"`
+	Command  []string `json:"command"`
+	Output   string   `json:"output"`
+	OK       bool     `json:"ok"`
+	ExitCode int      `json:"exit_code"`
+}
+
 func (g Gopls) Doctor(ctx context.Context) (DoctorResult, error) {
 	command := firstNonEmpty(g.Command, "gopls")
 	path, err := exec.LookPath(command)
@@ -62,6 +72,29 @@ func (g Gopls) Check(ctx context.Context, targets []string) (CheckResult, error)
 	}
 	args := append([]string{"check"}, expanded...)
 	return g.run(ctx, args...)
+}
+
+func (g Gopls) Definition(ctx context.Context, position string) (QueryResult, error) {
+	position = strings.TrimSpace(position)
+	if position == "" {
+		return QueryResult{Language: LanguageGo, Kind: "definition", ExitCode: -1}, errors.New("definition position is required")
+	}
+	result, err := g.run(ctx, "definition", position)
+	return queryResultFromCheck("definition", position, result, err)
+}
+
+func (g Gopls) References(ctx context.Context, position string, includeDeclaration bool) (QueryResult, error) {
+	position = strings.TrimSpace(position)
+	if position == "" {
+		return QueryResult{Language: LanguageGo, Kind: "references", ExitCode: -1}, errors.New("references position is required")
+	}
+	args := []string{"references"}
+	if includeDeclaration {
+		args = append(args, "-d")
+	}
+	args = append(args, position)
+	result, err := g.run(ctx, args...)
+	return queryResultFromCheck("references", position, result, err)
 }
 
 func (g Gopls) expandCheckTargets(ctx context.Context, targets []string) ([]string, error) {
@@ -191,4 +224,17 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func queryResultFromCheck(kind string, position string, result CheckResult, err error) (QueryResult, error) {
+	query := QueryResult{
+		Language: result.Language,
+		Kind:     kind,
+		Position: position,
+		Command:  result.Command,
+		Output:   result.Output,
+		OK:       result.OK,
+		ExitCode: result.ExitCode,
+	}
+	return query, err
 }

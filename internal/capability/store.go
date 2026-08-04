@@ -338,7 +338,10 @@ func (s Store) Verify(capabilityID string) (Capability, string, error) {
 		return Capability{}, "", fmt.Errorf("capability %q is disabled", capabilityID)
 	}
 	if item.Type != TypeSkill {
-		return Capability{}, "", fmt.Errorf("capability %q has type %q; only skill capabilities can be verified", capabilityID, item.Type)
+		if item.Type == TypeTool || item.Type == TypeMCP {
+			return s.verifyAdapter(registry, capabilityIndex)
+		}
+		return Capability{}, "", fmt.Errorf("capability %q has unsupported type %q", capabilityID, item.Type)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

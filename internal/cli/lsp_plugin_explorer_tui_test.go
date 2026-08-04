@@ -46,6 +46,31 @@ exit 2
 	}
 }
 
+func TestRunLSPCommandDefinitionAndReferences_BitsUT(t *testing.T) {
+	dir := t.TempDir()
+	writeExecutableForCLI(t, filepath.Join(dir, "gopls"), `#!/bin/sh
+if [ "$1" = "definition" ]; then echo "foo.go:3:6 defined"; exit 0; fi
+if [ "$1" = "references" ]; then echo "$2 $3"; exit 0; fi
+exit 2
+`)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var out bytes.Buffer
+	if err := runLSPCommand(context.Background(), []string{"definition", "foo.go:10:4"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "kind: definition") || !strings.Contains(out.String(), "foo.go:3:6 defined") {
+		t.Fatalf("definition output = %q", out.String())
+	}
+	out.Reset()
+	if err := runLSPCommand(context.Background(), []string{"references", "--declaration", "foo.go:10:4"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "kind: references") || !strings.Contains(out.String(), "references -d foo.go:10:4") {
+		t.Fatalf("references output = %q", out.String())
+	}
+}
+
 func TestRunLSPDoctorRejectsPositionalArgs_BitsUT(t *testing.T) {
 	err := runLSPCommand(context.Background(), []string{"doctor", "unexpected"}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "usage: cohort lsp doctor") {

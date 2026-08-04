@@ -134,6 +134,49 @@ func TestRunCapabilityAdapterCommand_BitsUT(t *testing.T) {
 	}
 }
 
+func TestRunCapabilityAdapterVerifyPromote_BitsUT(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+	store := capability.NewStore(dir)
+	gap, err := store.AddGap(capability.NewGapFromTask("inspect local adapter"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := store.AddProposal(capability.NewProposalFromGap(gap))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	if err := runCapabilityCommand([]string{"adapter", proposal.ID, "--type", "tool"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	capabilityID := outputValue(t, out.String(), "capability")
+	out.Reset()
+	if err := runCapabilityCommand([]string{"verify", capabilityID}, &out); err != nil {
+		t.Fatalf("verify error = %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "tool.go_run") || !strings.Contains(out.String(), "promote: cohort capability promote "+capabilityID) {
+		t.Fatalf("verify output = %q", out.String())
+	}
+	out.Reset()
+	if err := runCapabilityCommand([]string{"promote", capabilityID}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "status: available") {
+		t.Fatalf("promote output = %q", out.String())
+	}
+}
+
 func TestRunCapabilitySuggestionsCommand_BitsUT(t *testing.T) {
 	wd, err := os.Getwd()
 	if err != nil {

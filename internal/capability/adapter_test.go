@@ -68,3 +68,60 @@ func TestBuildAdapterCreatesMCPScaffold_BitsUT(t *testing.T) {
 		t.Fatalf("artifacts = %#v, want mcp.json", artifacts)
 	}
 }
+
+func TestVerifyAndPromoteToolAdapter_BitsUT(t *testing.T) {
+	root := t.TempDir()
+	store := NewStore(root)
+	gap, err := store.AddGap(NewGapFromTask("inspect custom archive format"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := store.AddProposal(NewProposalFromGap(gap))
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, _, err := store.BuildAdapter(proposal.ID, TypeTool)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	verified, output, err := store.Verify(item.ID)
+	if err != nil {
+		t.Fatalf("verify error = %v\n%s", err, output)
+	}
+	if verified.Verification.LastPassedAt.IsZero() || !strings.Contains(output, "tool.go_run") {
+		t.Fatalf("verified = %#v output=%q", verified, output)
+	}
+	promoted, err := store.Promote(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if promoted.Status != StatusAvailable {
+		t.Fatalf("promoted = %#v", promoted)
+	}
+}
+
+func TestVerifyMCPAdapter_BitsUT(t *testing.T) {
+	root := t.TempDir()
+	store := NewStore(root)
+	gap, err := store.AddGap(NewGapFromTask("query internal design index"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := store.AddProposal(NewProposalFromGap(gap))
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, _, err := store.BuildAdapter(proposal.ID, TypeMCP)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	verified, output, err := store.Verify(item.ID)
+	if err != nil {
+		t.Fatalf("verify error = %v\n%s", err, output)
+	}
+	if verified.Verification.LastPassedAt.IsZero() || !strings.Contains(output, "mcp.config") {
+		t.Fatalf("verified = %#v output=%q", verified, output)
+	}
+}

@@ -1,13 +1,17 @@
 package capability
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"cohort/internal/plugin"
 )
 
 const AdapterDir = "adapters"
@@ -172,4 +176,145 @@ func adapterMCPJSON(capabilityID string) string {
   }
 }
 `, capabilityID)
+}
+
+type adapterVerifyCheck struct {
+	Name    string
+	OK      bool
+	Message string
+}
+
+func (s Store) verifyAdapter(registry Registry, capabilityIndex int) (Capability, string, error) {
+	item := registry.Capabilities[capabilityIndex]
+	checks := s.adapterVerificationChecks(item)
+	failed := 0
+	for _, check := range checks {
+		if !check.OK {
+			failed++
+		}
+	}
+	output := adapterVerificationOutput(checks)
+	now := time.Now().UTC()
+	if failed > 0 {
+		item.Status = StatusFailed
+		item.UpdatedAt = now
+		registry.Capabilities[capabilityIndex] = item
+		_ = s.Save(registry)
+		return item, output, fmt.Errorf("capability %q adapter verification failed: %d check(s) failed", item.ID, failed)
+	}
+	if item.Status == StatusFailed || item.Status == "" {
+		item.Status = StatusCandidate
+	}
+	item.Verification.Command = "cohort capability verify " + item.ID
+	item.Verification.LastPassedAt = now
+	item.UpdatedAt = now
+	registry.Capabilities[capabilityIndex] = item
+	return item, output, s.Save(registry)
+}
+
+func (s Store) adapterVerificationChecks(item Capability) []adapterVerifyCheck {
+	root := filepath.Join(s.projectRoot(), ProjectDirName, AdapterDir, item.ID)
+	entry := filepath.Join(s.projectRoot(), filepath.FromSlash(item.Entry))
+	checks := []adapterVerifyCheck{}
+	add := func(name string, ok bool, message string) {
+		checks = append(checks, adapterVerifyCheck{Name: name, OK: ok, Message: message})
+	}
+	if strings.TrimSpace(item.Entry) == "" {
+		add("entry", false, "missing capability entry")
+		return checks
+	}
+	manifest, err := plugin.Load(entry)
+	if err != nil {
+		add("plugin_manifest", false, err.Error())
+	} else {
+		add("plugin_manifest", true, filepath.Clean(entry))
+		doctor := plugin.Doctor(manifest)
+		for _, check := range doctor.Checks {
+			add("plugin."+check.Name, check.Status != "error", check.Message)
+		}
+	}
+	readme := filepath.Join(root, "README.md")
+	if fileExistsLocal(readme) {
+		add("readme", true, filepath.Clean(readme))
+	} else {
+		add("readme", false, "missing README.md")
+	}
+	switch item.Type {
+	case TypeTool:
+		s.verifyToolAdapter(root, add)
+	case TypeMCP:
+		s.verifyMCPAdapter(root, add)
+	default:
+		add("adapter_type", false, "unsupported adapter type "+item.Type)
+	}
+	return checks
+}
+
+func (s Store) verifyToolAdapter(root string, add func(name string, ok bool, message string)) {
+	adapterPath := filepath.Join(root, "adapter.go")
+	if !fileExistsLocal(adapterPath) {
+		add("tool.adapter_go", false, "missing adapter.go")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "run", "./adapter.go")
+	cmd.Dir = root
+	output, err := cmd.CombinedOutput()
+	message := strings.TrimSpace(string(output))
+	if ctx.Err() != nil {
+		add("tool.go_run", false, ctx.Err().Error())
+		return
+	}
+	if err != nil {
+		if message != "" {
+			message = err.Error() + ": " + message
+		} else {
+			message = err.Error()
+		}
+		add("tool.go_run", false, message)
+		return
+	}
+	if message == "" {
+		message = "go run ./adapter.go passed"
+	}
+	add("tool.go_run", true, message)
+}
+
+func (s Store) verifyMCPAdapter(root string, add func(name string, ok bool, message string)) {
+	mcpPath := filepath.Join(root, "mcp.json")
+	data, err := os.ReadFile(mcpPath)
+	if err != nil {
+		add("mcp.config", false, err.Error())
+		return
+	}
+	var parsed struct {
+		MCPServers map[string]any `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		add("mcp.config", false, err.Error())
+		return
+	}
+	if len(parsed.MCPServers) == 0 {
+		add("mcp.config", false, "mcpServers is empty")
+		return
+	}
+	add("mcp.config", true, fmt.Sprintf("%d server(s)", len(parsed.MCPServers)))
+}
+
+func adapterVerificationOutput(checks []adapterVerifyCheck) string {
+	var b strings.Builder
+	for _, check := range checks {
+		status := "ok"
+		if !check.OK {
+			status = "fail"
+		}
+		fmt.Fprintf(&b, "[%s] %s: %s\n", status, check.Name, check.Message)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func fileExistsLocal(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }

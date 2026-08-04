@@ -13,13 +13,14 @@ import (
 
 func runLSPCommand(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: cohort lsp doctor|diagnostics [--language go|typescript|python|all] [path...]")
+		return errors.New("usage: cohort lsp doctor|diagnostics|definition|references ...")
 	}
 	root, err := os.Getwd()
 	if err != nil {
 		return err
 	}
 	client := lsp.Diagnostics{Root: root}
+	gopls := lsp.Gopls{Root: root}
 	switch args[0] {
 	case "doctor":
 		language, targets, install, err := parseLSPDoctorArgs(args[1:])
@@ -58,8 +59,60 @@ func runLSPCommand(ctx context.Context, args []string, out io.Writer) error {
 			fmt.Fprintln(out, "diagnostics: clean")
 		}
 		return nil
+	case "definition":
+		if len(args) != 2 {
+			return errors.New("usage: cohort lsp definition <file.go:line:column>")
+		}
+		result, err := gopls.Definition(ctx, args[1])
+		printLSPQueryResult(result, out)
+		return err
+	case "references":
+		position, includeDeclaration, err := parseLSPReferencesArgs(args[1:])
+		if err != nil {
+			return err
+		}
+		result, err := gopls.References(ctx, position, includeDeclaration)
+		printLSPQueryResult(result, out)
+		return err
 	default:
-		return fmt.Errorf("unknown lsp command %q, use doctor or diagnostics", args[0])
+		return fmt.Errorf("unknown lsp command %q, use doctor, diagnostics, definition, or references", args[0])
+	}
+}
+
+func parseLSPReferencesArgs(args []string) (string, bool, error) {
+	position := ""
+	includeDeclaration := false
+	for len(args) > 0 {
+		arg := args[0]
+		args = args[1:]
+		switch arg {
+		case "--declaration", "-d":
+			includeDeclaration = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return "", false, fmt.Errorf("unknown lsp references option %q", arg)
+			}
+			if position != "" {
+				return "", false, errors.New("usage: cohort lsp references [--declaration] <file.go:line:column>")
+			}
+			position = arg
+		}
+	}
+	if position == "" {
+		return "", false, errors.New("usage: cohort lsp references [--declaration] <file.go:line:column>")
+	}
+	return position, includeDeclaration, nil
+}
+
+func printLSPQueryResult(result lsp.QueryResult, out io.Writer) {
+	fmt.Fprintf(out, "language: %s\n", result.Language)
+	fmt.Fprintf(out, "kind: %s\n", result.Kind)
+	fmt.Fprintf(out, "position: %s\n", result.Position)
+	fmt.Fprintf(out, "command: %s\n", strings.Join(result.Command, " "))
+	fmt.Fprintf(out, "exit_code: %d\n", result.ExitCode)
+	if result.Output != "" {
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, result.Output)
 	}
 }
 
