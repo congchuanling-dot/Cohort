@@ -1016,6 +1016,10 @@ Interactive slash commands:
   /session list           list local sessions
   /resume <id>            resume a session
   /compact                reserved for Context Manager
+  /diff                   review Git working tree changes
+  /diff show [file]       show full diff
+  /diff rollback <file> --confirm
+                          rollback one tracked file
   /clear                  clear current in-memory session
   /exit                   exit
 

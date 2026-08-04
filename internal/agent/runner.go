@@ -181,6 +181,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 	}
 
 	// 用户输入先进入 history，后续每一轮模型都能看到完整上下文。
+	sessionBeforeInput := r.sessionID
 	if err := r.appendMessage(llm.Message{Role: llm.RoleUser, Content: input}, input); err != nil {
 		return RunResult{}, err
 	}
@@ -200,7 +201,18 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			severity = observability.SeverityError
 		}
 		r.emitObservation(ctx, obs, runID, observability.EventRunFinished, lastTurn, severity, data)
+		r.emitObservation(ctx, obs, runID, observability.EventSessionFinished, lastTurn, severity, map[string]any{
+			"history_len": len(r.history),
+			"status":      data["status"],
+		})
 		return result, err
+	}
+	if sessionBeforeInput == "" && r.sessionID != "" {
+		r.emitObservation(ctx, obs, runID, observability.EventSessionStarted, 0, observability.SeverityInfo, map[string]any{
+			"history_len": len(r.history),
+			"cwd":         r.SessionCWD,
+			"model":       r.SessionModel,
+		})
 	}
 	r.emitObservation(ctx, obs, runID, observability.EventRunStarted, 0, observability.SeverityInfo, map[string]any{
 		"max_turns":   r.MaxTurns,
@@ -221,6 +233,8 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 	r.addSOPRouteHint(input)
 	messages, stats := r.buildRequestMessagesWithStats()
 	r.emitObservation(ctx, obs, runID, observability.EventContextBuilt, 0, observability.SeverityInfo, contextStatsData(stats))
+	finishGuardRetries := 0
+	textToolUseRetries := 0
 
 	for turn := 1; turn <= r.MaxTurns; turn++ {
 		lastTurn = turn
@@ -262,6 +276,33 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 		r.emitObservation(ctx, obs, runID, observability.EventLLMResponseFinished, turn, observability.SeverityInfo, llmResponseData(resp, time.Since(llmStartedAt), messages, tools, r.SystemPrompt))
 		// 记录模型原始响应用于排查问题，不影响主流程。
 		r.logResponse(turn, resp)
+		if len(resp.ToolCalls) == 0 && strings.Contains(resp.Content, toolUseOpenTag) {
+			parsed, parseErr := parseTextToolUseFallback(resp.Content)
+			if parseErr != nil {
+				if textToolUseRetries < 1 {
+					textToolUseRetries++
+					if err := r.appendMessage(llm.Message{Role: llm.RoleAssistant, Content: resp.Content}, ""); err != nil {
+						return finishRun(RunResult{}, err)
+					}
+					r.emitObservation(ctx, obs, runID, observability.EventTextToolUseParsed, turn, observability.SeverityWarn, map[string]any{
+						"status": "error",
+						"error":  parseErr.Error(),
+					})
+					r.addPendingHint("[TEXT TOOL_USE PARSE ERROR] 上一轮输出了 <tool_use>，但格式不符合严格 JSON 协议：" + parseErr.Error() + "。请重新生成严格格式：<tool_use>{\"name\":\"工具名\",\"arguments\":{...}}</tool_use>。不要在工具块里写注释、Markdown 或多个 JSON 对象。")
+					messages, stats = r.buildRequestMessagesWithStats()
+					r.emitObservation(ctx, obs, runID, observability.EventContextBuilt, turn, observability.SeverityInfo, contextStatsData(stats))
+					continue
+				}
+			} else if len(parsed.ToolCalls) > 0 {
+				resp.Content = parsed.Content
+				resp.ToolCalls = parsed.ToolCalls
+				r.emitObservation(ctx, obs, runID, observability.EventTextToolUseParsed, turn, observability.SeverityInfo, map[string]any{
+					"status":          ToolStatusSuccess,
+					"tool_call_count": len(parsed.ToolCalls),
+					"content_chars":   len([]rune(parsed.Content)),
+				})
+			}
+		}
 		if r.pendingSOPRead.Path != "" && !containsToolCall(resp.ToolCalls, "update_working_checkpoint") && !r.pendingSOPRead.ReminderSet {
 			r.addPendingHint(fmt.Sprintf("[SYSTEM HINT] 上一轮读取了 SOP：%s。如果决定按它执行，本轮应调用 update_working_checkpoint 保存 [任务]/[关键约束]/[禁止事项]/[当前进度]/[下一步]。", r.pendingSOPRead.Path))
 			r.pendingSOPRead.ReminderSet = true
@@ -275,6 +316,18 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 		if len(resp.ToolCalls) == 0 {
 			if err := r.appendMessage(llm.Message{Role: llm.RoleAssistant, Content: resp.Content}, ""); err != nil {
 				return finishRun(RunResult{}, err)
+			}
+			if decision := evaluateFinishGuard(input, resp); !decision.Allow && finishGuardRetries < maxFinishGuardRetries {
+				finishGuardRetries++
+				r.emitObservation(ctx, obs, runID, observability.EventFinishGuardTriggered, turn, observability.SeverityWarn, map[string]any{
+					"reason":        decision.Reason,
+					"retry":         finishGuardRetries,
+					"content_chars": len([]rune(resp.Content)),
+				})
+				r.addPendingHint("[FINISH GUARD] " + decision.Prompt)
+				messages, stats = r.buildRequestMessagesWithStats()
+				r.emitObservation(ctx, obs, runID, observability.EventContextBuilt, turn, observability.SeverityInfo, contextStatsData(stats))
+				continue
 			}
 			r.maybeRecordCapabilityGap(ctx, obs, runID, turn, input, resp.Content)
 			if !awaitingUserInput(resp.Content) && r.maybeForceLongTermMemoryReview(&memorySignals, turn) {
@@ -351,6 +404,15 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			r.recordLongTermMemorySignal(&memorySignals, call.Function.Name, args, outcome)
 			evidenceLedger = append(evidenceLedger, newToolEvidence(call, turn, i, outcome))
 			r.logToolRun(call, args, turn, i, outcome, time.Since(toolStartedAt))
+			if decision, _ := outcome.Audit["permission_decision"].(string); decision != "" {
+				r.emitObservation(ctx, obs, runID, observability.EventPermissionDecision, turn, observability.SeverityInfo, map[string]any{
+					"tool":                call.Function.Name,
+					"permission_decision": decision,
+					"risk":                outcome.Audit["risk"],
+					"external":            outcome.Audit["external"],
+					"server":              outcome.Audit["server"],
+				})
+			}
 			toolSeverity := observability.SeverityInfo
 			if !outcomeSucceeded(outcome) {
 				toolSeverity = observability.SeverityWarn

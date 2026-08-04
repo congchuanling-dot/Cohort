@@ -10,6 +10,7 @@ import (
 
 	"cohort/internal/contextmgr"
 	"cohort/internal/llm"
+	"cohort/internal/observability"
 )
 
 const (
@@ -111,6 +112,13 @@ func (r *Runner) CompactSessionMemory(ctx context.Context) (CompactMemoryResult,
 	if strings.TrimSpace(sessionDir) == "" {
 		return CompactMemoryResult{}, errors.New("compact cannot resolve session directory")
 	}
+	obs := r.observationBus()
+	defer obs.Close(ctx)
+	runID := observability.NewRunID()
+	r.emitObservation(ctx, obs, runID, observability.EventCompactStarted, 0, observability.SeverityInfo, map[string]any{
+		"kind":        "session_memory",
+		"history_len": len(r.history),
+	})
 
 	prompt := buildMemoryGenerationPrompt(r.history)
 	stream, err := r.Client.Chat(ctx, llm.ChatRequest{
@@ -131,17 +139,23 @@ func (r *Runner) CompactSessionMemory(ctx context.Context) (CompactMemoryResult,
 	if memory == "" {
 		return CompactMemoryResult{}, errors.New("compact returned empty memory")
 	}
-	if err := os.MkdirAll(sessionDir, 0755); err != nil {
-		return CompactMemoryResult{}, err
+	if mkdirErr := os.MkdirAll(sessionDir, 0755); mkdirErr != nil {
+		return CompactMemoryResult{}, mkdirErr
 	}
 	path := filepath.Join(sessionDir, contextmgr.SessionMemoryFileName)
 	backupPath, backedUp, err := backupSessionMemory(path)
 	if err != nil {
 		return CompactMemoryResult{}, err
 	}
-	if err := os.WriteFile(path, []byte(memory+"\n"), 0644); err != nil {
-		return CompactMemoryResult{}, err
+	if writeErr := os.WriteFile(path, []byte(memory+"\n"), 0644); writeErr != nil {
+		return CompactMemoryResult{}, writeErr
 	}
+	r.emitObservation(ctx, obs, runID, observability.EventCompactFinished, 0, observability.SeverityInfo, map[string]any{
+		"kind":      "session_memory",
+		"path":      path,
+		"chars":     len([]rune(memory)),
+		"backed_up": backedUp,
+	})
 	return CompactMemoryResult{
 		SessionID:  r.sessionID,
 		Path:       path,
@@ -170,6 +184,13 @@ func (r *Runner) FullCompactSession(ctx context.Context) (FullCompactResult, err
 	if strings.TrimSpace(sessionDir) == "" {
 		return FullCompactResult{}, errors.New("full compact cannot resolve session directory")
 	}
+	obs := r.observationBus()
+	defer obs.Close(ctx)
+	runID := observability.NewRunID()
+	r.emitObservation(ctx, obs, runID, observability.EventCompactStarted, 0, observability.SeverityInfo, map[string]any{
+		"kind":        "full_compact",
+		"history_len": len(r.history),
+	})
 
 	prompt := buildFullCompactPrompt(r.history)
 	stream, err := r.Client.Chat(ctx, llm.ChatRequest{
@@ -190,17 +211,23 @@ func (r *Runner) FullCompactSession(ctx context.Context) (FullCompactResult, err
 	if summary == "" {
 		return FullCompactResult{}, errors.New("full compact returned empty summary")
 	}
-	if err := os.MkdirAll(sessionDir, 0755); err != nil {
-		return FullCompactResult{}, err
+	if mkdirErr := os.MkdirAll(sessionDir, 0755); mkdirErr != nil {
+		return FullCompactResult{}, mkdirErr
 	}
 	path := filepath.Join(sessionDir, contextmgr.CompactSummaryFileName)
 	backupPath, backedUp, err := backupCompactSummary(path)
 	if err != nil {
 		return FullCompactResult{}, err
 	}
-	if err := os.WriteFile(path, []byte(summary+"\n"), 0644); err != nil {
-		return FullCompactResult{}, err
+	if writeErr := os.WriteFile(path, []byte(summary+"\n"), 0644); writeErr != nil {
+		return FullCompactResult{}, writeErr
 	}
+	r.emitObservation(ctx, obs, runID, observability.EventCompactFinished, 0, observability.SeverityInfo, map[string]any{
+		"kind":      "full_compact",
+		"path":      path,
+		"chars":     len([]rune(summary)),
+		"backed_up": backedUp,
+	})
 	return FullCompactResult{
 		SessionID:  r.sessionID,
 		Path:       path,

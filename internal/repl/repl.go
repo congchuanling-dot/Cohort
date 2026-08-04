@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -40,6 +42,7 @@ const (
 	commandSOP         = "sop"
 	commandSkill       = "skill"
 	commandMCP         = "mcp"
+	commandDiff        = "diff"
 	commandClear       = "clear"
 
 	sessionCommandList   = "list"
@@ -62,6 +65,11 @@ const (
 	mcpCommandStatus = "status"
 	mcpCommandTools  = "tools"
 	mcpCommandProbe  = "probe"
+
+	diffCommandShow     = "show"
+	diffCommandSummary  = "summary"
+	diffCommandRollback = "rollback"
+	diffCommandAccept   = "accept"
 
 	mcpProbeTimeout = 90 * time.Second
 )
@@ -252,6 +260,12 @@ func slashCompleter() *readline.PrefixCompleter {
 			readline.PcItem("uninstall"),
 			readline.PcItem("reload"),
 		),
+		readline.PcItem("/diff",
+			readline.PcItem("summary"),
+			readline.PcItem("show"),
+			readline.PcItem("rollback"),
+			readline.PcItem("accept"),
+		),
 		readline.PcItem("/clear"),
 		readline.PcItem("/exit"),
 	)
@@ -372,6 +386,11 @@ func selectSlashCommand(opts Options) (SlashCommand, bool, error) {
 			Command:     SlashCommand{Raw: "/skill reload", Name: commandSkill, Args: []string{skillCommandReload}},
 		},
 		{
+			Usage:       "/diff",
+			Description: "审阅当前 Git 工作区变更摘要",
+			Command:     SlashCommand{Raw: "/diff", Name: commandDiff},
+		},
+		{
 			Usage:       "/clear",
 			Description: "清空当前内存上下文，下一次输入创建新 session",
 			Command:     SlashCommand{Raw: "/clear", Name: commandClear},
@@ -479,6 +498,8 @@ func handleSlashCommand(opts Options, cmd SlashCommand) (bool, error) {
 		return false, handleSOPCommand(opts, cmd.Args)
 	case commandSkill:
 		return false, handleSkillCommand(opts, cmd.Args)
+	case commandDiff:
+		return false, handleDiffCommand(opts, cmd.Args)
 	case commandClear:
 		opts.Runner.Reset()
 		fmt.Fprintln(opts.Out, "current in-memory session cleared; next task will create a new session")
@@ -589,6 +610,181 @@ func printMCPList(out io.Writer, store mcp.Store) error {
 		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\n", entry.Server.Name, entry.Scope, entry.Server.Type, target)
 	}
 	return writer.Flush()
+}
+
+func handleDiffCommand(opts Options, args []string) error {
+	root, err := gitRoot()
+	if err != nil {
+		return err
+	}
+	if len(args) == 0 {
+		return printDiffSummary(opts.Out, root)
+	}
+	switch strings.ToLower(args[0]) {
+	case diffCommandSummary:
+		return printDiffSummary(opts.Out, root)
+	case diffCommandShow:
+		return showDiff(opts.Out, root, args[1:])
+	case diffCommandRollback:
+		return rollbackDiffFile(opts.Out, root, args[1:])
+	case diffCommandAccept:
+		fmt.Fprintln(opts.Out, "diff:")
+		fmt.Fprintln(opts.Out, "  status: accepted")
+		fmt.Fprintln(opts.Out, "  detail: 当前变更保持不动；Cohort 不会自动提交或隐藏这些变更。")
+		return nil
+	default:
+		return fmt.Errorf("unknown diff command %q, use /diff, /diff show [file], /diff rollback <file> --confirm, or /diff accept", args[0])
+	}
+}
+
+func printDiffSummary(out io.Writer, root string) error {
+	status, err := runGit(root, "status", "--short")
+	if err != nil {
+		return err
+	}
+	stat, err := runGit(root, "diff", "--stat", "HEAD", "--")
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "diff:")
+	if strings.TrimSpace(status) == "" {
+		fmt.Fprintln(out, "  status: clean")
+		return nil
+	}
+	fmt.Fprintln(out, "  status:")
+	fmt.Fprint(out, indentBlock(status, "    "))
+	if strings.TrimSpace(stat) != "" {
+		fmt.Fprintln(out, "  stat:")
+		fmt.Fprint(out, indentBlock(stat, "    "))
+	}
+	fmt.Fprintln(out, "  next:")
+	fmt.Fprintln(out, "    /diff show [file]              查看完整 diff")
+	fmt.Fprintln(out, "    /diff rollback <file> --confirm 受限回滚一个已跟踪文件")
+	fmt.Fprintln(out, "    /diff accept                   保留当前变更")
+	return nil
+}
+
+func showDiff(out io.Writer, root string, args []string) error {
+	gitArgs := []string{"diff", "HEAD", "--"}
+	if len(args) > 1 {
+		return fmt.Errorf("usage: /diff show [file]")
+	}
+	if len(args) == 1 {
+		rel, err := cleanRepoFilePath(root, args[0])
+		if err != nil {
+			return err
+		}
+		gitArgs = append(gitArgs, rel)
+	}
+	diff, err := runGit(root, gitArgs...)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "diff:")
+	if strings.TrimSpace(diff) == "" {
+		fmt.Fprintln(out, "  status: no diff")
+		return nil
+	}
+	fmt.Fprint(out, diff)
+	if !strings.HasSuffix(diff, "\n") {
+		fmt.Fprintln(out)
+	}
+	return nil
+}
+
+func rollbackDiffFile(out io.Writer, root string, args []string) error {
+	if len(args) != 2 || args[1] != "--confirm" {
+		fmt.Fprintln(out, "diff rollback refused:")
+		fmt.Fprintln(out, "  usage: /diff rollback <file> --confirm")
+		fmt.Fprintln(out, "  boundary: 只允许回滚当前 Git 仓库内的一个已跟踪文件。")
+		return nil
+	}
+	rel, err := cleanRepoFilePath(root, args[0])
+	if err != nil {
+		return err
+	}
+	if err := ensureTrackedFile(root, rel); err != nil {
+		return err
+	}
+	if _, err := runGit(root, "restore", "--staged", "--worktree", "--", rel); err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "diff:")
+	fmt.Fprintln(out, "  status: rolled back")
+	fmt.Fprintf(out, "  file: %s\n", rel)
+	return nil
+}
+
+func gitRoot() (string, error) {
+	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", fmt.Errorf("not inside a Git repository: %w", err)
+	}
+	root := strings.TrimSpace(string(out))
+	if root == "" {
+		return "", fmt.Errorf("git root is empty")
+	}
+	return filepath.Clean(root), nil
+}
+
+func runGit(root string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = root
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git %s failed: %w\n%s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+	}
+	return string(output), nil
+}
+
+func cleanRepoFilePath(root string, input string) (string, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return "", fmt.Errorf("file path is required")
+	}
+	var abs string
+	if filepath.IsAbs(input) {
+		abs = filepath.Clean(input)
+	} else {
+		abs = filepath.Join(root, filepath.Clean(input))
+	}
+	rel, err := filepath.Rel(root, abs)
+	if err != nil {
+		return "", err
+	}
+	rel = filepath.Clean(rel)
+	if rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
+		return "", fmt.Errorf("path %q is outside Git repository %s", input, root)
+	}
+	if rel == ".git" || strings.HasPrefix(rel, ".git"+string(filepath.Separator)) {
+		return "", fmt.Errorf("refusing to operate on .git internals")
+	}
+	info, statErr := os.Stat(filepath.Join(root, rel))
+	if statErr == nil && info.IsDir() {
+		return "", fmt.Errorf("refusing to rollback a directory: %s", rel)
+	}
+	return filepath.ToSlash(rel), nil
+}
+
+func ensureTrackedFile(root string, rel string) error {
+	if _, err := runGit(root, "ls-files", "--error-unmatch", "--", rel); err != nil {
+		return fmt.Errorf("refusing to rollback untracked or unknown file %q: %w", rel, err)
+	}
+	return nil
+}
+
+func indentBlock(text string, prefix string) string {
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	if len(lines) == 0 || (len(lines) == 1 && strings.TrimSpace(lines[0]) == "") {
+		return ""
+	}
+	var b strings.Builder
+	for _, line := range lines {
+		b.WriteString(prefix)
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 func printMCPStatus(ctx context.Context, out io.Writer, store mcp.Store) error {
@@ -727,6 +923,11 @@ func printSlashHelp(out io.Writer) {
                            更新或检查已安装 Skill
   /skill uninstall <id>    删除已安装 Skill
   /skill reload            重新扫描 Skills 并刷新系统提示词
+  /diff                    查看当前 Git 变更摘要
+  /diff show [file]        查看完整 diff，file 只能在仓库内
+  /diff rollback <file> --confirm
+                           仅回滚一个已跟踪文件的 staged/worktree 变更
+  /diff accept             保留当前变更并输出确认说明
   /clear                   清空当前内存上下文，下一次输入会创建新 session
   /exit                    退出 Cohort
 
@@ -759,6 +960,10 @@ func printCommandPalette(out io.Writer) {
   /skill update <id>    更新 Skill；可加 --check/--pin
   /skill uninstall <id> 删除 Skill
   /skill reload         重新扫描 Skills
+  /diff                 审阅 Git 变更摘要
+  /diff show [file]     查看完整 diff
+  /diff rollback <file> --confirm
+                         受限回滚一个已跟踪文件
   /clear                清空当前内存上下文
   /exit                 退出
 

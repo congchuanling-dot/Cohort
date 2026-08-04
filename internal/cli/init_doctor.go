@@ -13,6 +13,8 @@ import (
 
 	"cohort/internal/app"
 	"cohort/internal/llm"
+	"cohort/internal/mcp"
+	"cohort/internal/session"
 )
 
 type initOptions struct {
@@ -143,6 +145,17 @@ func runDoctorCommand(ctx context.Context, args []string, configPath string, cfg
 		}
 		checkWritableDir(out, summary, "workspace", cfg.Workspace)
 		checkWritableDir(out, summary, "log_dir", cfg.LogDir)
+		checkWritableDir(out, summary, "session_dir", session.DefaultRootDir)
+		projectRoot, rootErr := os.Getwd()
+		if rootErr != nil {
+			summary.warn(out, "project.root", rootErr.Error())
+		} else {
+			summary.pass(out, "project.root", filepath.Clean(projectRoot))
+			checkDoctorMCP(ctx, out, summary, projectRoot, opts.Connect)
+			checkDoctorSkills(out, summary, projectRoot)
+		}
+		checkDoctorBrowser(out, summary)
+		checkDoctorRuntimeHelpers(out, summary, cfg.Workspace)
 		if opts.Connect {
 			if err := checkAPIBaseReachable(ctx, active); err != nil {
 				summary.fail(out, "llm.connect", err.Error())
@@ -159,6 +172,107 @@ func runDoctorCommand(ctx context.Context, args []string, configPath string, cfg
 	}
 	fmt.Fprintf(out, "doctor: ok (%d warning(s))\n", summary.warnings)
 	return nil
+}
+
+func checkDoctorMCP(ctx context.Context, out io.Writer, summary *doctorSummary, projectRoot string, connect bool) {
+	store := mcp.NewStore(projectRoot)
+	scoped, err := store.LoadEffectiveWithScopes()
+	if err != nil {
+		summary.fail(out, "mcp.config", err.Error())
+		return
+	}
+	if _, err := store.LoadPermissions(); err != nil {
+		summary.fail(out, "mcp.permissions", err.Error())
+		return
+	}
+	summary.pass(out, "mcp.permissions", "readable")
+	if len(scoped) == 0 {
+		summary.warn(out, "mcp.servers", "none configured")
+		return
+	}
+	summary.pass(out, "mcp.servers", fmt.Sprintf("%d configured", len(scoped)))
+	if !connect {
+		summary.warn(out, "mcp.connect", "skipped; pass --connect to probe configured servers")
+		return
+	}
+	servers := make([]mcp.ServerConfig, 0, len(scoped))
+	for _, entry := range scoped {
+		servers = append(servers, entry.Server)
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, mcpProbeTimeout)
+	defer cancel()
+	manager := mcp.NewManager()
+	manager.Load(probeCtx, servers)
+	defer manager.Close()
+	available := 0
+	unavailable := 0
+	for _, status := range manager.Statuses() {
+		if status.Available {
+			available++
+		} else {
+			unavailable++
+			summary.warn(out, "mcp.server."+status.Name, firstNonEmpty(status.Error, "unavailable"))
+		}
+	}
+	summary.pass(out, "mcp.connect", fmt.Sprintf("%d available, %d unavailable", available, unavailable))
+}
+
+func checkDoctorSkills(out io.Writer, summary *doctorSummary, projectRoot string) {
+	store, err := app.LoadSkillStore(projectRoot)
+	if err != nil {
+		summary.fail(out, "skill.index", err.Error())
+		return
+	}
+	skills := store.Skills()
+	if len(skills) == 0 {
+		summary.warn(out, "skill.index", "no skills discovered")
+		return
+	}
+	errors := 0
+	warnings := 0
+	for _, item := range skills {
+		result, err := store.Doctor(item.ID)
+		if err != nil {
+			errors++
+			summary.fail(out, "skill."+item.ID, err.Error())
+			continue
+		}
+		errors += result.ErrorCount()
+		warnings += result.WarningCount()
+	}
+	if errors > 0 {
+		summary.fail(out, "skill.doctor", fmt.Sprintf("%d skill(s), %d error(s), %d warning(s)", len(skills), errors, warnings))
+		return
+	}
+	if warnings > 0 {
+		summary.warn(out, "skill.doctor", fmt.Sprintf("%d skill(s), %d warning(s)", len(skills), warnings))
+		return
+	}
+	summary.pass(out, "skill.doctor", fmt.Sprintf("%d skill(s) healthy", len(skills)))
+}
+
+func checkDoctorBrowser(out io.Writer, summary *doctorSummary) {
+	dir, err := resolveBrowserExtensionDir()
+	if err != nil {
+		summary.warn(out, "browser.extension", err.Error())
+		return
+	}
+	summary.pass(out, "browser.extension", filepath.Clean(dir))
+}
+
+func checkDoctorRuntimeHelpers(out io.Writer, summary *doctorSummary, workspace string) {
+	desktopPath := app.ResolveRuntimeScriptPath(workspace, app.DesktopDarwinHelperPath)
+	if fileExists(desktopPath) {
+		summary.pass(out, "desktop.helper", filepath.Clean(desktopPath))
+	} else {
+		summary.warn(out, "desktop.helper", fmt.Sprintf("%s not found; run `cohort doctor computer` for full diagnostics", filepath.Clean(desktopPath)))
+	}
+	ocrPath := app.ResolveRuntimeScriptPath(workspace, app.BrowserOCRHelperPath)
+	if fileExists(ocrPath) {
+		summary.pass(out, "ocr.helper", filepath.Clean(ocrPath))
+	} else {
+		summary.warn(out, "ocr.helper", fmt.Sprintf("%s not found; run `cohort doctor computer` for full diagnostics", filepath.Clean(ocrPath)))
+	}
 }
 
 func parseDoctorArgs(args []string) (doctorOptions, error) {

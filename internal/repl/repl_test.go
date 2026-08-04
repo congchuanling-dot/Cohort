@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -111,6 +112,77 @@ func TestStartHandlesMCPCommandsWithoutDefaultServer(t *testing.T) {
 	}
 	if got := strings.Count(out.String(), "no MCP servers configured"); got != 2 {
 		t.Fatalf("empty MCP output count = %d, want 2:\n%s", got, out.String())
+	}
+}
+
+func TestStartHandlesDiffReviewAndRestrictedRollback_BitsUT(t *testing.T) {
+	repo := t.TempDir()
+	runTestGit(t, repo, "init")
+	runTestGit(t, repo, "config", "user.email", "cohort@example.com")
+	runTestGit(t, repo, "config", "user.name", "Cohort Test")
+	path := filepath.Join(repo, "tracked.txt")
+	if err := os.WriteFile(path, []byte("before\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, repo, "add", "tracked.txt")
+	runTestGit(t, repo, "commit", "-m", "initial")
+	if err := os.WriteFile(path, []byte("after\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chdirErr := os.Chdir(repo); chdirErr != nil {
+		t.Fatal(chdirErr)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(oldWD)
+	})
+
+	client := &fakeClient{}
+	runner := &agent.Runner{
+		Client: client,
+		Tools:  fakeTools{},
+	}
+	var out bytes.Buffer
+	err = Start(context.Background(), Options{
+		Config:       testConfig(),
+		Runner:       runner,
+		SessionStore: session.NewStore(t.TempDir()),
+		In:           strings.NewReader("/diff\n/diff show tracked.txt\n/diff rollback tracked.txt\n/diff rollback tracked.txt --confirm\n/exit\n"),
+		Out:          &out,
+		Err:          &out,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.calls != 0 {
+		t.Fatalf("model calls = %d, want 0", client.calls)
+	}
+	output := out.String()
+	for _, want := range []string{"diff:", "tracked.txt", "-before", "+after", "diff rollback refused", "status: rolled back"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output does not contain %q:\n%s", want, output)
+		}
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "before\n" {
+		t.Fatalf("file content = %q, want rollback to before", string(data))
+	}
+}
+
+func runTestGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(output))
 	}
 }
 

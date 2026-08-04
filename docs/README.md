@@ -17,12 +17,12 @@
 
 当前优先级以 [开发任务拆解表](development_task_breakdown.md) 顶部的“当前开发路径”为准：
 
-1. `[下一步]` 实现 `FinishGuard` / `NoToolPolicy`，保持无工具默认结束，只处理空回复、截断回复、大代码块误输出和 plan 未验证完成等强异常。
-2. `[规划]` 增加严格文本 `<tool_use>` 兜底，降低不同模型或中转服务的 tool calling 波动。
-3. `[部分完成]` 将现有工具级 `run.log` 扩展为完整 Runner 生命周期事件流，再抽取内部 Hook 接口。
-4. `[规划]` 实现 `cohort doctor` 总入口，统一检查配置、模型、MCP、Skill、浏览器和桌面环境。
-5. `[规划]` 实现交互式 diff、变更审阅与回滚边界。
-6. `[规划]` 再推进 Project/Plan Mode、内置 Skill 包、Plugin、LSP、多模型和 daemon。
+1. `[完成]` `FinishGuard` / `NoToolPolicy` 保守早停守卫：无工具默认结束，只对空回复、截断回复、大代码块误输出和疑似未验证完成等强异常做一次性重试。
+2. `[完成]` 严格文本 `<tool_use>` 兜底：降低不同模型或中转服务的 tool calling 波动。
+3. `[部分完成]` Runner 生命周期 `run.log.jsonl` 事件流：Runner、LLM、tool、permission、compact、session start/end、FinishGuard 和 TextToolUse 已落地；内部 Hook 接口仍待抽取。
+4. `[部分完成]` `cohort doctor` 总入口：已检查配置、模型、MCP、Skill、浏览器扩展、桌面/OCR helper、workspace/session/log；真实桌面权限深检仍走 `cohort doctor computer`。
+5. `[完成]` 交互式 diff、变更审阅与受限回滚边界：`/diff`、`/diff show`、`/diff accept`、`/diff rollback <file> --confirm` 已落地。
+6. `[下一步]` 推进 Project/Plan Mode、内置 Skill 包、Plugin、LSP 和 daemon。
 7. `[验收支线]` 用官方飞书 MCP 完成 OAuth、只读和受控写操作的真实端到端验收。
 
 ## 运行与使用
@@ -41,8 +41,8 @@
 | `[维护]` | [development_task_breakdown.md](development_task_breakdown.md) | 当前优先级和历史任务档案。 |
 | `[部分完成]` | [cohort_mcp_integration_design.md](cohort_mcp_integration_design.md) | add/list/status/tools/probe/remove 与 P1 权限审计基础已完成；导入导出、飞书真实验收、OAuth 体验和 Plugin 尚待完成。 |
 | `[规划]` | [cohort_future_development_opportunities.md](cohort_future_development_opportunities.md) | Claude Code/OpenClaw 对标能力池；以顶部状态表判断实际进度。 |
-| `[部分完成]` | [cohort_vs_ga_current_gap.md](cohort_vs_ga_current_gap.md) | 当前差距分析；MCP 和渐进式 Skill Runtime 基础已补齐，NoToolPolicy、Hook、Project/Plan Mode、长期自治和前端生态仍未完成。 |
-| `[规划]` | [agent_observability_technical_design.md](agent_observability_technical_design.md) | 提炼 GA hook、Langfuse、checkpoint 和 L4 反射经验；规划 Cohort lifecycle events、run.log JSONL、usage/cost、tracing sink 和调优报告。 |
+| `[部分完成]` | [cohort_vs_ga_current_gap.md](cohort_vs_ga_current_gap.md) | 当前差距分析；MCP、渐进式 Skill Runtime、保守 NoToolPolicy、文本 tool_use 兜底和 diff 基础已补齐，Hook、Project/Plan Mode、长期自治和前端生态仍未完成。 |
+| `[部分完成]` | [agent_observability_technical_design.md](agent_observability_technical_design.md) | 提炼 GA hook、Langfuse、checkpoint 和 L4 反射经验；Runner lifecycle events 与 Langfuse 基础已落地，usage/cost、完整 tracing sink、内部 Hook 和调优报告仍待补。 |
 | `[历史]` | [cohort_vs_ga_gap.md](cohort_vs_ga_gap.md) | 早期 MVP 差距快照，已由 `cohort_vs_ga_current_gap.md` 取代。 |
 
 ## 核心能力设计

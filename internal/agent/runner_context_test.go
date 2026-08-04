@@ -41,6 +41,7 @@ func (c *contextRecordingClient) Chat(ctx context.Context, req llm.ChatRequest) 
 type contextFakeTools struct {
 	// result 是 fake 工具每次执行时返回给 Runner 的数据。
 	result string
+	audit  map[string]any
 }
 
 func (contextFakeTools) Schemas() []llm.ToolSchema {
@@ -48,7 +49,7 @@ func (contextFakeTools) Schemas() []llm.ToolSchema {
 }
 
 func (t contextFakeTools) Run(ctx context.Context, call ToolCallContext) (Outcome, error) {
-	return Outcome{Data: t.result, NextPrompt: "\n"}, nil
+	return Outcome{Data: t.result, NextPrompt: "\n", Audit: t.audit}, nil
 }
 
 type evidenceRecordingTools struct {
@@ -351,8 +352,16 @@ func TestRunnerWritesRedactedRunLog_BitsUT(t *testing.T) {
 	root := t.TempDir()
 	store := session.NewStore(filepath.Join(root, "sessions"))
 	runner := &Runner{
-		Client:       client,
-		Tools:        contextFakeTools{result: `{"status":"success"}`},
+		Client: client,
+		Tools: contextFakeTools{
+			result: `{"status":"success"}`,
+			audit: map[string]any{
+				"external":            true,
+				"server":              "custom",
+				"risk":                "R2",
+				"permission_decision": "allow",
+			},
+		},
 		MaxTurns:     2,
 		LogDir:       filepath.Join(root, "logs"),
 		SessionStore: &store,
@@ -385,7 +394,7 @@ func TestRunnerWritesRedactedRunLog_BitsUT(t *testing.T) {
 	if strings.Contains(string(events), "super-secret") {
 		t.Fatalf("run.log.jsonl leaked secret: %s", events)
 	}
-	for _, want := range []string{"RunStarted", "LLMRequestStarted", "ToolStarted", "ToolFinished", "RunFinished"} {
+	for _, want := range []string{"SessionStarted", "RunStarted", "LLMRequestStarted", "ToolStarted", "PermissionDecision", "ToolFinished", "RunFinished", "SessionFinished"} {
 		if !strings.Contains(string(events), want) {
 			t.Fatalf("run.log.jsonl missing %s:\n%s", want, events)
 		}

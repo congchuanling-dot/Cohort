@@ -105,7 +105,7 @@ cohort doctor --connect
 cohort doctor computer
 ```
 
-`doctor` 默认检查配置解析、API key、provider、api_base 格式、workspace 和 log 目录可写性。`--connect` 会额外访问 `api_base` 检查网络可达性，但不会发起模型补全请求。
+`doctor` 默认检查配置解析、API key、provider、api_base 格式、workspace/log/session 目录可写性、MCP 配置和权限文件、Skill doctor、Chrome 扩展目录、desktop helper 和 OCR helper。`--connect` 会额外访问 `api_base` 检查网络可达性，并 probe 已配置 MCP Server，但不会发起模型补全请求。
 
 `doctor computer` 检查 macOS Computer Use 环境，包括 Accessibility、Screen Recording、desktop helper、OCR helper、Chrome bridge 和截图/OCR artifact 目录。它只做只读诊断，不会默认点击、输入或修改系统设置。
 
@@ -234,11 +234,22 @@ Slash commands
   /memory               查看 session memory
   /sop candidates       列出 SOP 候选
   /sop promote <id>     升级候选 SOP；--confirm-index 显式更新索引
+  /diff                 审阅 Git 变更摘要
+  /diff show [file]     查看完整 diff
+  /diff rollback <file> --confirm
+                         受限回滚一个已跟踪文件
   /clear                清空当前内存上下文
   /exit                 退出
 ```
 
 如果已经输入了命令前缀，也可以按 `Tab` 补全，例如 `/se` 可以补到 `/session`。
+
+`/diff` 是本地审阅命令，不会发送给模型：
+
+- `/diff`：显示 `git status --short` 和 `git diff --stat HEAD --`。
+- `/diff show [file]`：显示完整 diff；传入文件时会限制在当前 Git 仓库内。
+- `/diff accept`：保留当前变更，只输出确认说明，不提交、不隐藏。
+- `/diff rollback <file> --confirm`：回滚单个已跟踪文件的 staged/worktree 变更；拒绝未确认、目录、仓库外路径和未跟踪文件。
 
 ## 3. 执行单次任务
 
