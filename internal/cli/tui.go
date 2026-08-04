@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"cohort/internal/explorer"
 	"cohort/internal/plan"
 )
 
@@ -17,16 +18,46 @@ func runTUICommand(args []string, out io.Writer) error {
 	if len(args) == 0 {
 		args = []string{"status"}
 	}
-	if args[0] != "status" {
-		return fmt.Errorf("unknown tui command %q, use status", args[0])
-	}
-	if len(args) != 1 {
-		return errors.New("usage: cohort tui status")
-	}
 	root, err := os.Getwd()
 	if err != nil {
 		return err
 	}
+	switch args[0] {
+	case "status":
+		if len(args) != 1 {
+			return errors.New("usage: cohort tui status")
+		}
+		return printTUIStatus(root, out)
+	case "plan":
+		if len(args) != 1 {
+			return errors.New("usage: cohort tui plan")
+		}
+		printTUIPlan(root, out)
+		return nil
+	case "diff":
+		if len(args) != 1 {
+			return errors.New("usage: cohort tui diff")
+		}
+		printTUIGit(root, out)
+		return nil
+	case "logs":
+		if len(args) != 1 {
+			return errors.New("usage: cohort tui logs")
+		}
+		printTUILogs(root, out)
+		return nil
+	case "explorers":
+		if len(args) != 1 {
+			return errors.New("usage: cohort tui explorers")
+		}
+		printTUIExplorers(root, out)
+		return nil
+	default:
+		return fmt.Errorf("unknown tui command %q, use status, plan, diff, logs, or explorers", args[0])
+	}
+}
+
+func printTUIStatus(root string, out io.Writer) error {
 	fmt.Fprintln(out, "Cohort Status")
 	fmt.Fprintln(out, "=============")
 	fmt.Fprintf(out, "root: %s\n", root)
@@ -36,6 +67,8 @@ func runTUICommand(args []string, out io.Writer) error {
 	printTUIGit(root, out)
 	fmt.Fprintln(out, "")
 	printTUILogs(root, out)
+	fmt.Fprintln(out, "")
+	printTUIExplorers(root, out)
 	return nil
 }
 
@@ -86,7 +119,37 @@ func printTUILogs(root string, out io.Writer) {
 		return
 	}
 	for _, path := range paths {
+		if info, err := os.Stat(path); err == nil {
+			fmt.Fprintf(out, "  %s (%d bytes, %s)\n", path, info.Size(), info.ModTime().Format("2006-01-02 15:04:05"))
+			continue
+		}
 		fmt.Fprintf(out, "  %s\n", path)
+	}
+}
+
+func printTUIExplorers(root string, out io.Writer) {
+	fmt.Fprintln(out, "Explorers")
+	tasks, err := explorer.NewStore(root).List()
+	if err != nil {
+		fmt.Fprintf(out, "  error: %v\n", err)
+		return
+	}
+	if len(tasks) == 0 {
+		fmt.Fprintln(out, "  none")
+		return
+	}
+	limit := minInt(len(tasks), 8)
+	for _, task := range tasks[:limit] {
+		fmt.Fprintf(out, "  [%s] %s - %s\n", task.Status, task.ID, task.Question)
+		if task.LastError != "" {
+			fmt.Fprintf(out, "    error: %s\n", task.LastError)
+		}
+		if task.ResultPath != "" {
+			fmt.Fprintf(out, "    result: %s\n", task.ResultPath)
+		}
+	}
+	if len(tasks) > limit {
+		fmt.Fprintf(out, "  ... %d more\n", len(tasks)-limit)
 	}
 }
 

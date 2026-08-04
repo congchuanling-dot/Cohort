@@ -1,13 +1,16 @@
 package explorer
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -38,6 +41,27 @@ type Task struct {
 	ResultPath      string    `json:"result_path"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
+	CompletedAt     time.Time `json:"completed_at,omitempty"`
+	LastError       string    `json:"last_error,omitempty"`
+}
+
+type RunOptions struct {
+	WithTests bool
+	Search    string
+}
+
+type RunResult struct {
+	Task   Task          `json:"task"`
+	Checks []CheckResult `json:"checks"`
+}
+
+type CheckResult struct {
+	Name     string   `json:"name"`
+	Command  []string `json:"command"`
+	Output   string   `json:"output,omitempty"`
+	OK       bool     `json:"ok"`
+	ExitCode int      `json:"exit_code"`
+	Error    string   `json:"error,omitempty"`
 }
 
 func NewStore(projectRoot string) Store {
@@ -135,6 +159,127 @@ func (s Store) Find(id string) (Task, error) {
 	return Task{}, fmt.Errorf("explorer task %q not found", id)
 }
 
+func (s Store) Run(ctx context.Context, id string, opts RunOptions) (RunResult, error) {
+	task, err := s.updateTask(id, func(task *Task, now time.Time) {
+		task.Status = "running"
+		task.LastError = ""
+		task.UpdatedAt = now
+	})
+	if err != nil {
+		return RunResult{}, err
+	}
+	checks := s.runChecks(ctx, opts)
+	now := time.Now().UTC()
+	failed := failedChecks(checks)
+	status := "completed"
+	lastError := ""
+	if failed > 0 {
+		status = "failed"
+		lastError = fmt.Sprintf("%d check(s) failed", failed)
+	}
+	task.Status = status
+	task.CompletedAt = now
+	task.UpdatedAt = now
+	task.LastError = lastError
+	result := RunResult{Task: task, Checks: checks}
+	if err := os.WriteFile(task.ResultPath, []byte(resultMarkdown(result)), 0644); err != nil {
+		return result, err
+	}
+	if _, err := s.updateTask(id, func(stored *Task, _ time.Time) {
+		stored.Status = task.Status
+		stored.CompletedAt = task.CompletedAt
+		stored.UpdatedAt = task.UpdatedAt
+		stored.LastError = task.LastError
+	}); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (s Store) runChecks(ctx context.Context, opts RunOptions) []CheckResult {
+	commands := []struct {
+		name string
+		argv []string
+	}{
+		{name: "git_status", argv: []string{"git", "status", "--short"}},
+		{name: "git_diff_stat", argv: []string{"git", "diff", "--stat"}},
+		{name: "git_diff_name_only", argv: []string{"git", "diff", "--name-only"}},
+	}
+	if strings.TrimSpace(opts.Search) != "" {
+		commands = append(commands, struct {
+			name string
+			argv []string
+		}{name: "search", argv: []string{"rg", "-n", "--", opts.Search}})
+	}
+	if opts.WithTests {
+		commands = append(commands, struct {
+			name string
+			argv []string
+		}{name: "go_test", argv: []string{"go", "test", "./..."}})
+	}
+	checks := make([]CheckResult, len(commands))
+	var wg sync.WaitGroup
+	for index, command := range commands {
+		wg.Add(1)
+		go func(index int, name string, argv []string) {
+			defer wg.Done()
+			checks[index] = s.runCommand(ctx, name, argv)
+		}(index, command.name, command.argv)
+	}
+	wg.Wait()
+	return checks
+}
+
+func (s Store) runCommand(ctx context.Context, name string, argv []string) CheckResult {
+	result := CheckResult{Name: name, Command: append([]string(nil), argv...), ExitCode: -1}
+	if len(argv) == 0 {
+		result.Error = "empty command"
+		return result
+	}
+	if !isAllowedExplorerCommand(argv) {
+		result.Error = "command is not in explorer read-only allowlist"
+		return result
+	}
+	if _, err := exec.LookPath(argv[0]); err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Dir = s.ProjectRoot
+	output, err := cmd.CombinedOutput()
+	result.Output = strings.TrimSpace(string(output))
+	result.ExitCode = exitCode(err)
+	result.OK = err == nil
+	if ctx.Err() != nil {
+		result.Error = ctx.Err().Error()
+		return result
+	}
+	if err != nil {
+		result.Error = err.Error()
+	}
+	return result
+}
+
+func (s Store) updateTask(id string, update func(task *Task, now time.Time)) (Task, error) {
+	id = strings.TrimSpace(id)
+	state, err := s.Load()
+	if err != nil {
+		return Task{}, err
+	}
+	now := time.Now().UTC()
+	for index := range state.Tasks {
+		if state.Tasks[index].ID != id {
+			continue
+		}
+		update(&state.Tasks[index], now)
+		if err := s.save(state); err != nil {
+			return Task{}, err
+		}
+		return state.Tasks[index], nil
+	}
+	return Task{}, fmt.Errorf("explorer task %q not found", id)
+}
+
 func (s Store) save(state State) error {
 	state.Version = 1
 	state.UpdatedAt = time.Now().UTC()
@@ -177,6 +322,79 @@ Write findings to:
 
 %s
 `, task.ID, task.Status, task.ReadOnly, task.Question, task.ResultPath)
+}
+
+func resultMarkdown(result RunResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Explorer Result\n\n")
+	fmt.Fprintf(&b, "ID: %s\n", result.Task.ID)
+	fmt.Fprintf(&b, "Status: %s\n", result.Task.Status)
+	fmt.Fprintf(&b, "Read-only: %t\n", result.Task.ReadOnly)
+	if !result.Task.CompletedAt.IsZero() {
+		fmt.Fprintf(&b, "Completed: %s\n", result.Task.CompletedAt.Format(time.RFC3339))
+	}
+	fmt.Fprintf(&b, "\n## Question\n\n%s\n\n", result.Task.Question)
+	fmt.Fprintf(&b, "## Checks\n\n")
+	for _, check := range result.Checks {
+		status := "ok"
+		if !check.OK {
+			status = "fail"
+		}
+		fmt.Fprintf(&b, "### %s [%s]\n\n", check.Name, status)
+		fmt.Fprintf(&b, "Command: `%s`\n\n", strings.Join(check.Command, " "))
+		if check.Error != "" {
+			fmt.Fprintf(&b, "Error: %s\n\n", check.Error)
+		}
+		if check.Output != "" {
+			fmt.Fprintf(&b, "```text\n%s\n```\n\n", check.Output)
+		}
+	}
+	return b.String()
+}
+
+func failedChecks(checks []CheckResult) int {
+	failed := 0
+	for _, check := range checks {
+		if !check.OK {
+			failed++
+		}
+	}
+	return failed
+}
+
+func isAllowedExplorerCommand(argv []string) bool {
+	if len(argv) == 0 {
+		return false
+	}
+	switch argv[0] {
+	case "git":
+		if len(argv) < 2 {
+			return false
+		}
+		switch argv[1] {
+		case "status", "diff":
+			return true
+		default:
+			return false
+		}
+	case "rg":
+		return true
+	case "go":
+		return len(argv) >= 2 && argv[1] == "test"
+	default:
+		return false
+	}
+}
+
+func exitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return -1
 }
 
 func uniqueTaskID(tasks []Task, base string) string {

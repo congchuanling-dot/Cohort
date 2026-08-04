@@ -1332,9 +1332,10 @@ Usage:
                           inspect .cohort/plugins manifests
   cohort explorer create "question"
                           create a read-only explorer validation task
-  cohort explorer list|show
-                          inspect read-only explorer tasks
-  cohort tui status       show plan, diff, and recent logs in terminal
+  cohort explorer list|show|run
+                          inspect or run read-only explorer tasks
+  cohort tui status|plan|diff|logs|explorers
+                          show terminal task, plan, diff, log, and explorer panels
   cohort mcp list         list configured MCP servers
   cohort mcp status       check configured MCP server availability
   cohort mcp add ...      add an MCP server

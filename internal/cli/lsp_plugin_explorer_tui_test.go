@@ -151,6 +151,43 @@ func TestRunExplorerCommandCreatesTask_BitsUT(t *testing.T) {
 	}
 }
 
+func TestRunExplorerCommandRunsTask_BitsUT(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+	bin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(bin, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeExecutableForCLI(t, filepath.Join(bin, "git"), `#!/bin/sh
+if [ "$1" = "status" ]; then echo " M file.go"; exit 0; fi
+if [ "$1" = "diff" ]; then echo "file.go"; exit 0; fi
+exit 2
+`)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var out bytes.Buffer
+	if err := runExplorerCommand([]string{"create", "verify diff"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	id := outputValueFromText(t, out.String(), "explorer")
+	out.Reset()
+	if err := runExplorerCommand([]string{"run", id}, &out); err != nil {
+		t.Fatalf("run error = %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "status: completed") || !strings.Contains(out.String(), "git_status") {
+		t.Fatalf("run output = %q", out.String())
+	}
+}
+
 func TestRunTUICommandStatus_BitsUT(t *testing.T) {
 	wd, err := os.Getwd()
 	if err != nil {
@@ -173,4 +210,41 @@ func TestRunTUICommandStatus_BitsUT(t *testing.T) {
 			t.Fatalf("tui output = %q, want %q", out.String(), want)
 		}
 	}
+}
+
+func TestRunTUICommandExplorers_BitsUT(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+	if err := runExplorerCommand([]string{"create", "verify explorer panel"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	if err := runTUICommand([]string{"explorers"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Explorers") || !strings.Contains(out.String(), "verify explorer panel") {
+		t.Fatalf("tui explorers output = %q", out.String())
+	}
+}
+
+func outputValueFromText(t *testing.T, output string, key string) string {
+	t.Helper()
+	prefix := key + ": "
+	for _, line := range strings.Split(output, "\n") {
+		if value, ok := strings.CutPrefix(line, prefix); ok {
+			return strings.TrimSpace(value)
+		}
+	}
+	t.Fatalf("output %q missing key %q", output, key)
+	return ""
 }
