@@ -14,7 +14,7 @@ import (
 
 func runCapabilityCommand(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: cohort capability list|gaps|show|propose|build|verify|promote|disable ...")
+		return errors.New("usage: cohort capability list|gaps|suggestions|show|propose|build|verify|promote|disable ...")
 	}
 	projectRoot, err := os.Getwd()
 	if err != nil {
@@ -26,6 +26,8 @@ func runCapabilityCommand(args []string, out io.Writer) error {
 		return printCapabilityList(store, out)
 	case "gaps":
 		return printCapabilityGaps(store, out)
+	case "suggestions":
+		return printCapabilitySuggestions(store, out)
 	case "show":
 		if len(args) != 2 {
 			return errors.New("usage: cohort capability show <id>")
@@ -92,6 +94,27 @@ func printCapabilityGaps(store capability.Store, out io.Writer) error {
 	fmt.Fprintln(tw, "ID\tSTATUS\tMISSING_CAPABILITY\tSOURCE\tTASK")
 	for _, item := range registry.Gaps {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", item.ID, item.Status, item.MissingCapability, item.Source, item.Task)
+	}
+	return tw.Flush()
+}
+
+func printCapabilitySuggestions(store capability.Store, out io.Writer) error {
+	suggestions, err := store.Suggestions()
+	if err != nil {
+		return err
+	}
+	if len(suggestions) == 0 {
+		fmt.Fprintln(out, "no repeated capability gaps need suggestions")
+		return nil
+	}
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "MISSING_CAPABILITY\tCOUNT\tSOURCES\tEXAMPLE_TASK\tNEXT")
+	for _, item := range suggestions {
+		exampleTask := ""
+		if len(item.ExampleTasks) > 0 {
+			exampleTask = item.ExampleTasks[0]
+		}
+		fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n", item.MissingCapability, item.Count, strings.Join(item.Sources, ","), exampleTask, item.NextCommand)
 	}
 	return tw.Flush()
 }

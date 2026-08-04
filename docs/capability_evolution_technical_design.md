@@ -1,6 +1,6 @@
 # Cohort 能力边界拓展技术方案
 
-> 状态：部分完成。当前已完成 P0/P3 的核心闭环：本地 capability registry、手动 gap/proposal CLI、Runner no-tool 能力缺口记录、`CapabilityGapRecorded` 观测事件、项目级 Skill scaffold、smoke test、`verify/promote/disable` 状态流转。依赖安装审核、Tool/MCP adapter 生成和自动路由仍为后续规划。
+> 状态：部分完成。当前已完成 P0/P4 的核心闭环：本地 capability registry、手动 gap/proposal CLI、Runner no-tool 能力缺口记录、`CapabilityGapRecorded` 观测事件、项目级 Skill scaffold、smoke test、`verify/promote/disable` 状态流转、available capability 轻量索引注入、重复 gap CLI 建议。依赖安装审核、Tool/MCP adapter 生成和离线反思汇总仍为后续规划。
 
 ## 1. 背景
 
@@ -477,6 +477,8 @@ cohort capability disable <id>
 
 - 相似任务能自动发现已有能力。
 - 高频失败能生成能力建设建议。
+
+状态：部分完成。系统提示词现在会注入 `[Capability Index]`，且只包含 `status=available` 的能力；skill 类型能力会暴露 `skill_id`，模型仍需先调用 `skill_read` 再执行。候选、失败、禁用和缺失能力不会进入路由索引。`cohort capability suggestions` 已能从重复 unresolved gaps 中给出 propose 建议；`reflect once` 的离线汇总和自动生成更完整 proposal 仍是后续项。
 
 ## 11. 对外表达
 

@@ -75,3 +75,14 @@ type Proposal struct {
 	CreatedAt    time.Time    `json:"created_at"`
 	UpdatedAt    time.Time    `json:"updated_at"`
 }
+
+type Suggestion struct {
+	MissingCapability string    `json:"missing_capability"`
+	Count             int       `json:"count"`
+	Sources           []string  `json:"sources,omitempty"`
+	ExampleTasks      []string  `json:"example_tasks,omitempty"`
+	FirstSeenAt       time.Time `json:"first_seen_at"`
+	LastSeenAt        time.Time `json:"last_seen_at"`
+	NextCommand       string    `json:"next_command"`
+	Reason            string    `json:"reason"`
+}

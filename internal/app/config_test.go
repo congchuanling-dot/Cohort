@@ -5,7 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"cohort/internal/capability"
 	"cohort/internal/skill"
 )
 
@@ -402,6 +404,68 @@ SECRET FULL BODY SHOULD NOT ENTER SYSTEM PROMPT.
 	}
 	if strings.Contains(prompt, "SECRET FULL BODY") {
 		t.Fatalf("system prompt leaked full skill body:\n%s", prompt)
+	}
+}
+
+func TestBuildSystemPromptInjectsAvailableCapabilityIndex_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, ".cohort", "skills", "local-csv", skill.SkillFileName)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`---
+name: Local CSV
+description: Analyze local CSV files.
+---
+
+# Local CSV
+
+SECRET FULL BODY SHOULD NOT ENTER SYSTEM PROMPT.
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	store := skill.NewStore(workspace, t.TempDir())
+	if err := store.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
+	capabilityStore := capability.NewStore(workspace)
+	if err := capabilityStore.Save(capability.Registry{
+		Capabilities: []capability.Capability{
+			{
+				ID:       "local_csv",
+				Status:   capability.StatusAvailable,
+				Type:     capability.TypeSkill,
+				Entry:    filepath.Join(capability.ProjectDirName, "skills", "local-csv", skill.SkillFileName),
+				Triggers: []string{"分析本地 CSV"},
+				Risk:     "R1: read local files",
+				Verification: capability.Verification{
+					LastPassedAt: now,
+				},
+				CreatedAt: now,
+				UpdatedAt: now,
+			},
+			{
+				ID:        "candidate_pdf",
+				Status:    capability.StatusCandidate,
+				Type:      capability.TypeSkill,
+				Entry:     filepath.Join(capability.ProjectDirName, "skills", "candidate-pdf", skill.SkillFileName),
+				CreatedAt: now,
+				UpdatedAt: now,
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	prompt := BuildSystemPromptForProject(Config{Language: "zh"}, store, workspace)
+	for _, want := range []string{"[Capability Index]", "local_csv", "project/local_csv", "分析本地 CSV", "available capability", "skill_read"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "candidate_pdf") || strings.Contains(prompt, "SECRET FULL BODY") {
+		t.Fatalf("system prompt leaked inactive capability or full skill body:\n%s", prompt)
 	}
 }
 

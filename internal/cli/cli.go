@@ -940,6 +940,8 @@ Usage:
   cohort extension open   open Chrome extensions page and print loading steps
   cohort capability list  list registered capabilities
   cohort capability gaps  list recorded capability gaps
+  cohort capability suggestions
+                          suggest builds for repeated unresolved gaps
   cohort capability show <id>
                           show a capability, gap, or proposal
   cohort capability propose "task"

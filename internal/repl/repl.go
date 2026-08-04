@@ -975,7 +975,7 @@ func handleSkillCommand(opts Options, args []string) error {
 		if err != nil {
 			return err
 		}
-		opts.Runner.SystemPrompt = app.BuildSystemPrompt(opts.Config, opts.Runner.SkillStore)
+		opts.Runner.SystemPrompt = app.BuildSystemPromptForProject(opts.Config, opts.Runner.SkillStore, opts.Runner.SessionCWD)
 		printSkillUpdateResult(opts.Out, result)
 		return nil
 	case skillCommandRemove, "remove", "rm":
@@ -986,7 +986,7 @@ func handleSkillCommand(opts Options, args []string) error {
 		if err != nil {
 			return err
 		}
-		opts.Runner.SystemPrompt = app.BuildSystemPrompt(opts.Config, opts.Runner.SkillStore)
+		opts.Runner.SystemPrompt = app.BuildSystemPromptForProject(opts.Config, opts.Runner.SkillStore, opts.Runner.SessionCWD)
 		fmt.Fprintf(opts.Out, "uninstalled skill %s\n", result.Skill.ID)
 		fmt.Fprintf(opts.Out, "  path: %s\n", result.Path)
 		return nil
@@ -997,7 +997,7 @@ func handleSkillCommand(opts Options, args []string) error {
 		if err := opts.Runner.SkillStore.Reload(); err != nil {
 			return err
 		}
-		opts.Runner.SystemPrompt = app.BuildSystemPrompt(opts.Config, opts.Runner.SkillStore)
+		opts.Runner.SystemPrompt = app.BuildSystemPromptForProject(opts.Config, opts.Runner.SkillStore, opts.Runner.SessionCWD)
 		fmt.Fprintf(opts.Out, "skills reloaded: %d\n", len(opts.Runner.SkillStore.Skills()))
 		return nil
 	default:
@@ -1083,7 +1083,7 @@ func installSkillFromREPL(opts Options, args []string) error {
 	if err := opts.Runner.SkillStore.Reload(); err != nil {
 		return err
 	}
-	opts.Runner.SystemPrompt = app.BuildSystemPrompt(opts.Config, opts.Runner.SkillStore)
+	opts.Runner.SystemPrompt = app.BuildSystemPromptForProject(opts.Config, opts.Runner.SkillStore, opts.Runner.SessionCWD)
 	return nil
 }
 

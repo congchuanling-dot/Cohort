@@ -19,6 +19,12 @@ const (
 	ProjectDirName  = ".cohort"
 	CapabilityDir   = "capabilities"
 	RegistryFile    = "registry.json"
+
+	maxCapabilityIndexItems        = 50
+	maxCapabilityIndexFieldRunes   = 180
+	maxCapabilityIndexTriggerCount = 3
+	defaultSuggestionMinCount      = 2
+	maxSuggestionExamples          = 3
 )
 
 type Store struct {
@@ -39,6 +45,33 @@ func NewStore(projectRoot string) Store {
 
 func (s Store) RegistryPath() string {
 	return filepath.Join(s.RootDir, RegistryFile)
+}
+
+func (s Store) IndexPrompt() string {
+	registry, err := s.Load()
+	if err != nil {
+		return ""
+	}
+	available := availableCapabilities(registry.Capabilities)
+	if len(available) == 0 {
+		return ""
+	}
+	if len(available) > maxCapabilityIndexItems {
+		available = available[:maxCapabilityIndexItems]
+	}
+	var b strings.Builder
+	b.WriteString("\n\n[Capability Index]\n")
+	b.WriteString("Capability 是已经 verify/promote 的可复用能力索引。只有 status=available 的能力会出现在这里；candidate/failed/disabled 不自动启用。任务命中 skill 类型 capability 时，先调用 skill_read 读取 skill_id，再按 Skill 工作流执行，并调用 update_working_checkpoint 保存 related_skill 和关键约束。\n")
+	for _, item := range available {
+		fmt.Fprintf(&b, "- id: `%s`; type: %s; skill_id: `%s`; risk: %s; triggers: %s\n",
+			item.ID,
+			firstNonEmpty(item.Type, TypeSkill),
+			skillIDForCapability(item),
+			truncateIndexField(item.Risk),
+			truncateIndexField(strings.Join(indexTriggers(item.Triggers), " | ")),
+		)
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func (s Store) projectRoot() string {
@@ -140,6 +173,47 @@ func (s Store) AddProposal(input Proposal) (Proposal, error) {
 	input.UpdatedAt = now
 	registry.Proposals = append(registry.Proposals, input)
 	return input, s.Save(registry)
+}
+
+func (s Store) Suggestions() ([]Suggestion, error) {
+	registry, err := s.Load()
+	if err != nil {
+		return nil, err
+	}
+	blocked := blockedSuggestionCapabilities(registry)
+	groups := map[string]*suggestionAccumulator{}
+	for _, gap := range registry.Gaps {
+		if !gapCountsForSuggestion(gap) {
+			continue
+		}
+		capabilityID := normalizeID(gap.MissingCapability)
+		if capabilityID == "" || blocked[capabilityID] {
+			continue
+		}
+		group := groups[capabilityID]
+		if group == nil {
+			group = &suggestionAccumulator{missingCapability: capabilityID}
+			groups[capabilityID] = group
+		}
+		group.add(gap)
+	}
+	suggestions := make([]Suggestion, 0, len(groups))
+	for _, group := range groups {
+		if group.count < defaultSuggestionMinCount {
+			continue
+		}
+		suggestions = append(suggestions, group.suggestion())
+	}
+	sort.Slice(suggestions, func(i, j int) bool {
+		if suggestions[i].Count != suggestions[j].Count {
+			return suggestions[i].Count > suggestions[j].Count
+		}
+		if !suggestions[i].LastSeenAt.Equal(suggestions[j].LastSeenAt) {
+			return suggestions[i].LastSeenAt.After(suggestions[j].LastSeenAt)
+		}
+		return suggestions[i].MissingCapability < suggestions[j].MissingCapability
+	})
+	return suggestions, nil
 }
 
 func (s Store) Build(proposalID string) (Capability, error) {
@@ -454,6 +528,75 @@ func defaultSuggestedActions() []string {
 	}
 }
 
+type suggestionAccumulator struct {
+	missingCapability string
+	count             int
+	sources           []string
+	exampleTasks      []string
+	firstSeenAt       time.Time
+	lastSeenAt        time.Time
+}
+
+func (a *suggestionAccumulator) add(gap Gap) {
+	a.count++
+	a.sources = appendUnique(a.sources, gap.Source)
+	if len(a.exampleTasks) < maxSuggestionExamples {
+		a.exampleTasks = appendUnique(a.exampleTasks, gap.Task)
+	}
+	if a.firstSeenAt.IsZero() || gap.CreatedAt.Before(a.firstSeenAt) {
+		a.firstSeenAt = gap.CreatedAt
+	}
+	if a.lastSeenAt.IsZero() || gap.CreatedAt.After(a.lastSeenAt) {
+		a.lastSeenAt = gap.CreatedAt
+	}
+}
+
+func (a suggestionAccumulator) suggestion() Suggestion {
+	return Suggestion{
+		MissingCapability: a.missingCapability,
+		Count:             a.count,
+		Sources:           a.sources,
+		ExampleTasks:      a.exampleTasks,
+		FirstSeenAt:       a.firstSeenAt,
+		LastSeenAt:        a.lastSeenAt,
+		NextCommand:       fmt.Sprintf("cohort capability propose %q", firstNonEmpty(firstSliceValue(a.exampleTasks), a.missingCapability)),
+		Reason:            fmt.Sprintf("recorded %d repeated missing-capability gaps without an active proposal or registered capability", a.count),
+	}
+}
+
+func blockedSuggestionCapabilities(registry Registry) map[string]bool {
+	blocked := map[string]bool{}
+	for _, item := range registry.Capabilities {
+		id := normalizeID(item.ID)
+		if id != "" && item.Status != StatusDisabled && item.Status != StatusFailed {
+			blocked[id] = true
+		}
+	}
+	for _, item := range registry.Proposals {
+		id := capabilityIDFromProposal(registry, item)
+		if id != "" && item.Status != StatusDisabled && item.Status != StatusFailed {
+			blocked[id] = true
+		}
+	}
+	return blocked
+}
+
+func gapCountsForSuggestion(gap Gap) bool {
+	switch gap.Status {
+	case "", StatusMissing, StatusFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func firstSliceValue(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
 func indexCapability(items []Capability, id string) int {
 	for index, item := range items {
 		if item.ID == id {
@@ -656,4 +799,76 @@ func escapeFrontMatterValue(value string) string {
 	value = strings.ReplaceAll(value, `"`, `\"`)
 	value = strings.ReplaceAll(value, "\n", " ")
 	return value
+}
+
+func availableCapabilities(items []Capability) []Capability {
+	out := make([]Capability, 0, len(items))
+	for _, item := range items {
+		if item.Status == StatusAvailable {
+			out = append(out, item)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+func skillIDForCapability(item Capability) string {
+	if item.Type != "" && item.Type != TypeSkill {
+		return "-"
+	}
+	alias := item.ID
+	entry := filepath.ToSlash(filepath.Clean(item.Entry))
+	prefix := ProjectDirName + "/skills/"
+	if rest, ok := strings.CutPrefix(entry, prefix); ok {
+		if candidate, _, ok := strings.Cut(rest, "/"); ok && candidate != "" {
+			alias = candidate
+		}
+	}
+	return "project/" + normalizeID(alias)
+}
+
+func indexTriggers(triggers []string) []string {
+	out := make([]string, 0, maxCapabilityIndexTriggerCount)
+	for _, item := range triggers {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		out = append(out, item)
+		if len(out) >= maxCapabilityIndexTriggerCount {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return []string{"-"}
+	}
+	return out
+}
+
+func truncateIndexField(value string) string {
+	value = strings.Join(strings.Fields(value), " ")
+	if value == "" {
+		return "-"
+	}
+	return truncateRunes(value, maxCapabilityIndexFieldRunes)
+}
+
+func truncateRunes(value string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return strings.TrimSpace(string(runes[:limit])) + "..."
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }

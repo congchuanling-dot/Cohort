@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"cohort/internal/capability"
 )
 
 func TestRunCapabilityProposeCommand_BitsUT(t *testing.T) {
@@ -90,6 +92,40 @@ func TestRunCapabilityLifecycleCommand_BitsUT(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "status: disabled") {
 		t.Fatalf("disable output = %q", out.String())
+	}
+}
+
+func TestRunCapabilitySuggestionsCommand_BitsUT(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+	store := capability.NewStore(dir)
+	for _, task := range []string{"parse local foo file", "parse another foo file"} {
+		gap := capability.NewGapFromTask(task)
+		gap.MissingCapability = "local_foo_parser"
+		gap.Source = "runner:no_tool"
+		if _, err := store.AddGap(gap); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var out bytes.Buffer
+	if err := runCapabilityCommand([]string{"suggestions"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	for _, want := range []string{"MISSING_CAPABILITY", "local_foo_parser", "runner:no_tool", "cohort capability propose"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("suggestions output = %q, want %q", got, want)
+		}
 	}
 }
 
