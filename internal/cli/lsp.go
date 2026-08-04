@@ -13,30 +13,33 @@ import (
 
 func runLSPCommand(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: cohort lsp doctor|diagnostics [path...]")
+		return errors.New("usage: cohort lsp doctor|diagnostics [--language go|typescript|python|all] [path...]")
 	}
 	root, err := os.Getwd()
 	if err != nil {
 		return err
 	}
-	client := lsp.Gopls{Root: root}
+	client := lsp.Diagnostics{Root: root}
 	switch args[0] {
 	case "doctor":
-		if len(args) != 1 {
-			return errors.New("usage: cohort lsp doctor")
-		}
-		result, err := client.Doctor(ctx)
+		language, targets, err := parseLSPLanguageArgs(args[1:], lsp.LanguageGo)
 		if err != nil {
-			fmt.Fprintf(out, "gopls: fail\n")
-			fmt.Fprintf(out, "  command: %s\n", result.Command)
 			return err
 		}
-		fmt.Fprintln(out, "gopls: ok")
-		fmt.Fprintf(out, "  path: %s\n", result.Path)
-		fmt.Fprintf(out, "  version: %s\n", firstLine(result.Version))
-		return nil
+		if len(targets) > 0 {
+			return errors.New("usage: cohort lsp doctor [--language go|typescript|python|all]")
+		}
+		return printLSPDoctor(ctx, client, language, out)
 	case "diagnostics", "check":
-		result, err := client.Check(ctx, args[1:])
+		language, targets, parseErr := parseLSPLanguageArgs(args[1:], lsp.LanguageGo)
+		if parseErr != nil {
+			return parseErr
+		}
+		if language == lsp.LanguageAll {
+			return errors.New("usage: cohort lsp diagnostics [--language go|typescript|python] [path...]")
+		}
+		result, err := client.Check(ctx, language, targets)
+		fmt.Fprintf(out, "language: %s\n", result.Language)
 		fmt.Fprintf(out, "command: %s\n", strings.Join(result.Command, " "))
 		fmt.Fprintf(out, "exit_code: %d\n", result.ExitCode)
 		if result.Output != "" {
@@ -53,6 +56,60 @@ func runLSPCommand(ctx context.Context, args []string, out io.Writer) error {
 	default:
 		return fmt.Errorf("unknown lsp command %q, use doctor or diagnostics", args[0])
 	}
+}
+
+func parseLSPLanguageArgs(args []string, fallback string) (string, []string, error) {
+	language := fallback
+	targets := make([]string, 0, len(args))
+	for len(args) > 0 {
+		arg := args[0]
+		args = args[1:]
+		switch {
+		case arg == "--language" || arg == "--lang":
+			if len(args) == 0 {
+				return "", nil, errors.New("--language requires go, typescript, python, or all")
+			}
+			language = lsp.NormalizeLanguage(args[0])
+			args = args[1:]
+		case strings.HasPrefix(arg, "--language="):
+			language = lsp.NormalizeLanguage(strings.TrimPrefix(arg, "--language="))
+		case strings.HasPrefix(arg, "--lang="):
+			language = lsp.NormalizeLanguage(strings.TrimPrefix(arg, "--lang="))
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return "", nil, fmt.Errorf("unknown lsp option %q", arg)
+			}
+			targets = append(targets, arg)
+		}
+	}
+	if len(lsp.SupportedLanguages(language)) == 0 {
+		return "", nil, fmt.Errorf("unsupported lsp language %q", language)
+	}
+	return language, targets, nil
+}
+
+func printLSPDoctor(ctx context.Context, client lsp.Diagnostics, language string, out io.Writer) error {
+	results := client.Doctor(ctx, language)
+	failures := 0
+	for _, result := range results {
+		if result.OK {
+			fmt.Fprintf(out, "%s: ok\n", result.Language)
+			fmt.Fprintf(out, "  command: %s\n", result.Command)
+			fmt.Fprintf(out, "  path: %s\n", result.Path)
+			fmt.Fprintf(out, "  version: %s\n", firstLine(result.Version))
+			continue
+		}
+		failures++
+		fmt.Fprintf(out, "%s: fail\n", result.Language)
+		fmt.Fprintf(out, "  command: %s\n", result.Command)
+		if result.Error != "" {
+			fmt.Fprintf(out, "  error: %s\n", result.Error)
+		}
+	}
+	if failures > 0 {
+		return fmt.Errorf("lsp doctor found %d failure(s)", failures)
+	}
+	return nil
 }
 
 func firstLine(value string) string {

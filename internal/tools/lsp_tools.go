@@ -22,22 +22,28 @@ func (t *LSPDiagnostics) Name() string { return ToolNameLSPDiagnostics }
 func (t *LSPDiagnostics) Schema() llm.ToolSchema {
 	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
 		Name:        t.Name(),
-		Description: "Run read-only Go diagnostics with gopls check. Use this before claiming Go code compiles cleanly when gopls is available.",
+		Description: "Run read-only language diagnostics. Supports Go via gopls, TypeScript via tsc --noEmit, and Python via pyright. Use before claiming code is diagnostically clean when the relevant checker is available.",
 		Parameters: objectSchema(map[string]any{
+			"language": stringProp("Language to check: go (default), typescript, or python."),
 			"targets": map[string]any{
 				"type":        "array",
-				"description": "Optional gopls check targets. Defaults to ./...",
-				"items":       stringProp("Go package pattern or file path"),
+				"description": "Optional package patterns, files, or directories. Go defaults to ./..., Python defaults to ., TypeScript defaults to tsconfig.json when present.",
+				"items":       stringProp("Package pattern, file path, or directory path"),
 			},
 		}),
 	}}
 }
 
 func (t *LSPDiagnostics) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	language := lsp.NormalizeLanguage(asString(call.Args["language"]))
+	if language == "" {
+		language = lsp.LanguageGo
+	}
 	targets := asStringSlice(call.Args["targets"])
-	result, err := (lsp.Gopls{Root: t.workspace}).Check(ctx, targets)
+	result, err := (lsp.Diagnostics{Root: t.workspace}).Check(ctx, language, targets)
 	data := map[string]any{
 		"status":    agent.ToolStatusSuccess,
+		"language":  result.Language,
 		"command":   result.Command,
 		"exit_code": result.ExitCode,
 		"output":    result.Output,
@@ -46,7 +52,7 @@ func (t *LSPDiagnostics) Run(ctx context.Context, call agent.ToolCallContext) (a
 	if err != nil {
 		data["status"] = agent.ToolStatusError
 		data["error"] = err.Error()
-		data["hint"] = "Install gopls or fix reported diagnostics. CLI equivalent: cohort lsp diagnostics"
+		data["hint"] = "Install the relevant checker (gopls, tsc, or pyright) or fix reported diagnostics. CLI equivalent: cohort lsp diagnostics --language " + language
 	}
 	return agent.Outcome{Data: data, NextPrompt: "\n"}, nil
 }

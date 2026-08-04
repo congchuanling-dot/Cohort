@@ -27,6 +27,7 @@ type DoctorResult struct {
 }
 
 type CheckResult struct {
+	Language string   `json:"language,omitempty"`
 	Command  []string `json:"command"`
 	Output   string   `json:"output"`
 	OK       bool     `json:"ok"`
@@ -57,7 +58,7 @@ func (g Gopls) Check(ctx context.Context, targets []string) (CheckResult, error)
 	}
 	expanded, err := g.expandCheckTargets(ctx, cleanTargets(targets))
 	if err != nil {
-		return CheckResult{Command: append([]string{firstNonEmpty(g.Command, "gopls"), "check"}, targets...), ExitCode: -1}, err
+		return CheckResult{Language: LanguageGo, Command: append([]string{firstNonEmpty(g.Command, "gopls"), "check"}, targets...), ExitCode: -1}, err
 	}
 	args := append([]string{"check"}, expanded...)
 	return g.run(ctx, args...)
@@ -90,7 +91,7 @@ func (g Gopls) expandCheckTargets(ctx context.Context, targets []string) ([]stri
 func (g Gopls) run(ctx context.Context, args ...string) (CheckResult, error) {
 	command := firstNonEmpty(g.Command, "gopls")
 	if _, err := exec.LookPath(command); err != nil {
-		return CheckResult{Command: append([]string{command}, args...), ExitCode: -1}, err
+		return CheckResult{Language: LanguageGo, Command: append([]string{command}, args...), ExitCode: -1}, err
 	}
 	timeout := g.Timeout
 	if timeout <= 0 {
@@ -104,6 +105,7 @@ func (g Gopls) run(ctx context.Context, args ...string) (CheckResult, error) {
 	}
 	output, err := cmd.CombinedOutput()
 	result := CheckResult{
+		Language: LanguageGo,
 		Command:  append([]string{command}, args...),
 		Output:   strings.TrimSpace(string(output)),
 		OK:       err == nil,

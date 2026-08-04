@@ -32,7 +32,7 @@ exit 2
 	if err := runLSPCommand(context.Background(), []string{"doctor"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "gopls: ok") || !strings.Contains(out.String(), "v0.0.0-test") {
+	if !strings.Contains(out.String(), "go: ok") || !strings.Contains(out.String(), "v0.0.0-test") {
 		t.Fatalf("doctor output = %q", out.String())
 	}
 	out.Reset()
@@ -41,6 +41,13 @@ exit 2
 	}
 	if !strings.Contains(out.String(), "command: gopls check ") || !strings.Contains(out.String(), "checked ") {
 		t.Fatalf("diagnostics output = %q", out.String())
+	}
+}
+
+func TestRunLSPDoctorRejectsPositionalArgs_BitsUT(t *testing.T) {
+	err := runLSPCommand(context.Background(), []string{"doctor", "unexpected"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "usage: cohort lsp doctor") {
+		t.Fatalf("error = %v, want doctor usage", err)
 	}
 }
 

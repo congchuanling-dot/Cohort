@@ -37,6 +37,32 @@ exit 2
 	}
 }
 
+func TestLSPDiagnosticsRunsTypeScriptCheck_BitsUT(t *testing.T) {
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "tsc")
+	script := `#!/bin/sh
+echo "tsc checked $@"
+exit 0
+`
+	if err := os.WriteFile(fake, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	outcome, err := NewLSPDiagnostics(t.TempDir()).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"language": "typescript", "targets": []any{"index.ts"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := outcome.Data.(map[string]any)
+	if data["status"] != agent.ToolStatusSuccess ||
+		data["language"] != "typescript" ||
+		!strings.Contains(data["output"].(string), "index.ts") {
+		t.Fatalf("outcome = %#v", data)
+	}
+}
+
 func TestRegistryIncludesLSPDiagnostics_BitsUT(t *testing.T) {
 	registry := NewRegistry()
 	registry.Register(NewLSPDiagnostics(t.TempDir()))

@@ -580,16 +580,16 @@ func runSkillCommand(ctx context.Context, args []string) error {
 			return err
 		}
 		if check {
-			result, err := store.CheckUpdate(ctx, opts)
-			if err != nil {
-				return err
+			result, checkErr := store.CheckUpdate(ctx, opts)
+			if checkErr != nil {
+				return checkErr
 			}
 			printSkillUpdateCheck(result)
 			return nil
 		}
-		result, err := store.UpdateWithOptions(ctx, opts)
-		if err != nil {
-			return err
+		result, updateErr := store.UpdateWithOptions(ctx, opts)
+		if updateErr != nil {
+			return updateErr
 		}
 		printSkillUpdateResult(result)
 		return nil
@@ -1324,9 +1324,10 @@ Usage:
   cohort doctor [--connect]
                           check config, API key, provider, and local paths
   cohort doctor computer  check macOS computer-use permissions and helpers
-  cohort lsp doctor       check gopls availability
-  cohort lsp diagnostics [path...]
-                          run gopls check for Go diagnostics
+  cohort lsp doctor [--language go|typescript|python|all]
+                          check local diagnostic backends
+  cohort lsp diagnostics [--language go|typescript|python] [path...]
+                          run read-only language diagnostics
   cohort plugin list|show|doctor
                           inspect .cohort/plugins manifests
   cohort explorer create "question"

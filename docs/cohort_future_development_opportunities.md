@@ -4,8 +4,8 @@
 >
 > 本文是能力池和中长期路线，不是实现清单。当前已落地 MCP P0、MCP 权限与工具级
 > `run.log`、浏览器/桌面/SOP/受控长期记忆、`NoToolPolicy`、交互式 diff、Project/Plan Mode、
-> Plugin manifest 第一版、`gopls` LSP 入口、只读 explorer 任务包和轻量 `tui status`；
-> Lifecycle Hook、daemon、真正并行 subagent、全屏 TUI 和跨语言 LSP 仍按本文路线保留为未完成规划。
+> Plugin manifest 第一版、Go/TypeScript/Python 只读诊断入口、只读 explorer 任务包和轻量 `tui status`；
+> Lifecycle Hook、daemon、真正并行 subagent、全屏 TUI 和 definition/references 等完整 LSP 查询仍按本文路线保留为未完成规划。
 
 ## 结论摘要
 
@@ -374,11 +374,12 @@ lsp_hover
 lsp_symbols
 ```
 
-第一版只做 Go：
+第一版先做只读诊断：
 
-- 检测 `gopls`。
-- 对当前 workspace 启动 language server。
-- 暴露 diagnostics 和 definition。
+- Go：检测 `gopls`，通过 `gopls check` 暴露 diagnostics。
+- TypeScript：检测 `tsc`，通过 `tsc --noEmit --pretty false` 暴露 diagnostics。
+- Python：检测 `pyright`，通过 `pyright` 暴露 diagnostics。
+- definition、references、hover、symbols 仍是下一阶段。
 
 **优先级：P2**
 
@@ -576,7 +577,7 @@ permissions:
 
 1. Skill / Plugin manifest。当前已有 `.cohort/plugins/*/plugin.json` 发现与 doctor。
 2. MCP client。
-3. LSP tools，先支持 `gopls`。当前已有 `cohort lsp doctor/diagnostics`。
+3. LSP tools，当前已有 `cohort lsp doctor/diagnostics --language go|typescript|python|all` 和 `lsp_diagnostics` Agent tool。
 4. TUI。当前已有轻量 `cohort tui status`，全屏交互式 TUI 仍待补。
 5. 相关记忆语义检索。
 6. tracing sink。
