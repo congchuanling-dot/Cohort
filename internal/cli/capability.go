@@ -14,7 +14,7 @@ import (
 
 func runCapabilityCommand(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: cohort capability list|gaps|suggestions|show|doctor|propose|build|verify|promote|disable ...")
+		return errors.New("usage: cohort capability list|gaps|suggestions|show|doctor|deps|propose|build|verify|promote|disable ...")
 	}
 	projectRoot, err := os.Getwd()
 	if err != nil {
@@ -38,6 +38,8 @@ func runCapabilityCommand(args []string, out io.Writer) error {
 			return errors.New("usage: cohort capability doctor <capability_id>")
 		}
 		return doctorCapability(store, args[1], out)
+	case "deps":
+		return runCapabilityDepsCommand(store, args[1:], out)
 	case "propose":
 		if len(args) < 2 {
 			return errors.New(`usage: cohort capability propose "task or capability gap"`)

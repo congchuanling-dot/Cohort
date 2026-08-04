@@ -455,6 +455,31 @@ cohort capability build <proposal_id>
 cohort capability doctor <capability_id>
 ```
 
+如果 proposal 声明了 `python`、`npm` 或 `brew` 依赖，可以先生成安装计划，不会立即安装：
+
+```bash
+cohort capability deps plan <proposal_id>
+```
+
+确认计划后显式批准，再执行安装；安装记录会写入审计文件：
+
+```bash
+cohort capability deps approve <plan_id>
+cohort capability deps install <plan_id>
+```
+
+只预演安装命令、不写安装记录：
+
+```bash
+cohort capability deps install <plan_id> --dry-run
+```
+
+查看依赖计划：
+
+```bash
+cohort capability deps list
+```
+
 运行候选能力的 smoke test：
 
 ```bash
@@ -478,11 +503,12 @@ cohort capability show <id>
 
 ```text
 .cohort/capabilities/registry.json
+.cohort/capabilities/deps.json
 ```
 
 交互运行时，如果模型没有调用工具就明确表示“缺少工具 / 无法处理 / 不支持该能力”，Runner 会自动记录一个 `runner:no_tool` 来源的 capability gap，并在 `run.log.jsonl` 里写入 `CapabilityGapRecorded` 观测事件。
 
-注意：当前 Cohort 可以通过 `code_run` 执行 shell 命令，因此技术上可以运行 `python3 -m pip install --user xxx` 这类安装命令。但这还不是完整自进化能力。当前 `build/doctor/verify/promote` 负责生成项目级 Skill 候选、诊断文件与依赖、运行 smoke test 并更新 registry；已 promote 为 `available` 的 skill capability 会进入系统提示词里的 Capability Index，模型命中后仍需先 `skill_read`。`suggestions` 只根据重复 unresolved gaps 给出下一步建议，不会自动创建 proposal 或安装依赖。依赖安装审核、Tool/MCP adapter 生成和离线反思汇总仍需要后续按 [能力边界拓展技术方案](capability_evolution_technical_design.md) 继续实现。
+注意：当前 Cohort 可以通过 `code_run` 执行 shell 命令，因此技术上可以运行 `python3 -m pip install --user xxx` 这类安装命令。但完整能力拓展不会直接放开任意安装。当前 `build/doctor/deps/verify/promote` 负责生成项目级 Skill 候选、诊断文件与依赖、生成依赖安装计划、显式批准后安装并记录审计、运行 smoke test 并更新 registry；已 promote 为 `available` 的 skill capability 会进入系统提示词里的 Capability Index，模型命中后仍需先 `skill_read`。`suggestions` 只根据重复 unresolved gaps 给出下一步建议，不会自动创建 proposal 或安装依赖。Tool/MCP adapter 生成和离线反思汇总仍需要后续按 [能力边界拓展技术方案](capability_evolution_technical_design.md) 继续实现。
 
 ### 4.7 查看 session 列表
 

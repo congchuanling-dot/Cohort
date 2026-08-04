@@ -215,6 +215,126 @@ func TestStoreDoctorReportsMissingSmokeTest_BitsUT(t *testing.T) {
 	}
 }
 
+func TestStoreDependencyPlanApproveAndDryRunInstall_BitsUT(t *testing.T) {
+	store := NewStore(t.TempDir())
+	gap, err := store.AddGap(NewGapFromTask("analyze csv with pandas"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal := NewProposalFromGap(gap)
+	proposal.Dependencies.Python = []string{"pandas"}
+	proposal.Dependencies.NPM = []string{"left-pad"}
+	proposal.Dependencies.Brew = []string{"jq"}
+	proposal, err = store.AddProposal(proposal)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := store.PlanDependencies(proposal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Status != DependencyStatusPlanned || len(plan.Actions) != 3 {
+		t.Fatalf("plan = %#v, want planned with 3 actions", plan)
+	}
+	if _, _, err := store.InstallDependencyPlan(plan.ID, DependencyInstallOptions{DryRun: true}); err == nil || !strings.Contains(err.Error(), "approve") {
+		t.Fatalf("install without approval error = %v, want approval guard", err)
+	}
+
+	approved, err := store.ApproveDependencyPlan(plan.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approved.Status != DependencyStatusApproved || approved.ApprovedAt.IsZero() {
+		t.Fatalf("approved plan = %#v", approved)
+	}
+	installedPlan, records, err := store.InstallDependencyPlan(plan.ID, DependencyInstallOptions{DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if installedPlan.Status != DependencyStatusApproved || len(records) != 3 {
+		t.Fatalf("dry-run install plan/records = %#v / %#v", installedPlan, records)
+	}
+	for _, record := range records {
+		if record.Status != DependencyStatusDryRun {
+			t.Fatalf("record = %#v, want dry-run status", record)
+		}
+	}
+	state, err := store.LoadDependencies()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Installs) != 0 {
+		t.Fatalf("dry-run persisted installs = %#v, want none", state.Installs)
+	}
+}
+
+func TestStoreDependencyPlanRequiresInstallableDependencies_BitsUT(t *testing.T) {
+	store := NewStore(t.TempDir())
+	gap, err := store.AddGap(NewGapFromTask("plain skill"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := store.AddProposal(NewProposalFromGap(gap))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.PlanDependencies(proposal.ID); err == nil || !strings.Contains(err.Error(), "no installable") {
+		t.Fatalf("plan deps error = %v, want no installable dependencies", err)
+	}
+}
+
+func TestStoreDoctorReportsDependencyInstallRecords_BitsUT(t *testing.T) {
+	projectRoot := t.TempDir()
+	store := NewStore(projectRoot)
+	gap, err := store.AddGap(NewGapFromTask("analyze csv with pandas"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal := NewProposalFromGap(gap)
+	proposal.Dependencies.Python = []string{"pandas"}
+	proposal, err = store.AddProposal(proposal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := store.Build(proposal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := store.Doctor(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !doctorHasCheckStatus(result, "dependencies", doctorStatusWarn) {
+		t.Fatalf("doctor checks = %#v, want missing dependency warning", result.Checks)
+	}
+
+	now := testTime()
+	if err := store.SaveDependencies(DependencyState{
+		Installs: []DependencyInstall{
+			{
+				ID:          "depinstall_test",
+				PlanID:      "depplan_test",
+				ActionID:    "pip_pandas",
+				Manager:     "pip",
+				Name:        "pandas",
+				Scope:       "user",
+				Status:      DependencyStatusInstalled,
+				InstalledAt: now,
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	result, err = store.Doctor(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !doctorHasCheckStatus(result, "dependency:pip:pandas", doctorStatusOK) {
+		t.Fatalf("doctor checks = %#v, want installed dependency ok", result.Checks)
+	}
+}
+
 func TestStoreIndexPromptOnlyIncludesAvailableCapabilities_BitsUT(t *testing.T) {
 	store := NewStore(t.TempDir())
 	now := testTime()

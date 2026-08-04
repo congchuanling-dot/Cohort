@@ -41,6 +41,8 @@ type Requirements struct {
 	Tools    []string `json:"tools,omitempty"`
 	Commands []string `json:"commands,omitempty"`
 	Python   []string `json:"python,omitempty"`
+	NPM      []string `json:"npm,omitempty"`
+	Brew     []string `json:"brew,omitempty"`
 	Env      []string `json:"env,omitempty"`
 }
 
@@ -99,4 +101,48 @@ type DoctorCheck struct {
 	Name    string `json:"name"`
 	Status  string `json:"status"`
 	Message string `json:"message"`
+}
+
+type DependencyState struct {
+	Version   int                 `json:"version"`
+	UpdatedAt time.Time           `json:"updated_at"`
+	Plans     []DependencyPlan    `json:"plans"`
+	Installs  []DependencyInstall `json:"installs"`
+}
+
+type DependencyPlan struct {
+	ID           string             `json:"id"`
+	ProposalID   string             `json:"proposal_id"`
+	CapabilityID string             `json:"capability_id"`
+	Status       string             `json:"status"`
+	Scope        string             `json:"scope"`
+	Risk         string             `json:"risk"`
+	Actions      []DependencyAction `json:"actions"`
+	CreatedAt    time.Time          `json:"created_at"`
+	UpdatedAt    time.Time          `json:"updated_at"`
+	ApprovedAt   time.Time          `json:"approved_at,omitempty"`
+	InstalledAt  time.Time          `json:"installed_at,omitempty"`
+}
+
+type DependencyAction struct {
+	ID      string   `json:"id"`
+	Manager string   `json:"manager"`
+	Name    string   `json:"name"`
+	Scope   string   `json:"scope"`
+	Command []string `json:"command"`
+	Risk    string   `json:"risk"`
+}
+
+type DependencyInstall struct {
+	ID          string    `json:"id"`
+	PlanID      string    `json:"plan_id"`
+	ActionID    string    `json:"action_id"`
+	Manager     string    `json:"manager"`
+	Name        string    `json:"name"`
+	Scope       string    `json:"scope"`
+	Command     []string  `json:"command"`
+	Status      string    `json:"status"`
+	ExitCode    int       `json:"exit_code"`
+	Output      string    `json:"output,omitempty"`
+	InstalledAt time.Time `json:"installed_at"`
 }

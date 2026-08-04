@@ -137,6 +137,64 @@ func TestRunCapabilitySuggestionsCommand_BitsUT(t *testing.T) {
 	}
 }
 
+func TestRunCapabilityDepsCommand_BitsUT(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+	store := capability.NewStore(dir)
+	gap, err := store.AddGap(capability.NewGapFromTask("analyze csv with pandas"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal := capability.NewProposalFromGap(gap)
+	proposal.Dependencies.Python = []string{"pandas"}
+	proposal, err = store.AddProposal(proposal)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	if err := runCapabilityCommand([]string{"deps", "plan", proposal.ID}, &out); err != nil {
+		t.Fatal(err)
+	}
+	planID := outputValue(t, out.String(), "plan")
+	if !strings.Contains(out.String(), "python3 -m pip install --user pandas") {
+		t.Fatalf("deps plan output = %q", out.String())
+	}
+
+	out.Reset()
+	if err := runCapabilityCommand([]string{"deps", "approve", planID}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "status: approved") {
+		t.Fatalf("deps approve output = %q", out.String())
+	}
+
+	out.Reset()
+	if err := runCapabilityCommand([]string{"deps", "install", planID, "--dry-run"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "dry_run") || !strings.Contains(out.String(), "pandas") {
+		t.Fatalf("deps install dry-run output = %q", out.String())
+	}
+
+	out.Reset()
+	if err := runCapabilityCommand([]string{"deps", "list"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), planID) || !strings.Contains(out.String(), "approved") {
+		t.Fatalf("deps list output = %q", out.String())
+	}
+}
+
 func outputValue(t *testing.T, output string, key string) string {
 	t.Helper()
 	prefix := key + ": "

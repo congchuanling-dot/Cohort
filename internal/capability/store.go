@@ -239,6 +239,7 @@ func (s Store) Doctor(capabilityID string) (DoctorResult, error) {
 	result.addCheck("status", doctorStatusForCapability(item), doctorStatusMessage(item))
 	result.checkSkillArtifacts(s.projectRoot(), item)
 	result.checkRequirements(item.Requires)
+	result.checkDependencyRecords(s, item)
 	if item.Verification.LastPassedAt.IsZero() {
 		result.addCheck("verification", doctorStatusWarn, "no successful verification recorded")
 	} else {
@@ -849,6 +850,8 @@ func mergeRequirements(left, right Requirements) Requirements {
 		Tools:    appendUnique(left.Tools, right.Tools...),
 		Commands: appendUnique(left.Commands, right.Commands...),
 		Python:   appendUnique(left.Python, right.Python...),
+		NPM:      appendUnique(left.NPM, right.NPM...),
+		Brew:     appendUnique(left.Brew, right.Brew...),
 		Env:      appendUnique(left.Env, right.Env...),
 	}
 }

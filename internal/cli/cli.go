@@ -946,6 +946,14 @@ Usage:
                           show a capability, gap, or proposal
   cohort capability doctor <capability_id>
                           diagnose artifacts, dependencies, and verification state
+  cohort capability deps plan <proposal_id>
+                          generate a dependency install plan without installing
+  cohort capability deps approve <plan_id>
+                          approve a dependency install plan
+  cohort capability deps install <plan_id> [--dry-run]
+                          install approved dependencies and record audit entries
+  cohort capability deps list
+                          list dependency install plans
   cohort capability propose "task"
                           record a gap and generate a proposal draft
   cohort capability build <proposal_id>
