@@ -19,6 +19,8 @@ const (
 	ToolNameFilePatch = "file_patch"
 	// ToolNameCodeRun 在工作区执行 shell 命令。
 	ToolNameCodeRun = "code_run"
+	// ToolNameLSPDiagnostics 通过 gopls 执行只读 Go 诊断。
+	ToolNameLSPDiagnostics = "lsp_diagnostics"
 	// ToolNameAskUser 在命令行向用户提问。
 	ToolNameAskUser = "ask_user"
 	// ToolNameSkillRead 读取已发现 Skill 的 SKILL.md 正文。
@@ -173,6 +175,7 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameFileWrite,
 		ToolNameFilePatch,
 		ToolNameCodeRun,
+		ToolNameLSPDiagnostics,
 		ToolNameBrowserTabs,
 		ToolNameBrowserOpen,
 		ToolNameBrowserScan,

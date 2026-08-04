@@ -197,6 +197,7 @@ func newRegistry(
 	registry.Register(tools.NewFileWrite(workspace))
 	registry.Register(tools.NewFilePatch(workspace))
 	registry.Register(tools.NewCodeRun(workspace))
+	registry.Register(tools.NewLSPDiagnostics(workspace))
 	registry.Register(tools.NewBrowserTabs(browserClient))
 	registry.Register(tools.NewBrowserOpen(browserClient))
 	registry.Register(tools.NewBrowserScan(browserClient))

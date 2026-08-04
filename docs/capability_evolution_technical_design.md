@@ -1,6 +1,6 @@
 # Cohort 能力边界拓展技术方案
 
-> 状态：部分完成。当前已完成 P0/P4 的核心闭环：本地 capability registry、手动 gap/proposal CLI、Runner no-tool 能力缺口记录、`CapabilityGapRecorded` 观测事件、项目级 Skill scaffold、doctor 诊断、依赖安装 plan/approve/install 审计、smoke test、`verify/promote/disable` 状态流转、available capability 轻量索引注入、重复 gap CLI 建议。Tool/MCP adapter 生成和离线反思汇总仍为后续规划。
+> 状态：部分完成。当前已完成 P0/P4 的核心闭环：本地 capability registry、手动 gap/proposal CLI、Runner no-tool 能力缺口记录、`CapabilityGapRecorded` 观测事件、项目级 Skill scaffold、Tool/MCP adapter scaffold、doctor 诊断、依赖安装 plan/approve/install 审计、smoke test、`verify/promote/disable` 状态流转、available capability 轻量索引注入、重复 gap CLI 建议。adapter 运行时注册、自动路由和更完整离线反思汇总仍为后续规划。
 
 ## 1. 背景
 
@@ -448,7 +448,7 @@ cohort capability build <proposal_id>
 cohort skill list
 ```
 
-状态：已完成项目级 Skill scaffold。当前不覆盖已有 `SKILL.md`，避免破坏用户手工编辑；Tool/MCP adapter scaffold 仍是后续项。
+状态：已完成项目级 Skill scaffold，并新增 `cohort capability adapter <proposal_id> --type tool|mcp` 生成 `.cohort/adapters/<capability_id>/` 下的待审查 adapter scaffold。当前不覆盖已有 `SKILL.md`，也不自动把 adapter 注册进 Tool Registry 或 MCP 配置，避免未经审核的能力直接进入运行时。
 
 ### P3：Verification 与 Promote
 
@@ -490,7 +490,7 @@ cohort capability disable <id>
 
 当前版本可以这样描述：
 
-> Cohort 当前具备通过 `code_run` 探测环境、运行脚本和执行依赖安装命令的基础能力，也具备 Skill、MCP、长期记忆和可观测性基础。当前版本已经能把“做不到”结构化为 capability gap，并通过 proposal、项目级 Skill scaffold、smoke test 和 registry promote 形成受控的候选能力闭环。依赖安装审核、Tool/MCP adapter 生成和自动路由仍在后续规划中。
+> Cohort 当前具备通过 `code_run` 探测环境、运行脚本和执行依赖安装命令的基础能力，也具备 Skill、MCP、长期记忆和可观测性基础。当前版本已经能把“做不到”结构化为 capability gap，并通过 proposal、项目级 Skill scaffold 或 Tool/MCP adapter scaffold、smoke test 和 registry promote 形成受控的候选能力闭环。adapter 自动注册和自动路由仍在后续规划中。
 
 不建议这样描述：
 

@@ -25,8 +25,9 @@
 6. `[部分完成]` Project / Plan Mode：`cohort project init/status`、`.cohort/project.md`、`.cohort/config.json`、`cohort plan create/status/start/verify/block` 和 `.cohort/plan.json` 已落地；更完整 Project bootstrap 向导仍待补。
 7. `[完成]` Skill Runtime 补强和候选挖掘：内置高频 Skill 包、`SKILL.md permissions`、`/skill run` active policy、Skill 候选离线报告已落地。
 8. `[部分完成]` MCP 补全、usage/cost 和离线反思增强：MCP import/export、旧 SSE 兼容、per-tool policy CLI、Runner usage/cost 汇总、`mine-skill-candidates` 已落地；OAuth 体验深优化和 L4 闭环仍待补。
-9. `[下一步]` 推进 OAuth 体验深优化、Plugin、LSP、多模型体验和 daemon。
-10. `[验收支线]` 用官方飞书 MCP 完成 OAuth、只读和受控写操作的真实端到端验收。
+9. `[部分完成]` LSP / Plugin / Adapter / Explorer / TUI 底座：`lsp_diagnostics` Agent tool 和 `cohort lsp doctor/diagnostics` 已接 `gopls`；`cohort plugin list/show/doctor` 已能发现和校验 `.cohort/plugins/*/plugin.json`；`cohort capability adapter <proposal_id> --type tool|mcp` 可生成待审查 adapter scaffold；`cohort explorer create/list/show` 可生成只读验证任务包；`cohort tui status` 可查看 plan、diff 和日志摘要。运行时自动注册、TS/Python LSP、真正并行 subagent 和全屏 TUI 仍待补。
+10. `[下一步]` 推进 OAuth 体验深优化、多模型体验、daemon、真实并行 subagent 和本地 API。
+11. `[验收支线]` 用官方飞书 MCP 完成 OAuth、只读和受控写操作的真实端到端验收。
 
 ## 运行与使用
 
@@ -60,7 +61,7 @@
 | `[部分完成]` | [computer_control_roadmap.md](computer_control_roadmap.md) | “操控电脑的所有操作”的能力缺口、风险边界和开发顺序；P1 核心原语、`computer_visual_snapshot`、`computer_execute_step`、结构化 recover policy、detector 协议和 `doctor computer --smoke-app` 已完成；下一步是模型/SDK 级 UI detector、多显示器和更多真实 App 回归样例。 |
 | `[规划]` | [human_os_operation_technical_design.md](human_os_operation_technical_design.md) | Computer Use 跨 OS 操作层方案；对模型暴露 `computer_see/find/click/type/press/check/wait`，底层键鼠输入绑定窗口、风险等级、验证和审计。 |
 | `[部分完成]` | [self_evolution_technical_design.md](self_evolution_technical_design.md) | 受控长期记忆、证据、SOP candidate、离线 session archive、failure pattern、memory quality 和 Skill candidate 报告已完成；后台反射和更强 L4 质量闭环未完成。 |
-| `[部分完成]` | [capability_evolution_technical_design.md](capability_evolution_technical_design.md) | 能力边界拓展闭环方案；本地 registry、手动 gap/proposal CLI、Runner no-tool gap 记录、项目级 Skill scaffold、doctor 诊断、依赖安装审核与审计、smoke test、registry promote、available capability 索引注入、重复 gap CLI 建议和 Skill 候选离线挖掘已落地；Tool/MCP adapter 待实现。 |
+| `[部分完成]` | [capability_evolution_technical_design.md](capability_evolution_technical_design.md) | 能力边界拓展闭环方案；本地 registry、手动 gap/proposal CLI、Runner no-tool gap 记录、项目级 Skill scaffold、doctor 诊断、依赖安装审核与审计、smoke test、registry promote、available capability 索引注入、重复 gap CLI 建议、Skill 候选离线挖掘和 Tool/MCP adapter scaffold 已落地；adapter 运行时注册和自动路由仍待补。 |
 | `[部分完成]` | [cohort_self_evolution_research.md](cohort_self_evolution_research.md) | 自进化调研及后续路线，P1-P3 仍为规划。 |
 
 ## 调研与问题记录

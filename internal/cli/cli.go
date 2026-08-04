@@ -58,6 +58,18 @@ func Run(args []string) error {
 	if args[0] == "capability" {
 		return runCapabilityCommand(args[1:], os.Stdout)
 	}
+	if args[0] == "lsp" {
+		return runLSPCommand(context.Background(), args[1:], os.Stdout)
+	}
+	if args[0] == "plugin" {
+		return runPluginCommand(args[1:], os.Stdout)
+	}
+	if args[0] == "explorer" {
+		return runExplorerCommand(args[1:], os.Stdout)
+	}
+	if args[0] == "tui" {
+		return runTUICommand(args[1:], os.Stdout)
+	}
 	if args[0] == "init" {
 		return runInitCommand(opts, args[1:], os.Stdout)
 	}
@@ -1289,6 +1301,8 @@ Usage:
                           record a gap and generate a proposal draft
   cohort capability build <proposal_id>
                           generate a project Skill scaffold for a proposal
+  cohort capability adapter <proposal_id> --type tool|mcp
+                          generate a reviewable Tool or MCP adapter scaffold
   cohort capability verify <capability_id>
                           run the capability smoke test
   cohort capability promote <capability_id>
@@ -1310,6 +1324,16 @@ Usage:
   cohort doctor [--connect]
                           check config, API key, provider, and local paths
   cohort doctor computer  check macOS computer-use permissions and helpers
+  cohort lsp doctor       check gopls availability
+  cohort lsp diagnostics [path...]
+                          run gopls check for Go diagnostics
+  cohort plugin list|show|doctor
+                          inspect .cohort/plugins manifests
+  cohort explorer create "question"
+                          create a read-only explorer validation task
+  cohort explorer list|show
+                          inspect read-only explorer tasks
+  cohort tui status       show plan, diff, and recent logs in terminal
   cohort mcp list         list configured MCP servers
   cohort mcp status       check configured MCP server availability
   cohort mcp add ...      add an MCP server

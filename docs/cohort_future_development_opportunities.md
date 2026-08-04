@@ -3,8 +3,9 @@
 > 文档状态：`[规划]`。状态基线为 2026-07-26；完整文档导航见 [docs/README.md](README.md)。
 >
 > 本文是能力池和中长期路线，不是实现清单。当前已落地 MCP P0、MCP 权限与工具级
-> `run.log`、浏览器/桌面/SOP/受控长期记忆；`NoToolPolicy`、Lifecycle Hook、交互式
-> diff、Project/Plan Mode、Plugin、LSP、daemon 仍按本文路线保留为未完成规划。
+> `run.log`、浏览器/桌面/SOP/受控长期记忆、`NoToolPolicy`、交互式 diff、Project/Plan Mode、
+> Plugin manifest 第一版、`gopls` LSP 入口、只读 explorer 任务包和轻量 `tui status`；
+> Lifecycle Hook、daemon、真正并行 subagent、全屏 TUI 和跨语言 LSP 仍按本文路线保留为未完成规划。
 
 ## 结论摘要
 
@@ -573,10 +574,10 @@ permissions:
 
 目标：让 Cohort 能接外部生态，但仍保持安全边界。
 
-1. Skill / Plugin manifest。
+1. Skill / Plugin manifest。当前已有 `.cohort/plugins/*/plugin.json` 发现与 doctor。
 2. MCP client。
-3. LSP tools，先支持 `gopls`。
-4. TUI。
+3. LSP tools，先支持 `gopls`。当前已有 `cohort lsp doctor/diagnostics`。
+4. TUI。当前已有轻量 `cohort tui status`，全屏交互式 TUI 仍待补。
 5. 相关记忆语义检索。
 6. tracing sink。
 

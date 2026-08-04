@@ -14,7 +14,7 @@ import (
 
 func runCapabilityCommand(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: cohort capability list|gaps|suggestions|show|doctor|deps|propose|build|verify|promote|disable ...")
+		return errors.New("usage: cohort capability list|gaps|suggestions|show|doctor|deps|propose|build|adapter|verify|promote|disable ...")
 	}
 	projectRoot, err := os.Getwd()
 	if err != nil {
@@ -51,6 +51,12 @@ func runCapabilityCommand(args []string, out io.Writer) error {
 			return errors.New("usage: cohort capability build <proposal_id>")
 		}
 		return buildCapability(store, args[1], out)
+	case "adapter":
+		proposalID, adapterType, err := parseCapabilityAdapterArgs(args[1:])
+		if err != nil {
+			return err
+		}
+		return buildCapabilityAdapter(store, proposalID, adapterType, out)
 	case "verify":
 		if len(args) != 2 {
 			return errors.New("usage: cohort capability verify <capability_id>")
@@ -199,6 +205,55 @@ func buildCapability(store capability.Store, proposalID string, out io.Writer) e
 	fmt.Fprintf(out, "type: %s\n", item.Type)
 	fmt.Fprintf(out, "entry: %s\n", item.Entry)
 	fmt.Fprintf(out, "verify: cohort capability verify %s\n", item.ID)
+	fmt.Fprintf(out, "registry: %s\n", store.RegistryPath())
+	return nil
+}
+
+func parseCapabilityAdapterArgs(args []string) (string, string, error) {
+	if len(args) == 0 {
+		return "", "", errors.New("usage: cohort capability adapter <proposal_id> --type tool|mcp")
+	}
+	proposalID := ""
+	adapterType := capability.TypeTool
+	for len(args) > 0 {
+		arg := args[0]
+		args = args[1:]
+		switch arg {
+		case "--type":
+			if len(args) == 0 {
+				return "", "", errors.New("--type requires tool or mcp")
+			}
+			adapterType = args[0]
+			args = args[1:]
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return "", "", fmt.Errorf("unknown capability adapter option %q", arg)
+			}
+			if proposalID != "" {
+				return "", "", errors.New("usage: cohort capability adapter <proposal_id> --type tool|mcp")
+			}
+			proposalID = arg
+		}
+	}
+	if proposalID == "" {
+		return "", "", errors.New("usage: cohort capability adapter <proposal_id> --type tool|mcp")
+	}
+	return proposalID, adapterType, nil
+}
+
+func buildCapabilityAdapter(store capability.Store, proposalID string, adapterType string, out io.Writer) error {
+	item, artifacts, err := store.BuildAdapter(proposalID, adapterType)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "capability: %s\n", item.ID)
+	fmt.Fprintf(out, "status: %s\n", item.Status)
+	fmt.Fprintf(out, "type: %s\n", item.Type)
+	fmt.Fprintf(out, "entry: %s\n", item.Entry)
+	fmt.Fprintln(out, "artifacts:")
+	for _, artifact := range artifacts {
+		fmt.Fprintf(out, "  - %s\n", artifact)
+	}
 	fmt.Fprintf(out, "registry: %s\n", store.RegistryPath())
 	return nil
 }

@@ -103,6 +103,37 @@ func TestRunCapabilityLifecycleCommand_BitsUT(t *testing.T) {
 	}
 }
 
+func TestRunCapabilityAdapterCommand_BitsUT(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+	store := capability.NewStore(dir)
+	gap, err := store.AddGap(capability.NewGapFromTask("query incident timeline"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := store.AddProposal(capability.NewProposalFromGap(gap))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	if err := runCapabilityCommand([]string{"adapter", proposal.ID, "--type", "mcp"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "type: mcp") || !strings.Contains(out.String(), ".cohort/adapters/") || !strings.Contains(out.String(), "mcp.json") {
+		t.Fatalf("adapter output = %q", out.String())
+	}
+}
+
 func TestRunCapabilitySuggestionsCommand_BitsUT(t *testing.T) {
 	wd, err := os.Getwd()
 	if err != nil {

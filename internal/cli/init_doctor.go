@@ -14,6 +14,7 @@ import (
 	"cohort/internal/app"
 	"cohort/internal/llm"
 	"cohort/internal/mcp"
+	pluginpkg "cohort/internal/plugin"
 	"cohort/internal/session"
 )
 
@@ -153,6 +154,7 @@ func runDoctorCommand(ctx context.Context, args []string, configPath string, cfg
 			summary.pass(out, "project.root", filepath.Clean(projectRoot))
 			checkDoctorMCP(ctx, out, summary, projectRoot, opts.Connect)
 			checkDoctorSkills(out, summary, projectRoot)
+			checkDoctorPlugins(out, summary, projectRoot)
 		}
 		checkDoctorBrowser(out, summary)
 		checkDoctorRuntimeHelpers(out, summary, cfg.Workspace)
@@ -249,6 +251,31 @@ func checkDoctorSkills(out io.Writer, summary *doctorSummary, projectRoot string
 		return
 	}
 	summary.pass(out, "skill.doctor", fmt.Sprintf("%d skill(s) healthy", len(skills)))
+}
+
+func checkDoctorPlugins(out io.Writer, summary *doctorSummary, projectRoot string) {
+	plugins, err := pluginpkg.Discover(projectRoot)
+	if err != nil {
+		summary.fail(out, "plugin.index", err.Error())
+		return
+	}
+	if len(plugins) == 0 {
+		summary.warn(out, "plugin.index", "no plugin manifests discovered")
+		return
+	}
+	errors := 0
+	for _, item := range plugins {
+		for _, check := range pluginpkg.Doctor(item).Checks {
+			if check.Status == "error" {
+				errors++
+			}
+		}
+	}
+	if errors > 0 {
+		summary.fail(out, "plugin.doctor", fmt.Sprintf("%d plugin(s), %d error(s)", len(plugins), errors))
+		return
+	}
+	summary.pass(out, "plugin.doctor", fmt.Sprintf("%d plugin(s) healthy", len(plugins)))
 }
 
 func checkDoctorBrowser(out io.Writer, summary *doctorSummary) {
