@@ -29,9 +29,10 @@ const (
 
 // ComputerSee 返回当前电脑窗口、截图和 AX 候选目标，是 computer_* 闭环入口。
 type ComputerSee struct {
-	driver desktop.Driver
-	store  *computeruse.Store
-	runner vision.OCRRunner
+	driver   desktop.Driver
+	store    *computeruse.Store
+	runner   vision.OCRRunner
+	detector computerUIDetector
 	workspaceTool
 }
 
@@ -45,7 +46,7 @@ func NewComputerSeeWithOCRRunner(driver desktop.Driver, store *computeruse.Store
 	if store == nil {
 		store = computeruse.NewStore(computeruse.DefaultTargetTTL)
 	}
-	return &ComputerSee{driver: driver, store: store, runner: runner, workspaceTool: newWorkspaceTool(workspace)}
+	return &ComputerSee{driver: driver, store: store, runner: runner, detector: defaultComputerUIDetector(), workspaceTool: newWorkspaceTool(workspace)}
 }
 
 func (t *ComputerSee) Name() string { return ToolNameComputerSee }
@@ -66,6 +67,9 @@ func (t *ComputerSee) Run(ctx context.Context, call agent.ToolCallContext) (agen
 	if t.store == nil {
 		t.store = computeruse.NewStore(computeruse.DefaultTargetTTL)
 	}
+	if t.detector == nil {
+		t.detector = defaultComputerUIDetector()
+	}
 	limit := clampDesktopLimit(asInt(call.Args["limit"], defaultDesktopWindowLimit), defaultDesktopWindowLimit, maxDesktopWindowLimit)
 	windowsResult, err := t.driver.ListWindows(ctx, desktop.ListWindowsRequest{
 		AppName: strings.TrimSpace(asString(call.Args["app_name"])),
@@ -80,6 +84,10 @@ func (t *ComputerSee) Run(ctx context.Context, call agent.ToolCallContext) (agen
 		OS:      runtime.GOOS,
 		Windows: windowsResult.Windows,
 	}
+	uiDetectorName := ""
+	uiDetectorStatus := "skipped"
+	uiDetectorCandidateCount := 0
+	uiDetectorWarnings := []string{}
 	window, ok := selectComputerWindow(windowsResult.Windows)
 	if ok {
 		state.ActiveApp = window.AppName
@@ -110,21 +118,28 @@ func (t *ComputerSee) Run(ctx context.Context, call agent.ToolCallContext) (agen
 		state.AXNodeCount = ax.NodeCount
 		state.AXTruncated = ax.Truncated
 		state.Candidates = collectComputerAXTargets(ax.Root, state.ActiveWindow, state.ScreenshotRef, state.ScreenshotManifestRef)
-		ocrTargets, ocrStatus, ocrText, ocrLineCount, ocrErr := t.collectOCRTargets(ctx, state.ActiveWindow, state.ScreenshotRef, state.ScreenshotManifestRef)
+		ocrTargets, ocrStatus, ocrText, ocrLineCount, ocrLines, ocrErr := t.collectOCRTargets(ctx, state.ActiveWindow, state.ScreenshotRef, state.ScreenshotManifestRef)
 		state.OCRStatus = ocrStatus
 		state.OCRText = ocrText
 		state.OCRLineCount = ocrLineCount
 		state.OCRError = ocrErr
 		state.Candidates = append(state.Candidates, ocrTargets...)
-		state.Candidates = append(state.Candidates, collectComputerHeuristicVisionTargets(
-			state.ActiveWindow,
-			state.ScreenshotRef,
-			state.ScreenshotManifestRef,
-			state.ScreenshotWidth,
-			state.ScreenshotHeight,
-			state.Candidates,
-			state.OCRText,
-		)...)
+		uiResult := t.detector.Detect(ctx, computerUIDetectorRequest{
+			Window:          state.ActiveWindow,
+			ScreenshotRef:   state.ScreenshotRef,
+			ManifestRef:     state.ScreenshotManifestRef,
+			Width:           state.ScreenshotWidth,
+			Height:          state.ScreenshotHeight,
+			AXTargets:       state.Candidates,
+			OCRText:         state.OCRText,
+			OCRLines:        ocrLines,
+			ExistingTargets: state.Candidates,
+		})
+		uiDetectorName = uiResult.Name
+		uiDetectorStatus = uiResult.Status
+		uiDetectorCandidateCount = len(uiResult.Targets)
+		uiDetectorWarnings = uiResult.Warnings
+		state.Candidates = append(state.Candidates, uiResult.Targets...)
 	}
 
 	state = t.store.SaveState(state)
@@ -147,6 +162,10 @@ func (t *ComputerSee) Run(ctx context.Context, call agent.ToolCallContext) (agen
 			"ocr_status":              state.OCRStatus,
 			"ocr_line_count":          state.OCRLineCount,
 			"ocr_error":               state.OCRError,
+			"ui_detector_name":        uiDetectorName,
+			"ui_detector_status":      uiDetectorStatus,
+			"ui_detector_candidates":  uiDetectorCandidateCount,
+			"ui_detector_warnings":    uiDetectorWarnings,
 			"candidates":              summarizeComputerTargets(state.Candidates, 40),
 			"candidate_count":         len(state.Candidates),
 			"expires_at":              state.ExpiresAt.Format(time.RFC3339Nano),
@@ -202,9 +221,9 @@ func (t *ComputerSee) captureScreenshot(ctx context.Context, window desktop.Wind
 	return computerScreenshotCapture{imagePath: outputPath, manifestPath: manifestPath, result: result}, nil
 }
 
-func (t *ComputerSee) collectOCRTargets(ctx context.Context, window computeruse.WindowRef, imagePath string, manifestPath string) ([]computeruse.ComputerTarget, string, string, int, string) {
+func (t *ComputerSee) collectOCRTargets(ctx context.Context, window computeruse.WindowRef, imagePath string, manifestPath string) ([]computeruse.ComputerTarget, string, string, int, []vision.OCRLine, string) {
 	if t.runner == nil || imagePath == "" {
-		return nil, "skipped", "", 0, ""
+		return nil, "skipped", "", 0, nil, ""
 	}
 	result, err := t.runner.Run(ctx, vision.OCRRequest{
 		ImagePath:     imagePath,
@@ -214,12 +233,80 @@ func (t *ComputerSee) collectOCRTargets(ctx context.Context, window computeruse.
 	if err != nil {
 		var ocrErr *vision.ToolError
 		if errors.As(err, &ocrErr) {
-			return nil, "error", "", 0, strings.Replace(ocrErr.Code, "browser_ocr_", "desktop_ocr_", 1) + ": " + ocrErr.Message
+			return nil, "error", "", 0, nil, strings.Replace(ocrErr.Code, "browser_ocr_", "desktop_ocr_", 1) + ": " + ocrErr.Message
 		}
-		return nil, "error", "", 0, err.Error()
+		return nil, "error", "", 0, nil, err.Error()
 	}
 	targets := collectComputerOCRTargets(result.Lines, window, imagePath, manifestPath)
-	return targets, "success", result.Text, len(result.Lines), ""
+	return targets, "success", result.Text, len(result.Lines), result.Lines, ""
+}
+
+// computerUIDetector 是截图级 UI 检测协议。AX 和 OCR 保留为独立信号源，
+// detector 只负责把截图/OCR/布局上下文补成可操作的视觉候选。
+type computerUIDetector interface {
+	Detect(ctx context.Context, req computerUIDetectorRequest) computerUIDetectorResult
+}
+
+type computerUIDetectorRequest struct {
+	Window          computeruse.WindowRef
+	ScreenshotRef   string
+	ManifestRef     string
+	Width           int
+	Height          int
+	AXTargets       []computeruse.ComputerTarget
+	OCRText         string
+	OCRLines        []vision.OCRLine
+	ExistingTargets []computeruse.ComputerTarget
+}
+
+type computerUIDetectorResult struct {
+	Name     string
+	Status   string
+	Targets  []computeruse.ComputerTarget
+	Warnings []string
+}
+
+func defaultComputerUIDetector() computerUIDetector {
+	return heuristicComputerUIDetector{}
+}
+
+// heuristicComputerUIDetector 是第一版真实 detector 适配层：它消费真实截图、
+// OCR 行与 AX 上下文，输出统一的 SourceVision 候选。后续可在该接口下替换
+// 成模型/SDK detector，而不改变 computer_see/find/click 的调用协议。
+type heuristicComputerUIDetector struct{}
+
+func (heuristicComputerUIDetector) Detect(ctx context.Context, req computerUIDetectorRequest) computerUIDetectorResult {
+	_ = ctx
+	result := computerUIDetectorResult{Name: "heuristic_ui_detector", Status: "skipped"}
+	if req.ScreenshotRef == "" || req.ManifestRef == "" || req.Width <= 0 || req.Height <= 0 {
+		result.Warnings = append(result.Warnings, "missing screenshot metadata")
+		return result
+	}
+	result.Status = "success"
+	targets := collectComputerOCRVisionTargets(req.OCRLines, req.Window, req.ScreenshotRef, req.ManifestRef)
+	targets = append(targets, collectComputerHeuristicVisionTargets(
+		req.Window,
+		req.ScreenshotRef,
+		req.ManifestRef,
+		req.Width,
+		req.Height,
+		firstNonNilComputerTargets(req.ExistingTargets, req.AXTargets),
+		req.OCRText,
+	)...)
+	result.Targets = targets
+	if len(targets) == 0 {
+		result.Status = "empty"
+	}
+	return result
+}
+
+func firstNonNilComputerTargets(values ...[]computeruse.ComputerTarget) []computeruse.ComputerTarget {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
 }
 
 // ComputerFind 在最近一次 computer_see 的候选中查找目标，并返回 target_id。
@@ -741,7 +828,7 @@ func (t *ComputerExecutePlan) Run(ctx context.Context, call agent.ToolCallContex
 			if attempt >= maxRecoveries || !isComputerPlanRecoverable(stepResult) {
 				break
 			}
-			recovery = t.recoverComputerPlanStep(ctx, step, i, attempt)
+			recovery = t.recoverComputerPlanStep(ctx, step, stepResult, i, attempt)
 			stepResult["recovery"] = recovery
 			if recovery["status"] != agent.ToolStatusSuccess {
 				break
@@ -924,16 +1011,100 @@ func normalizeComputerPlanAction(raw string) string {
 	}
 }
 
-func (t *ComputerExecutePlan) recoverComputerPlanStep(ctx context.Context, step computerPlanStep, stepIndex int, attempt int) map[string]any {
+type computerRecoverPolicyDecision struct {
+	Strategy         string
+	Reason           string
+	RetryEligible    bool
+	RefreshAppName   string
+	RefreshTitle     string
+	FallbackOrder    []string
+	NextAction       string
+	HandoffIfFailed  string
+	OriginalCode     string
+	OriginalMessage  string
+	OriginalVerified any
+}
+
+func evaluateComputerRecoverPolicy(step computerPlanStep, failure map[string]any) computerRecoverPolicyDecision {
+	code := strings.TrimSpace(asString(failure["code"]))
+	message := strings.TrimSpace(asString(failure["message"]))
+	decision := computerRecoverPolicyDecision{
+		Strategy:         "refresh_observation_then_retry",
+		Reason:           "refresh computer_see state before retrying the failed GUI step",
+		RetryEligible:    isComputerPlanRecoverable(failure),
+		RefreshAppName:   step.AppName,
+		RefreshTitle:     step.Title,
+		FallbackOrder:    []string{computeruse.SourceAX, computeruse.SourceOCR, computeruse.SourceVision},
+		NextAction:       "retry_failed_step",
+		HandoffIfFailed:  "ask_user_or_replan",
+		OriginalCode:     code,
+		OriginalMessage:  message,
+		OriginalVerified: failure["verified"],
+	}
+	switch {
+	case strings.Contains(code, "state_required"):
+		decision.Reason = "latest computer state is missing; observe target app/window and rebuild target cache"
+	case strings.Contains(code, "target_stale"):
+		decision.Reason = "cached target expired; refresh observation and rebuild semantic/visual targets"
+	case strings.Contains(code, "target_not_found"):
+		decision.Reason = "target was not found in cache; refresh observation and allow AX/OCR/vision fallback"
+	case strings.Contains(code, "target_window"):
+		decision.Reason = "target window is missing or inactive; reselect and activate the requested window"
+	case strings.Contains(code, "unverified"):
+		decision.Reason = "action result was not verified; refresh observation before deciding whether a retry is safe"
+		decision.FallbackOrder = []string{computeruse.SourceAX, computeruse.SourceOCR}
+	case code == "":
+		decision.Reason = "failed step did not return a typed error code; only one bounded refresh is allowed"
+		decision.RetryEligible = false
+		decision.NextAction = "handoff"
+	}
+	if !decision.RetryEligible {
+		decision.Strategy = "handoff_without_retry"
+		decision.NextAction = "handoff"
+	}
+	return decision
+}
+
+func (d computerRecoverPolicyDecision) Map() map[string]any {
+	return map[string]any{
+		"strategy":          d.Strategy,
+		"reason":            d.Reason,
+		"retry_eligible":    d.RetryEligible,
+		"refresh_app_name":  d.RefreshAppName,
+		"refresh_title":     d.RefreshTitle,
+		"fallback_order":    d.FallbackOrder,
+		"next_action":       d.NextAction,
+		"handoff_if_failed": d.HandoffIfFailed,
+		"original_code":     d.OriginalCode,
+		"original_message":  d.OriginalMessage,
+		"original_verified": d.OriginalVerified,
+	}
+}
+
+func (t *ComputerExecutePlan) recoverComputerPlanStep(ctx context.Context, step computerPlanStep, failure map[string]any, stepIndex int, attempt int) map[string]any {
+	decision := evaluateComputerRecoverPolicy(step, failure)
+	if !decision.RetryEligible {
+		return map[string]any{
+			"status":     agent.ToolStatusError,
+			"code":       "computer_execute_plan_recover_not_allowed",
+			"message":    "recover policy refused automatic retry",
+			"step_index": stepIndex,
+			"attempt":    attempt,
+			"policy":     decision.Map(),
+		}
+	}
 	outcome, err := NewComputerSeeWithOCRRunner(t.driver, t.store, t.workspace, t.runner).Run(ctx, agent.ToolCallContext{Args: map[string]any{
-		"app_name": step.AppName,
-		"title":    step.Title,
+		"app_name": decision.RefreshAppName,
+		"title":    decision.RefreshTitle,
 		"limit":    defaultDesktopWindowLimit,
 	}})
 	data := computerOutcomeDataMap(outcome.Data)
 	data["step_index"] = stepIndex
 	data["attempt"] = attempt
-	data["strategy"] = "computer_see_then_retry"
+	data["strategy"] = decision.Strategy
+	data["policy"] = decision.Map()
+	data["fallback_order"] = decision.FallbackOrder
+	data["next_action"] = decision.NextAction
 	if err != nil {
 		data["status"] = agent.ToolStatusError
 		data["code"] = "computer_execute_plan_recover_failed"
@@ -1205,6 +1376,25 @@ func collectComputerOCRTargets(lines []vision.OCRLine, window computeruse.Window
 			ScreenshotManifest: manifestRef,
 			BBox:               bbox,
 		})
+	}
+	return targets
+}
+
+func collectComputerOCRVisionTargets(lines []vision.OCRLine, window computeruse.WindowRef, screenshotRef string, manifestRef string) []computeruse.ComputerTarget {
+	targets := []computeruse.ComputerTarget{}
+	for _, line := range lines {
+		if strings.TrimSpace(line.Text) == "" || len(line.BBox) != 4 {
+			continue
+		}
+		bbox := [4]int{line.BBox[0], line.BBox[1], line.BBox[2], line.BBox[3]}
+		if bbox[2] <= bbox[0] || bbox[3] <= bbox[1] {
+			continue
+		}
+		confidence := line.Confidence
+		if confidence <= 0 {
+			confidence = 0.5
+		}
+		risk := classifyDesktopVisualClickRisk(line.Text, "")
 		if action, ok := classifyComputerVisionAction(line.Text); ok {
 			targets = append(targets, computeruse.ComputerTarget{
 				Label:              line.Text,

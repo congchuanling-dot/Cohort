@@ -56,8 +56,8 @@
 | `[完成]` | [tool_context_trim_iteration.md](tool_context_trim_iteration.md) | 当前工具结果裁剪实现和取舍记录。 |
 | `[部分完成]` | [browser_operation_design.md](browser_operation_design.md) | Chrome bridge、DOM、点击、输入、等待、截图已落地；扩展桥与持续监控仍为后续。 |
 | `[部分完成]` | [browser_ocr_real_input_fallback_design.md](browser_ocr_real_input_fallback_design.md) | DOM 摘要、OCR 和 macOS 受控输入已落地；视觉候选和 Windows 支持未完成。 |
-| `[部分完成]` | [desktop_computer_use_technical_design.md](desktop_computer_use_technical_design.md) | M1、M2 受控桌面链路已完成；M3 视觉候选和更强后验验证待完成。 |
-| `[部分完成]` | [computer_control_roadmap.md](computer_control_roadmap.md) | “操控电脑的所有操作”的能力缺口、风险边界和开发顺序；P1 核心原语、`computer_visual_snapshot`、`computer_execute_step` 与 `computer_execute_plan` 第一版已完成；下一步是强化 recover、UI detector 和真实 App E2E。 |
+| `[部分完成]` | [desktop_computer_use_technical_design.md](desktop_computer_use_technical_design.md) | M1、M2 受控桌面链路已完成；M3 已有 detector 协议和结构化 recover policy，模型/SDK 级 UI detector 与更强后验验证待完成。 |
+| `[部分完成]` | [computer_control_roadmap.md](computer_control_roadmap.md) | “操控电脑的所有操作”的能力缺口、风险边界和开发顺序；P1 核心原语、`computer_visual_snapshot`、`computer_execute_step`、结构化 recover policy、detector 协议和 `doctor computer --smoke-app` 已完成；下一步是模型/SDK 级 UI detector、多显示器和更多真实 App 回归样例。 |
 | `[规划]` | [human_os_operation_technical_design.md](human_os_operation_technical_design.md) | Computer Use 跨 OS 操作层方案；对模型暴露 `computer_see/find/click/type/press/check/wait`，底层键鼠输入绑定窗口、风险等级、验证和审计。 |
 | `[部分完成]` | [self_evolution_technical_design.md](self_evolution_technical_design.md) | 受控长期记忆、证据、SOP candidate、离线 session archive、failure pattern、memory quality 和 Skill candidate 报告已完成；后台反射和更强 L4 质量闭环未完成。 |
 | `[部分完成]` | [capability_evolution_technical_design.md](capability_evolution_technical_design.md) | 能力边界拓展闭环方案；本地 registry、手动 gap/proposal CLI、Runner no-tool gap 记录、项目级 Skill scaffold、doctor 诊断、依赖安装审核与审计、smoke test、registry promote、available capability 索引注入、重复 gap CLI 建议和 Skill 候选离线挖掘已落地；Tool/MCP adapter 待实现。 |

@@ -3,15 +3,16 @@
 > 文档状态：`[部分完成]`。
 > 目标：把 Cohort 从“具备浏览器和 macOS 受控桌面工具的本地 Agent”，推进到“可以稳定观察、理解、执行、验证大部分电脑操作的 Computer Use Agent”。
 > 代码和真实端到端验收仍是最终事实来源。
-> 当前进展：`cohort doctor computer` 基础版已实现，可检查 workspace/artifact 目录、macOS 权限、desktop helper、OCR helper 和 Chrome bridge。
+> 当前进展：`cohort doctor computer` 已实现基础检查和 `--smoke-app <app_name>` 真实 App 只读 E2E，可检查 workspace/artifact 目录、macOS 权限、desktop helper、OCR helper、Chrome bridge，并对指定 App 执行窗口枚举、激活、截图、AX snapshot 和 OCR smoke。
 > P1 第一批操作原语已实现：`computer_scroll`、`computer_drag`、`computer_clipboard_write`、`computer_paste`。
 > P1 第二批操作原语已实现：`computer_double_click`、`computer_right_click`、`computer_window_switch`。
 > P1 第三批操作原语已实现：`computer_menu`、`computer_file_dialog`、`computer_window_move`、`computer_window_resize`。
 > P1 收尾原语已实现：`computer_drop`。
 > P2 第一版已实现：`computer_visual_snapshot(mode=ocr/all)`，复用 `computer_see` 的 AX、OCR 和启发式 vision 候选，不返回截图内容。
 > P3 第一版已实现：`computer_execute_step`，支持 `target_query -> click/type/press_key -> verify_contains_text` 的单步 OAV 执行。
-> P3.1 第一版已实现：`computer_execute_plan`，支持多步 OAV steps、一次受控 retry/recover、确认中断恢复和 handoff outcome。
-> 下一步开发重点：强化 recover policy、接入真实 UI detector，并补真实 App E2E。
+> P3.1 第二版已实现：`computer_execute_plan` 接入结构化 recover policy，失败时返回刷新原因、fallback order、retry eligibility、next action 和原始失败码。
+> 视觉候选第一版 detector 协议已接入：`computer_see` 通过 `heuristic_ui_detector` 消费真实截图、OCR 行和 AX 上下文，统一输出 `SourceVision` 候选和 detector 元数据。
+> 下一步开发重点：接入模型/SDK 级 UI detector、多显示器坐标校准，以及更多真实 App 回归样例。
 
 ## 1. 目标定义
 
@@ -151,9 +152,9 @@ AX tree
 => visual candidates
 ```
 
-第一版 `mode=ocr/all` 已完成：它读取最近 `computer_see` 的截图引用、OCR 文本候选、启发式 vision 候选和可选 AX target，返回可继续操作的 `target_id`、bbox、坐标空间、置信度和风险提示，不把截图 base64 塞进模型上下文。
+第一版 `mode=ocr/all` 已完成：它读取最近 `computer_see` 的截图引用、OCR 文本候选、detector 视觉候选和可选 AX target，返回可继续操作的 `target_id`、bbox、坐标空间、置信度和风险提示，不把截图 base64 塞进模型上下文。
 
-下一步再接入真正的 UI detector。
+当前 `computer_see` 已有 detector 协议层，默认 detector 为 `heuristic_ui_detector`：它消费真实截图元数据、OCR 行与 AX target，输出统一的 `SourceVision` 候选。后续可以在同一接口下接入模型/SDK 级 UI detector。
 
 ### 3.4 Observe-Act-Verify 执行器不足
 
@@ -178,6 +179,8 @@ computer_see
 4. 再换 OCR/视觉路径。
 5. 限制同一坐标重复点击。
 6. 仍失败则调用 `computer_handoff` 或要求用户接管。
+
+当前 `computer_execute_plan` 已把恢复策略结构化为 recover policy payload：包含失败原因、是否允许自动 retry、刷新 app/title、AX/OCR/vision fallback 顺序、下一步动作和原始失败码。第一版自动恢复仍保持有界 retry，不做无限重试。
 
 ### 3.5 统一权限和审计不足
 
@@ -273,12 +276,13 @@ computer_see
 2. 融合 AX target、OCR line、视觉启发式候选。
 3. 统一 target cache。
 4. 返回候选置信度和风险提示。
-5. 后续接入 UI detector。
+5. `[完成：第一版协议]` `computer_see` 接入 detector 协议，默认 `heuristic_ui_detector` 消费真实截图、OCR 行和 AX 上下文。
+6. 后续接入模型/SDK 级 UI detector。
 
 当前完成：
 
-- `computer_visual_snapshot(mode=ocr)` 返回 OCR + heuristic vision target。
-- `computer_visual_snapshot(mode=all)` 可同时返回 AX + OCR + heuristic vision target。
+- `computer_visual_snapshot(mode=ocr)` 返回 OCR + detector vision target。
+- `computer_visual_snapshot(mode=all)` 可同时返回 AX + OCR + detector vision target。
 - 支持 `query` 过滤排序。
 - 只返回 screenshot artifact 引用和 bbox 元数据，不返回截图内容。
 
@@ -310,7 +314,7 @@ computer_see
 - 返回 `action_outcome` 和 `verification_outcome`，方便定位失败阶段。
 - `computer_execute_plan` 支持 `observe/find/click/type/press_key/wait_text/check_text` 多步计划。
 - `computer_execute_plan` 每步记录 step index、action、attempt、action outcome、verification outcome。
-- target 缺失、过期或未验证时，默认执行一次 `computer_see` 恢复后重试。
+- target 缺失、过期或未验证时，先生成结构化 recover policy，再执行一次 `computer_see` 恢复后重试。
 - R2 动作会中断计划并返回 `approval_request`、`resume_from_step_index` 和已执行步骤。
 - 重复点击同一 target / bbox 会直接阻断并返回 handoff outcome。
 
@@ -368,7 +372,7 @@ computer_execute_plan
 - desktop helper 存在性和窗口枚举。
 - OCR helper 存在性和依赖探测。
 - Chrome bridge server 与插件连接状态。
-- 只读诊断，不执行点击、输入或系统设置修改。
+- 只读诊断，不执行点击、输入或系统设置修改；`--smoke-app <app>` 可对真实 App 做窗口枚举、激活、截图、AX snapshot 和 OCR smoke。
 - R1 滚动只作用于最近 `computer_see` 的目标窗口。
 - 拖拽必须引用缓存 target，且必须用户一次性确认。
 - 拖放必须引用同一窗口内的 source/destination target，且必须用户一次性确认。
@@ -379,8 +383,9 @@ computer_execute_plan
 - 文件对话框只支持绝对路径跳转；`confirm=true` 必须用户确认。
 - 窗口移动/缩放只作用于最新或指定窗口，并限制坐标和尺寸范围。
 - 视觉快照可返回 OCR/vision/AX 候选和 `target_id`，不把截图内容塞进上下文。
+- `computer_see` 已接入 detector 协议，默认 `heuristic_ui_detector` 消费真实截图、OCR 行和 AX 上下文。
 - 单步 OAV 执行器可按 `target_query` 找目标、执行动作，并用 `verify_contains_text` 自动验证。
-- 多步 OAV 计划可串联 observe/find/action/wait/check，并在目标缺失或过期时做一次受控恢复。
+- 多步 OAV 计划可串联 observe/find/action/wait/check，并在目标缺失或过期时用结构化 recover policy 做一次受控恢复。
 
 ## 6. 下一步开发计划
 
@@ -424,7 +429,7 @@ computer_execute_plan
 - 中途 target 过期时最多自动刷新一次，不盲目重复点击。
 - 失败返回明确失败 step 和恢复建议。
 
-### P3.2：Retry / Recover / Handoff
+### P3.2：Retry / Recover / Handoff `[部分完成：recover policy 已结构化]`
 
 目标：让 OAV 执行器在失败时有受控恢复策略，而不是让模型直接重试同一个动作。
 
@@ -435,10 +440,10 @@ computer_execute_plan
    - 不允许连续点击同一坐标。
    - 不允许连续发送/提交类动作。
 2. 增加 recover policy：
-   - 重新 `computer_see`。
-   - 对同一 query 重新 rank target。
-   - AX target 失败时可切到 OCR/vision target。
-   - OCR/vision target 失败时要求重新观察或交还用户。
+   - `[完成]` 重新 `computer_see`。
+   - `[完成]` 对同一 query 重新 rank target。
+   - `[完成：policy payload]` 明确 AX/OCR/vision fallback order。
+   - `[完成：policy payload]` OCR/vision target 失败时要求重新观察或交还用户。
 3. 增加 `computer_handoff` 或在 execute plan 中返回 handoff outcome：
    - 当前窗口。
    - 最后一步。
@@ -457,16 +462,17 @@ computer_execute_plan
 
 建议顺序：
 
-1. 先定义 detector 输出协议，不急着绑定具体模型：
+1. `[完成：第一版]` 先定义 detector 输出协议，不急着绑定具体模型：
    - `label`
    - `role`
    - `bbox`
    - `confidence`
    - `source=vision`
    - `coordinate_space=screenshot-local`
-2. 增加 `computer_visual_snapshot(mode=ui_detect)`。
-3. detector 不直接授权点击，只生成可缓存 target。
-4. 点击仍走 `computer_click`，由 manifest 映射坐标并执行风险确认。
+2. `[完成：第一版]` `computer_see` 接入默认 detector，输出 detector 元数据并写入 target cache。
+3. 增加 `computer_visual_snapshot(mode=ui_detect)` 或等价 detector-only 视图。
+4. detector 不直接授权点击，只生成可缓存 target。
+5. 点击仍走 `computer_click`，由 manifest 映射坐标并执行风险确认。
 
 验收：
 

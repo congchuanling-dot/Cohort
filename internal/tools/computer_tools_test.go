@@ -68,6 +68,9 @@ func TestComputerSeeAndFindCachesOCRVisionTargets_BitsUT(t *testing.T) {
 	if seeData["ocr_status"] != "success" || seeData["ocr_line_count"] != 1 {
 		t.Fatalf("see outcome = %#v", seeData)
 	}
+	if seeData["ui_detector_name"] != "heuristic_ui_detector" || seeData["ui_detector_status"] != "success" || seeData["ui_detector_candidates"].(int) == 0 {
+		t.Fatalf("ui detector outcome = %#v", seeData)
+	}
 
 	findOutcome, err := NewComputerFind(store).Run(context.Background(), agent.ToolCallContext{
 		Args: map[string]any{"query": "搜索输入框"},
@@ -266,8 +269,16 @@ func TestComputerExecutePlanRecoversMissingStateWithObserve_BitsUT(t *testing.T)
 		t.Fatalf("expected recovered retry on attempt 1: %#v", steps)
 	}
 	recovery := steps[0]["recovery"].(map[string]any)
-	if recovery["strategy"] != "computer_see_then_retry" || recovery["status"] != agent.ToolStatusSuccess {
+	if recovery["strategy"] != "refresh_observation_then_retry" || recovery["status"] != agent.ToolStatusSuccess {
 		t.Fatalf("recovery = %#v", recovery)
+	}
+	policy := recovery["policy"].(map[string]any)
+	if policy["original_code"] != "computer_execute_step_state_required" || policy["retry_eligible"] != true || policy["next_action"] != "retry_failed_step" {
+		t.Fatalf("recovery policy = %#v", policy)
+	}
+	fallback := recovery["fallback_order"].([]string)
+	if len(fallback) != 3 || fallback[0] != computeruse.SourceAX || fallback[2] != computeruse.SourceVision {
+		t.Fatalf("fallback order = %#v", fallback)
 	}
 }
 

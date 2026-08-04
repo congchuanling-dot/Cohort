@@ -3,7 +3,7 @@
 > 文档状态：`[部分完成]`。状态基线为 2026-07-26；完整文档导航见 [docs/README.md](README.md)。
 >
 > M1 和 M2 的 macOS 受控桌面链路已实现，包括 AX、OCR、视觉点击、焦点令牌和 R1/R2/R3
-> 安全边界。M3 的通用视觉候选与更强点击后验证仍为后续工作。
+> 安全边界。M3 已有第一版 detector 协议和结构化 recover policy；模型/SDK 级 UI detector 与更强点击后验证仍为后续工作。
 
 ## 背景
 
@@ -60,6 +60,7 @@ GenericAgent 的桌面操作能力主要来自 `memory/macljqCtrl.py`、`memory/
   -> 坐标换算
   -> 受控真实输入
   -> 截图或状态验证
+  -> recover policy / handoff
 ```
 
 不建议照搬：
@@ -135,6 +136,18 @@ app_name / pid / window_id
 
 禁止裸 `click(x,y)`，禁止在未确认前台窗口的情况下输入文本或按快捷键。
 
+### 4.1 结构化恢复策略
+
+`computer_execute_plan` 的自动恢复必须有界、可解释。失败后先根据错误码生成 recover policy，再决定是否刷新观察并重试：
+
+- `*_state_required`：缺少最新 `computer_see` 状态，刷新窗口并重建 target cache。
+- `*_target_stale`：缓存 target 过期，刷新 AX/OCR/vision 候选。
+- `*_target_not_found`：目标未命中，刷新后按 AX -> OCR -> vision 顺序降级查找。
+- `*_target_window`：目标窗口丢失或未激活，重新选择并激活窗口。
+- `*_unverified`：动作未验证，只允许刷新后做一次保守 retry，仍失败则 handoff。
+
+recover payload 需要包含 `retry_eligible`、`fallback_order`、`next_action` 和原始失败码，避免模型把所有失败都当成“再点一次”。
+
 ### 5. 副作用动作受控
 
 以下动作必须在工具层保留 `ask_user` 或等价确认逻辑：
@@ -145,6 +158,10 @@ app_name / pid / window_id
 - 自动处理验证码、人机校验或登录确认。
 
 普通只读动作如窗口列表、截图、AX 快照、OCR 不需要确认。
+
+### 6. 真实 App 只读 E2E
+
+`cohort doctor computer --smoke-app <app_name>` 用于安装后验证真实 App 链路。该 smoke 只做窗口枚举、激活、截图、AX snapshot 和 OCR 探针，不执行点击、输入、按键或提交类动作。它的目标是区分权限/依赖/桥接问题和上层工具协议问题。
 
 ## 总体架构
 

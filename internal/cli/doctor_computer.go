@@ -20,11 +20,16 @@ import (
 	"cohort/internal/vision"
 )
 
-type computerDoctorOptions struct{}
+type computerDoctorOptions struct {
+	SmokeApp string
+}
 
 type computerDesktopDoctor interface {
 	Permissions(ctx context.Context) (desktop.PermissionsResult, error)
 	ListWindows(ctx context.Context, req desktop.ListWindowsRequest) (desktop.ListWindowsResult, error)
+	Activate(ctx context.Context, req desktop.ActivateRequest) (desktop.ActivateResult, error)
+	Screenshot(ctx context.Context, req desktop.ScreenshotRequest) (desktop.ScreenshotResult, error)
+	AXSnapshot(ctx context.Context, req desktop.AXSnapshotRequest) (desktop.AXSnapshotResult, error)
 }
 
 type computerBrowserDoctor interface {
@@ -55,11 +60,26 @@ func runComputerDoctorCommand(ctx context.Context, args []string, cfg app.Config
 
 func parseComputerDoctorArgs(args []string) (computerDoctorOptions, error) {
 	var opts computerDoctorOptions
-	for _, arg := range args {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		switch arg {
 		case "--help", "-h":
-			return opts, errors.New("usage: cohort doctor computer")
+			return opts, errors.New("usage: cohort doctor computer [--smoke-app <app_name>]")
+		case "--smoke-app":
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+				return opts, errors.New("--smoke-app requires a non-empty app name")
+			}
+			opts.SmokeApp = strings.TrimSpace(args[i])
 		default:
+			if value, ok := strings.CutPrefix(arg, "--smoke-app="); ok {
+				value = strings.TrimSpace(value)
+				if value == "" {
+					return opts, errors.New("--smoke-app requires a non-empty app name")
+				}
+				opts.SmokeApp = value
+				continue
+			}
 			return opts, fmt.Errorf("unknown doctor computer option %q", arg)
 		}
 	}
@@ -105,7 +125,7 @@ func closeComputerDoctorDeps(ctx context.Context, deps computerDoctorDeps) {
 	_ = deps.BrowserClose(closeCtx)
 }
 
-func runComputerDoctorCommandWithDeps(ctx context.Context, _ computerDoctorOptions, cfg app.Config, loadErr error, deps computerDoctorDeps, out io.Writer) error {
+func runComputerDoctorCommandWithDeps(ctx context.Context, opts computerDoctorOptions, cfg app.Config, loadErr error, deps computerDoctorDeps, out io.Writer) error {
 	summary := &doctorSummary{}
 	fmt.Fprintln(out, "doctor computer:")
 
@@ -118,6 +138,7 @@ func runComputerDoctorCommandWithDeps(ctx context.Context, _ computerDoctorOptio
 
 	checkComputerPlatform(out, summary, deps.GOOS)
 	checkDesktopHelper(ctx, out, summary, deps)
+	checkComputerSmokeApp(ctx, out, summary, deps, opts.SmokeApp)
 	checkOCRHelper(ctx, out, summary, deps)
 	checkBrowserBridge(ctx, out, summary, deps)
 
@@ -175,6 +196,99 @@ func checkDesktopHelper(ctx context.Context, out io.Writer, summary *doctorSumma
 		return
 	}
 	summary.pass(out, "desktop.windows", fmt.Sprintf("%d visible window(s)", len(windows.Windows)))
+}
+
+func checkComputerSmokeApp(ctx context.Context, out io.Writer, summary *doctorSummary, deps computerDoctorDeps, appName string) {
+	appName = strings.TrimSpace(appName)
+	if appName == "" {
+		return
+	}
+	if deps.Desktop == nil {
+		summary.fail(out, "computer.smoke_app", "desktop driver is not configured")
+		return
+	}
+
+	reqCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	windows, err := deps.Desktop.ListWindows(reqCtx, desktop.ListWindowsRequest{AppName: appName, Limit: 10})
+	if err != nil {
+		summary.fail(out, "computer.smoke_app.windows", formatDoctorError(err))
+		return
+	}
+	window, ok := selectComputerDoctorWindow(windows.Windows)
+	if !ok {
+		summary.fail(out, "computer.smoke_app.windows", fmt.Sprintf("no visible window matched app %q", appName))
+		return
+	}
+	summary.pass(out, "computer.smoke_app.window", fmt.Sprintf("%s pid=%d title=%q", window.AppName, window.PID, window.Title))
+
+	activate, err := deps.Desktop.Activate(reqCtx, desktop.ActivateRequest{PID: window.PID, WindowID: window.WindowID})
+	if err != nil {
+		summary.fail(out, "computer.smoke_app.activate", formatDoctorError(err))
+		return
+	}
+	if activate.Verified && !activate.Active {
+		summary.fail(out, "computer.smoke_app.activate", "helper verified that target app did not become active")
+		return
+	}
+	summary.pass(out, "computer.smoke_app.activate", fmt.Sprintf("pid=%d verified=%t", activate.PID, activate.Verified))
+
+	screenshotPath := filepath.Join(firstNonEmpty(deps.Workspace, "."), ".cohort", "doctor", fmt.Sprintf("computer-smoke-%d.png", time.Now().UnixNano()))
+	if err := os.MkdirAll(filepath.Dir(screenshotPath), 0755); err != nil {
+		summary.fail(out, "computer.smoke_app.screenshot_dir", err.Error())
+		return
+	}
+	screenshot, err := deps.Desktop.Screenshot(reqCtx, desktop.ScreenshotRequest{PID: window.PID, WindowID: window.WindowID, OutputPath: screenshotPath})
+	if err != nil {
+		summary.fail(out, "computer.smoke_app.screenshot", formatDoctorError(err))
+		return
+	}
+	info, statErr := os.Stat(screenshotPath)
+	if statErr != nil || info.IsDir() || info.Size() == 0 {
+		summary.fail(out, "computer.smoke_app.screenshot", "helper did not create a non-empty screenshot artifact")
+		return
+	}
+	summary.pass(out, "computer.smoke_app.screenshot", fmt.Sprintf("%dx%d %s", screenshot.Width, screenshot.Height, filepath.Clean(screenshotPath)))
+
+	ax, err := deps.Desktop.AXSnapshot(reqCtx, desktop.AXSnapshotRequest{
+		PID:             window.PID,
+		MaxDepth:        6,
+		MaxNodes:        400,
+		IncludeZeroSize: false,
+	})
+	if err != nil {
+		summary.fail(out, "computer.smoke_app.ax_snapshot", formatDoctorError(err))
+		return
+	}
+	summary.pass(out, "computer.smoke_app.ax_snapshot", fmt.Sprintf("%d node(s), truncated=%t", ax.NodeCount, ax.Truncated))
+
+	if deps.OCR == nil {
+		summary.warn(out, "computer.smoke_app.ocr", "ocr runner is not configured")
+		return
+	}
+	ocr, err := deps.OCR.Run(reqCtx, vision.OCRRequest{ImagePath: screenshotPath, MinConfidence: 0.1})
+	if err != nil {
+		summary.warn(out, "computer.smoke_app.ocr", formatDoctorError(err))
+		return
+	}
+	summary.pass(out, "computer.smoke_app.ocr", fmt.Sprintf("%d line(s)", len(ocr.Lines)))
+}
+
+func selectComputerDoctorWindow(windows []desktop.Window) (desktop.Window, bool) {
+	for _, window := range windows {
+		if window.IsVisible && window.IsActive {
+			return window, true
+		}
+	}
+	for _, window := range windows {
+		if window.IsVisible {
+			return window, true
+		}
+	}
+	if len(windows) == 0 {
+		return desktop.Window{}, false
+	}
+	return windows[0], true
 }
 
 func checkDesktopPermissionValue(out io.Writer, summary *doctorSummary, name string, value *bool, required bool) {

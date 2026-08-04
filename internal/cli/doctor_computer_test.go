@@ -102,6 +102,68 @@ func TestRunComputerDoctorCommandFailsMissingHelper_BitsUT(t *testing.T) {
 	}
 }
 
+func TestRunComputerDoctorCommandRunsSmokeApp_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	deps := fakeComputerDoctorDeps(t, workspace)
+	trueValue := true
+	deps.Desktop = &fakeComputerDesktopDoctor{
+		permissions: desktop.PermissionsResult{
+			Platform:        "darwin",
+			Accessibility:   &trueValue,
+			ScreenRecording: &trueValue,
+		},
+		windows: desktop.ListWindowsResult{Windows: []desktop.Window{{
+			WindowID:  "w1",
+			PID:       42,
+			AppName:   "TextEdit",
+			Title:     "Untitled",
+			Bounds:    desktop.Bounds{X: 0, Y: 0, Width: 640, Height: 480},
+			IsVisible: true,
+			IsActive:  true,
+		}}},
+		activate:   desktop.ActivateResult{PID: 42, Active: true, Verified: true},
+		screenshot: desktop.ScreenshotResult{PID: 42, WindowID: "w1", Width: 640, Height: 480},
+		axSnapshot: desktop.AXSnapshotResult{PID: 42, NodeCount: 7, Root: desktop.AXNode{ID: "ax:0", Role: "AXApplication"}},
+	}
+	deps.OCR = &fakeComputerOCRRunner{result: vision.OCRResult{Status: "success", Width: 640, Height: 480, Lines: []vision.OCRLine{{Text: "Untitled"}}}}
+	deps.Browser = &fakeComputerBrowserDoctor{tabs: []browser.Tab{{ID: "1", Title: "Example"}}}
+
+	var out bytes.Buffer
+	err := runComputerDoctorCommandWithDeps(context.Background(), computerDoctorOptions{SmokeApp: "TextEdit"}, app.Config{Workspace: workspace}, nil, deps, &out)
+	if err != nil {
+		t.Fatalf("runComputerDoctorCommandWithDeps error = %v\n%s", err, out.String())
+	}
+	for _, want := range []string{
+		"[pass] computer.smoke_app.window",
+		"[pass] computer.smoke_app.activate",
+		"[pass] computer.smoke_app.screenshot",
+		"[pass] computer.smoke_app.ax_snapshot",
+		"[pass] computer.smoke_app.ocr",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("output does not contain %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestParseComputerDoctorArgsAcceptsSmokeApp_BitsUT(t *testing.T) {
+	opts, err := parseComputerDoctorArgs([]string{"--smoke-app", "TextEdit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.SmokeApp != "TextEdit" {
+		t.Fatalf("SmokeApp = %q", opts.SmokeApp)
+	}
+
+	opts, err = parseComputerDoctorArgs([]string{"--smoke-app=WeChat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.SmokeApp != "WeChat" {
+		t.Fatalf("SmokeApp = %q", opts.SmokeApp)
+	}
+}
+
 func TestParseComputerDoctorArgsRejectsUnknown_BitsUT(t *testing.T) {
 	_, err := parseComputerDoctorArgs([]string{"--smoke"})
 	if err == nil {
@@ -133,6 +195,9 @@ func fakeComputerDoctorDeps(t *testing.T, workspace string) computerDoctorDeps {
 type fakeComputerDesktopDoctor struct {
 	permissions desktop.PermissionsResult
 	windows     desktop.ListWindowsResult
+	activate    desktop.ActivateResult
+	screenshot  desktop.ScreenshotResult
+	axSnapshot  desktop.AXSnapshotResult
 	err         error
 	windowsErr  error
 }
@@ -149,6 +214,42 @@ func (f *fakeComputerDesktopDoctor) ListWindows(ctx context.Context, req desktop
 		return desktop.ListWindowsResult{}, f.windowsErr
 	}
 	return f.windows, nil
+}
+
+func (f *fakeComputerDesktopDoctor) Activate(ctx context.Context, req desktop.ActivateRequest) (desktop.ActivateResult, error) {
+	if f.err != nil {
+		return desktop.ActivateResult{}, f.err
+	}
+	if f.activate.PID == 0 {
+		f.activate.PID = req.PID
+	}
+	return f.activate, nil
+}
+
+func (f *fakeComputerDesktopDoctor) Screenshot(ctx context.Context, req desktop.ScreenshotRequest) (desktop.ScreenshotResult, error) {
+	if f.err != nil {
+		return desktop.ScreenshotResult{}, f.err
+	}
+	if err := os.WriteFile(req.OutputPath, []byte("fake screenshot"), 0644); err != nil {
+		return desktop.ScreenshotResult{}, err
+	}
+	if f.screenshot.PID == 0 {
+		f.screenshot.PID = req.PID
+	}
+	if f.screenshot.WindowID == "" {
+		f.screenshot.WindowID = req.WindowID
+	}
+	return f.screenshot, nil
+}
+
+func (f *fakeComputerDesktopDoctor) AXSnapshot(ctx context.Context, req desktop.AXSnapshotRequest) (desktop.AXSnapshotResult, error) {
+	if f.err != nil {
+		return desktop.AXSnapshotResult{}, f.err
+	}
+	if f.axSnapshot.PID == 0 {
+		f.axSnapshot.PID = req.PID
+	}
+	return f.axSnapshot, nil
 }
 
 type fakeComputerOCRRunner struct {
