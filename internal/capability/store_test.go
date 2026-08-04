@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"cohort/internal/skill"
 )
 
 func TestStoreAddGapAndProposal_BitsUT(t *testing.T) {
@@ -56,5 +58,85 @@ func TestStoreUniqueGapIDs_BitsUT(t *testing.T) {
 	}
 	if !strings.HasPrefix(second.ID, first.ID+"_") {
 		t.Fatalf("second id = %q, want suffix of %q", second.ID, first.ID)
+	}
+}
+
+func TestStoreBuildVerifyPromoteDisable_BitsUT(t *testing.T) {
+	projectRoot := t.TempDir()
+	store := NewStore(projectRoot)
+	gap, err := store.AddGap(NewGapFromTask("local csv analysis"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := store.AddProposal(NewProposalFromGap(gap))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	item, err := store.Build(proposal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.ID != "local_csv_analysis" || item.Status != StatusCandidate || item.Type != TypeSkill {
+		t.Fatalf("built capability = %#v", item)
+	}
+	skillPath := filepath.Join(projectRoot, ".cohort", "skills", item.ID, "SKILL.md")
+	if _, err := os.Stat(skillPath); err != nil {
+		t.Fatal(err)
+	}
+	skillStore := skill.NewStore(projectRoot, t.TempDir())
+	if err := skillStore.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	found, err := skillStore.Find(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found.ID != "project/local_csv_analysis" {
+		t.Fatalf("skill id = %q, want project/local_csv_analysis", found.ID)
+	}
+
+	verified, output, err := store.Verify(item.ID)
+	if err != nil {
+		t.Fatalf("verify error = %v, output = %q", err, output)
+	}
+	if !strings.Contains(output, "capability smoke passed") || verified.Verification.LastPassedAt.IsZero() {
+		t.Fatalf("verified = %#v, output = %q", verified, output)
+	}
+	if _, err := store.Promote(item.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Disable(item.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	registry, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(registry.Capabilities) != 1 || registry.Capabilities[0].Status != StatusDisabled {
+		t.Fatalf("capabilities = %#v, want disabled capability", registry.Capabilities)
+	}
+	if registry.Gaps[0].Status != StatusDisabled || registry.Proposals[0].Status != StatusDisabled {
+		t.Fatalf("linked statuses gap/proposal = %s/%s, want disabled/disabled", registry.Gaps[0].Status, registry.Proposals[0].Status)
+	}
+}
+
+func TestStorePromoteRequiresSuccessfulVerification_BitsUT(t *testing.T) {
+	store := NewStore(t.TempDir())
+	gap, err := store.AddGap(NewGapFromTask("local csv analysis"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := store.AddProposal(NewProposalFromGap(gap))
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := store.Build(proposal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Promote(item.ID); err == nil || !strings.Contains(err.Error(), "no successful verification") {
+		t.Fatalf("promote error = %v, want verification guard", err)
 	}
 }

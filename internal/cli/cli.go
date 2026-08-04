@@ -944,6 +944,14 @@ Usage:
                           show a capability, gap, or proposal
   cohort capability propose "task"
                           record a gap and generate a proposal draft
+  cohort capability build <proposal_id>
+                          generate a project Skill scaffold for a proposal
+  cohort capability verify <capability_id>
+                          run the capability smoke test
+  cohort capability promote <capability_id>
+                          mark a verified capability as available
+  cohort capability disable <capability_id>
+                          disable a registered capability
   cohort config           show effective config and config path
   cohort init [--provider deepseek|local|anthropic] [--force]
                           create a user config at ~/.cohort/config.yaml

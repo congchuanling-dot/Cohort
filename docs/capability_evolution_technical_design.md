@@ -1,6 +1,6 @@
 # Cohort 能力边界拓展技术方案
 
-> 状态：部分完成。当前已完成 P0/P1 的最小闭环：本地 capability registry、手动 gap/proposal CLI、Runner no-tool 能力缺口记录、`CapabilityGapRecorded` 观测事件。依赖安装审核、Skill/Tool scaffold、smoke test、verify/promote 和自动路由仍为后续规划。
+> 状态：部分完成。当前已完成 P0/P3 的核心闭环：本地 capability registry、手动 gap/proposal CLI、Runner no-tool 能力缺口记录、`CapabilityGapRecorded` 观测事件、项目级 Skill scaffold、smoke test、`verify/promote/disable` 状态流转。依赖安装审核、Tool/MCP adapter 生成和自动路由仍为后续规划。
 
 ## 1. 背景
 
@@ -439,27 +439,33 @@ cohort capability propose "处理一种新的本地文件格式"
 
 - 根据 proposal 生成 `.cohort/skills/<name>/`。
 - 生成 `SKILL.md`、脚本骨架和 smoke test。
-- 接入 `skill doctor`。
+- 生成 `cohort-capability.json`，记录 proposal、entry 和验证命令。
 
 验收：
 
 ```bash
 cohort capability build <proposal_id>
-cohort skill doctor project/<skill_name>
+cohort skill list
 ```
+
+状态：已完成项目级 Skill scaffold。当前不覆盖已有 `SKILL.md`，避免破坏用户手工编辑；Tool/MCP adapter scaffold 仍是后续项。
 
 ### P3：Verification 与 Promote
 
 - 新增 verify runner。
 - 验证通过后将状态改为 `available`。
-- 失败时记录失败原因和修复建议。
+- 失败时将 capability 标记为 `failed`，保留候选文件供用户修复后重跑 verify。
+- 新增 `disable`，允许显式关闭已注册能力。
 
 验收：
 
 ```bash
 cohort capability verify <id>
 cohort capability promote <id>
+cohort capability disable <id>
 ```
+
+状态：已完成。`promote` 要求存在最近一次成功 verify 的 `last_passed_at`，避免未验证能力直接进入 available。
 
 ### P4：自动路由与离线反思
 
@@ -476,7 +482,7 @@ cohort capability promote <id>
 
 当前版本可以这样描述：
 
-> Cohort 当前具备通过 `code_run` 探测环境、运行脚本和执行依赖安装命令的基础能力，也具备 Skill、MCP、长期记忆和可观测性基础。但完整的能力边界拓展闭环仍处于规划阶段。未来版本会把“做不到”结构化为 capability gap，并通过 proposal、用户确认、Skill/Tool 生成、smoke test 和 registry promote，让能力增长变成可控工程流程。
+> Cohort 当前具备通过 `code_run` 探测环境、运行脚本和执行依赖安装命令的基础能力，也具备 Skill、MCP、长期记忆和可观测性基础。当前版本已经能把“做不到”结构化为 capability gap，并通过 proposal、项目级 Skill scaffold、smoke test 和 registry promote 形成受控的候选能力闭环。依赖安装审核、Tool/MCP adapter 生成和自动路由仍在后续规划中。
 
 不建议这样描述：
 

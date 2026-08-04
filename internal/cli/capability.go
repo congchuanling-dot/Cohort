@@ -14,7 +14,7 @@ import (
 
 func runCapabilityCommand(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: cohort capability list|gaps|show|propose ...")
+		return errors.New("usage: cohort capability list|gaps|show|propose|build|verify|promote|disable ...")
 	}
 	projectRoot, err := os.Getwd()
 	if err != nil {
@@ -37,6 +37,26 @@ func runCapabilityCommand(args []string, out io.Writer) error {
 		}
 		task := strings.Join(args[1:], " ")
 		return proposeCapability(store, task, out)
+	case "build":
+		if len(args) != 2 {
+			return errors.New("usage: cohort capability build <proposal_id>")
+		}
+		return buildCapability(store, args[1], out)
+	case "verify":
+		if len(args) != 2 {
+			return errors.New("usage: cohort capability verify <capability_id>")
+		}
+		return verifyCapability(store, args[1], out)
+	case "promote":
+		if len(args) != 2 {
+			return errors.New("usage: cohort capability promote <capability_id>")
+		}
+		return promoteCapability(store, args[1], out)
+	case "disable":
+		if len(args) != 2 {
+			return errors.New("usage: cohort capability disable <capability_id>")
+		}
+		return disableCapability(store, args[1], out)
 	default:
 		return fmt.Errorf("unknown capability command %q", args[0])
 	}
@@ -106,7 +126,57 @@ func proposeCapability(store capability.Store, task string, out io.Writer) error
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Next:")
 	fmt.Fprintf(out, "  1. Review: cohort capability show %s\n", proposal.ID)
-	fmt.Fprintln(out, "  2. Implement a Skill/Tool scaffold manually or in a future build step")
-	fmt.Fprintln(out, "  3. Add smoke test evidence before promoting the capability")
+	fmt.Fprintf(out, "  2. Build scaffold: cohort capability build %s\n", proposal.ID)
+	fmt.Fprintln(out, "  3. Verify and promote only after reviewing the generated Skill")
+	return nil
+}
+
+func buildCapability(store capability.Store, proposalID string, out io.Writer) error {
+	item, err := store.Build(proposalID)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "capability: %s\n", item.ID)
+	fmt.Fprintf(out, "status: %s\n", item.Status)
+	fmt.Fprintf(out, "type: %s\n", item.Type)
+	fmt.Fprintf(out, "entry: %s\n", item.Entry)
+	fmt.Fprintf(out, "verify: cohort capability verify %s\n", item.ID)
+	fmt.Fprintf(out, "registry: %s\n", store.RegistryPath())
+	return nil
+}
+
+func verifyCapability(store capability.Store, capabilityID string, out io.Writer) error {
+	item, output, err := store.Verify(capabilityID)
+	if output != "" {
+		fmt.Fprintln(out, output)
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "capability: %s\n", item.ID)
+	fmt.Fprintf(out, "status: %s\n", item.Status)
+	fmt.Fprintf(out, "verified_at: %s\n", item.Verification.LastPassedAt.Format("2006-01-02T15:04:05Z07:00"))
+	fmt.Fprintf(out, "promote: cohort capability promote %s\n", item.ID)
+	return nil
+}
+
+func promoteCapability(store capability.Store, capabilityID string, out io.Writer) error {
+	item, err := store.Promote(capabilityID)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "capability: %s\n", item.ID)
+	fmt.Fprintf(out, "status: %s\n", item.Status)
+	fmt.Fprintf(out, "entry: %s\n", item.Entry)
+	return nil
+}
+
+func disableCapability(store capability.Store, capabilityID string, out io.Writer) error {
+	item, err := store.Disable(capabilityID)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "capability: %s\n", item.ID)
+	fmt.Fprintf(out, "status: %s\n", item.Status)
 	return nil
 }
