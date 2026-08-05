@@ -1393,6 +1393,9 @@ Usage:
   cohort eval history     list persisted eval runs
   cohort eval report [run_id|latest] [--open]
                           generate or open the offline HTML dashboard
+  cohort eval status      refresh and print the historical stability summary
+  cohort eval stability [--open]
+                          refresh the historical stability dashboard
   cohort eval stability report [--window N] [--suite id] [--profile id] [--open]
                           aggregate historical eval runs into a stability dashboard
   cohort eval stability cases [--flaky]

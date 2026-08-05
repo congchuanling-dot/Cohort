@@ -283,12 +283,20 @@ cohort eval report --open
 常用命令：
 
 ```bash
+cohort eval run stateful --allow-failures
+cohort eval status
+cohort eval stability --open
 cohort eval stability update
 cohort eval stability report --window 20
 cohort eval stability report --suite stateful --profile deepseek --open
 cohort eval stability cases --flaky
 cohort eval stability regressions
 ```
+
+`cohort eval run ...` 每次结束后会自动刷新稳定性平台产物。日常只需要记住两个入口：
+
+- `cohort eval status`：刷新并打印历史稳定性摘要。
+- `cohort eval stability --open`：刷新并打开稳定性 Dashboard。
 
 稳定性产物写入：
 

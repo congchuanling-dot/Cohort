@@ -19,6 +19,8 @@ type evalStabilityCLIOptions struct {
 func runEvalStabilityCommand(store evaluation.Store, args []string, out io.Writer) error {
 	if len(args) == 0 {
 		args = []string{"report"}
+	} else if strings.HasPrefix(args[0], "-") {
+		args = append([]string{"report"}, args...)
 	}
 	command := args[0]
 	opts, err := parseEvalStabilityOptions(args[1:])
@@ -56,6 +58,23 @@ func runEvalStabilityCommand(store evaluation.Store, args []string, out io.Write
 	default:
 		return fmt.Errorf("unknown eval stability command %q", command)
 	}
+	return nil
+}
+
+func refreshEvalStability(store evaluation.Store, out io.Writer) error {
+	results, err := store.ListResults()
+	if err != nil {
+		return err
+	}
+	if len(results) == 0 {
+		return nil
+	}
+	index := evaluation.BuildStabilityIndex(results, evaluation.StabilityOptions{Window: 20})
+	_, _, htmlPath, err := evaluation.WriteStabilityReports(store, index)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "stability: refreshed %s\n", htmlPath)
 	return nil
 }
 

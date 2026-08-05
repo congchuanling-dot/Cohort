@@ -34,7 +34,7 @@ type evalRunOptions struct {
 
 func runEvalCommand(ctx context.Context, cfg app.Config, args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: cohort eval init|list|run|history|report|stability")
+		return errors.New("usage: cohort eval init|list|run|history|report|status|stability")
 	}
 	root, err := os.Getwd()
 	if err != nil {
@@ -56,6 +56,8 @@ func runEvalCommand(ctx context.Context, cfg app.Config, args []string, out io.W
 		return printEvalHistory(store, out)
 	case "report":
 		return showEvalReport(store, args[1:], out)
+	case "status":
+		return runEvalStabilityCommand(store, []string{"report"}, out)
 	case "stability":
 		return runEvalStabilityCommand(store, args[1:], out)
 	default:
@@ -234,6 +236,9 @@ func executeEvalRun(ctx context.Context, cfg app.Config, store evaluation.Store,
 		if err := executeEvalRunOnce(ctx, profileCfg, store, opts, out); err != nil {
 			failures = append(failures, err.Error())
 		}
+	}
+	if err := refreshEvalStability(store, out); err != nil {
+		fmt.Fprintf(out, "stability: refresh failed: %v\n", err)
 	}
 	if len(failures) > 0 {
 		return fmt.Errorf("eval matrix failed:\n%s", strings.Join(failures, "\n"))
