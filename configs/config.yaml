@@ -3,6 +3,11 @@ workspace: ./workspace
 log_dir: ./temp/model_responses
 max_turns: 300
 
+tools:
+  # 留空表示使用历史默认行为：注册全部工具组，避免 SOP 命中后模型看不到对应工具。
+  # 如果后续需要轻量模式，可显式设置为 [core, lsp, browser, memory, skill, ask]。
+  enabled_groups: []
+
 llm:
   active_profile: deepseek
   # fallback_profiles: [local]

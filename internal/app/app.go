@@ -13,6 +13,7 @@ import (
 	"cohort/internal/capability"
 	"cohort/internal/computeruse"
 	"cohort/internal/contextmgr"
+	"cohort/internal/debugperf"
 	"cohort/internal/desktop"
 	"cohort/internal/llm"
 	"cohort/internal/mcp"
@@ -36,6 +37,13 @@ const (
 // NewRunner 根据配置创建完整的 Agent Runner。
 // 这里是应用装配层：负责把 LLM Client、工具注册器、系统提示词组合到一起。
 func NewRunner(cfg Config) (*agent.Runner, error) {
+	// #region debug-point A:runner-startup
+	debugStart := time.Now()
+	debugperf.Event("pre-fix", "A", "internal/app/app.go:NewRunner", "NewRunner start", map[string]any{
+		"workspace": cfg.Workspace,
+		"log_dir":   cfg.LogDir,
+	})
+	// #endregion
 	active := cfg.LLM.Active()
 	workspace := normalizeWorkspace(cfg.Workspace)
 	// workspace 是文件和命令工具默认工作的目录。
@@ -51,15 +59,36 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 	if err != nil {
 		return nil, err
 	}
+	// #region debug-point A:llm-client-built
+	debugperf.Event("pre-fix", "A", "internal/app/app.go:NewRunner", "LLM client built", map[string]any{
+		"elapsed_ms": debugperf.Since(debugStart),
+		"provider":   active.Provider,
+		"model":      active.Model,
+		"stream":     active.Stream,
+	})
+	// #endregion
 
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, err
 	}
-	mcpManager, err := loadMCPManager(context.Background(), cwd)
-	if err != nil {
-		return nil, err
+	mcpStart := time.Now()
+	mcpManager := mcp.NewManager()
+	if cfg.Tools.groupEnabled("mcp") {
+		loadedMCPManager, loadErr := loadMCPManager(context.Background(), cwd)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		mcpManager = loadedMCPManager
 	}
+	// #region debug-point A:mcp-loaded
+	debugperf.Event("pre-fix", "A", "internal/app/app.go:NewRunner", "MCP manager loaded", map[string]any{
+		"elapsed_ms":       debugperf.Since(debugStart),
+		"mcp_elapsed_ms":   debugperf.Since(mcpStart),
+		"registered_tools": len(mcpManager.Tools()),
+		"enabled":          cfg.Tools.groupEnabled("mcp"),
+	})
+	// #endregion
 	mcpPermissions, err := loadMCPPermissions(cwd)
 	if err != nil {
 		_ = mcpManager.Close()
@@ -70,8 +99,23 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 		_ = mcpManager.Close()
 		return nil, err
 	}
+	// #region debug-point B:skill-loaded
+	debugperf.Event("pre-fix", "B", "internal/app/app.go:NewRunner", "Skill store loaded", map[string]any{
+		"elapsed_ms": debugperf.Since(debugStart),
+	})
+	// #endregion
 	browserClient := newBrowserClient()
-	registry := newRegistry(workspace, cwd, browserClient, mcpManager, mcpPermissions, skillStore)
+	registryStart := time.Now()
+	registry := newRegistry(workspace, cwd, browserClient, mcpManager, mcpPermissions, skillStore, cfg.Tools)
+	schemaCount := len(registry.Schemas())
+	// #region debug-point B:registry-built
+	debugperf.Event("pre-fix", "B", "internal/app/app.go:NewRunner", "Tool registry built", map[string]any{
+		"elapsed_ms":          debugperf.Since(debugStart),
+		"registry_elapsed_ms": debugperf.Since(registryStart),
+		"schema_count":        schemaCount,
+		"enabled_groups":      cfg.Tools.normalizedGroups(),
+	})
+	// #endregion
 	sessionStore := session.NewStore(session.DefaultRootDir)
 	contextManager := &contextmgr.Manager{
 		Config:     cfg.Context.Normalize(),
@@ -79,7 +123,7 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 	}
 
 	// Runner 不直接知道具体工具类型，只依赖 ToolRunner 接口。
-	return &agent.Runner{
+	runner := &agent.Runner{
 		Client:           client,
 		Tools:            registry,
 		SystemPrompt:     BuildSystemPromptForProject(cfg, skillStore, cwd),
@@ -92,7 +136,15 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 		CloseFunc:        mcpManager.Close,
 		SkillStore:       skillStore,
 		ObservationSinks: buildObservationSinks(cfg.Observability),
-	}, nil
+	}
+	// #region debug-point A:runner-ready
+	debugperf.Event("pre-fix", "A", "internal/app/app.go:NewRunner", "NewRunner ready", map[string]any{
+		"elapsed_ms":          debugperf.Since(debugStart),
+		"schema_count":        schemaCount,
+		"system_prompt_chars": len([]rune(runner.SystemPrompt)),
+	})
+	// #endregion
+	return runner, nil
 }
 
 func buildObservationSinks(cfg ObservabilityConfig) []observability.Sink {
@@ -102,14 +154,14 @@ func buildObservationSinks(cfg ObservabilityConfig) []observability.Sink {
 		return nil
 	}
 	return []observability.Sink{
-		observability.NewLangfuseSink(observability.LangfuseSinkConfig{
+		observability.NewAsyncSink(observability.NewLangfuseSink(observability.LangfuseSinkConfig{
 			Host:        langfuse.Host,
 			PublicKey:   langfuse.PublicKey,
 			SecretKey:   langfuse.SecretKey,
 			Environment: langfuse.Environment,
 			Release:     langfuse.Release,
 			Timeout:     time.Duration(langfuse.TimeoutSeconds) * time.Second,
-		}),
+		}), 256),
 	}
 }
 
@@ -156,9 +208,13 @@ func ToolSchemas(cfg Config) ([]llm.ToolSchema, error) {
 	if err != nil {
 		return nil, err
 	}
-	mcpManager, err := loadMCPManager(context.Background(), cwd)
-	if err != nil {
-		return nil, err
+	mcpManager := mcp.NewManager()
+	if cfg.Tools.groupEnabled("mcp") {
+		loadedMCPManager, loadErr := loadMCPManager(context.Background(), cwd)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		mcpManager = loadedMCPManager
 	}
 	defer mcpManager.Close()
 	mcpPermissions, err := loadMCPPermissions(cwd)
@@ -176,6 +232,7 @@ func ToolSchemas(cfg Config) ([]llm.ToolSchema, error) {
 		mcpManager,
 		mcpPermissions,
 		skillStore,
+		cfg.Tools,
 	).Schemas(), nil
 }
 
@@ -187,6 +244,7 @@ func newRegistry(
 	mcpManager *mcp.Manager,
 	mcpPermissions *tools.MCPPermissionStore,
 	skillStore *skill.Store,
+	toolConfig ToolConfig,
 ) *tools.Registry {
 	registry := tools.NewRegistry()
 	desktopDriver := newDesktopDriver(workspace)
@@ -196,75 +254,93 @@ func newRegistry(
 	if mcpPermissions == nil {
 		mcpPermissions = tools.NewMCPPermissionStore()
 	}
-	registry.Register(tools.NewFileRead(workspace))
-	registry.Register(tools.NewFileWrite(workspace))
-	registry.Register(tools.NewFilePatch(workspace))
-	registry.Register(tools.NewCodeRun(workspace))
-	registry.Register(tools.NewLSPDiagnostics(workspace))
-	registry.Register(tools.NewLSPDefinition(workspace))
-	registry.Register(tools.NewLSPReferences(workspace))
-	registry.Register(tools.NewLSPHover(workspace))
-	registry.Register(tools.NewLSPSymbols(workspace))
-	registry.Register(tools.NewBrowserTabs(browserClient))
-	registry.Register(tools.NewBrowserOpen(browserClient))
-	registry.Register(tools.NewBrowserScan(browserClient))
-	registry.Register(tools.NewBrowserDOMSummary(browserClient))
-	registry.Register(tools.NewBrowserExecuteJS(browserClient))
-	registry.Register(tools.NewBrowserClick(browserClient))
-	registry.Register(tools.NewBrowserClickElement(browserClient))
-	registry.Register(tools.NewBrowserType(browserClient))
-	registry.Register(tools.NewBrowserTypeElement(browserClient))
-	registry.Register(tools.NewBrowserPressKey(browserClient))
-	registry.Register(tools.NewBrowserSnapshot(browserClient))
-	registry.Register(tools.NewBrowserWaitForLoad(browserClient))
-	registry.Register(tools.NewBrowserWaitForSelector(browserClient))
-	registry.Register(tools.NewBrowserWaitForText(browserClient))
-	registry.Register(tools.NewBrowserWaitForURL(browserClient))
-	registry.Register(tools.NewBrowserWaitForStable(browserClient))
-	registry.Register(tools.NewBrowserScreenshot(browserClient, workspace))
-	registry.Register(tools.NewBrowserOCR(browserClient, workspace))
-	registry.Register(tools.NewDesktopPermissions(desktopDriver))
-	registry.Register(tools.NewDesktopWindows(desktopDriver))
-	registry.Register(tools.NewDesktopActivate(desktopDriver))
-	registry.Register(tools.NewDesktopScreenshot(desktopDriver, workspace))
-	registry.Register(tools.NewDesktopAXSnapshot(desktopDriver))
-	registry.Register(tools.NewDesktopOCR(workspace))
-	registry.Register(tools.NewDesktopAXPress(desktopDriver, confirmations))
-	registry.Register(tools.NewDesktopAXFocus(desktopDriver))
-	registry.Register(tools.NewDesktopClick(desktopDriver, confirmations))
-	registry.Register(tools.NewDesktopVisualClick(desktopDriver, confirmations, workspace, visualFocuses))
-	registry.Register(tools.NewDesktopPressKey(desktopDriver, confirmations))
-	registry.Register(tools.NewDesktopTypeText(desktopDriver, visualFocuses))
-	registry.Register(tools.NewComputerSee(desktopDriver, computerStore, workspace))
-	registry.Register(tools.NewComputerFind(computerStore))
-	registry.Register(tools.NewComputerClickWithVisualFocus(desktopDriver, computerStore, confirmations, visualFocuses))
-	registry.Register(tools.NewComputerDoubleClick(desktopDriver, computerStore, confirmations))
-	registry.Register(tools.NewComputerRightClick(desktopDriver, computerStore))
-	registry.Register(tools.NewComputerType(desktopDriver, computerStore, visualFocuses))
-	registry.Register(tools.NewComputerPress(desktopDriver, computerStore, confirmations))
-	registry.Register(tools.NewComputerWait(desktopDriver, computerStore))
-	registry.Register(tools.NewComputerCheck(desktopDriver, computerStore))
-	registry.Register(tools.NewComputerScroll(desktopDriver, computerStore))
-	registry.Register(tools.NewComputerDrag(desktopDriver, computerStore, confirmations))
-	registry.Register(tools.NewComputerDrop(desktopDriver, computerStore, confirmations))
-	registry.Register(tools.NewComputerClipboardWrite(desktopDriver))
-	registry.Register(tools.NewComputerPaste(desktopDriver, computerStore))
-	registry.Register(tools.NewComputerWindowSwitch(desktopDriver, computerStore))
-	registry.Register(tools.NewComputerMenu(desktopDriver, computerStore, confirmations))
-	registry.Register(tools.NewComputerFileDialog(desktopDriver, computerStore, confirmations))
-	registry.Register(tools.NewComputerWindowMove(desktopDriver, computerStore))
-	registry.Register(tools.NewComputerWindowResize(desktopDriver, computerStore))
-	registry.Register(tools.NewComputerVisualSnapshot(computerStore))
-	registry.Register(tools.NewComputerExecuteStep(desktopDriver, computerStore, confirmations, visualFocuses))
-	registry.Register(tools.NewComputerExecutePlan(desktopDriver, computerStore, confirmations, visualFocuses, workspace))
-	registry.Register(tools.NewUpdateWorkingCheckpoint())
-	registry.Register(tools.NewStartLongTermUpdate(workspace))
-	registry.Register(tools.NewMemoryProposeUpdate(workspace))
-	registry.Register(tools.NewMemoryApplyUpdate(workspace))
-	registry.Register(tools.NewAskUser(confirmations))
-	registry.Register(tools.NewSkillRead(skillStore))
-	registerEnabledCommandAdapters(registry, projectRoot)
-	if mcpManager != nil {
+	if toolConfig.groupEnabled("core") {
+		registry.Register(tools.NewFileRead(workspace))
+		registry.Register(tools.NewFileWrite(workspace))
+		registry.Register(tools.NewFilePatch(workspace))
+		registry.Register(tools.NewCodeRun(workspace))
+	}
+	if toolConfig.groupEnabled("lsp") {
+		registry.Register(tools.NewLSPDiagnostics(workspace))
+		registry.Register(tools.NewLSPDefinition(workspace))
+		registry.Register(tools.NewLSPReferences(workspace))
+		registry.Register(tools.NewLSPHover(workspace))
+		registry.Register(tools.NewLSPSymbols(workspace))
+	}
+	if toolConfig.groupEnabled("browser") {
+		registry.Register(tools.NewBrowserTabs(browserClient))
+		registry.Register(tools.NewBrowserOpen(browserClient))
+		registry.Register(tools.NewBrowserScan(browserClient))
+		registry.Register(tools.NewBrowserDOMSummary(browserClient))
+		registry.Register(tools.NewBrowserExecuteJS(browserClient))
+		registry.Register(tools.NewBrowserClick(browserClient))
+		registry.Register(tools.NewBrowserClickElement(browserClient))
+		registry.Register(tools.NewBrowserType(browserClient))
+		registry.Register(tools.NewBrowserTypeElement(browserClient))
+		registry.Register(tools.NewBrowserPressKey(browserClient))
+		registry.Register(tools.NewBrowserSnapshot(browserClient))
+		registry.Register(tools.NewBrowserWaitForLoad(browserClient))
+		registry.Register(tools.NewBrowserWaitForSelector(browserClient))
+		registry.Register(tools.NewBrowserWaitForText(browserClient))
+		registry.Register(tools.NewBrowserWaitForURL(browserClient))
+		registry.Register(tools.NewBrowserWaitForStable(browserClient))
+		registry.Register(tools.NewBrowserScreenshot(browserClient, workspace))
+		registry.Register(tools.NewBrowserOCR(browserClient, workspace))
+	}
+	if toolConfig.groupEnabled("desktop") {
+		registry.Register(tools.NewDesktopPermissions(desktopDriver))
+		registry.Register(tools.NewDesktopWindows(desktopDriver))
+		registry.Register(tools.NewDesktopActivate(desktopDriver))
+		registry.Register(tools.NewDesktopScreenshot(desktopDriver, workspace))
+		registry.Register(tools.NewDesktopAXSnapshot(desktopDriver))
+		registry.Register(tools.NewDesktopOCR(workspace))
+		registry.Register(tools.NewDesktopAXPress(desktopDriver, confirmations))
+		registry.Register(tools.NewDesktopAXFocus(desktopDriver))
+		registry.Register(tools.NewDesktopClick(desktopDriver, confirmations))
+		registry.Register(tools.NewDesktopVisualClick(desktopDriver, confirmations, workspace, visualFocuses))
+		registry.Register(tools.NewDesktopPressKey(desktopDriver, confirmations))
+		registry.Register(tools.NewDesktopTypeText(desktopDriver, visualFocuses))
+	}
+	if toolConfig.groupEnabled("computer") {
+		registry.Register(tools.NewComputerSee(desktopDriver, computerStore, workspace))
+		registry.Register(tools.NewComputerFind(computerStore))
+		registry.Register(tools.NewComputerClickWithVisualFocus(desktopDriver, computerStore, confirmations, visualFocuses))
+		registry.Register(tools.NewComputerDoubleClick(desktopDriver, computerStore, confirmations))
+		registry.Register(tools.NewComputerRightClick(desktopDriver, computerStore))
+		registry.Register(tools.NewComputerType(desktopDriver, computerStore, visualFocuses))
+		registry.Register(tools.NewComputerPress(desktopDriver, computerStore, confirmations))
+		registry.Register(tools.NewComputerWait(desktopDriver, computerStore))
+		registry.Register(tools.NewComputerCheck(desktopDriver, computerStore))
+		registry.Register(tools.NewComputerScroll(desktopDriver, computerStore))
+		registry.Register(tools.NewComputerDrag(desktopDriver, computerStore, confirmations))
+		registry.Register(tools.NewComputerDrop(desktopDriver, computerStore, confirmations))
+		registry.Register(tools.NewComputerClipboardWrite(desktopDriver))
+		registry.Register(tools.NewComputerPaste(desktopDriver, computerStore))
+		registry.Register(tools.NewComputerWindowSwitch(desktopDriver, computerStore))
+		registry.Register(tools.NewComputerMenu(desktopDriver, computerStore, confirmations))
+		registry.Register(tools.NewComputerFileDialog(desktopDriver, computerStore, confirmations))
+		registry.Register(tools.NewComputerWindowMove(desktopDriver, computerStore))
+		registry.Register(tools.NewComputerWindowResize(desktopDriver, computerStore))
+		registry.Register(tools.NewComputerVisualSnapshot(computerStore))
+		registry.Register(tools.NewComputerExecuteStep(desktopDriver, computerStore, confirmations, visualFocuses))
+		registry.Register(tools.NewComputerExecutePlan(desktopDriver, computerStore, confirmations, visualFocuses, workspace))
+	}
+	if toolConfig.groupEnabled("memory") {
+		registry.Register(tools.NewUpdateWorkingCheckpoint())
+		registry.Register(tools.NewStartLongTermUpdate(workspace))
+		registry.Register(tools.NewMemoryProposeUpdate(workspace))
+		registry.Register(tools.NewMemoryApplyUpdate(workspace))
+	}
+	if toolConfig.groupEnabled("ask") {
+		registry.Register(tools.NewAskUser(confirmations))
+	}
+	if toolConfig.groupEnabled("skill") {
+		registry.Register(tools.NewSkillRead(skillStore))
+	}
+	if toolConfig.groupEnabled("adapter") {
+		registerEnabledCommandAdapters(registry, projectRoot)
+	}
+	if toolConfig.groupEnabled("mcp") && mcpManager != nil {
 		for _, registered := range mcpManager.Tools() {
 			registry.Register(tools.NewMCPTool(
 				registered,

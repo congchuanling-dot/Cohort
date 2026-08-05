@@ -3,6 +3,7 @@ package llm
 import (
 	"bufio"
 	"bytes"
+	"cohort/internal/debugperf"
 	"context"
 	"encoding/json"
 	"errors"
@@ -89,6 +90,7 @@ func (c *OpenAIClient) Chat(ctx context.Context, req ChatRequest) (<-chan Event,
 
 // doChat 构造 HTTP 请求，发送给 OpenAI-compatible Chat Completions 接口。
 func (c *OpenAIClient) doChat(ctx context.Context, req ChatRequest, out chan<- Event) (*Response, error) {
+	debugStart := time.Now()
 	body := openAIRequest{
 		Model:    c.cfg.Model,
 		Messages: buildOpenAIMessages(req.System, req.Messages),
@@ -107,6 +109,15 @@ func (c *OpenAIClient) doChat(ctx context.Context, req ChatRequest, out chan<- E
 	if err != nil {
 		return nil, err
 	}
+	// #region debug-point B:openai-payload
+	debugperf.Event("pre-fix", "B", "internal/llm/openai.go:doChat", "OpenAI request payload built", map[string]any{
+		"payload_bytes": len(raw),
+		"message_count": len(body.Messages),
+		"tool_count":    len(body.Tools),
+		"stream":        body.Stream,
+		"elapsed_ms":    debugperf.Since(debugStart),
+	})
+	// #endregion
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, chatCompletionsURL(c.cfg.APIBase), bytes.NewReader(raw))
 	if err != nil {
 		return nil, err
@@ -114,10 +125,19 @@ func (c *OpenAIClient) doChat(ctx context.Context, req ChatRequest, out chan<- E
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
 
+	httpStart := time.Now()
 	httpResp, err := c.client.Do(httpReq)
 	if err != nil {
 		return nil, err
 	}
+	// #region debug-point E:http-response
+	debugperf.Event("pre-fix", "E", "internal/llm/openai.go:doChat", "OpenAI HTTP response headers received", map[string]any{
+		"http_elapsed_ms":  debugperf.Since(httpStart),
+		"total_elapsed_ms": debugperf.Since(debugStart),
+		"status_code":      httpResp.StatusCode,
+		"content_type":     httpResp.Header.Get("Content-Type"),
+	})
+	// #endregion
 	defer httpResp.Body.Close()
 
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
@@ -129,7 +149,7 @@ func (c *OpenAIClient) doChat(ctx context.Context, req ChatRequest, out chan<- E
 	if !c.cfg.Stream {
 		return parseOpenAIJSON(httpResp.Body)
 	}
-	return parseOpenAISSE(httpResp.Body, out)
+	return parseOpenAISSEDebug(httpResp.Body, out, debugStart)
 }
 
 // openAIRequest 是 /v1/chat/completions 的请求体。
@@ -218,6 +238,10 @@ func parseOpenAIJSON(r io.Reader) (*Response, error) {
 // parseOpenAISSE 解析流式 SSE 响应。
 // 文本 delta 会实时发送 EventText；tool_calls 的 name/arguments 会按 index 增量拼接。
 func parseOpenAISSE(r io.Reader, out chan<- Event) (*Response, error) {
+	return parseOpenAISSEDebug(r, out, time.Time{})
+}
+
+func parseOpenAISSEDebug(r io.Reader, out chan<- Event, requestStart time.Time) (*Response, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 1024), 1024*1024*8)
 
@@ -225,6 +249,9 @@ func parseOpenAISSE(r io.Reader, out chan<- Event) (*Response, error) {
 	toolCalls := map[int]*ToolCall{}
 	var usage Usage
 	var raw strings.Builder
+	firstPayload := true
+	payloadCount := 0
+	lastPayloadAt := time.Time{}
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -238,6 +265,29 @@ func parseOpenAISSE(r io.Reader, out chan<- Event) (*Response, error) {
 		if payload == "[DONE]" {
 			break
 		}
+		payloadCount++
+		now := time.Now()
+		if firstPayload {
+			firstPayload = false
+			// #region debug-point E:first-sse
+			debugperf.Event("pre-fix", "E", "internal/llm/openai.go:parseOpenAISSE", "First SSE payload received", map[string]any{
+				"since_request_start_ms": elapsedMaybe(requestStart, now),
+				"payload_bytes":          len(payload),
+			})
+			// #endregion
+		} else if !lastPayloadAt.IsZero() {
+			gap := now.Sub(lastPayloadAt).Milliseconds()
+			if gap >= 500 {
+				// #region debug-point E:slow-sse-gap
+				debugperf.Event("pre-fix", "E", "internal/llm/openai.go:parseOpenAISSE", "Slow SSE payload gap", map[string]any{
+					"gap_ms":        gap,
+					"payload_index": payloadCount,
+					"payload_bytes": len(payload),
+				})
+				// #endregion
+			}
+		}
+		lastPayloadAt = now
 		// Raw 保存每个 SSE payload，方便排查模型原始返回。
 		raw.WriteString(payload)
 		raw.WriteByte('\n')
@@ -294,12 +344,29 @@ func parseOpenAISSE(r io.Reader, out chan<- Event) (*Response, error) {
 			calls = append(calls, *tc)
 		}
 	}
-	return &Response{
+	response := &Response{
 		Content:   content.String(),
 		ToolCalls: normalizeToolCalls(calls),
 		Usage:     usage,
 		Raw:       raw.String(),
-	}, nil
+	}
+	// #region debug-point E:sse-done
+	debugperf.Event("pre-fix", "E", "internal/llm/openai.go:parseOpenAISSE", "SSE parse done", map[string]any{
+		"since_request_start_ms": elapsedMaybe(requestStart, time.Now()),
+		"payload_count":          payloadCount,
+		"content_chars":          len([]rune(response.Content)),
+		"tool_call_count":        len(response.ToolCalls),
+		"raw_chars":              len([]rune(response.Raw)),
+	})
+	// #endregion
+	return response, nil
+}
+
+func elapsedMaybe(start time.Time, end time.Time) int64 {
+	if start.IsZero() {
+		return 0
+	}
+	return end.Sub(start).Milliseconds()
 }
 
 // normalizeToolCalls 补齐协议默认值，避免后续处理遇到空 Type。

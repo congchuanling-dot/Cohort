@@ -28,6 +28,8 @@ type Config struct {
 	Context contextmgr.Config
 	// Observability 保存本地和外部观测输出配置。
 	Observability ObservabilityConfig
+	// Tools 控制哪些工具组会暴露给模型；空列表保持历史兼容，注册全部工具组。
+	Tools ToolConfig
 }
 
 // LLMConfig 描述模型服务配置。
@@ -100,6 +102,12 @@ type LangfuseConfig struct {
 	Environment    string
 	Release        string
 	TimeoutSeconds int
+}
+
+// ToolConfig 控制工具注册面。EnabledGroups 为空时沿用旧行为，注册全部工具；
+// 一旦显式配置，就只注册列出的工具组。
+type ToolConfig struct {
+	EnabledGroups []string
 }
 
 // LoadConfig 读取项目根目录的配置文件，并用环境变量替换 ${VAR}。
@@ -184,6 +192,8 @@ func LoadConfig(path string) (Config, error) {
 			if observabilitySubsection == "langfuse" && indent >= 4 {
 				applyLangfuseValue(&cfg.Observability.Langfuse, key, val)
 			}
+		} else if section == "tools" {
+			applyToolValue(&cfg.Tools, key, val)
 		} else {
 			applyRootValue(&cfg, key, val)
 		}
@@ -219,6 +229,9 @@ func defaultConfig() Config {
 		MaxTurns:      300,
 		Context:       contextmgr.DefaultConfig(),
 		Observability: defaultObservabilityConfig(),
+		Tools: ToolConfig{
+			EnabledGroups: nil,
+		},
 		LLM: LLMConfig{
 			Provider:              "openai",
 			Name:                  "deepseek",
@@ -231,6 +244,36 @@ func defaultConfig() Config {
 			MaxRetries:            2,
 		},
 	}
+}
+
+func (cfg ToolConfig) groupEnabled(group string) bool {
+	group = strings.ToLower(strings.TrimSpace(group))
+	if group == "" {
+		return false
+	}
+	if len(cfg.EnabledGroups) == 0 {
+		return true
+	}
+	for _, enabled := range cfg.EnabledGroups {
+		if strings.ToLower(strings.TrimSpace(enabled)) == group || strings.TrimSpace(enabled) == "*" {
+			return true
+		}
+	}
+	return false
+}
+
+func (cfg ToolConfig) normalizedGroups() []string {
+	groups := make([]string, 0, len(cfg.EnabledGroups))
+	seen := map[string]bool{}
+	for _, group := range cfg.EnabledGroups {
+		group = strings.ToLower(strings.TrimSpace(group))
+		if group == "" || seen[group] {
+			continue
+		}
+		seen[group] = true
+		groups = append(groups, group)
+	}
+	return groups
 }
 
 func defaultObservabilityConfig() ObservabilityConfig {
@@ -467,6 +510,13 @@ func applyLangfuseValue(cfg *LangfuseConfig, key, val string) {
 		cfg.Release = val
 	case "timeout_seconds":
 		cfg.TimeoutSeconds = atoiDefault(val, cfg.TimeoutSeconds)
+	}
+}
+
+func applyToolValue(cfg *ToolConfig, key, val string) {
+	switch key {
+	case "enabled_groups":
+		cfg.EnabledGroups = parseStringList(val)
 	}
 }
 

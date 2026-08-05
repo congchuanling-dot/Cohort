@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRedactEventHidesSecretsAndLargeText_BitsUT(t *testing.T) {
@@ -39,6 +40,9 @@ func TestJSONLSinkWritesRedactedEvents_BitsUT(t *testing.T) {
 	bus.Emit(context.Background(), NewEvent(EventUserPromptSubmitted, "run_1", "sess_1", 0, "/tmp/work", "runner", SeverityInfo, map[string]any{
 		"user_input": "password=secret-value",
 	}))
+	if err := bus.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 
 	file, err := os.Open(path)
 	if err != nil {
@@ -130,4 +134,32 @@ func TestLangfuseSinkPostsGenerationUsage_BitsUT(t *testing.T) {
 	if !ok || metadata["environment"] != "test" || metadata["release"] != "sha-123" {
 		t.Fatalf("metadata = %#v, want env/release", item.Body["metadata"])
 	}
+}
+
+func TestAsyncSinkDoesNotBlockSlowSink_BitsUT(t *testing.T) {
+	sink := NewAsyncSink(slowSink{delay: 250 * time.Millisecond}, 1)
+	start := time.Now()
+	if err := sink.Emit(context.Background(), NewEvent(EventRunStarted, "run_1", "sess_1", 0, "/tmp/work", "runner", SeverityInfo, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(start); elapsed > 80*time.Millisecond {
+		t.Fatalf("async emit blocked for %s", elapsed)
+	}
+}
+
+type slowSink struct {
+	delay time.Duration
+}
+
+func (s slowSink) Emit(ctx context.Context, event Event) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(s.delay):
+		return nil
+	}
+}
+
+func (s slowSink) Close(ctx context.Context) error {
+	return nil
 }

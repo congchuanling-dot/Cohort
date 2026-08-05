@@ -62,6 +62,11 @@ workspace: "%s"
 log_dir: "%s"
 max_turns: 300
 
+tools:
+  # Empty or omitted enabled_groups preserves the historical full tool surface.
+  # For faster default chat with browser tools, use: [core, lsp, browser, memory, skill, ask]
+  enabled_groups: []
+
 llm:
   active_profile: %s
   # fallback_profiles: [local]

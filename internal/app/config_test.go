@@ -170,6 +170,41 @@ llm:
 	}
 }
 
+func TestLoadConfigParsesToolGroups_BitsUT(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := `language: zh
+workspace: ./workspace
+log_dir: ./temp/model_responses
+max_turns: 7
+
+tools:
+  enabled_groups: [core, lsp, memory, ask]
+
+llm:
+  provider: openai
+  name: deepseek
+  api_key: test-key
+  api_base: https://example.com/v1
+  model: test-model
+  stream: false
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !cfg.Tools.groupEnabled("core") || !cfg.Tools.groupEnabled("lsp") || !cfg.Tools.groupEnabled("memory") || !cfg.Tools.groupEnabled("ask") {
+		t.Fatalf("expected configured tool groups enabled, got %#v", cfg.Tools.EnabledGroups)
+	}
+	if cfg.Tools.groupEnabled("mcp") || cfg.Tools.groupEnabled("browser") || cfg.Tools.groupEnabled("desktop") || cfg.Tools.groupEnabled("computer") {
+		t.Fatalf("unexpected heavy tool group enabled: %#v", cfg.Tools.EnabledGroups)
+	}
+}
+
 func TestLoadConfigParsesLangfuseObservability_BitsUT(t *testing.T) {
 	t.Setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
 	t.Setenv("LANGFUSE_SECRET_KEY", "sk-test")

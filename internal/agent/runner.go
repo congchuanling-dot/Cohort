@@ -11,6 +11,7 @@ import (
 
 	"cohort/internal/capability"
 	"cohort/internal/contextmgr"
+	"cohort/internal/debugperf"
 	"cohort/internal/evolution"
 	"cohort/internal/hooks"
 	"cohort/internal/llm"
@@ -172,6 +173,12 @@ type Runner struct {
 // Run 执行一次用户任务。流程是：用户输入 -> 调模型 -> 执行工具 -> 工具结果回灌 -> 继续调模型。
 // 当模型不再返回 tool_calls，而是直接回答时，本次任务结束。
 func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunResult, error) {
+	// #region debug-point D:run-start
+	debugRunStart := time.Now()
+	debugperf.Event("pre-fix", "D", "internal/agent/runner.go:Run", "Run start", map[string]any{
+		"history_len": len(r.history),
+	})
+	// #endregion
 	// 没配置最大轮数时给一个保守默认值，避免无限循环。
 	if r.MaxTurns <= 0 {
 		r.MaxTurns = 300
@@ -179,17 +186,44 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 	runID := observability.NewRunID()
 	runStartedAt := time.Now()
 	// 每次运行前确保日志目录存在，日志失败属于运行环境错误。
+	logDirStart := time.Now()
 	if err := r.ensureLogDir(); err != nil {
 		return RunResult{}, err
 	}
+	// #region debug-point D:log-dir
+	debugperf.Event("pre-fix", "D", "internal/agent/runner.go:Run", "Log dir ensured", map[string]any{
+		"elapsed_ms":       debugperf.Since(logDirStart),
+		"run_elapsed_ms":   debugperf.Since(debugRunStart),
+		"log_dir_present":  strings.TrimSpace(r.LogDir) != "",
+		"session_present":  r.sessionID != "",
+		"session_store_on": r.SessionStore != nil,
+	})
+	// #endregion
 
 	// 用户输入先进入 history，后续每一轮模型都能看到完整上下文。
 	sessionBeforeInput := r.sessionID
+	appendStart := time.Now()
 	if err := r.appendMessage(llm.Message{Role: llm.RoleUser, Content: input}, input); err != nil {
 		return RunResult{}, err
 	}
+	// #region debug-point D:append-user
+	debugperf.Event("pre-fix", "D", "internal/agent/runner.go:Run", "User message appended", map[string]any{
+		"elapsed_ms":     debugperf.Since(appendStart),
+		"run_elapsed_ms": debugperf.Since(debugRunStart),
+		"session_new":    sessionBeforeInput == "" && r.sessionID != "",
+		"session_id_len": len(r.sessionID),
+		"history_len":    len(r.history),
+	})
+	// #endregion
+	obsStart := time.Now()
 	obs := r.observationBus()
 	defer obs.Close(ctx)
+	// #region debug-point D:obs-created
+	debugperf.Event("pre-fix", "D", "internal/agent/runner.go:Run", "Observation bus created", map[string]any{
+		"elapsed_ms":     debugperf.Since(obsStart),
+		"run_elapsed_ms": debugperf.Since(debugRunStart),
+	})
+	// #endregion
 	lastTurn := 0
 	var totalUsage llm.Usage
 	finishRun := func(result RunResult, err error) (RunResult, error) {
@@ -244,6 +278,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 	r.emitObservation(ctx, obs, runID, observability.EventUserPromptSubmitted, 0, observability.SeverityInfo, map[string]any{
 		"prompt": promptSummary(input),
 	})
+	routeStart := time.Now()
 	memorySignals := longTermMemorySignals{userRequested: requestsLongTermMemory(input)}
 	evidenceLedger := []evolution.Evidence{{
 		ID:       "user:input",
@@ -253,7 +288,26 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 	}}
 	r.maybeAddLongTermMemoryHint(&memorySignals, 0)
 	r.addSOPRouteHint(input)
+	// #region debug-point B:route-hints
+	debugperf.Event("pre-fix", "B", "internal/agent/runner.go:Run", "Prompt routing hints prepared", map[string]any{
+		"elapsed_ms":     debugperf.Since(routeStart),
+		"pending_hints":  len(r.pendingHints),
+		"sop_related":    r.WorkingCheckpoint.RelatedSOP,
+		"memory_request": memorySignals.userRequested,
+	})
+	// #endregion
+	contextStart := time.Now()
 	messages, stats := r.buildRequestMessagesMaybeAutoCompact(ctx, obs, runID, 0)
+	// #region debug-point B:context-built
+	debugperf.Event("pre-fix", "B", "internal/agent/runner.go:Run", "Initial context built", map[string]any{
+		"elapsed_ms":       debugperf.Since(contextStart),
+		"history_len":      len(r.history),
+		"messages":         len(messages),
+		"final_tokens":     stats.FinalTokens,
+		"final_chars":      stats.FinalChars,
+		"trimmed_messages": stats.TrimmedMessages,
+	})
+	// #endregion
 	r.emitObservation(ctx, obs, runID, observability.EventContextBuilt, 0, observability.SeverityInfo, contextStatsData(stats))
 	finishGuardRetries := 0
 	textToolUseRetries := 0
@@ -268,7 +322,17 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			"checkpoint_active": strings.TrimSpace(r.WorkingCheckpoint.KeyInfo) != "",
 		})
 		// 把系统提示词、历史消息、工具 schema 一起发给模型。
+		schemaStart := time.Now()
 		tools := r.Tools.Schemas()
+		// #region debug-point B:schema-built
+		debugperf.Event("pre-fix", "B", "internal/agent/runner.go:Run", "Tool schemas prepared", map[string]any{
+			"elapsed_ms":          debugperf.Since(schemaStart),
+			"schema_count":        len(tools),
+			"system_prompt_chars": len([]rune(r.SystemPrompt)),
+			"request_messages":    len(messages),
+			"request_chars":       messagesChars(messages),
+		})
+		// #endregion
 		r.emitObservation(ctx, obs, runID, observability.EventLLMRequestStarted, turn, observability.SeverityInfo, llmRequestData(messages, tools, r.SystemPrompt))
 		llmStartedAt := time.Now()
 		stream, err := r.Client.Chat(ctx, llm.ChatRequest{
@@ -284,9 +348,16 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			})
 			return finishRun(RunResult{}, err)
 		}
+		// #region debug-point E:chat-returned
+		debugperf.Event("pre-fix", "E", "internal/agent/runner.go:Run", "Client.Chat returned stream", map[string]any{
+			"elapsed_ms":   debugperf.Since(llmStartedAt),
+			"turn":         turn,
+			"schema_count": len(tools),
+		})
+		// #endregion
 
 		// consume 会消费流式响应：文本实时输出，最终返回完整 Response。
-		resp, err := consume(stream, sink)
+		resp, err := consumeDebug(stream, sink, "pre-fix", turn, llmStartedAt)
 		if err != nil {
 			r.emitObservation(ctx, obs, runID, observability.EventLLMResponseFinished, turn, observability.SeverityError, map[string]any{
 				"status":      ToolStatusError,
@@ -487,7 +558,19 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 		r.maybeAddLongTermMemoryHint(&memorySignals, turn)
 		// 工具结果已经进入完整 history；下一轮模型请求前重新构造可见上下文。
 		// Context Manager 应根据预算决定是否压缩，而不是每轮固定裁剪。
+		contextStart = time.Now()
 		messages, stats = r.buildRequestMessagesMaybeAutoCompact(ctx, obs, runID, turn)
+		// #region debug-point B:context-rebuilt
+		debugperf.Event("pre-fix", "B", "internal/agent/runner.go:Run", "Context rebuilt after tools", map[string]any{
+			"elapsed_ms":       debugperf.Since(contextStart),
+			"turn":             turn,
+			"history_len":      len(r.history),
+			"messages":         len(messages),
+			"final_tokens":     stats.FinalTokens,
+			"final_chars":      stats.FinalChars,
+			"trimmed_messages": stats.TrimmedMessages,
+		})
+		// #endregion
 		r.emitObservation(ctx, obs, runID, observability.EventContextBuilt, turn, observability.SeverityInfo, contextStatsData(stats))
 	}
 	// 达到最大轮数说明模型一直没有收敛，返回受控状态而不是无限运行。
@@ -1061,10 +1144,44 @@ func makeSessionTitle(input string) string {
 
 // consume 消费模型流式事件：文本事件直接输出，完成事件返回完整响应，错误事件返回 error。
 func consume(stream <-chan llm.Event, sink OutputSink) (*llm.Response, error) {
+	return consumeDebug(stream, sink, "", 0, time.Time{})
+}
+
+func consumeDebug(stream <-chan llm.Event, sink OutputSink, debugRunID string, turn int, requestStartedAt time.Time) (*llm.Response, error) {
 	var written strings.Builder
+	firstText := true
+	chunks := 0
+	lastChunkAt := time.Time{}
+	consumeStartedAt := time.Now()
 	for event := range stream {
 		switch event.Type {
 		case llm.EventText:
+			now := time.Now()
+			chunks++
+			if firstText {
+				firstText = false
+				// #region debug-point C:first-token
+				debugperf.Event(debugRunID, "C", "internal/agent/runner.go:consume", "First text chunk received", map[string]any{
+					"turn":                   turn,
+					"since_request_start_ms": elapsedMaybe(requestStartedAt, now),
+					"since_consume_start_ms": debugperf.Since(consumeStartedAt),
+					"chunk_chars":            len([]rune(event.Text)),
+				})
+				// #endregion
+			} else if !lastChunkAt.IsZero() {
+				gap := now.Sub(lastChunkAt).Milliseconds()
+				if gap >= 500 {
+					// #region debug-point C:slow-chunk-gap
+					debugperf.Event(debugRunID, "C", "internal/agent/runner.go:consume", "Slow text chunk gap", map[string]any{
+						"turn":        turn,
+						"gap_ms":      gap,
+						"chunk_index": chunks,
+						"chunk_chars": len([]rune(event.Text)),
+					})
+					// #endregion
+				}
+			}
+			lastChunkAt = now
 			sink.WriteText(event.Text)
 			written.WriteString(event.Text)
 		case llm.EventDone:
@@ -1072,6 +1189,17 @@ func consume(stream <-chan llm.Event, sink OutputSink) (*llm.Response, error) {
 				return &llm.Response{}, nil
 			}
 			writeMissingFinalText(sink, written.String(), event.Response.Content)
+			// #region debug-point C:consume-done
+			debugperf.Event(debugRunID, "C", "internal/agent/runner.go:consume", "Stream consume done", map[string]any{
+				"turn":                     turn,
+				"consume_elapsed_ms":       debugperf.Since(consumeStartedAt),
+				"since_request_start_ms":   elapsedMaybe(requestStartedAt, time.Now()),
+				"chunks":                   chunks,
+				"written_chars":            len([]rune(written.String())),
+				"final_content_chars":      len([]rune(event.Response.Content)),
+				"response_tool_call_count": len(event.Response.ToolCalls),
+			})
+			// #endregion
 			return event.Response, nil
 		case llm.EventError:
 			if event.Err != nil {
@@ -1081,6 +1209,13 @@ func consume(stream <-chan llm.Event, sink OutputSink) (*llm.Response, error) {
 		}
 	}
 	return nil, fmt.Errorf("llm stream closed without done event")
+}
+
+func elapsedMaybe(start time.Time, end time.Time) int64 {
+	if start.IsZero() {
+		return 0
+	}
+	return end.Sub(start).Milliseconds()
 }
 
 // writeMissingFinalText 补齐部分供应商没有以 SSE delta 发出的最终文本尾部。
