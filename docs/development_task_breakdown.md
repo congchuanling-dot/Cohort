@@ -17,7 +17,7 @@
 | MCP 核心链路 | `[部分完成]` | `.mcp.json` scope、stdio/HTTP、旧 SSE 兼容、发现、调用、分页、status/probe、import/export、per-tool policy CLI、REPL `/mcp` 已实现；OAuth 体验深优化待补。 |
 | MCP P1 基础 | `[完成]` | 精确参数授权、R3 拒绝、外部结果裁剪、MCP 审计和零默认 Server 已实现。 |
 | Skill Runtime | `[完成]` | 本地/Git 安装、安装预览、版本锁定、manifest hash、`skill doctor`、`skill_read`、`/skill run`、快捷 alias、内置高频 Skill 包、`SKILL.md permissions` 和 active policy 已实现。 |
-| `run.log` / lifecycle 事件流 | `[部分完成]` | 已记录工具完成事件、脱敏参数摘要、MCP 元数据、Runner/LLM/session/compact/permission/FinishGuard/TextToolUse JSONL 事件，并在 RunFinished 汇总 usage/cost；`internal/hooks` 已支持可注册内部 Hook 并接入关键生命周期点，外部 Hook 插件化和更完整 policy sink 待补。 |
+| `run.log` / lifecycle 事件流 | `[部分完成]` | 已记录工具完成事件、脱敏参数摘要、MCP 元数据、Runner/LLM/session/compact/permission/FinishGuard/TextToolUse JSONL 事件，并在 RunFinished 汇总 usage/cost；`cohort trace last/show` 和 `cohort perf last/show` 已能本地解析运行时间线与性能瓶颈；`internal/hooks` 已支持可注册内部 Hook 并接入关键生命周期点，外部 Hook 插件化、更完整 policy sink 和调优报告待补。 |
 
 ### 当前优先级
 
@@ -25,7 +25,7 @@
 | --- | --- | --- | --- |
 | 1 | `FinishGuard` / `NoToolPolicy` 与早停治理 | `[完成]` | 已保持“无 tool_calls 默认结束”的 Agent Loop 语义，并只对空回复、max_tokens/length 截断、大代码块未落盘、疑似未验证完成等强异常做一次性守卫；覆盖 `internal/agent/finish_guard.go` 与回归测试。 |
 | 2 | 严格文本 `<tool_use>` 兜底 | `[完成]` | OpenAI-compatible 原生 tool_calls 缺失时，严格解析 `<tool_use>{...}</tool_use>`；解析失败注入自修复提示；正文进入 history 前剥离工具块；覆盖 `internal/agent/tool_use_fallback.go` 与回归测试。 |
-| 3 | Runner 生命周期事件与 `run.log` 事件流 | `[部分完成]` | 已将 Runner、LLM、tool、permission、compact、session start/end、FinishGuard 和文本 tool_use 事件写入 `run.log.jsonl`；内部 Hook 接口已落地并接入 SessionStart/SessionEnd/PreToolUse/PostToolUse/FileChanged/PreCompact/PostCompact，policy sink 和更完整 tracing 仍待补。 |
+| 3 | Runner 生命周期事件与 `run.log` 事件流 | `[部分完成]` | 已将 Runner、LLM、tool、permission、compact、session start/end、FinishGuard 和文本 tool_use 事件写入 `run.log.jsonl`；`trace/perf` CLI 已能展示最近或指定 session 的 timeline、LLM/tool/context 统计和最大事件间隔；内部 Hook 接口已落地并接入 SessionStart/SessionEnd/PreToolUse/PostToolUse/FileChanged/PreCompact/PostCompact，policy sink、更完整 tracing 和调优报告仍待补。 |
 | 4 | `cohort doctor` 总入口 | `[部分完成]` | 已检查配置、API key、provider、api_base、workspace/log/session 可写性、MCP 配置和权限、Skill doctor、browser extension、desktop/OCR helper；`--connect` 可检查模型和 MCP 连通性；更深桌面权限和真实 App 冒烟仍走 `cohort doctor computer`。 |
 | 5 | 交互式 diff 与变更审阅 | `[完成]` | 已提供 `/diff`、`/diff show [file]`、`/diff accept` 和 `/diff rollback <file> --confirm`；回滚限制在当前 Git 仓库内的单个已跟踪文件，拒绝未确认、目录、仓库外路径和未跟踪文件。 |
 | 6 | Project / Plan Mode | `[部分完成]` | 已提供 `cohort project init/status`、`.cohort/project.md`、`.cohort/config.json`、`cohort plan create/status/start/verify/block`、`.cohort/plan.json`，系统提示词注入项目契约和可恢复计划状态；更完整 bootstrap 向导待补。 |

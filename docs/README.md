@@ -19,7 +19,7 @@
 
 1. `[完成]` `FinishGuard` / `NoToolPolicy` 保守早停守卫：无工具默认结束，只对空回复、截断回复、大代码块误输出和疑似未验证完成等强异常做一次性重试。
 2. `[完成]` 严格文本 `<tool_use>` 兜底：降低不同模型或中转服务的 tool calling 波动。
-3. `[部分完成]` Runner 生命周期 `run.log.jsonl` 事件流：Runner、LLM、tool、permission、compact、session start/end、FinishGuard 和 TextToolUse 已落地；`internal/hooks` 已提供可注册 Hook 接口并接入 SessionStart/SessionEnd/PreToolUse/PostToolUse/FileChanged/PreCompact/PostCompact，外部插件化执行器和更完整 policy sink 仍待补。
+3. `[部分完成]` Runner 生命周期 `run.log.jsonl` 事件流：Runner、LLM、tool、permission、compact、session start/end、FinishGuard 和 TextToolUse 已落地；`cohort trace last/show` 与 `cohort perf last/show` 已能读取本地事件流并定位 LLM/tool/context 瓶颈；`internal/hooks` 已提供可注册 Hook 接口并接入 SessionStart/SessionEnd/PreToolUse/PostToolUse/FileChanged/PreCompact/PostCompact，外部插件化执行器、更完整 policy sink 和调优报告仍待补。
 4. `[部分完成]` `cohort doctor` 总入口：已检查配置、模型、MCP、Skill、浏览器扩展、桌面/OCR helper、workspace/session/log；真实桌面权限深检仍走 `cohort doctor computer`。
 5. `[完成]` 交互式 diff、变更审阅与受限回滚边界：`/diff`、`/diff show`、`/diff accept`、`/diff rollback <file> --confirm` 已落地。
 6. `[部分完成]` Project / Plan Mode：`cohort project init/status`、`.cohort/project.md`、`.cohort/config.json`、`cohort plan create/status/start/verify/block` 和 `.cohort/plan.json` 已落地；更完整 Project bootstrap 向导仍待补。
@@ -46,7 +46,7 @@
 | `[部分完成]` | [cohort_mcp_integration_design.md](cohort_mcp_integration_design.md) | add/list/status/tools/probe/remove、import/export、旧 SSE 兼容、per-tool policy CLI 与 P1 权限审计基础已完成；飞书真实验收、OAuth 体验和 Plugin 尚待完成。 |
 | `[规划]` | [cohort_future_development_opportunities.md](cohort_future_development_opportunities.md) | Claude Code/OpenClaw 对标能力池；以顶部状态表判断实际进度。 |
 | `[部分完成]` | [cohort_vs_ga_current_gap.md](cohort_vs_ga_current_gap.md) | 当前差距分析；MCP、渐进式 Skill Runtime、保守 NoToolPolicy、文本 tool_use 兜底、diff、Project/Plan Mode 基础已补齐，Hook、长期自治和前端生态仍未完成。 |
-| `[部分完成]` | [agent_observability_technical_design.md](agent_observability_technical_design.md) | 提炼 GA hook、Langfuse、checkpoint 和 L4 反射经验；Runner lifecycle events、usage/cost 汇总与 Langfuse 基础已落地，完整 tracing sink、内部 Hook 和调优报告仍待补。 |
+| `[部分完成]` | [agent_observability_technical_design.md](agent_observability_technical_design.md) | 提炼 GA hook、Langfuse、checkpoint 和 L4 反射经验；Runner lifecycle events、usage/cost 汇总、Langfuse 基础和 trace/perf CLI 已落地，完整 tracing sink、TUI trace panel 和调优报告仍待补。 |
 | `[历史]` | [cohort_vs_ga_gap.md](cohort_vs_ga_gap.md) | 早期 MVP 差距快照，已由 `cohort_vs_ga_current_gap.md` 取代。 |
 
 ## 核心能力设计

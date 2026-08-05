@@ -385,7 +385,7 @@ exit -> RunFinished
 
 ## 6. 开发阶段
 
-### P0：本地事件流
+### P0：本地事件流 `[完成]`
 
 任务：
 
@@ -404,7 +404,24 @@ exit -> RunFinished
 - 日志里能定位每一轮模型调用和工具调用。
 - 默认日志不泄露 secret、剪贴板正文或大文件内容。
 
-### P1：Usage / Cost / Trace
+### P0.5：Trace / Perf CLI `[完成]`
+
+任务：
+
+1. 实现 `cohort trace last`。
+2. 实现 `cohort trace show <session_id> [--run <run_id>]`。
+3. 实现 `cohort perf last`。
+4. 实现 `cohort perf show <session_id> [--run <run_id>]`。
+5. 从 `run.log.jsonl` 汇总 LLM、tool、context、usage 和最大事件间隔。
+
+验收：
+
+- 不启动 LLM、不依赖 API Key，也能读取本地 session 观测数据。
+- `trace` 能按时间线展示每个关键生命周期事件。
+- `perf` 能快速判断慢在 LLM、工具、上下文构建还是请求体膨胀。
+- 日志行很大时仍能读取，不依赖 `bufio.Scanner` 的默认 token 上限。
+
+### P1：Usage / Cost / Trace `[部分完成]`
 
 任务：
 
@@ -420,7 +437,14 @@ exit -> RunFinished
 - Langfuse 中能看到 agent -> llm -> tools 的层级 trace。
 - tracing sink 失败不影响主任务。
 
-### P2：调优报告
+当前状态：
+
+- Runner 已在 `RunFinished` 汇总 usage/cost。
+- Langfuse sink 已有基础 ingestion，并已通过异步 sink 避免阻塞主流程。
+- trace/perf CLI 已能读本地 usage 和耗时。
+- Langfuse 的完整层级 trace 与 OpenTelemetry sink 仍待补。
+
+### P2：调优报告 `[规划]`
 
 任务：
 

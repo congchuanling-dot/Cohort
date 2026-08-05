@@ -321,6 +321,17 @@ export COHORT_COST_CACHE_READ_USD_PER_1M=0.01
 export COHORT_COST_CACHE_WRITE_USD_PER_1M=0.20
 ```
 
+运行观测可以直接从本地 `run.log.jsonl` 读取，不需要启动 LLM：
+
+```bash
+cohort trace last
+cohort trace show <session_id> [--run <run_id>]
+cohort perf last
+cohort perf show <session_id> [--run <run_id>]
+```
+
+`trace` 按时间线展示 `ContextBuilt`、`LLMRequestStarted`、`LLMResponseFinished`、`ToolStarted`、`ToolFinished` 等事件。`perf` 汇总总耗时、LLM 耗时、工具耗时、最近一次请求大小、工具 schema 数量、usage 和最大事件间隔，用于快速判断慢在模型、工具、上下文构建还是外部观测链路。
+
 离线 Skill 候选挖掘：
 
 ```bash

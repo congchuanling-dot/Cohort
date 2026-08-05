@@ -79,6 +79,12 @@ func Run(args []string) error {
 	if args[0] == "plan" {
 		return runPlanCommand(args[1:], os.Stdout)
 	}
+	if args[0] == "trace" {
+		return runTraceCommand(args[1:], os.Stdout)
+	}
+	if args[0] == "perf" {
+		return runPerfCommand(args[1:], os.Stdout)
+	}
 
 	configPath, err := app.ResolveConfigPath(opts.ConfigPath)
 	if err != nil {
@@ -1346,6 +1352,12 @@ Usage:
                           inspect or run isolated read-only explorer tasks and aggregate lanes
   cohort tui status|plan|diff|logs|explorers|watch
                           show terminal task, plan, diff, log, and explorer panels
+  cohort trace last       show latest run timeline from run.log.jsonl
+  cohort trace show <session_id> [--run <run_id>]
+                          show one session run timeline
+  cohort perf last        show latest run latency, usage, and bottlenecks
+  cohort perf show <session_id> [--run <run_id>]
+                          show one session run performance summary
   cohort mcp list         list configured MCP servers
   cohort mcp status       check configured MCP server availability
   cohort mcp add ...      add an MCP server
