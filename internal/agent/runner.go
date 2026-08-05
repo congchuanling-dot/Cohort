@@ -154,6 +154,12 @@ type Runner struct {
 	ObservationSinks []observability.Sink
 	// Hooks 是内部生命周期 Hook 注册表。Hook 是旁路能力：执行失败只进入观测事件，不中断 Runner。
 	Hooks *hooks.Registry
+	// DisableLongTermMemoryReview 关闭任务末尾的长期记忆提示与强制复核。
+	// 评测、批处理等隔离运行可显式开启，普通交互默认保持原行为。
+	DisableLongTermMemoryReview bool
+	// DisableCapabilityGapRecording 禁止 no-tool 回复写入项目 capability registry。
+	// 评测失败属于样本结果，不应污染项目的真实能力缺口。
+	DisableCapabilityGapRecording bool
 	// WorkingCheckpoint 保存当前任务的短期关键约束，避免读过 SOP 后在多轮执行中遗忘。
 	WorkingCheckpoint WorkingCheckpoint
 
@@ -706,6 +712,9 @@ func (r *Runner) recordLongTermMemorySignal(signals *longTermMemorySignals, name
 //
 // 提示不强制写入。模型仍需先调用 start_long_term_update，并在没有可复用、已验证经验时使用 skip。
 func (r *Runner) maybeAddLongTermMemoryHint(signals *longTermMemorySignals, turn int) {
+	if r.DisableLongTermMemoryReview {
+		return
+	}
 	if signals == nil || signals.prompted || signals.started {
 		return
 	}
@@ -718,6 +727,9 @@ func (r *Runner) maybeAddLongTermMemoryHint(signals *longTermMemorySignals, turn
 }
 
 func (r *Runner) maybeForceLongTermMemoryReview(signals *longTermMemorySignals, turn int) bool {
+	if r.DisableLongTermMemoryReview {
+		return false
+	}
 	if signals == nil || signals.started || signals.finalReviewPrompted {
 		return false
 	}
@@ -751,6 +763,9 @@ func awaitingUserInput(content string) bool {
 }
 
 func (r *Runner) maybeRecordCapabilityGap(ctx context.Context, obs observability.Bus, runID string, turn int, task string, content string) {
+	if r.DisableCapabilityGapRecording {
+		return
+	}
 	if !looksLikeCapabilityGap(content) {
 		return
 	}

@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "id": "tool-routing",
+  "name": "Cohort Tool Routing \u0026 Environment",
+  "description": "环境相关评测集。用于验证浏览器、桌面、LSP 和命令工具是否被正确暴露与路由。",
+  "tool_groups": [
+    "core",
+    "lsp",
+    "browser",
+    "desktop",
+    "computer"
+  ],
+  "cases": [
+    {
+      "id": "lsp_symbols",
+      "name": "LSP 符号路由",
+      "prompt": "使用 LSP 符号工具读取 internal/agent/runner.go 的符号，确认其中包含 Runner 或 Run。不要修改文件。",
+      "tags": [
+        "lsp",
+        "routing"
+      ],
+      "timeout_seconds": 120,
+      "assertions": {
+        "status": "done",
+        "output_regex": [
+          "(?i)(Runner|Run)"
+        ],
+        "required_tools": [
+          "lsp_symbols"
+        ],
+        "forbidden_tools": [
+          "file_write",
+          "file_patch"
+        ],
+        "max_turns": 5
+      }
+    },
+    {
+      "id": "desktop_permissions",
+      "name": "桌面权限检查路由",
+      "prompt": "只检查当前 macOS 桌面自动化权限状态，不要点击、输入或激活窗口。总结权限是否可用。",
+      "tags": [
+        "desktop",
+        "routing"
+      ],
+      "timeout_seconds": 120,
+      "assertions": {
+        "status": "done",
+        "required_tools": [
+          "desktop_permissions"
+        ],
+        "forbidden_tools": [
+          "desktop_click",
+          "desktop_type_text",
+          "ask_user"
+        ],
+        "max_turns": 4
+      }
+    },
+    {
+      "id": "browser_tabs",
+      "name": "浏览器连接检查路由",
+      "prompt": "只读取当前浏览器标签页列表并总结数量，不要打开网页、点击或输入。",
+      "tags": [
+        "browser",
+        "routing"
+      ],
+      "timeout_seconds": 120,
+      "assertions": {
+        "status": "done",
+        "required_tools": [
+          "browser_tabs"
+        ],
+        "forbidden_tools": [
+          "browser_open",
+          "browser_click",
+          "browser_type"
+        ],
+        "max_turns": 4
+      }
+    },
+    {
+      "id": "read_only_command",
+      "name": "只读命令执行",
+      "prompt": "使用命令工具执行 pwd，并只回答工作目录的最后一级名称。禁止修改文件。",
+      "tags": [
+        "shell",
+        "routing"
+      ],
+      "timeout_seconds": 90,
+      "assertions": {
+        "status": "done",
+        "output_contains": [
+          "Cohort"
+        ],
+        "required_tools": [
+          "code_run"
+        ],
+        "forbidden_tools": [
+          "file_write",
+          "file_patch"
+        ],
+        "max_turns": 4
+      }
+    }
+  ]
+}

@@ -342,6 +342,19 @@ cohort tuning report --out memory/reflection/tuning_report.md
 
 报告默认写入当前 workspace 的 `memory/reflection/tuning_report.md`，只使用事件计数、耗时、工具名、状态码和请求大小等结构化摘要，不写入用户原文或工具结果正文。报告会汇总慢 LLM 调用、失败工具、`ask_user` 频次、权限事件、工具 schema 膨胀、request 膨胀和 context 膨胀，并给出下一步调优建议。
 
+Agent 回归评测：
+
+```bash
+cohort eval init
+cohort eval list
+cohort eval run core
+cohort eval run core --tag codebase --workers 2
+cohort eval history
+cohort eval report latest --open
+```
+
+评测支持输出、正则、工具调用、状态、轮数、耗时和工具失败断言，自动与同 suite 的上一次结果比较，并生成 `result.json`、Markdown 和离线 HTML Dashboard。完整协议见 [agent_evaluation.md](agent_evaluation.md)。
+
 离线 Skill 候选挖掘：
 
 ```bash

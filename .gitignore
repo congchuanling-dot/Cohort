@@ -10,6 +10,9 @@
 /temp/
 /workspace/
 /.cohort/local.mcp.json
+/.cohort/evals/latest
+/.cohort/evals/runs/
+/.cohort/evals/sessions/
 /packages/npm/vendor/cohort
 /packages/npm/vendor/*.download
 /packages/npm/*.tgz

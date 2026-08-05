@@ -131,6 +131,8 @@ func Run(args []string) error {
 		return runReflectCommand(cfg, args[1:], os.Stdout)
 	case "tuning":
 		return runTuningCommand(cfg, args[1:], os.Stdout)
+	case "eval":
+		return runEvalCommand(context.Background(), cfg, args[1:], os.Stdout)
 	case "tools":
 		schemas, schemasErr := app.ToolSchemas(cfg)
 		if schemasErr != nil {
@@ -1362,6 +1364,14 @@ Usage:
                           show one session run performance summary
   cohort tuning report [--limit N] [--out path]
                           generate an offline tuning report from run.log.jsonl
+  cohort eval init [--force]
+                          create built-in core and tool-routing eval suites
+  cohort eval list        list local eval suites
+  cohort eval run [suite] [--case id] [--tag tag] [--workers N]
+                          run deterministic assertions and compare the previous baseline
+  cohort eval history     list persisted eval runs
+  cohort eval report [run_id|latest] [--open]
+                          generate or open the offline HTML dashboard
   cohort mcp list         list configured MCP servers
   cohort mcp status       check configured MCP server availability
   cohort mcp add ...      add an MCP server

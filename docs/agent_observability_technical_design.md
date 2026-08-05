@@ -454,7 +454,8 @@ exit -> RunFinished
 3. 实现 `memory-quality-report`。
 4. 实现 `tool-failure-report`。
 5. 实现 `cohort tuning report`。
-6. 后续实现 eval dataset 和 prompt/tool A/B。
+6. 实现 eval suite、确定性断言、历史结果、基线比较和可视化 Dashboard。
+7. 后续实现 judge 模型评分和 provider/prompt/tool A/B matrix。
 
 验收：
 
@@ -462,6 +463,7 @@ exit -> RunFinished
 - 能输出 SOP candidate，但不自动晋级。
 - 能报告 memory 命中后是否被使用。
 - 能输出慢请求、工具 schema 膨胀、request/context 膨胀和下一步调优建议。
+- 能用 `cohort eval run` 执行可复现回归，并用 `cohort eval report --open` 查看历史趋势、标签质量和失败断言。
 
 ### P3：前端可视化
 
