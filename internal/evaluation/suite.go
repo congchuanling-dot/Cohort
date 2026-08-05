@@ -99,15 +99,50 @@ func ValidateSuite(suite Suite) error {
 				return fmt.Errorf("case %q file_contains path %q: %w", c.ID, path, err)
 			}
 		}
+		for path := range c.Assertions.FileEquals {
+			if err := validateRelativePath(path); err != nil {
+				return fmt.Errorf("case %q file_equals path %q: %w", c.ID, path, err)
+			}
+		}
 		for path := range c.Assertions.FileNotContains {
 			if err := validateRelativePath(path); err != nil {
 				return fmt.Errorf("case %q file_not_contains path %q: %w", c.ID, path, err)
+			}
+		}
+		for path, expected := range c.Assertions.FileJSONEquals {
+			if err := validateRelativePath(path); err != nil {
+				return fmt.Errorf("case %q file_json_equals path %q: %w", c.ID, path, err)
+			}
+			var value any
+			if err := json.Unmarshal(expected, &value); err != nil {
+				return fmt.Errorf("case %q file_json_equals %q is invalid json: %w", c.ID, path, err)
+			}
+		}
+		for path := range c.Assertions.FileDiffContains {
+			if err := validateRelativePath(path); err != nil {
+				return fmt.Errorf("case %q file_diff_contains path %q: %w", c.ID, path, err)
 			}
 		}
 		for _, pattern := range c.Assertions.OutputRegex {
 			if _, err := regexp.Compile(pattern); err != nil {
 				return fmt.Errorf("case %q invalid output_regex %q: %w", c.ID, pattern, err)
 			}
+		}
+		for index, assertion := range c.Assertions.CommandAssertions {
+			if strings.TrimSpace(assertion.Command) == "" {
+				return fmt.Errorf("case %q command_assertions[%d].command is required", c.ID, index)
+			}
+			if assertion.TimeoutSec < 0 {
+				return fmt.Errorf("case %q command_assertions[%d].timeout_seconds must be >= 0", c.ID, index)
+			}
+			for _, pattern := range assertion.OutputRegex {
+				if _, err := regexp.Compile(pattern); err != nil {
+					return fmt.Errorf("case %q command_assertions[%d] invalid output_regex %q: %w", c.ID, index, pattern, err)
+				}
+			}
+		}
+		if c.Assertions.Judge != nil && (c.Assertions.Judge.MinScore < 0 || c.Assertions.Judge.MinScore > 100) {
+			return fmt.Errorf("case %q judge.min_score must be between 0 and 100", c.ID)
 		}
 	}
 	return nil

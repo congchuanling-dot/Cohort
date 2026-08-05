@@ -1,5 +1,7 @@
 package evaluation
 
+import "encoding/json"
+
 func BuiltinSuites() []Suite {
 	return []Suite{coreSuite(), toolRoutingSuite(), statefulSuite()}
 }
@@ -117,8 +119,9 @@ func statefulSuite() Suite {
 				Assertions: Assertions{
 					Status: "done", RequiredTools: []string{"file_write"}, ForbiddenTools: []string{"ask_user"},
 					MaxTurns: 4, MaxToolFailures: 0, MaxToolCalls: 3, NoConsecutiveRepeat: true,
-					FilesExist:   []string{"config/app.json"},
-					FileContains: map[string][]string{"config/app.json": {`"name"`, `"cohort-eval"`, `"enabled"`, "true", `"retries"`, "3"}},
+					FilesExist:     []string{"config/app.json"},
+					FileJSONEquals: map[string]json.RawMessage{"config/app.json": json.RawMessage(`{"name":"cohort-eval","enabled":true,"retries":3}`)},
+					Judge:          &JudgeAssertion{Enabled: true, Mode: "heuristic", MinScore: 80, MaxToolCalls: 3, MaxOutputChars: 500, RequireNoToolOveruse: true},
 				},
 			},
 			{
@@ -129,9 +132,11 @@ func statefulSuite() Suite {
 				Assertions: Assertions{
 					Status: "done", RequiredTools: []string{"file_read", "file_patch"}, ForbiddenTools: []string{"file_write", "ask_user"},
 					ToolSequence: []string{"file_read", "file_patch"}, MaxTurns: 5, MaxToolFailures: 0, MaxToolCalls: 4, NoConsecutiveRepeat: true,
-					FilesExist:      []string{"state.txt"},
-					FileContains:    map[string][]string{"state.txt": {"owner=cohort", "status=ready", "keep=this-line"}},
-					FileNotContains: map[string][]string{"state.txt": {"status=old"}},
+					FilesExist:       []string{"state.txt"},
+					FileDiffContains: map[string][]string{"state.txt": {"+status=ready", "-status=old"}},
+					FileContains:     map[string][]string{"state.txt": {"owner=cohort", "status=ready", "keep=this-line"}},
+					FileNotContains:  map[string][]string{"state.txt": {"status=old"}},
+					Judge:            &JudgeAssertion{Enabled: true, Mode: "heuristic", MinScore: 80, MaxToolCalls: 4, MaxOutputChars: 700, RequireNoToolOveruse: true},
 				},
 			},
 			{
@@ -146,9 +151,12 @@ func statefulSuite() Suite {
 				Assertions: Assertions{
 					Status: "done", RequiredTools: []string{"code_run", "file_patch"}, ForbiddenTools: []string{"file_write", "ask_user"},
 					ToolSequence: []string{"code_run", "file_patch", "code_run"}, MaxTurns: 7, MaxToolFailures: 1, MaxToolCalls: 7,
-					FilesExist:      []string{"calc.go", "calc_test.go"},
-					FileContains:    map[string][]string{"calc.go": {"return a + b"}, "calc_test.go": {"func TestAdd"}},
-					FileNotContains: map[string][]string{"calc.go": {"return a - b"}},
+					FilesExist:        []string{"calc.go", "calc_test.go"},
+					FileContains:      map[string][]string{"calc.go": {"return a + b"}, "calc_test.go": {"func TestAdd"}},
+					FileNotContains:   map[string][]string{"calc.go": {"return a - b"}},
+					CommandAssertions: []CommandAssertion{{Name: "go test", Command: "go test ./...", ExitCode: 0, OutputNotContains: []string{"FAIL"}, TimeoutSec: 30}},
+					GitStatus:         &GitStatusAssertion{AllowedChanged: []string{"calc.go"}, ForbiddenChanged: []string{"calc_test.go", "go.mod"}},
+					Judge:             &JudgeAssertion{Enabled: true, Mode: "heuristic", MinScore: 75, MaxToolCalls: 7, MaxOutputChars: 900, RequireNoToolOveruse: true},
 				},
 			},
 		},

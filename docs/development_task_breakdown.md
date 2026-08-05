@@ -35,7 +35,7 @@
 | 10 | usage/cost 统计 | `[部分完成]` | Runner 会聚合 token/cache usage 并写入 `RunFinished`；只有显式配置 `COHORT_COST_*_USD_PER_1M` 时估算成本，避免隐藏价格默认值。 |
 | 11 | 离线反思增强 | `[部分完成]` | 已有 session archive、failure pattern、memory quality 和 skill candidate 报告；更强 L4 session archive 自动归档和闭环评分仍待补。 |
 | 12 | 飞书 MCP 真实端到端验收 | `[验收支线]` | 用户显式装配官方 Server 后，完成 OAuth、只读文档、R2 写操作确认和 `run.log` 检查；不阻塞内置 Skill 包主线。 |
-| 13 | Agent Eval 与可视化 | `[部分完成]` | 已提供 `eval init/list/run/history/report`、core/tool-routing/stateful 内置 suite、多维确定性断言、隔离 session/temp Fixture、最终文件状态验证、工具轨迹评分、repeat 稳定率、并发执行、自动基线比较、JSON/Markdown/HTML Dashboard；judge 模型评分和 A/B matrix 待补。 |
+| 13 | Agent Eval 与可视化 | `[部分完成]` | 已提供 `eval init/list/run/history/report`、core/tool-routing/stateful 内置 suite、多维确定性断言、隔离 session/temp Fixture、最终文件状态验证、JSON 等价、文件 diff、后验命令、Git 状态断言、工具轨迹评分、启发式 Judge、repeat 稳定率、profile A/B matrix、CI gate、trace path 打通、并发执行、同模型自动基线比较、JSON/Markdown/HTML Dashboard；真实 LLM Judge 和 Dashboard 内嵌 trace timeline 待补。 |
 
 ### 延后项
 

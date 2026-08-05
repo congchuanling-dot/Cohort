@@ -67,6 +67,15 @@ cohort eval run stateful --workers 2 --repeat 3
 
 默认 `workers=1`。涉及浏览器、桌面或共享外部状态的 case 不建议并行，避免不同 Agent 互相争抢窗口或页面。
 
+A/B matrix 与 CI gate：
+
+```bash
+cohort eval run core --profile deepseek,local --min-score 90 --min-pass-rate 100 --min-stability 95 --max-regressions 0
+cohort eval run stateful --repeat 3 --allow-failures
+```
+
+`--profile` 会用同一 suite 依次运行多个 `llm.profiles`，用于比较不同模型或配置。基线比较只会匹配同 suite、同 model 的历史结果，避免 profile A/B 互相污染。`--allow-failures` 只生成报告，不用 gate 阻断命令退出码。
+
 ## 内置套件
 
 ### core
@@ -101,7 +110,7 @@ cohort eval run stateful --workers 2 --repeat 3
 - 读取并精确 patch 已有文件。
 - 运行测试、修复 Go 实现、再次验证测试。
 
-该套件同时评分最终磁盘状态、工具顺序、工具调用数量、重复调用和稳定率。
+该套件同时评分最终磁盘状态、JSON 结构、文件 diff、后验命令、Git 变更范围、工具顺序、工具调用数量、重复调用、启发式 Judge 和稳定率。
 
 ## Suite 协议
 
@@ -146,11 +155,41 @@ Suite 使用显式 JSON：
         "no_consecutive_tool_repeat": true,
         "files_exist": ["output.json"],
         "files_not_exist": ["unexpected.txt"],
+        "file_equals": {
+          "state.txt": "status=ready\n"
+        },
         "file_contains": {
           "output.json": ["\"status\"", "\"ready\""]
         },
         "file_not_contains": {
           "output.json": ["status=old"]
+        },
+        "file_json_equals": {
+          "output.json": {"status": "ready", "enabled": true}
+        },
+        "file_diff_contains": {
+          "input.txt": ["-status=old", "+status=ready"]
+        },
+        "command_assertions": [
+          {
+            "name": "go test",
+            "command": "go test ./...",
+            "exit_code": 0,
+            "output_not_contains": ["FAIL"],
+            "timeout_seconds": 30
+          }
+        ],
+        "git_status": {
+          "allowed_changed": ["calc.go"],
+          "forbidden_changed": ["calc_test.go", "go.mod"]
+        },
+        "judge": {
+          "enabled": true,
+          "mode": "heuristic",
+          "min_score": 80,
+          "max_output_chars": 800,
+          "max_tool_calls": 5,
+          "require_no_tool_overuse": true
         }
       }
     }
@@ -177,13 +216,21 @@ Suite 使用显式 JSON：
 | `tool_sequence` | 必须按顺序出现的工具子序列 |
 | `no_consecutive_tool_repeat` | 禁止连续重复调用同一工具 |
 | `files_exist` / `files_not_exist` | 最终文件存在性 |
+| `file_equals` | 最终文件内容必须精确等于期望字符串 |
 | `file_contains` / `file_not_contains` | 最终文件内容断言 |
+| `file_json_equals` | 最终 JSON 文件与期望结构等价，忽略字段顺序和格式化 |
+| `file_diff_contains` | 基于 fixture 初始文件生成 diff，并要求 diff 包含指定片段 |
+| `command_assertions` | 在最终工作区运行后验命令，校验 exit code 和输出 |
+| `git_status` | 校验最终 Git 工作区清洁度、允许变更和禁止变更文件 |
+| `judge` | 本地启发式质量评分，覆盖空输出、啰嗦、过度用工具、工具失败和非 done 状态 |
 
 `tool_groups` 用于固定评测时暴露给模型的工具面。省略时继承普通配置；正式 suite 建议显式声明，避免 MCP、桌面或其他无关工具造成授权等待、schema 膨胀和不可复现路由。
 
 `default_repeat` 设置 suite 默认重复次数，case 的 `repeat` 可覆盖它，CLI 的 `--repeat N` 优先级最高。Case 只有所有 attempt 全部通过才算通过；报告同时保留平均分和稳定率。
 
 `fixture.mode=temp` 会为每次 attempt 创建独立工作区，`files` 用于声明初始文件。Fixture 路径和状态断言路径必须是工作区内相对路径，拒绝绝对路径和 `..` 逃逸。
+
+当 case 配置了 `git_status` 且使用 `fixture.mode=temp` 时，评测引擎会在临时工作区初始化 Git baseline，再执行 Agent。这样可以断言“只改了允许文件”，不会污染真实项目仓库。
 
 ## 评分语义
 
@@ -193,12 +240,13 @@ Suite 使用显式 JSON：
 - 任意断言失败时 case 判定为失败，不能用其他低价值断言的得分掩盖硬失败。
 - Suite 分数是所有 case 分数的算术平均。
 - Pass Rate 是完全通过 case 的比例。
+- 启发式 Judge 是确定性评分的一部分，不调用额外模型；后续真实 LLM Judge 会作为可替换 judge mode 接入。
 
 工具调用和轮数不是从模型文本猜测，而是读取该评测 session 的 `run.log.jsonl`。
 
 ## 基线与回归
 
-每次运行会自动查找同 suite 的上一次结果并比较：
+每次运行会自动查找同 suite、同 model 的上一次结果并比较：
 
 - Score delta。
 - Pass Rate delta。
@@ -219,6 +267,8 @@ Suite 使用显式 JSON：
 - 标签通过率。
 - case 搜索和 pass/fail 筛选。
 - 每个 case 的断言、工具、轮数、token、session 和输出详情。
+- 每个失败 case / attempt 的 `trace_path` 和 `trace_run_id`，用于回到 `run.log.jsonl` 分析工具轨迹和失败原因。
+- CI Gate 通过或失败原因。
 
 打开最近结果：
 
@@ -234,7 +284,14 @@ cohort eval report --open
 cohort eval run core --workers 2
 ```
 
-命令在任意 case 失败时返回非零退出码，适合 CI gate。Dashboard 和 `result.json` 应作为 CI artifact 保存。
+默认情况下，命令在任意 case 失败时返回非零退出码。更严格的 CI gate 可显式声明阈值：
+
+```bash
+cohort eval run core --workers 2 --min-score 90 --min-pass-rate 100 --max-regressions 0
+cohort eval run stateful --repeat 3 --min-stability 95 --max-regressions 0
+```
+
+Dashboard 和 `result.json` 应作为 CI artifact 保存。
 
 环境相关 suite 建议单独运行：
 
@@ -260,8 +317,7 @@ cohort eval run tool-routing --tag desktop
 
 下一阶段：
 
-1. Judge 模型评分，作为确定性断言的补充，而不是替代。
-2. Golden artifact/diff 断言。
-3. 按 provider/profile 做 A/B matrix。
-4. Eval result 接入 Langfuse dataset。
-5. Hermes daemon 调度周期评测并推送回归告警。
+1. 真实 LLM Judge mode，作为当前启发式 Judge 的可选增强。
+2. Eval result 接入 Langfuse dataset。
+3. Hermes daemon 调度周期评测并推送回归告警。
+4. Dashboard 增加 trace timeline 内嵌视图，而不仅是 `trace_path`。

@@ -183,6 +183,8 @@ func aggregateAttempts(c Case, attempts []struct {
 			Error:            scored.Error,
 			Output:           scored.Output,
 			SessionID:        scored.SessionID,
+			TraceRunID:       scored.TraceRunID,
+			TracePath:        scored.TracePath,
 			Workspace:        scored.Workspace,
 			DurationMS:       scored.DurationMS,
 			Turns:            scored.Turns,
@@ -191,6 +193,7 @@ func aggregateAttempts(c Case, attempts []struct {
 			TotalTokens:      scored.TotalTokens,
 			InputTokens:      scored.InputTokens,
 			OutputTokens:     scored.OutputTokens,
+			Judge:            cloneJudge(scored.Judge),
 			AssertionResults: append([]AssertionResult(nil), scored.AssertionResults...),
 		}
 		result.AttemptResults = append(result.AttemptResults, attempt)
@@ -222,9 +225,12 @@ func aggregateAttempts(c Case, attempts []struct {
 		result.Error = scored.Error
 		result.Output = scored.Output
 		result.SessionID = scored.SessionID
+		result.TraceRunID = scored.TraceRunID
+		result.TracePath = scored.TracePath
 		result.Turns = scored.Turns
 		result.Tools = append([]string(nil), scored.Tools...)
 		result.ToolFailures = scored.ToolFailures
+		result.Judge = cloneJudge(scored.Judge)
 		result.AssertionResults = append([]AssertionResult(nil), scored.AssertionResults...)
 	}
 	return result
@@ -255,4 +261,51 @@ func Compare(current RunResult, baseline RunResult) Comparison {
 		}
 	}
 	return comparison
+}
+
+func EvaluateGate(result RunResult, cfg GateConfig) GateResult {
+	gate := GateResult{Passed: true}
+	if cfg.AllowFailures {
+		return gate
+	}
+	if cfg.MinScore > 0 && result.Score < cfg.MinScore {
+		gate.Violations = append(gate.Violations, fmt.Sprintf("score %.1f < %.1f", result.Score, cfg.MinScore))
+	}
+	if cfg.MinPassRate > 0 && result.PassRate < cfg.MinPassRate {
+		gate.Violations = append(gate.Violations, fmt.Sprintf("pass_rate %.1f%% < %.1f%%", result.PassRate, cfg.MinPassRate))
+	}
+	if cfg.MinStability > 0 {
+		stability := averageCaseStability(result.Cases)
+		if stability < cfg.MinStability {
+			gate.Violations = append(gate.Violations, fmt.Sprintf("stability %.1f%% < %.1f%%", stability, cfg.MinStability))
+		}
+	}
+	if cfg.MaxRegressions >= 0 && result.Baseline != nil && len(result.Baseline.RegressedCases) > cfg.MaxRegressions {
+		gate.Violations = append(gate.Violations, fmt.Sprintf("regressions %d > %d", len(result.Baseline.RegressedCases), cfg.MaxRegressions))
+	}
+	if result.FailedCases > 0 && cfg.MinPassRate <= 0 {
+		gate.Violations = append(gate.Violations, fmt.Sprintf("failed_cases %d > 0", result.FailedCases))
+	}
+	gate.Passed = len(gate.Violations) == 0
+	return gate
+}
+
+func averageCaseStability(cases []CaseResult) float64 {
+	if len(cases) == 0 {
+		return 0
+	}
+	var total float64
+	for _, c := range cases {
+		total += c.StabilityRate
+	}
+	return total / float64(len(cases))
+}
+
+func cloneJudge(judge *JudgeResult) *JudgeResult {
+	if judge == nil {
+		return nil
+	}
+	cloned := *judge
+	cloned.Reasons = append([]string(nil), judge.Reasons...)
+	return &cloned
 }

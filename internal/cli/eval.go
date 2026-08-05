@@ -28,6 +28,8 @@ type evalRunOptions struct {
 	Tags      []string
 	Workers   int
 	Repeat    int
+	Profiles  []string
+	Gate      evaluation.GateConfig
 }
 
 func runEvalCommand(ctx context.Context, cfg app.Config, args []string, out io.Writer) error {
@@ -106,11 +108,11 @@ func listEvalSuites(store evaluation.Store, out io.Writer) error {
 }
 
 func parseEvalRunOptions(args []string) (evalRunOptions, error) {
-	opts := evalRunOptions{SuitePath: "core", Workers: 1}
+	opts := evalRunOptions{SuitePath: "core", Workers: 1, Gate: evaluation.GateConfig{MaxRegressions: 0}}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
-		case arg == "--case" || arg == "--tag" || arg == "--workers" || arg == "--repeat":
+		case arg == "--case" || arg == "--tag" || arg == "--workers" || arg == "--repeat" || arg == "--profile" || arg == "--min-score" || arg == "--min-pass-rate" || arg == "--min-stability" || arg == "--max-regressions":
 			if i+1 >= len(args) {
 				return opts, fmt.Errorf("%s requires a value", arg)
 			}
@@ -133,6 +135,32 @@ func parseEvalRunOptions(args []string) (evalRunOptions, error) {
 					return opts, errors.New("--repeat must be between 1 and 20")
 				}
 				opts.Repeat = repeat
+			case "--profile":
+				opts.Profiles = append(opts.Profiles, splitCSV(value)...)
+			case "--min-score":
+				minScore, err := parsePercentValue(value, "--min-score")
+				if err != nil {
+					return opts, err
+				}
+				opts.Gate.MinScore = minScore
+			case "--min-pass-rate":
+				minPassRate, err := parsePercentValue(value, "--min-pass-rate")
+				if err != nil {
+					return opts, err
+				}
+				opts.Gate.MinPassRate = minPassRate
+			case "--min-stability":
+				minStability, err := parsePercentValue(value, "--min-stability")
+				if err != nil {
+					return opts, err
+				}
+				opts.Gate.MinStability = minStability
+			case "--max-regressions":
+				maxRegressions, err := strconv.Atoi(value)
+				if err != nil || maxRegressions < 0 {
+					return opts, errors.New("--max-regressions must be >= 0")
+				}
+				opts.Gate.MaxRegressions = maxRegressions
 			}
 		case strings.HasPrefix(arg, "--case="):
 			opts.CaseIDs = append(opts.CaseIDs, splitCSV(strings.TrimPrefix(arg, "--case="))...)
@@ -150,6 +178,34 @@ func parseEvalRunOptions(args []string) (evalRunOptions, error) {
 				return opts, errors.New("--repeat must be between 1 and 20")
 			}
 			opts.Repeat = repeat
+		case strings.HasPrefix(arg, "--profile="):
+			opts.Profiles = append(opts.Profiles, splitCSV(strings.TrimPrefix(arg, "--profile="))...)
+		case strings.HasPrefix(arg, "--min-score="):
+			minScore, err := parsePercentValue(strings.TrimPrefix(arg, "--min-score="), "--min-score")
+			if err != nil {
+				return opts, err
+			}
+			opts.Gate.MinScore = minScore
+		case strings.HasPrefix(arg, "--min-pass-rate="):
+			minPassRate, err := parsePercentValue(strings.TrimPrefix(arg, "--min-pass-rate="), "--min-pass-rate")
+			if err != nil {
+				return opts, err
+			}
+			opts.Gate.MinPassRate = minPassRate
+		case strings.HasPrefix(arg, "--min-stability="):
+			minStability, err := parsePercentValue(strings.TrimPrefix(arg, "--min-stability="), "--min-stability")
+			if err != nil {
+				return opts, err
+			}
+			opts.Gate.MinStability = minStability
+		case strings.HasPrefix(arg, "--max-regressions="):
+			maxRegressions, err := strconv.Atoi(strings.TrimPrefix(arg, "--max-regressions="))
+			if err != nil || maxRegressions < 0 {
+				return opts, errors.New("--max-regressions must be >= 0")
+			}
+			opts.Gate.MaxRegressions = maxRegressions
+		case arg == "--allow-failures":
+			opts.Gate.AllowFailures = true
 		case strings.HasPrefix(arg, "-"):
 			return opts, fmt.Errorf("unknown eval run option %q", arg)
 		default:
@@ -160,6 +216,30 @@ func parseEvalRunOptions(args []string) (evalRunOptions, error) {
 }
 
 func executeEvalRun(ctx context.Context, cfg app.Config, store evaluation.Store, opts evalRunOptions, out io.Writer) error {
+	profiles := opts.Profiles
+	if len(profiles) == 0 {
+		profiles = []string{cfg.LLM.Active().ID}
+	}
+	var failures []string
+	for _, profile := range profiles {
+		profileCfg := cfg
+		if err := applyEvalProfile(&profileCfg, profile); err != nil {
+			return err
+		}
+		if len(profiles) > 1 {
+			fmt.Fprintf(out, "\n[eval] matrix profile=%s model=%s\n", profileCfg.LLM.Active().ID, profileCfg.LLM.Active().Model)
+		}
+		if err := executeEvalRunOnce(ctx, profileCfg, store, opts, out); err != nil {
+			failures = append(failures, err.Error())
+		}
+	}
+	if len(failures) > 0 {
+		return fmt.Errorf("eval matrix failed:\n%s", strings.Join(failures, "\n"))
+	}
+	return nil
+}
+
+func executeEvalRunOnce(ctx context.Context, cfg app.Config, store evaluation.Store, opts evalRunOptions, out io.Writer) error {
 	suite, err := evaluation.LoadSuite(store.SuitePath(opts.SuitePath))
 	if err != nil {
 		return err
@@ -196,10 +276,12 @@ func executeEvalRun(ctx context.Context, cfg app.Config, store evaluation.Store,
 		Model:   evalCfg.LLM.Active().Model,
 		Repeat:  opts.Repeat,
 	})
-	if previous, err := store.PreviousResult(suite.ID, result.StartedAt); err == nil {
+	if previous, err := previousComparableEvalResult(store, result); err == nil {
 		comparison := evaluation.Compare(result, previous)
 		result.Baseline = &comparison
 	}
+	gate := evaluation.EvaluateGate(result, opts.Gate)
+	result.Gate = &gate
 	resultPath, err := store.SaveResult(result)
 	if err != nil {
 		return err
@@ -210,9 +292,11 @@ func executeEvalRun(ctx context.Context, cfg app.Config, store evaluation.Store,
 	}
 	fmt.Fprintf(out, "\nrun: %s\npass_rate: %.1f%%\nscore: %.1f\npassed: %d\nfailed: %d\nduration: %s\ntokens: %d\nresult: %s\nmarkdown: %s\ndashboard: %s\n",
 		result.RunID, result.PassRate, result.Score, result.PassedCases, result.FailedCases, formatDurationMS(result.DurationMS), result.TotalTokens, resultPath, markdownPath, htmlPath)
-	if result.FailedCases > 0 {
-		return fmt.Errorf("eval failed: %d/%d cases failed", result.FailedCases, result.TotalCases)
+	if result.Gate != nil && !result.Gate.Passed {
+		fmt.Fprintf(out, "gate: FAIL (%s)\n", strings.Join(result.Gate.Violations, "; "))
+		return fmt.Errorf("eval gate failed for %s: %s", result.RunID, strings.Join(result.Gate.Violations, "; "))
 	}
+	fmt.Fprintln(out, "gate: PASS")
 	return nil
 }
 
@@ -247,6 +331,8 @@ func executeEvalCase(ctx context.Context, cfg app.Config, c evaluation.Case, ses
 	if execution.SessionID != "" {
 		if view, err := traceview.LoadSessionRun(sessionRoot, execution.SessionID, ""); err == nil {
 			summary := view.Summary()
+			execution.TraceRunID = view.RunID
+			execution.TracePath = view.Path
 			execution.DurationMS = summary.DurationMS
 			execution.Turns = summary.TurnCount
 			execution.ToolFailures = summary.ToolFailures
@@ -260,6 +346,21 @@ func executeEvalCase(ctx context.Context, cfg app.Config, c evaluation.Case, ses
 		}
 	}
 	return execution
+}
+
+func applyEvalProfile(cfg *app.Config, profile string) error {
+	profile = strings.TrimSpace(profile)
+	if profile == "" || profile == cfg.LLM.Active().ID {
+		return nil
+	}
+	if len(cfg.LLM.Profiles) == 0 {
+		return fmt.Errorf("--profile requires llm.profiles; got %q", profile)
+	}
+	if _, ok := cfg.LLM.Profiles[profile]; !ok {
+		return fmt.Errorf("llm profile %q does not exist", profile)
+	}
+	cfg.LLM.ActiveProfile = profile
+	return nil
 }
 
 func prepareEvalWorkspace(projectRoot string, store evaluation.Store, request evaluation.ExecuteRequest) (string, error) {
@@ -287,7 +388,28 @@ func prepareEvalWorkspace(projectRoot string, store evaluation.Store, request ev
 			return "", err
 		}
 	}
+	if request.Case.Assertions.GitStatus != nil {
+		if err := initEvalGitBaseline(workspace); err != nil {
+			return "", err
+		}
+	}
 	return workspace, nil
+}
+
+func initEvalGitBaseline(workspace string) error {
+	commands := [][]string{
+		{"git", "init"},
+		{"git", "add", "."},
+		{"git", "-c", "user.email=cohort-eval@example.invalid", "-c", "user.name=Cohort Eval", "commit", "-m", "baseline"},
+	}
+	for _, args := range commands {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = workspace
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("%s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+		}
+	}
+	return nil
 }
 
 type evalSink struct {
@@ -363,6 +485,30 @@ func splitCSV(value string) []string {
 		}
 	}
 	return result
+}
+
+func parsePercentValue(value string, name string) (float64, error) {
+	parsed, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimSpace(value), "%"), 64)
+	if err != nil || parsed < 0 || parsed > 100 {
+		return 0, fmt.Errorf("%s must be between 0 and 100", name)
+	}
+	return parsed, nil
+}
+
+func previousComparableEvalResult(store evaluation.Store, current evaluation.RunResult) (evaluation.RunResult, error) {
+	results, err := store.ListResults()
+	if err != nil {
+		return evaluation.RunResult{}, err
+	}
+	for _, result := range results {
+		if result.RunID == current.RunID {
+			continue
+		}
+		if result.SuiteID == current.SuiteID && result.Model == current.Model && result.StartedAt.Before(current.StartedAt) {
+			return result, nil
+		}
+	}
+	return evaluation.RunResult{}, errors.New("no previous comparable eval result")
 }
 
 var _ agent.OutputSink = (*evalSink)(nil)

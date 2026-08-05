@@ -35,15 +35,20 @@
         "files_exist": [
           "config/app.json"
         ],
-        "file_contains": {
-          "config/app.json": [
-            "\"name\"",
-            "\"cohort-eval\"",
-            "\"enabled\"",
-            "true",
-            "\"retries\"",
-            "3"
-          ]
+        "file_json_equals": {
+          "config/app.json": {
+            "name": "cohort-eval",
+            "enabled": true,
+            "retries": 3
+          }
+        },
+        "judge": {
+          "enabled": true,
+          "mode": "heuristic",
+          "min_score": 80,
+          "max_output_chars": 500,
+          "max_tool_calls": 3,
+          "require_no_tool_overuse": true
         }
       }
     },
@@ -93,6 +98,20 @@
           "state.txt": [
             "status=old"
           ]
+        },
+        "file_diff_contains": {
+          "state.txt": [
+            "+status=ready",
+            "-status=old"
+          ]
+        },
+        "judge": {
+          "enabled": true,
+          "mode": "heuristic",
+          "min_score": 80,
+          "max_output_chars": 700,
+          "max_tool_calls": 4,
+          "require_no_tool_overuse": true
         }
       }
     },
@@ -148,6 +167,33 @@
           "calc.go": [
             "return a - b"
           ]
+        },
+        "command_assertions": [
+          {
+            "name": "go test",
+            "command": "go test ./...",
+            "output_not_contains": [
+              "FAIL"
+            ],
+            "timeout_seconds": 30
+          }
+        ],
+        "git_status": {
+          "allowed_changed": [
+            "calc.go"
+          ],
+          "forbidden_changed": [
+            "calc_test.go",
+            "go.mod"
+          ]
+        },
+        "judge": {
+          "enabled": true,
+          "mode": "heuristic",
+          "min_score": 75,
+          "max_output_chars": 900,
+          "max_tool_calls": 7,
+          "require_no_tool_overuse": true
         }
       }
     }

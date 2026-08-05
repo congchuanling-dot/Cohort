@@ -55,6 +55,17 @@ func renderMarkdown(result RunResult) string {
 		fmt.Fprintf(&b, "## Baseline\n\n- run: `%s`\n- score_delta: %+.1f\n- pass_rate_delta: %+.1f%%\n- duration_delta: %s\n- token_delta: %d\n\n",
 			result.Baseline.RunID, result.Baseline.ScoreDelta, result.Baseline.PassRateDelta, signedDuration(result.Baseline.DurationDeltaMS), result.Baseline.TokenDelta)
 	}
+	if result.Gate != nil {
+		status := "PASS"
+		if !result.Gate.Passed {
+			status = "FAIL"
+		}
+		fmt.Fprintf(&b, "## CI Gate\n\n- status: `%s`\n", status)
+		for _, violation := range result.Gate.Violations {
+			fmt.Fprintf(&b, "- violation: `%s`\n", violation)
+		}
+		fmt.Fprintln(&b)
+	}
 	fmt.Fprintf(&b, "## Cases\n\n| case | result | score | stability | attempts | duration | tokens | tools |\n| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |\n")
 	for _, c := range result.Cases {
 		status := "PASS"
@@ -73,6 +84,12 @@ func renderMarkdown(result RunResult) string {
 		fmt.Fprintf(&b, "### %s\n\n", c.CaseID)
 		if c.Error != "" {
 			fmt.Fprintf(&b, "- execution_error: `%s`\n", c.Error)
+		}
+		if c.TracePath != "" {
+			fmt.Fprintf(&b, "- trace: `%s` run `%s`\n", c.TracePath, c.TraceRunID)
+		}
+		if c.Judge != nil {
+			fmt.Fprintf(&b, "- judge: %.1f `%s`\n", c.Judge.Score, c.Judge.Summary)
 		}
 		for _, assertion := range c.AssertionResults {
 			if !assertion.Passed {
@@ -197,14 +214,17 @@ const dashboardHTML = `<!doctype html>
 <div class="card"><div class="label">Tokens</div><div class="value">{{.Result.TotalTokens}}</div></div>
 </section>
 {{if .Result.Baseline}}<section class="panel" style="margin-top:14px"><h2>与基线 {{.Result.Baseline.RunID}} 对比</h2><div class="metrics"><span>分数 <b>{{delta .Result.Baseline.ScoreDelta}}</b></span><span>通过率 <b>{{delta .Result.Baseline.PassRateDelta}}%</b></span><span>耗时 <b>{{.Result.Baseline.DurationDeltaMS}}ms</b></span><span>Token <b>{{.Result.Baseline.TokenDelta}}</b></span><span class="bad">回归 {{len .Result.Baseline.RegressedCases}}</span><span class="good">改善 {{len .Result.Baseline.ImprovedCases}}</span></div></section>{{end}}
+{{if .Result.Gate}}<section class="panel" style="margin-top:14px"><h2>CI Gate</h2><div class="metrics"><span class="{{if .Result.Gate.Passed}}good{{else}}bad{{end}}">{{if .Result.Gate.Passed}}PASS{{else}}FAIL{{end}}</span>{{range .Result.Gate.Violations}}<span class="bad">{{.}}</span>{{end}}</div></section>{{end}}
 <section class="layout"><div class="panel"><h2>历史趋势</h2><div id="trend" class="chart"></div></div><div class="panel"><h2>标签通过率</h2>{{range .Tags}}<div class="barrow"><span>{{.Tag}}</span><div class="bar"><i style="width:{{printf "%.1f" .PassRate}}%"></i></div><b>{{printf "%.0f" .PassRate}}%</b></div>{{end}}</div></section>
 <div class="toolbar"><input id="search" placeholder="搜索 case、标签、工具、失败断言"><select id="filter"><option value="all">全部结果</option><option value="pass">仅通过</option><option value="fail">仅失败</option></select></div>
 <section id="cases" class="cases">
 {{range .Result.Cases}}<article class="case {{if not .Passed}}fail{{end}}" data-pass="{{.Passed}}" data-search="{{.CaseID}} {{.Name}} {{join .Tags " "}} {{join .Tools " "}}">
 <div class="casehead"><div><h3>{{status .Passed}} · {{.CaseID}} · {{.Name}}</h3><div class="chips">{{range .Tags}}<span class="chip">{{.}}</span>{{end}}{{range .Tools}}<span class="chip">tool:{{.}}</span>{{end}}</div></div><strong class="{{if .Passed}}good{{else}}bad{{end}}">{{printf "%.1f" .Score}}</strong></div>
 <div class="metrics"><span>{{duration .DurationMS}} avg</span><span>{{.PassedAttempts}}/{{.Attempts}} attempts</span><span>{{printf "%.1f" .StabilityRate}}% stable</span><span>{{.Turns}} turns</span><span>{{.TotalTokens}} tokens</span><span>{{.ToolFailures}} tool failures</span></div>
+{{if .TracePath}}<div class="metrics"><span>trace: <code>{{.TracePath}}</code></span><span>run: <code>{{.TraceRunID}}</code></span></div>{{end}}
+{{if .Judge}}<div class="metrics"><span>judge: <b>{{printf "%.1f" .Judge.Score}}</b></span><span>{{.Judge.Summary}}</span></div>{{end}}
 <div class="assertions">{{range .AssertionResults}}<div class="assert"><span>{{if .Passed}}✓{{else}}✕{{end}}</span><strong>{{.Kind}}</strong><span>期望 {{.Expected}}{{if .Actual}} · 实际 {{.Actual}}{{end}}</span></div>{{end}}</div>
-{{if gt .Attempts 1}}<details><summary>查看 {{.Attempts}} 次 Attempt</summary>{{range .AttemptResults}}<div class="assert"><span>{{if .Passed}}✓{{else}}✕{{end}}</span><strong>#{{.Attempt}} · {{printf "%.1f" .Score}}</strong><span>{{duration .DurationMS}} · {{.Turns}} turns · {{.TotalTokens}} tokens · {{join .Tools " → "}} · {{.Workspace}}</span></div>{{range .AssertionResults}}{{if not .Passed}}<div class="assert"><span>↳</span><strong>{{.Kind}}</strong><span>期望 {{.Expected}}{{if .Actual}} · 实际 {{.Actual}}{{end}}</span></div>{{end}}{{end}}{{end}}</details>{{end}}
+{{if gt .Attempts 1}}<details><summary>查看 {{.Attempts}} 次 Attempt</summary>{{range .AttemptResults}}<div class="assert"><span>{{if .Passed}}✓{{else}}✕{{end}}</span><strong>#{{.Attempt}} · {{printf "%.1f" .Score}}</strong><span>{{duration .DurationMS}} · {{.Turns}} turns · {{.TotalTokens}} tokens · {{join .Tools " → "}} · {{.Workspace}}</span></div>{{if .TracePath}}<div class="assert"><span>↳</span><strong>trace</strong><span>{{.TracePath}} · run {{.TraceRunID}}</span></div>{{end}}{{if .Judge}}<div class="assert"><span>↳</span><strong>judge</strong><span>{{printf "%.1f" .Judge.Score}} · {{.Judge.Summary}}</span></div>{{end}}{{range .AssertionResults}}{{if not .Passed}}<div class="assert"><span>↳</span><strong>{{.Kind}}</strong><span>期望 {{.Expected}}{{if .Actual}} · 实际 {{.Actual}}{{end}}</span></div>{{end}}{{end}}{{end}}</details>{{end}}
 {{if or .Error .Output}}<details><summary>查看执行信息</summary>{{if .Error}}<p class="bad">{{.Error}}</p>{{end}}{{if .Output}}<pre class="output">{{.Output}}</pre>{{end}}</details>{{end}}
 </article>{{end}}</section>
 </main><script>

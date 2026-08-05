@@ -2,6 +2,7 @@ package evaluation
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -188,5 +189,55 @@ func TestRepeatedRunReportsStability_BitsUT(t *testing.T) {
 	}
 	if result.TotalTokens != 15 || len(c.AttemptResults) != 3 {
 		t.Fatalf("repeat aggregation = %#v", result)
+	}
+}
+
+func TestEvalV3AssertionsJudgeAndGate_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "app.json"), []byte(`{"enabled":true,"retries":3,"name":"cohort-eval"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "state.txt"), []byte("owner=cohort\nstatus=ready\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	c := Case{
+		ID:      "v3",
+		Name:    "v3",
+		Fixture: Fixture{Mode: "temp", Files: map[string]string{"state.txt": "owner=cohort\nstatus=old\n"}},
+		Assertions: Assertions{
+			Status:           "done",
+			FileJSONEquals:   map[string]json.RawMessage{"app.json": json.RawMessage(`{"name":"cohort-eval","enabled":true,"retries":3}`)},
+			FileDiffContains: map[string][]string{"state.txt": {"+status=ready", "-status=old"}},
+			CommandAssertions: []CommandAssertion{{
+				Name:              "json check",
+				Command:           "test -f app.json && grep -q cohort-eval app.json",
+				ExitCode:          0,
+				OutputNotContains: []string{"FAIL"},
+			}},
+			Judge: &JudgeAssertion{Enabled: true, Mode: "heuristic", MinScore: 90, MaxOutputChars: 40, MaxToolCalls: 2, RequireNoToolOveruse: true},
+		},
+	}
+	result := ScoreCase(c, Execution{
+		Status: "done", Output: "ok", Workspace: workspace, Tools: []string{"file_read", "file_write"},
+	})
+	if !result.Passed || result.Judge == nil || result.Judge.Score != 100 {
+		t.Fatalf("v3 assertions should pass: %#v", result)
+	}
+	failed := ScoreCase(c, Execution{
+		Status: "done", Output: strings.Repeat("verbose ", 20), Workspace: workspace, Tools: []string{"a", "b", "c"},
+	})
+	if failed.Passed || failed.Judge == nil || failed.Judge.Score >= 90 {
+		t.Fatalf("judge/tool overuse should fail: %#v", failed)
+	}
+	run := RunResult{
+		Score:       89,
+		PassRate:    100,
+		TotalCases:  1,
+		FailedCases: 0,
+		Cases:       []CaseResult{{StabilityRate: 50}},
+	}
+	gate := EvaluateGate(run, GateConfig{MinScore: 90, MinPassRate: 100, MinStability: 80, MaxRegressions: 0})
+	if gate.Passed || len(gate.Violations) != 2 {
+		t.Fatalf("gate = %#v, want score and stability violations", gate)
 	}
 }

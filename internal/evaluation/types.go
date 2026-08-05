@@ -1,6 +1,9 @@
 package evaluation
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 const SchemaVersion = 1
 
@@ -32,24 +35,65 @@ type Fixture struct {
 }
 
 type Assertions struct {
-	Status              string              `json:"status,omitempty"`
-	OutputContains      []string            `json:"output_contains,omitempty"`
-	OutputNotContains   []string            `json:"output_not_contains,omitempty"`
-	OutputRegex         []string            `json:"output_regex,omitempty"`
-	MinOutputChars      int                 `json:"min_output_chars,omitempty"`
-	MaxOutputChars      int                 `json:"max_output_chars,omitempty"`
-	RequiredTools       []string            `json:"required_tools,omitempty"`
-	ForbiddenTools      []string            `json:"forbidden_tools,omitempty"`
-	MaxTurns            int                 `json:"max_turns,omitempty"`
-	MaxDurationMS       int64               `json:"max_duration_ms,omitempty"`
-	MaxToolFailures     int                 `json:"max_tool_failures,omitempty"`
-	MaxToolCalls        int                 `json:"max_tool_calls,omitempty"`
-	ToolSequence        []string            `json:"tool_sequence,omitempty"`
-	NoConsecutiveRepeat bool                `json:"no_consecutive_tool_repeat,omitempty"`
-	FilesExist          []string            `json:"files_exist,omitempty"`
-	FilesNotExist       []string            `json:"files_not_exist,omitempty"`
-	FileContains        map[string][]string `json:"file_contains,omitempty"`
-	FileNotContains     map[string][]string `json:"file_not_contains,omitempty"`
+	Status              string                     `json:"status,omitempty"`
+	OutputContains      []string                   `json:"output_contains,omitempty"`
+	OutputNotContains   []string                   `json:"output_not_contains,omitempty"`
+	OutputRegex         []string                   `json:"output_regex,omitempty"`
+	MinOutputChars      int                        `json:"min_output_chars,omitempty"`
+	MaxOutputChars      int                        `json:"max_output_chars,omitempty"`
+	RequiredTools       []string                   `json:"required_tools,omitempty"`
+	ForbiddenTools      []string                   `json:"forbidden_tools,omitempty"`
+	MaxTurns            int                        `json:"max_turns,omitempty"`
+	MaxDurationMS       int64                      `json:"max_duration_ms,omitempty"`
+	MaxToolFailures     int                        `json:"max_tool_failures,omitempty"`
+	MaxToolCalls        int                        `json:"max_tool_calls,omitempty"`
+	ToolSequence        []string                   `json:"tool_sequence,omitempty"`
+	NoConsecutiveRepeat bool                       `json:"no_consecutive_tool_repeat,omitempty"`
+	FilesExist          []string                   `json:"files_exist,omitempty"`
+	FilesNotExist       []string                   `json:"files_not_exist,omitempty"`
+	FileEquals          map[string]string          `json:"file_equals,omitempty"`
+	FileContains        map[string][]string        `json:"file_contains,omitempty"`
+	FileNotContains     map[string][]string        `json:"file_not_contains,omitempty"`
+	FileJSONEquals      map[string]json.RawMessage `json:"file_json_equals,omitempty"`
+	FileDiffContains    map[string][]string        `json:"file_diff_contains,omitempty"`
+	CommandAssertions   []CommandAssertion         `json:"command_assertions,omitempty"`
+	GitStatus           *GitStatusAssertion        `json:"git_status,omitempty"`
+	Judge               *JudgeAssertion            `json:"judge,omitempty"`
+}
+
+type CommandAssertion struct {
+	Name              string   `json:"name,omitempty"`
+	Command           string   `json:"command"`
+	ExitCode          int      `json:"exit_code,omitempty"`
+	OutputContains    []string `json:"output_contains,omitempty"`
+	OutputNotContains []string `json:"output_not_contains,omitempty"`
+	OutputRegex       []string `json:"output_regex,omitempty"`
+	TimeoutSec        int      `json:"timeout_seconds,omitempty"`
+}
+
+type GitStatusAssertion struct {
+	Clean            bool     `json:"clean,omitempty"`
+	AllowedChanged   []string `json:"allowed_changed,omitempty"`
+	ForbiddenChanged []string `json:"forbidden_changed,omitempty"`
+}
+
+type JudgeAssertion struct {
+	Enabled              bool     `json:"enabled,omitempty"`
+	Mode                 string   `json:"mode,omitempty"`
+	MinScore             float64  `json:"min_score,omitempty"`
+	Rubric               []string `json:"rubric,omitempty"`
+	MaxOutputChars       int      `json:"max_output_chars,omitempty"`
+	MaxToolCalls         int      `json:"max_tool_calls,omitempty"`
+	RequireNoToolOveruse bool     `json:"require_no_tool_overuse,omitempty"`
+}
+
+type JudgeResult struct {
+	Enabled bool     `json:"enabled,omitempty"`
+	Mode    string   `json:"mode,omitempty"`
+	Score   float64  `json:"score,omitempty"`
+	Passed  bool     `json:"passed,omitempty"`
+	Summary string   `json:"summary,omitempty"`
+	Reasons []string `json:"reasons,omitempty"`
 }
 
 type RunResult struct {
@@ -71,6 +115,7 @@ type RunResult struct {
 	OutputTokens  int64        `json:"output_tokens,omitempty"`
 	Cases         []CaseResult `json:"cases"`
 	Baseline      *Comparison  `json:"baseline,omitempty"`
+	Gate          *GateResult  `json:"gate,omitempty"`
 }
 
 type CaseResult struct {
@@ -83,6 +128,8 @@ type CaseResult struct {
 	Error            string            `json:"error,omitempty"`
 	Output           string            `json:"output,omitempty"`
 	SessionID        string            `json:"session_id,omitempty"`
+	TraceRunID       string            `json:"trace_run_id,omitempty"`
+	TracePath        string            `json:"trace_path,omitempty"`
 	Workspace        string            `json:"workspace,omitempty"`
 	DurationMS       int64             `json:"duration_ms"`
 	Turns            int               `json:"turns"`
@@ -94,6 +141,7 @@ type CaseResult struct {
 	Attempts         int               `json:"attempts"`
 	PassedAttempts   int               `json:"passed_attempts"`
 	StabilityRate    float64           `json:"stability_rate"`
+	Judge            *JudgeResult      `json:"judge,omitempty"`
 	AttemptResults   []AttemptResult   `json:"attempt_results,omitempty"`
 	AssertionResults []AssertionResult `json:"assertion_results"`
 }
@@ -106,6 +154,8 @@ type AttemptResult struct {
 	Error            string            `json:"error,omitempty"`
 	Output           string            `json:"output,omitempty"`
 	SessionID        string            `json:"session_id,omitempty"`
+	TraceRunID       string            `json:"trace_run_id,omitempty"`
+	TracePath        string            `json:"trace_path,omitempty"`
 	Workspace        string            `json:"workspace,omitempty"`
 	DurationMS       int64             `json:"duration_ms"`
 	Turns            int               `json:"turns"`
@@ -114,6 +164,7 @@ type AttemptResult struct {
 	TotalTokens      int64             `json:"total_tokens,omitempty"`
 	InputTokens      int64             `json:"input_tokens,omitempty"`
 	OutputTokens     int64             `json:"output_tokens,omitempty"`
+	Judge            *JudgeResult      `json:"judge,omitempty"`
 	AssertionResults []AssertionResult `json:"assertion_results"`
 }
 
@@ -141,6 +192,8 @@ type Execution struct {
 	Output       string
 	Error        string
 	SessionID    string
+	TraceRunID   string
+	TracePath    string
 	Workspace    string
 	DurationMS   int64
 	Turns        int
@@ -149,4 +202,17 @@ type Execution struct {
 	TotalTokens  int64
 	InputTokens  int64
 	OutputTokens int64
+}
+
+type GateConfig struct {
+	MinScore       float64
+	MinPassRate    float64
+	MinStability   float64
+	MaxRegressions int
+	AllowFailures  bool
+}
+
+type GateResult struct {
+	Passed     bool     `json:"passed"`
+	Violations []string `json:"violations,omitempty"`
 }
