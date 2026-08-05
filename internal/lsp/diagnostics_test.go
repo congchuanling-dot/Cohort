@@ -105,6 +105,57 @@ exit 2
 	}
 }
 
+func TestDiagnosticsQueryTypeScriptSymbolScan_BitsUT(t *testing.T) {
+	root := t.TempDir()
+	source := `export function greet(name: string) {
+  return name
+}
+
+const message = greet("cohort")
+`
+	if err := os.WriteFile(filepath.Join(root, "main.ts"), []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := (Diagnostics{Root: root}).Query(context.Background(), QueryOptions{
+		Language:           LanguageTypeScript,
+		Kind:               QueryReferences,
+		Position:           "main.ts:5:17",
+		IncludeDeclaration: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Engine != "symbol_scan" || !strings.Contains(result.Output, "function greet") || !strings.Contains(result.Output, "message = greet") {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestDiagnosticsQueryPythonSymbols_BitsUT(t *testing.T) {
+	root := t.TempDir()
+	source := `class Greeter:
+    pass
+
+def greet():
+    return "hi"
+`
+	if err := os.WriteFile(filepath.Join(root, "app.py"), []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := (Diagnostics{Root: root}).Query(context.Background(), QueryOptions{
+		Language: LanguagePython,
+		Kind:     QuerySymbols,
+		Target:   ".",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Engine != "symbol_scan" || !strings.Contains(result.Output, "class Greeter") || !strings.Contains(result.Output, "def greet") {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestDiagnosticsInstallMissingTypeScriptAndPython_BitsUT(t *testing.T) {
 	dir := t.TempDir()
 	writeExecutable(t, filepath.Join(dir, "gopls"), `#!/bin/sh

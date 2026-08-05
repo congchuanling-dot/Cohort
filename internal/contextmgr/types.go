@@ -74,6 +74,14 @@ type Config struct {
 	// EnableMicroCompact 控制是否启用旧工具结果压缩。
 	// 关闭后仍会执行 group trim，但 tool result 内容不会被头尾压缩。
 	EnableMicroCompact bool
+
+	// EnableAutoCompact 控制是否允许 Runner 在请求前预算失控时自动生成 compact.md。
+	// 默认关闭，避免短会话或测试环境隐式多发一次模型请求。
+	EnableAutoCompact bool
+
+	// AutoCompactFailureLimit 是自动 compact 连续失败熔断阈值。
+	// 达到阈值后会写入 context_state.json 并停止自动重试，手动 /full-compact 不受影响。
+	AutoCompactFailureLimit int
 }
 
 // DefaultConfig 返回第一版 Context Manager 的保守默认值。
@@ -94,6 +102,8 @@ func DefaultConfig() Config {
 		SafetyTokens:             4000,
 		CompactTriggerRatio:      0.70,
 		EnableMicroCompact:       true,
+		EnableAutoCompact:        false,
+		AutoCompactFailureLimit:  3,
 	}
 }
 
@@ -144,6 +154,9 @@ func (c Config) Normalize() Config {
 	}
 	if c.CompactTriggerRatio <= 0 || c.CompactTriggerRatio > 1 {
 		c.CompactTriggerRatio = defaults.CompactTriggerRatio
+	}
+	if c.AutoCompactFailureLimit <= 0 {
+		c.AutoCompactFailureLimit = defaults.AutoCompactFailureLimit
 	}
 	return c
 }

@@ -119,6 +119,8 @@ context:
   max_session_memory_chars: 20000
   max_compact_summary_chars: 60000
   enable_micro_compact: true
+  enable_auto_compact: false
+  auto_compact_failure_limit: 3
 `, quoteConfigValue(workspace), quoteConfigValue(logDir), activeProfile), nil
 }
 

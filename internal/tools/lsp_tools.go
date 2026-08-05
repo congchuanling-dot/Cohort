@@ -104,16 +104,21 @@ func (t *LSPDefinition) Name() string { return ToolNameLSPDefinition }
 func (t *LSPDefinition) Schema() llm.ToolSchema {
 	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
 		Name:        t.Name(),
-		Description: "Find the Go definition for a symbol at a 1-indexed gopls position such as internal/foo.go:12:8. Read-only.",
+		Description: "Find a symbol definition at a 1-indexed position. Go uses gopls; TypeScript/Python use read-only symbol_scan fallback. Read-only.",
 		Parameters: objectSchema(map[string]any{
-			"position": stringProp("Required Go source position in file.go:line:column or file.go:#offset form."),
+			"language": stringProp("Language: go (default), typescript, or python."),
+			"position": stringProp("Required source position in file:line:column form."),
 		}),
 	}}
 }
 
 func (t *LSPDefinition) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	language := lsp.NormalizeLanguage(asString(call.Args["language"]))
+	if language == "" {
+		language = lsp.LanguageGo
+	}
 	position := strings.TrimSpace(asString(call.Args["position"]))
-	result, err := (lsp.Gopls{Root: t.workspace}).Definition(ctx, position)
+	result, err := (lsp.Diagnostics{Root: t.workspace}).Query(ctx, lsp.QueryOptions{Language: language, Kind: lsp.QueryDefinition, Position: position})
 	return lspQueryOutcome(result, err, "definition"), nil
 }
 
@@ -130,19 +135,86 @@ func (t *LSPReferences) Name() string { return ToolNameLSPReferences }
 func (t *LSPReferences) Schema() llm.ToolSchema {
 	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
 		Name:        t.Name(),
-		Description: "Find Go references for a symbol at a 1-indexed gopls position such as internal/foo.go:12:8. Read-only.",
+		Description: "Find symbol references at a 1-indexed position. Go uses gopls; TypeScript/Python use read-only symbol_scan fallback. Read-only.",
 		Parameters: objectSchema(map[string]any{
-			"position":            stringProp("Required Go source position in file.go:line:column or file.go:#offset form."),
+			"language":            stringProp("Language: go (default), typescript, or python."),
+			"position":            stringProp("Required source position in file:line:column form."),
 			"include_declaration": boolProp("Include the declaration in the reference result.", false),
 		}),
 	}}
 }
 
 func (t *LSPReferences) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	language := lsp.NormalizeLanguage(asString(call.Args["language"]))
+	if language == "" {
+		language = lsp.LanguageGo
+	}
 	position := strings.TrimSpace(asString(call.Args["position"]))
 	includeDeclaration := asBool(call.Args["include_declaration"], false)
-	result, err := (lsp.Gopls{Root: t.workspace}).References(ctx, position, includeDeclaration)
+	result, err := (lsp.Diagnostics{Root: t.workspace}).Query(ctx, lsp.QueryOptions{Language: language, Kind: lsp.QueryReferences, Position: position, IncludeDeclaration: includeDeclaration})
 	return lspQueryOutcome(result, err, "references"), nil
+}
+
+type LSPHover struct {
+	workspace string
+}
+
+func NewLSPHover(workspace string) *LSPHover {
+	return &LSPHover{workspace: workspace}
+}
+
+func (t *LSPHover) Name() string { return ToolNameLSPHover }
+
+func (t *LSPHover) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "Read hover/context information for a symbol position. Go uses gopls; TypeScript/Python use read-only symbol_scan fallback.",
+		Parameters: objectSchema(map[string]any{
+			"language": stringProp("Language: go (default), typescript, or python."),
+			"position": stringProp("Required source position in file:line:column form."),
+		}),
+	}}
+}
+
+func (t *LSPHover) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	language := lsp.NormalizeLanguage(asString(call.Args["language"]))
+	if language == "" {
+		language = lsp.LanguageGo
+	}
+	position := strings.TrimSpace(asString(call.Args["position"]))
+	result, err := (lsp.Diagnostics{Root: t.workspace}).Query(ctx, lsp.QueryOptions{Language: language, Kind: lsp.QueryHover, Position: position})
+	return lspQueryOutcome(result, err, "hover"), nil
+}
+
+type LSPSymbols struct {
+	workspace string
+}
+
+func NewLSPSymbols(workspace string) *LSPSymbols {
+	return &LSPSymbols{workspace: workspace}
+}
+
+func (t *LSPSymbols) Name() string { return ToolNameLSPSymbols }
+
+func (t *LSPSymbols) Schema() llm.ToolSchema {
+	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
+		Name:        t.Name(),
+		Description: "List symbols in a file or directory. Go uses gopls; TypeScript/Python use read-only symbol_scan fallback.",
+		Parameters: objectSchema(map[string]any{
+			"language": stringProp("Language: go (default), typescript, or python."),
+			"target":   stringProp("Optional file or directory target. Defaults to workspace root."),
+		}),
+	}}
+}
+
+func (t *LSPSymbols) Run(ctx context.Context, call agent.ToolCallContext) (agent.Outcome, error) {
+	language := lsp.NormalizeLanguage(asString(call.Args["language"]))
+	if language == "" {
+		language = lsp.LanguageGo
+	}
+	target := strings.TrimSpace(asString(call.Args["target"]))
+	result, err := (lsp.Diagnostics{Root: t.workspace}).Query(ctx, lsp.QueryOptions{Language: language, Kind: lsp.QuerySymbols, Target: target})
+	return lspQueryOutcome(result, err, "symbols"), nil
 }
 
 func lspQueryOutcome(result lsp.QueryResult, err error, kind string) agent.Outcome {
@@ -150,6 +222,7 @@ func lspQueryOutcome(result lsp.QueryResult, err error, kind string) agent.Outco
 		"status":    agent.ToolStatusSuccess,
 		"language":  result.Language,
 		"kind":      result.Kind,
+		"engine":    result.Engine,
 		"position":  result.Position,
 		"command":   result.Command,
 		"exit_code": result.ExitCode,
@@ -158,7 +231,7 @@ func lspQueryOutcome(result lsp.QueryResult, err error, kind string) agent.Outco
 	if err != nil {
 		data["status"] = agent.ToolStatusError
 		data["error"] = err.Error()
-		data["hint"] = "Install gopls or pass a valid Go source position. CLI equivalent: cohort lsp " + kind + " <file.go:line:column>"
+		data["hint"] = "Install the relevant language backend or pass a valid source position. CLI equivalent: cohort lsp " + kind + " --language <go|typescript|python> <file:line:column>"
 	}
 	return agent.Outcome{Data: data, NextPrompt: "\n"}
 }

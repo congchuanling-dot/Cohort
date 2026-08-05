@@ -18,6 +18,7 @@ import (
 	"cohort/internal/mcp"
 	"cohort/internal/observability"
 	"cohort/internal/plan"
+	"cohort/internal/plugin"
 	"cohort/internal/project"
 	"cohort/internal/session"
 	"cohort/internal/skill"
@@ -70,7 +71,7 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 		return nil, err
 	}
 	browserClient := newBrowserClient()
-	registry := newRegistry(workspace, browserClient, mcpManager, mcpPermissions, skillStore)
+	registry := newRegistry(workspace, cwd, browserClient, mcpManager, mcpPermissions, skillStore)
 	sessionStore := session.NewStore(session.DefaultRootDir)
 	contextManager := &contextmgr.Manager{
 		Config:     cfg.Context.Normalize(),
@@ -170,6 +171,7 @@ func ToolSchemas(cfg Config) ([]llm.ToolSchema, error) {
 	}
 	return newRegistry(
 		normalizeWorkspace(cfg.Workspace),
+		cwd,
 		browser.NewUnavailableClient(browser.ErrNotConnected),
 		mcpManager,
 		mcpPermissions,
@@ -180,6 +182,7 @@ func ToolSchemas(cfg Config) ([]llm.ToolSchema, error) {
 // newRegistry 集中注册当前 MVP 暴露给模型的本地工具。
 func newRegistry(
 	workspace string,
+	projectRoot string,
 	browserClient browser.Client,
 	mcpManager *mcp.Manager,
 	mcpPermissions *tools.MCPPermissionStore,
@@ -200,6 +203,8 @@ func newRegistry(
 	registry.Register(tools.NewLSPDiagnostics(workspace))
 	registry.Register(tools.NewLSPDefinition(workspace))
 	registry.Register(tools.NewLSPReferences(workspace))
+	registry.Register(tools.NewLSPHover(workspace))
+	registry.Register(tools.NewLSPSymbols(workspace))
 	registry.Register(tools.NewBrowserTabs(browserClient))
 	registry.Register(tools.NewBrowserOpen(browserClient))
 	registry.Register(tools.NewBrowserScan(browserClient))
@@ -258,6 +263,7 @@ func newRegistry(
 	registry.Register(tools.NewMemoryApplyUpdate(workspace))
 	registry.Register(tools.NewAskUser(confirmations))
 	registry.Register(tools.NewSkillRead(skillStore))
+	registerEnabledCommandAdapters(registry, projectRoot)
 	if mcpManager != nil {
 		for _, registered := range mcpManager.Tools() {
 			registry.Register(tools.NewMCPTool(
@@ -269,6 +275,32 @@ func newRegistry(
 		}
 	}
 	return registry
+}
+
+func registerEnabledCommandAdapters(registry *tools.Registry, projectRoot string) {
+	if registry == nil || strings.TrimSpace(projectRoot) == "" {
+		return
+	}
+	adapters, err := capability.NewStore(projectRoot).ListEnabledAdapters()
+	if err != nil {
+		return
+	}
+	for _, adapter := range adapters {
+		if adapter.Type != capability.TypeTool {
+			continue
+		}
+		entry := filepath.Join(projectRoot, filepath.FromSlash(adapter.Entry))
+		manifest, err := plugin.Load(entry)
+		if err != nil {
+			continue
+		}
+		for _, command := range manifest.Manifest.Commands {
+			if strings.TrimSpace(command.Name) == "" || len(command.Command) == 0 {
+				continue
+			}
+			registry.Register(tools.NewCommandAdapterTool(manifest, command))
+		}
+	}
 }
 
 // LoadSkillStore 扫描项目级和用户级 Skill，并返回可运行中 reload 的 Store。

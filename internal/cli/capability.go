@@ -14,7 +14,7 @@ import (
 
 func runCapabilityCommand(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: cohort capability list|gaps|suggestions|show|doctor|deps|propose|build|adapter|verify|promote|disable ...")
+		return errors.New("usage: cohort capability list|gaps|suggestions|show|doctor|deps|propose|build|adapter|verify|promote|enable|disable ...")
 	}
 	projectRoot, err := os.Getwd()
 	if err != nil {
@@ -67,6 +67,11 @@ func runCapabilityCommand(args []string, out io.Writer) error {
 			return errors.New("usage: cohort capability promote <capability_id>")
 		}
 		return promoteCapability(store, args[1], out)
+	case "enable":
+		if len(args) != 2 {
+			return errors.New("usage: cohort capability enable <capability_id>")
+		}
+		return enableCapabilityAdapter(store, args[1], out)
 	case "disable":
 		if len(args) != 2 {
 			return errors.New("usage: cohort capability disable <capability_id>")
@@ -281,6 +286,25 @@ func promoteCapability(store capability.Store, capabilityID string, out io.Write
 	fmt.Fprintf(out, "capability: %s\n", item.ID)
 	fmt.Fprintf(out, "status: %s\n", item.Status)
 	fmt.Fprintf(out, "entry: %s\n", item.Entry)
+	if item.Type == capability.TypeTool || item.Type == capability.TypeMCP {
+		fmt.Fprintf(out, "enable: cohort capability enable %s\n", item.ID)
+	}
+	return nil
+}
+
+func enableCapabilityAdapter(store capability.Store, capabilityID string, out io.Writer) error {
+	result, err := store.EnableAdapter(capabilityID)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "capability: %s\n", result.Capability.ID)
+	fmt.Fprintf(out, "status: %s\n", result.Capability.Status)
+	fmt.Fprintf(out, "type: %s\n", result.Capability.Type)
+	fmt.Fprintf(out, "enabled: %t\n", result.Enabled)
+	fmt.Fprintf(out, "state: %s\n", result.StatePath)
+	if result.MCPImport != "" {
+		fmt.Fprintf(out, "mcp_import: cohort mcp import --scope project --merge %s\n", result.MCPImport)
+	}
 	return nil
 }
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 )
 
 const AdapterDir = "adapters"
+const EnabledAdaptersFile = "enabled_adapters.json"
 
 func (s Store) BuildAdapter(proposalID string, adapterType string) (Capability, []string, error) {
 	proposalID = strings.TrimSpace(proposalID)
@@ -312,6 +314,119 @@ func adapterVerificationOutput(checks []adapterVerifyCheck) string {
 		fmt.Fprintf(&b, "[%s] %s: %s\n", status, check.Name, check.Message)
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func (s Store) EnableAdapter(capabilityID string) (EnableAdapterResult, error) {
+	capabilityID = normalizeID(capabilityID)
+	if capabilityID == "" {
+		return EnableAdapterResult{}, errors.New("capability id is required")
+	}
+	registry, err := s.Load()
+	if err != nil {
+		return EnableAdapterResult{}, err
+	}
+	index := indexCapability(registry.Capabilities, capabilityID)
+	if index == -1 {
+		return EnableAdapterResult{}, fmt.Errorf("capability %q not found", capabilityID)
+	}
+	item := registry.Capabilities[index]
+	if item.Status != StatusAvailable {
+		return EnableAdapterResult{}, fmt.Errorf("capability %q is %q; run verify/promote before enable", capabilityID, item.Status)
+	}
+	if item.Type != TypeTool && item.Type != TypeMCP {
+		return EnableAdapterResult{}, fmt.Errorf("capability %q has type %q; enable only supports tool or mcp adapters", capabilityID, item.Type)
+	}
+	if item.Verification.LastPassedAt.IsZero() {
+		return EnableAdapterResult{}, fmt.Errorf("capability %q has no successful verification", capabilityID)
+	}
+	checks := s.adapterVerificationChecks(item)
+	for _, check := range checks {
+		if !check.OK {
+			return EnableAdapterResult{}, fmt.Errorf("capability %q adapter is not clean: %s: %s", capabilityID, check.Name, check.Message)
+		}
+	}
+	state, err := s.loadEnabledAdapters()
+	if err != nil {
+		return EnableAdapterResult{}, err
+	}
+	now := time.Now().UTC()
+	enabled := EnabledAdapter{
+		CapabilityID: item.ID,
+		Type:         item.Type,
+		Entry:        item.Entry,
+		EnabledAt:    now,
+	}
+	replaced := false
+	for index := range state.Adapters {
+		if state.Adapters[index].CapabilityID == item.ID {
+			state.Adapters[index] = enabled
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		state.Adapters = append(state.Adapters, enabled)
+	}
+	if err := s.saveEnabledAdapters(state); err != nil {
+		return EnableAdapterResult{}, err
+	}
+	result := EnableAdapterResult{
+		Capability: item,
+		StatePath:  s.EnabledAdaptersPath(),
+		Enabled:    true,
+	}
+	if item.Type == TypeMCP {
+		result.MCPImport = filepath.ToSlash(filepath.Join(ProjectDirName, AdapterDir, item.ID, "mcp.json"))
+	}
+	return result, nil
+}
+
+func (s Store) EnabledAdaptersPath() string {
+	return filepath.Join(s.RootDir, EnabledAdaptersFile)
+}
+
+func (s Store) ListEnabledAdapters() ([]EnabledAdapter, error) {
+	state, err := s.loadEnabledAdapters()
+	if err != nil {
+		return nil, err
+	}
+	return append([]EnabledAdapter(nil), state.Adapters...), nil
+}
+
+func (s Store) loadEnabledAdapters() (EnabledAdapterState, error) {
+	path := s.EnabledAdaptersPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return EnabledAdapterState{Version: 1}, nil
+		}
+		return EnabledAdapterState{}, err
+	}
+	var state EnabledAdapterState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return EnabledAdapterState{}, err
+	}
+	if state.Version == 0 {
+		state.Version = 1
+	}
+	return state, nil
+}
+
+func (s Store) saveEnabledAdapters(state EnabledAdapterState) error {
+	state.Version = 1
+	state.UpdatedAt = time.Now().UTC()
+	sort.Slice(state.Adapters, func(i, j int) bool {
+		return state.Adapters[i].CapabilityID < state.Adapters[j].CapabilityID
+	})
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	if err := os.MkdirAll(s.RootDir, 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(s.EnabledAdaptersPath(), data, 0644)
 }
 
 func fileExistsLocal(path string) bool {

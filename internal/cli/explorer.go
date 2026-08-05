@@ -78,6 +78,12 @@ func runExplorerCommand(args []string, out io.Writer) error {
 			return err
 		}
 		return runExplorerIsolated(root, id, opts, out)
+	case "run-batch":
+		ids, opts, err := parseExplorerRunBatchArgs(args[1:])
+		if err != nil {
+			return err
+		}
+		return runExplorerBatchIsolated(root, ids, opts, out)
 	case "run-child":
 		if os.Getenv(explorerChildEnv) != "1" {
 			return errors.New("explorer run-child is internal; use cohort explorer run <id>")
@@ -91,8 +97,21 @@ func runExplorerCommand(args []string, out io.Writer) error {
 			return err
 		}
 		return printExplorerRunResult(result, out)
+	case "run-batch-child":
+		if os.Getenv(explorerChildEnv) != "1" {
+			return errors.New("explorer run-batch-child is internal; use cohort explorer run-batch <id...>")
+		}
+		ids, opts, err := parseExplorerRunBatchArgs(args[1:])
+		if err != nil {
+			return err
+		}
+		result, err := store.RunBatch(context.Background(), ids, opts)
+		if printErr := printExplorerBatchRunResult(result, out); printErr != nil {
+			return printErr
+		}
+		return err
 	default:
-		return fmt.Errorf("unknown explorer command %q, use create, list, show, or run", args[0])
+		return fmt.Errorf("unknown explorer command %q, use create, list, show, run, or run-batch", args[0])
 	}
 }
 
@@ -128,6 +147,39 @@ func explorerChildArgs(id string, opts explorer.RunOptions) []string {
 	return args
 }
 
+func runExplorerBatchIsolated(root string, ids []string, opts explorer.RunOptions, out io.Writer) error {
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	args := explorerBatchChildArgs(ids, opts)
+	cmd := exec.Command(executable, args...)
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), explorerChildEnv+"=1")
+	output, err := cmd.CombinedOutput()
+	if len(output) > 0 {
+		if _, writeErr := out.Write(output); writeErr != nil {
+			return writeErr
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("isolated explorer batch process failed: %w", err)
+	}
+	return nil
+}
+
+func explorerBatchChildArgs(ids []string, opts explorer.RunOptions) []string {
+	args := []string{"explorer", "run-batch-child"}
+	args = append(args, ids...)
+	if opts.WithTests {
+		args = append(args, "--with-tests")
+	}
+	if strings.TrimSpace(opts.Search) != "" {
+		args = append(args, "--search", opts.Search)
+	}
+	return args
+}
+
 func printExplorerRunResult(result explorer.RunResult, out io.Writer) error {
 	fmt.Fprintf(out, "explorer: %s\n", result.Task.ID)
 	fmt.Fprintf(out, "status: %s\n", result.Task.Status)
@@ -142,6 +194,23 @@ func printExplorerRunResult(result explorer.RunResult, out io.Writer) error {
 	}
 	if result.Task.Status == "failed" {
 		return fmt.Errorf("explorer run failed: %s", result.Task.LastError)
+	}
+	return nil
+}
+
+func printExplorerBatchRunResult(result explorer.BatchRunResult, out io.Writer) error {
+	fmt.Fprintf(out, "lanes: %d\n", len(result.Results))
+	fmt.Fprintf(out, "failed: %d\n", result.Failed)
+	fmt.Fprintf(out, "report: %s\n", result.ReportPath)
+	for _, lane := range result.Results {
+		status := lane.Task.Status
+		if status == "" {
+			status = "unknown"
+		}
+		fmt.Fprintf(out, "  - [%s] %s checks=%d result=%s\n", status, lane.Task.ID, len(lane.Checks), lane.Task.ResultPath)
+	}
+	if result.Failed > 0 {
+		return fmt.Errorf("explorer batch failed: %d lane(s) failed", result.Failed)
 	}
 	return nil
 }
@@ -178,4 +247,35 @@ func parseExplorerRunArgs(args []string) (string, explorer.RunOptions, error) {
 		return "", opts, errors.New("usage: cohort explorer run <id> [--with-tests] [--search <pattern>]")
 	}
 	return id, opts, nil
+}
+
+func parseExplorerRunBatchArgs(args []string) ([]string, explorer.RunOptions, error) {
+	if len(args) == 0 {
+		return nil, explorer.RunOptions{}, errors.New("usage: cohort explorer run-batch <id...> [--with-tests] [--search <pattern>]")
+	}
+	ids := []string{}
+	opts := explorer.RunOptions{}
+	for len(args) > 0 {
+		arg := args[0]
+		args = args[1:]
+		switch arg {
+		case "--with-tests":
+			opts.WithTests = true
+		case "--search":
+			if len(args) == 0 {
+				return nil, opts, errors.New("--search requires a pattern")
+			}
+			opts.Search = args[0]
+			args = args[1:]
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return nil, opts, fmt.Errorf("unknown explorer run-batch option %q", arg)
+			}
+			ids = append(ids, arg)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, opts, errors.New("usage: cohort explorer run-batch <id...> [--with-tests] [--search <pattern>]")
+	}
+	return ids, opts, nil
 }

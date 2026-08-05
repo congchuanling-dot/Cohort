@@ -25,6 +25,7 @@ const (
 	EventToolFinished          EventType = "ToolFinished"
 	EventCompactStarted        EventType = "CompactStarted"
 	EventCompactFinished       EventType = "CompactFinished"
+	EventHookDispatched        EventType = "HookDispatched"
 	EventPermissionDecision    EventType = "PermissionDecision"
 	EventCapabilityGapRecorded EventType = "CapabilityGapRecorded"
 	EventRunFinished           EventType = "RunFinished"

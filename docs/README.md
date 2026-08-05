@@ -19,13 +19,13 @@
 
 1. `[完成]` `FinishGuard` / `NoToolPolicy` 保守早停守卫：无工具默认结束，只对空回复、截断回复、大代码块误输出和疑似未验证完成等强异常做一次性重试。
 2. `[完成]` 严格文本 `<tool_use>` 兜底：降低不同模型或中转服务的 tool calling 波动。
-3. `[部分完成]` Runner 生命周期 `run.log.jsonl` 事件流：Runner、LLM、tool、permission、compact、session start/end、FinishGuard 和 TextToolUse 已落地；内部 Hook 接口仍待抽取。
+3. `[部分完成]` Runner 生命周期 `run.log.jsonl` 事件流：Runner、LLM、tool、permission、compact、session start/end、FinishGuard 和 TextToolUse 已落地；`internal/hooks` 已提供可注册 Hook 接口并接入 SessionStart/SessionEnd/PreToolUse/PostToolUse/FileChanged/PreCompact/PostCompact，外部插件化执行器和更完整 policy sink 仍待补。
 4. `[部分完成]` `cohort doctor` 总入口：已检查配置、模型、MCP、Skill、浏览器扩展、桌面/OCR helper、workspace/session/log；真实桌面权限深检仍走 `cohort doctor computer`。
 5. `[完成]` 交互式 diff、变更审阅与受限回滚边界：`/diff`、`/diff show`、`/diff accept`、`/diff rollback <file> --confirm` 已落地。
 6. `[部分完成]` Project / Plan Mode：`cohort project init/status`、`.cohort/project.md`、`.cohort/config.json`、`cohort plan create/status/start/verify/block` 和 `.cohort/plan.json` 已落地；更完整 Project bootstrap 向导仍待补。
 7. `[完成]` Skill Runtime 补强和候选挖掘：内置高频 Skill 包、`SKILL.md permissions`、`/skill run` active policy、Skill 候选离线报告已落地。
 8. `[部分完成]` MCP 补全、usage/cost 和离线反思增强：MCP import/export、旧 SSE 兼容、per-tool policy CLI、Runner usage/cost 汇总、`mine-skill-candidates` 已落地；OAuth 体验深优化和 L4 闭环仍待补。
-9. `[部分完成]` LSP / Plugin / Adapter / Explorer / TUI 底座：`lsp_diagnostics` Agent tool 和 `cohort lsp doctor/diagnostics` 已支持 Go/TypeScript/Python 只读诊断（Go=`gopls`、TS=`tsc --noEmit`、Python=`pyright`）；Go 已支持 `cohort lsp definition/references` 和 `lsp_definition` / `lsp_references` Agent tool；`cohort lsp doctor --install` 可用 npm 显式补装缺失的 `typescript`/`pyright`；`cohort plugin list/show/doctor` 已能发现和校验 `.cohort/plugins/*/plugin.json`；`cohort capability adapter <proposal_id> --type tool|mcp` 可生成待审查 adapter scaffold，并支持 `verify/promote` 生命周期；`cohort explorer create/list/show/run` 可生成并通过隔离子进程运行只读验证任务，任务内检查并发执行并写入 `result.md`；`cohort tui status|plan|diff|logs|explorers|watch` 可查看 plan、diff、日志、explorer 面板和周期刷新的实时面板。adapter 运行时自动注册、TS/Python definition/references、hover/symbols、更强 subagent 结果合并和全屏 TUI 仍待补。
+9. `[部分完成]` LSP / Plugin / Adapter / Explorer / TUI 底座：`lsp_diagnostics` Agent tool 和 `cohort lsp doctor/diagnostics` 已支持 Go/TypeScript/Python 只读诊断（Go=`gopls`、TS=`tsc --noEmit`、Python=`pyright`）；Go 已支持 `definition/references/hover/symbols` 的 gopls 查询，TS/Python 已支持 `definition/references/hover/symbols` 的只读 `symbol_scan` fallback；`cohort lsp doctor --install` 可用 npm 显式补装缺失的 `typescript`/`pyright`；`cohort plugin list/show/doctor` 已能发现和校验 `.cohort/plugins/*/plugin.json`；`cohort capability adapter <proposal_id> --type tool|mcp` 可生成待审查 adapter scaffold，并支持 `verify/promote/enable` 显式启用流，Tool adapter 启用后会进入运行时注册，MCP adapter 仍输出明确 import 命令；`cohort explorer create/list/show/run/run-batch` 可生成并通过隔离子进程运行只读验证任务，支持并行 lane 和 aggregate report；`cohort tui status|plan|diff|logs|explorers|watch` 可查看 plan、diff、日志、explorer 面板和周期刷新的实时面板。真正长驻 TS/Python language server、更强 subagent 结果合并和全屏 TUI 仍待补。
 10. `[下一步]` 推进 OAuth 体验深优化、多模型体验、daemon、真实并行 subagent 和本地 API。
 11. `[验收支线]` 用官方飞书 MCP 完成 OAuth、只读和受控写操作的真实端到端验收。
 
@@ -53,7 +53,7 @@
 
 | 状态 | 文档 | 当前判断 |
 | --- | --- | --- |
-| `[部分完成]` | [context_management_design.md](context_management_design.md) | 工具裁剪、group trim、session memory、full compact 已落地；自动 compact 熔断仍是后续项。 |
+| `[部分完成]` | [context_management_design.md](context_management_design.md) | 工具裁剪、group trim、session memory、full compact 已落地；Auto Compact 第一版已支持显式配置、`context_state.json` 和连续失败熔断，默认关闭。 |
 | `[完成]` | [tool_context_trim_iteration.md](tool_context_trim_iteration.md) | 当前工具结果裁剪实现和取舍记录。 |
 | `[部分完成]` | [browser_operation_design.md](browser_operation_design.md) | Chrome bridge、DOM、点击、输入、等待、截图已落地；扩展桥与持续监控仍为后续。 |
 | `[部分完成]` | [browser_ocr_real_input_fallback_design.md](browser_ocr_real_input_fallback_design.md) | DOM 摘要、OCR 和 macOS 受控输入已落地；视觉候选和 Windows 支持未完成。 |
@@ -61,7 +61,7 @@
 | `[部分完成]` | [computer_control_roadmap.md](computer_control_roadmap.md) | “操控电脑的所有操作”的能力缺口、风险边界和开发顺序；P1 核心原语、`computer_visual_snapshot`、`computer_execute_step`、结构化 recover policy、detector 协议和 `doctor computer --smoke-app` 已完成；下一步是模型/SDK 级 UI detector、多显示器和更多真实 App 回归样例。 |
 | `[规划]` | [human_os_operation_technical_design.md](human_os_operation_technical_design.md) | Computer Use 跨 OS 操作层方案；对模型暴露 `computer_see/find/click/type/press/check/wait`，底层键鼠输入绑定窗口、风险等级、验证和审计。 |
 | `[部分完成]` | [self_evolution_technical_design.md](self_evolution_technical_design.md) | 受控长期记忆、证据、SOP candidate、离线 session archive、failure pattern、memory quality 和 Skill candidate 报告已完成；后台反射和更强 L4 质量闭环未完成。 |
-| `[部分完成]` | [capability_evolution_technical_design.md](capability_evolution_technical_design.md) | 能力边界拓展闭环方案；本地 registry、手动 gap/proposal CLI、Runner no-tool gap 记录、项目级 Skill scaffold、doctor 诊断、依赖安装审核与审计、smoke test、registry promote、available capability 索引注入、重复 gap CLI 建议、Skill 候选离线挖掘和 Tool/MCP adapter scaffold + verify/promote 已落地；adapter 运行时注册和自动路由仍待补。 |
+| `[部分完成]` | [capability_evolution_technical_design.md](capability_evolution_technical_design.md) | 能力边界拓展闭环方案；本地 registry、手动 gap/proposal CLI、Runner no-tool gap 记录、项目级 Skill scaffold、doctor 诊断、依赖安装审核与审计、smoke test、registry promote、available capability 索引注入、重复 gap CLI 建议、Skill 候选离线挖掘和 Tool/MCP adapter scaffold + verify/promote/enable 已落地；更强自动路由和离线反思汇总仍待补。 |
 | `[部分完成]` | [cohort_self_evolution_research.md](cohort_self_evolution_research.md) | 自进化调研及后续路线，P1-P3 仍为规划。 |
 
 ## 调研与问题记录

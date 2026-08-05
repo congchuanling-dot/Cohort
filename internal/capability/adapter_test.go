@@ -101,6 +101,44 @@ func TestVerifyAndPromoteToolAdapter_BitsUT(t *testing.T) {
 	}
 }
 
+func TestEnablePromotedToolAdapterWritesExplicitAllowlist_BitsUT(t *testing.T) {
+	root := t.TempDir()
+	store := NewStore(root)
+	gap, err := store.AddGap(NewGapFromTask("inspect custom archive format"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := store.AddProposal(NewProposalFromGap(gap))
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, _, err := store.BuildAdapter(proposal.ID, TypeTool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.Verify(item.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Promote(item.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := store.EnableAdapter(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Enabled || result.StatePath == "" {
+		t.Fatalf("result = %#v", result)
+	}
+	data, err := os.ReadFile(result.StatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), item.ID) || !strings.Contains(string(data), TypeTool) {
+		t.Fatalf("enabled adapters = %s", string(data))
+	}
+}
+
 func TestVerifyMCPAdapter_BitsUT(t *testing.T) {
 	root := t.TempDir()
 	store := NewStore(root)

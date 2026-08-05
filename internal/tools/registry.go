@@ -25,6 +25,10 @@ const (
 	ToolNameLSPDefinition = "lsp_definition"
 	// ToolNameLSPReferences 查询 Go 符号引用位置。
 	ToolNameLSPReferences = "lsp_references"
+	// ToolNameLSPHover 查询符号说明或当前位置上下文。
+	ToolNameLSPHover = "lsp_hover"
+	// ToolNameLSPSymbols 查询文件或目录中的符号列表。
+	ToolNameLSPSymbols = "lsp_symbols"
 	// ToolNameAskUser 在命令行向用户提问。
 	ToolNameAskUser = "ask_user"
 	// ToolNameSkillRead 读取已发现 Skill 的 SKILL.md 正文。
@@ -182,6 +186,8 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 		ToolNameLSPDiagnostics,
 		ToolNameLSPDefinition,
 		ToolNameLSPReferences,
+		ToolNameLSPHover,
+		ToolNameLSPSymbols,
 		ToolNameBrowserTabs,
 		ToolNameBrowserOpen,
 		ToolNameBrowserScan,

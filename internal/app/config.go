@@ -416,6 +416,10 @@ func applyContextValue(cfg *contextmgr.Config, key, val string) {
 		cfg.MaxCompactSummaryChars = atoiDefault(val, cfg.MaxCompactSummaryChars)
 	case "enable_micro_compact":
 		cfg.EnableMicroCompact = parseBoolDefault(val, cfg.EnableMicroCompact)
+	case "enable_auto_compact":
+		cfg.EnableAutoCompact = parseBoolDefault(val, cfg.EnableAutoCompact)
+	case "auto_compact_failure_limit":
+		cfg.AutoCompactFailureLimit = atoiDefault(val, cfg.AutoCompactFailureLimit)
 	}
 }
 

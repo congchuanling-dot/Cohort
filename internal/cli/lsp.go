@@ -20,7 +20,6 @@ func runLSPCommand(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	client := lsp.Diagnostics{Root: root}
-	gopls := lsp.Gopls{Root: root}
 	switch args[0] {
 	case "doctor":
 		language, targets, install, err := parseLSPDoctorArgs(args[1:])
@@ -60,27 +59,81 @@ func runLSPCommand(ctx context.Context, args []string, out io.Writer) error {
 		}
 		return nil
 	case "definition":
-		if len(args) != 2 {
-			return errors.New("usage: cohort lsp definition <file.go:line:column>")
-		}
-		result, err := gopls.Definition(ctx, args[1])
-		printLSPQueryResult(result, out)
-		return err
-	case "references":
-		position, includeDeclaration, err := parseLSPReferencesArgs(args[1:])
+		language, position, err := parseLSPPositionQueryArgs(args[1:], lsp.LanguageGo)
 		if err != nil {
 			return err
 		}
-		result, err := gopls.References(ctx, position, includeDeclaration)
+		result, err := client.Query(ctx, lsp.QueryOptions{Language: language, Kind: lsp.QueryDefinition, Position: position})
+		printLSPQueryResult(result, out)
+		return err
+	case "references":
+		language, position, includeDeclaration, err := parseLSPReferencesArgs(args[1:])
+		if err != nil {
+			return err
+		}
+		result, err := client.Query(ctx, lsp.QueryOptions{Language: language, Kind: lsp.QueryReferences, Position: position, IncludeDeclaration: includeDeclaration})
+		printLSPQueryResult(result, out)
+		return err
+	case "hover":
+		language, position, err := parseLSPPositionQueryArgs(args[1:], lsp.LanguageGo)
+		if err != nil {
+			return err
+		}
+		result, err := client.Query(ctx, lsp.QueryOptions{Language: language, Kind: lsp.QueryHover, Position: position})
+		printLSPQueryResult(result, out)
+		return err
+	case "symbols":
+		language, target, err := parseLSPSymbolsArgs(args[1:])
+		if err != nil {
+			return err
+		}
+		result, err := client.Query(ctx, lsp.QueryOptions{Language: language, Kind: lsp.QuerySymbols, Target: target})
 		printLSPQueryResult(result, out)
 		return err
 	default:
-		return fmt.Errorf("unknown lsp command %q, use doctor, diagnostics, definition, or references", args[0])
+		return fmt.Errorf("unknown lsp command %q, use doctor, diagnostics, definition, references, hover, or symbols", args[0])
 	}
 }
 
-func parseLSPReferencesArgs(args []string) (string, bool, error) {
+func parseLSPPositionQueryArgs(args []string, fallbackLanguage string) (string, string, error) {
 	position := ""
+	language := fallbackLanguage
+	for len(args) > 0 {
+		arg := args[0]
+		args = args[1:]
+		switch {
+		case arg == "--language" || arg == "--lang":
+			if len(args) == 0 {
+				return "", "", errors.New("--language requires go, typescript, or python")
+			}
+			language = lsp.NormalizeLanguage(args[0])
+			args = args[1:]
+		case strings.HasPrefix(arg, "--language="):
+			language = lsp.NormalizeLanguage(strings.TrimPrefix(arg, "--language="))
+		case strings.HasPrefix(arg, "--lang="):
+			language = lsp.NormalizeLanguage(strings.TrimPrefix(arg, "--lang="))
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return "", "", fmt.Errorf("unknown lsp query option %q", arg)
+			}
+			if position != "" {
+				return "", "", errors.New("usage: cohort lsp <definition|hover> [--language go|typescript|python] <file:line:column>")
+			}
+			position = arg
+		}
+	}
+	if position == "" {
+		return "", "", errors.New("usage: cohort lsp <definition|hover> [--language go|typescript|python] <file:line:column>")
+	}
+	if language == lsp.LanguageAll || len(lsp.SupportedLanguages(language)) == 0 {
+		return "", "", fmt.Errorf("unsupported lsp query language %q", language)
+	}
+	return language, position, nil
+}
+
+func parseLSPReferencesArgs(args []string) (string, string, bool, error) {
+	position := ""
+	language := lsp.LanguageGo
 	includeDeclaration := false
 	for len(args) > 0 {
 		arg := args[0]
@@ -88,25 +141,74 @@ func parseLSPReferencesArgs(args []string) (string, bool, error) {
 		switch arg {
 		case "--declaration", "-d":
 			includeDeclaration = true
+		case "--language", "--lang":
+			if len(args) == 0 {
+				return "", "", false, errors.New("--language requires go, typescript, or python")
+			}
+			language = lsp.NormalizeLanguage(args[0])
+			args = args[1:]
 		default:
-			if strings.HasPrefix(arg, "-") {
-				return "", false, fmt.Errorf("unknown lsp references option %q", arg)
+			switch {
+			case strings.HasPrefix(arg, "--language="):
+				language = lsp.NormalizeLanguage(strings.TrimPrefix(arg, "--language="))
+				continue
+			case strings.HasPrefix(arg, "--lang="):
+				language = lsp.NormalizeLanguage(strings.TrimPrefix(arg, "--lang="))
+				continue
+			case strings.HasPrefix(arg, "-"):
+				return "", "", false, fmt.Errorf("unknown lsp references option %q", arg)
 			}
 			if position != "" {
-				return "", false, errors.New("usage: cohort lsp references [--declaration] <file.go:line:column>")
+				return "", "", false, errors.New("usage: cohort lsp references [--language go|typescript|python] [--declaration] <file:line:column>")
 			}
 			position = arg
 		}
 	}
 	if position == "" {
-		return "", false, errors.New("usage: cohort lsp references [--declaration] <file.go:line:column>")
+		return "", "", false, errors.New("usage: cohort lsp references [--language go|typescript|python] [--declaration] <file:line:column>")
 	}
-	return position, includeDeclaration, nil
+	if language == lsp.LanguageAll || len(lsp.SupportedLanguages(language)) == 0 {
+		return "", "", false, fmt.Errorf("unsupported lsp query language %q", language)
+	}
+	return language, position, includeDeclaration, nil
+}
+
+func parseLSPSymbolsArgs(args []string) (string, string, error) {
+	language := lsp.LanguageGo
+	target := "."
+	for len(args) > 0 {
+		arg := args[0]
+		args = args[1:]
+		switch {
+		case arg == "--language" || arg == "--lang":
+			if len(args) == 0 {
+				return "", "", errors.New("--language requires go, typescript, or python")
+			}
+			language = lsp.NormalizeLanguage(args[0])
+			args = args[1:]
+		case strings.HasPrefix(arg, "--language="):
+			language = lsp.NormalizeLanguage(strings.TrimPrefix(arg, "--language="))
+		case strings.HasPrefix(arg, "--lang="):
+			language = lsp.NormalizeLanguage(strings.TrimPrefix(arg, "--lang="))
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return "", "", fmt.Errorf("unknown lsp symbols option %q", arg)
+			}
+			target = arg
+		}
+	}
+	if language == lsp.LanguageAll || len(lsp.SupportedLanguages(language)) == 0 {
+		return "", "", fmt.Errorf("unsupported lsp query language %q", language)
+	}
+	return language, target, nil
 }
 
 func printLSPQueryResult(result lsp.QueryResult, out io.Writer) {
 	fmt.Fprintf(out, "language: %s\n", result.Language)
 	fmt.Fprintf(out, "kind: %s\n", result.Kind)
+	if result.Engine != "" {
+		fmt.Fprintf(out, "engine: %s\n", result.Engine)
+	}
 	fmt.Fprintf(out, "position: %s\n", result.Position)
 	fmt.Fprintf(out, "command: %s\n", strings.Join(result.Command, " "))
 	fmt.Fprintf(out, "exit_code: %d\n", result.ExitCode)

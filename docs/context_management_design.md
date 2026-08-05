@@ -3,8 +3,9 @@
 > 文档状态：`[部分完成]`。状态基线为 2026-07-26；完整文档导航见 [docs/README.md](README.md)。
 >
 > 已完成：请求预算、Micro Compact、group trim、session memory、手动 full compact、
-> relevant memory 注入和 context stats。未完成：自动触发 full compact、持久化
-> `context_state.json` 与连续失败熔断器。后续阶段以本文保留的方案为准。
+> relevant memory 注入、context stats，以及 Auto Compact 第一版。Auto Compact
+> 默认关闭，开启后会在请求预算失控时尝试生成 `compact.md`，并把尝试次数、连续失败、
+> 熔断状态写入 `context_state.json`。更细粒度的触发策略和 UX 提示仍按本文后续方案演进。
 
 本文档描述 Cohort 后续实现 Context Manager 的完整技术方案。
 

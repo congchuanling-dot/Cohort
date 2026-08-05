@@ -146,3 +146,23 @@ type DependencyInstall struct {
 	Output      string    `json:"output,omitempty"`
 	InstalledAt time.Time `json:"installed_at"`
 }
+
+type EnabledAdapterState struct {
+	Version   int              `json:"version"`
+	UpdatedAt time.Time        `json:"updated_at"`
+	Adapters  []EnabledAdapter `json:"adapters"`
+}
+
+type EnabledAdapter struct {
+	CapabilityID string    `json:"capability_id"`
+	Type         string    `json:"type"`
+	Entry        string    `json:"entry"`
+	EnabledAt    time.Time `json:"enabled_at"`
+}
+
+type EnableAdapterResult struct {
+	Capability Capability `json:"capability"`
+	StatePath  string     `json:"state_path"`
+	MCPImport  string     `json:"mcp_import,omitempty"`
+	Enabled    bool       `json:"enabled"`
+}

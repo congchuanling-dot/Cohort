@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"cohort/internal/contextmgr"
+	"cohort/internal/hooks"
 	"cohort/internal/llm"
 	"cohort/internal/observability"
 )
@@ -119,6 +120,10 @@ func (r *Runner) CompactSessionMemory(ctx context.Context) (CompactMemoryResult,
 		"kind":        "session_memory",
 		"history_len": len(r.history),
 	})
+	r.emitHook(ctx, obs, runID, hooks.EventPreCompact, 0, map[string]any{
+		"kind":        "session_memory",
+		"history_len": len(r.history),
+	})
 
 	prompt := buildMemoryGenerationPrompt(r.history)
 	stream, err := r.Client.Chat(ctx, llm.ChatRequest{
@@ -151,6 +156,12 @@ func (r *Runner) CompactSessionMemory(ctx context.Context) (CompactMemoryResult,
 		return CompactMemoryResult{}, writeErr
 	}
 	r.emitObservation(ctx, obs, runID, observability.EventCompactFinished, 0, observability.SeverityInfo, map[string]any{
+		"kind":      "session_memory",
+		"path":      path,
+		"chars":     len([]rune(memory)),
+		"backed_up": backedUp,
+	})
+	r.emitHook(ctx, obs, runID, hooks.EventPostCompact, 0, map[string]any{
 		"kind":      "session_memory",
 		"path":      path,
 		"chars":     len([]rune(memory)),
@@ -191,6 +202,10 @@ func (r *Runner) FullCompactSession(ctx context.Context) (FullCompactResult, err
 		"kind":        "full_compact",
 		"history_len": len(r.history),
 	})
+	r.emitHook(ctx, obs, runID, hooks.EventPreCompact, 0, map[string]any{
+		"kind":        "full_compact",
+		"history_len": len(r.history),
+	})
 
 	prompt := buildFullCompactPrompt(r.history)
 	stream, err := r.Client.Chat(ctx, llm.ChatRequest{
@@ -223,6 +238,12 @@ func (r *Runner) FullCompactSession(ctx context.Context) (FullCompactResult, err
 		return FullCompactResult{}, writeErr
 	}
 	r.emitObservation(ctx, obs, runID, observability.EventCompactFinished, 0, observability.SeverityInfo, map[string]any{
+		"kind":      "full_compact",
+		"path":      path,
+		"chars":     len([]rune(summary)),
+		"backed_up": backedUp,
+	})
+	r.emitHook(ctx, obs, runID, hooks.EventPostCompact, 0, map[string]any{
 		"kind":      "full_compact",
 		"path":      path,
 		"chars":     len([]rune(summary)),

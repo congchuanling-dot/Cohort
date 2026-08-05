@@ -12,6 +12,7 @@ import (
 	"cohort/internal/capability"
 	"cohort/internal/contextmgr"
 	"cohort/internal/evolution"
+	"cohort/internal/hooks"
 	"cohort/internal/llm"
 	"cohort/internal/observability"
 	"cohort/internal/session"
@@ -150,6 +151,8 @@ type Runner struct {
 	Observability observability.Bus
 	// ObservationSinks 是默认本地 JSONL 之外的观测输出，例如 Langfuse。
 	ObservationSinks []observability.Sink
+	// Hooks 是内部生命周期 Hook 注册表。Hook 是旁路能力：执行失败只进入观测事件，不中断 Runner。
+	Hooks *hooks.Registry
 	// WorkingCheckpoint 保存当前任务的短期关键约束，避免读过 SOP 后在多轮执行中遗忘。
 	WorkingCheckpoint WorkingCheckpoint
 
@@ -215,10 +218,19 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			"history_len": len(r.history),
 			"status":      data["status"],
 		})
+		r.emitHook(ctx, obs, runID, hooks.EventSessionEnd, lastTurn, map[string]any{
+			"history_len": len(r.history),
+			"status":      data["status"],
+		})
 		return result, err
 	}
 	if sessionBeforeInput == "" && r.sessionID != "" {
 		r.emitObservation(ctx, obs, runID, observability.EventSessionStarted, 0, observability.SeverityInfo, map[string]any{
+			"history_len": len(r.history),
+			"cwd":         r.SessionCWD,
+			"model":       r.SessionModel,
+		})
+		r.emitHook(ctx, obs, runID, hooks.EventSessionStart, 0, map[string]any{
 			"history_len": len(r.history),
 			"cwd":         r.SessionCWD,
 			"model":       r.SessionModel,
@@ -241,7 +253,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 	}}
 	r.maybeAddLongTermMemoryHint(&memorySignals, 0)
 	r.addSOPRouteHint(input)
-	messages, stats := r.buildRequestMessagesWithStats()
+	messages, stats := r.buildRequestMessagesMaybeAutoCompact(ctx, obs, runID, 0)
 	r.emitObservation(ctx, obs, runID, observability.EventContextBuilt, 0, observability.SeverityInfo, contextStatsData(stats))
 	finishGuardRetries := 0
 	textToolUseRetries := 0
@@ -300,7 +312,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 						"error":  parseErr.Error(),
 					})
 					r.addPendingHint("[TEXT TOOL_USE PARSE ERROR] 上一轮输出了 <tool_use>，但格式不符合严格 JSON 协议：" + parseErr.Error() + "。请重新生成严格格式：<tool_use>{\"name\":\"工具名\",\"arguments\":{...}}</tool_use>。不要在工具块里写注释、Markdown 或多个 JSON 对象。")
-					messages, stats = r.buildRequestMessagesWithStats()
+					messages, stats = r.buildRequestMessagesMaybeAutoCompact(ctx, obs, runID, turn)
 					r.emitObservation(ctx, obs, runID, observability.EventContextBuilt, turn, observability.SeverityInfo, contextStatsData(stats))
 					continue
 				}
@@ -336,13 +348,13 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 					"content_chars": len([]rune(resp.Content)),
 				})
 				r.addPendingHint("[FINISH GUARD] " + decision.Prompt)
-				messages, stats = r.buildRequestMessagesWithStats()
+				messages, stats = r.buildRequestMessagesMaybeAutoCompact(ctx, obs, runID, turn)
 				r.emitObservation(ctx, obs, runID, observability.EventContextBuilt, turn, observability.SeverityInfo, contextStatsData(stats))
 				continue
 			}
 			r.maybeRecordCapabilityGap(ctx, obs, runID, turn, input, resp.Content)
 			if !awaitingUserInput(resp.Content) && r.maybeForceLongTermMemoryReview(&memorySignals, turn) {
-				messages, stats = r.buildRequestMessagesWithStats()
+				messages, stats = r.buildRequestMessagesMaybeAutoCompact(ctx, obs, runID, turn)
 				r.emitObservation(ctx, obs, runID, observability.EventContextBuilt, turn, observability.SeverityInfo, contextStatsData(stats))
 				continue
 			}
@@ -364,6 +376,16 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			toolStartedAt := time.Now()
 			args, err := parseToolArgs(call.Function.Arguments)
 			r.emitObservation(ctx, obs, runID, observability.EventToolStarted, turn, observability.SeverityInfo, toolStartedData(call, turn, i, args, err))
+			if err == nil {
+				r.emitHook(ctx, obs, runID, hooks.EventPreToolUse, turn, map[string]any{
+					"tool":         call.Function.Name,
+					"tool_call_id": call.ID,
+					"index":        i,
+					"tool_count":   len(resp.ToolCalls),
+					"args_hash":    stableArgsHash(args),
+					"args_summary": redactArgsSummary(args),
+				})
+			}
 			var outcome Outcome
 			if err != nil {
 				outcome = Outcome{
@@ -429,6 +451,20 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 				toolSeverity = observability.SeverityWarn
 			}
 			r.emitObservation(ctx, obs, runID, observability.EventToolFinished, turn, toolSeverity, toolFinishedData(call, outcome, time.Since(toolStartedAt)))
+			r.emitHook(ctx, obs, runID, hooks.EventPostToolUse, turn, map[string]any{
+				"tool":         call.Function.Name,
+				"tool_call_id": call.ID,
+				"index":        i,
+				"status":       outcomeStatus(outcome),
+				"duration_ms":  time.Since(toolStartedAt).Milliseconds(),
+			})
+			if outcomeSucceeded(outcome) && isFileMutationTool(call.Function.Name) {
+				r.emitHook(ctx, obs, runID, hooks.EventFileChanged, turn, map[string]any{
+					"tool":         call.Function.Name,
+					"tool_call_id": call.ID,
+					"path":         strings.TrimSpace(fmt.Sprint(args["path"])),
+				})
+			}
 			if outcome.ShouldExit {
 				return finishRun(RunResult{Status: RunStatusExited, Response: resp}, nil)
 			}
@@ -451,7 +487,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 		r.maybeAddLongTermMemoryHint(&memorySignals, turn)
 		// 工具结果已经进入完整 history；下一轮模型请求前重新构造可见上下文。
 		// Context Manager 应根据预算决定是否压缩，而不是每轮固定裁剪。
-		messages, stats = r.buildRequestMessagesWithStats()
+		messages, stats = r.buildRequestMessagesMaybeAutoCompact(ctx, obs, runID, turn)
 		r.emitObservation(ctx, obs, runID, observability.EventContextBuilt, turn, observability.SeverityInfo, contextStatsData(stats))
 	}
 	// 达到最大轮数说明模型一直没有收敛，返回受控状态而不是无限运行。

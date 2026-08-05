@@ -38,6 +38,7 @@ type QueryResult struct {
 	Language string   `json:"language,omitempty"`
 	Kind     string   `json:"kind"`
 	Position string   `json:"position"`
+	Engine   string   `json:"engine,omitempty"`
 	Command  []string `json:"command"`
 	Output   string   `json:"output"`
 	OK       bool     `json:"ok"`
@@ -95,6 +96,24 @@ func (g Gopls) References(ctx context.Context, position string, includeDeclarati
 	args = append(args, position)
 	result, err := g.run(ctx, args...)
 	return queryResultFromCheck("references", position, result, err)
+}
+
+func (g Gopls) Hover(ctx context.Context, position string) (QueryResult, error) {
+	position = strings.TrimSpace(position)
+	if position == "" {
+		return QueryResult{Language: LanguageGo, Kind: "hover", ExitCode: -1}, errors.New("hover position is required")
+	}
+	result, err := g.run(ctx, "hover", position)
+	return queryResultFromCheck("hover", position, result, err)
+}
+
+func (g Gopls) Symbols(ctx context.Context, target string) (QueryResult, error) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		target = "."
+	}
+	result, err := g.run(ctx, "symbols", target)
+	return queryResultFromCheck("symbols", target, result, err)
 }
 
 func (g Gopls) expandCheckTargets(ctx context.Context, targets []string) ([]string, error) {
@@ -231,6 +250,7 @@ func queryResultFromCheck(kind string, position string, result CheckResult, err 
 		Language: result.Language,
 		Kind:     kind,
 		Position: position,
+		Engine:   "gopls",
 		Command:  result.Command,
 		Output:   result.Output,
 		OK:       result.OK,

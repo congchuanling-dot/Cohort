@@ -1307,6 +1307,8 @@ Usage:
                           run the capability smoke test
   cohort capability promote <capability_id>
                           mark a verified capability as available
+  cohort capability enable <capability_id>
+                          explicitly enable a promoted Tool/MCP adapter
   cohort capability disable <capability_id>
                           disable a registered capability
   cohort config           show effective config and config path
@@ -1328,16 +1330,20 @@ Usage:
                           check local diagnostic backends; --install installs missing tsc/pyright via npm
   cohort lsp diagnostics [--language go|typescript|python] [path...]
                           run read-only language diagnostics
-  cohort lsp definition <file.go:line:column>
-                          find Go symbol definition via gopls
-  cohort lsp references [--declaration] <file.go:line:column>
-                          find Go symbol references via gopls
+  cohort lsp definition [--language go|typescript|python] <file:line:column>
+                          find symbol definition; Go uses gopls, TS/Python use symbol_scan fallback
+  cohort lsp references [--language go|typescript|python] [--declaration] <file:line:column>
+                          find symbol references; Go uses gopls, TS/Python use symbol_scan fallback
+  cohort lsp hover [--language go|typescript|python] <file:line:column>
+                          show symbol hover/context
+  cohort lsp symbols [--language go|typescript|python] [path]
+                          list symbols in a file or directory
   cohort plugin list|show|doctor
                           inspect .cohort/plugins manifests
   cohort explorer create "question"
                           create a read-only explorer validation task
-  cohort explorer list|show|run
-                          inspect or run isolated read-only explorer tasks
+  cohort explorer list|show|run|run-batch
+                          inspect or run isolated read-only explorer tasks and aggregate lanes
   cohort tui status|plan|diff|logs|explorers|watch
                           show terminal task, plan, diff, log, and explorer panels
   cohort mcp list         list configured MCP servers

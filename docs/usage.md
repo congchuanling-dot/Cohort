@@ -582,6 +582,20 @@ cohort capability promote <capability_id>
 cohort capability disable <capability_id>
 ```
 
+Tool/MCP adapter 还需要额外执行显式启用，避免 `promote` 后未经审核就进入运行时：
+
+```bash
+cohort capability enable <capability_id>
+```
+
+Tool adapter 启用记录会写入：
+
+```text
+.cohort/capabilities/enabled_adapters.json
+```
+
+下一次 Runner 启动时会读取这份 allowlist，把已启用 Tool adapter 的 command 注册为工具。MCP adapter 启用后不会自动启动外部服务，命令会输出明确的 `cohort mcp import --scope project --merge ...` 下一步。
+
 查看某个 capability、gap 或 proposal：
 
 ```bash
@@ -597,9 +611,51 @@ cohort capability show <id>
 
 交互运行时，如果模型没有调用工具就明确表示“缺少工具 / 无法处理 / 不支持该能力”，Runner 会自动记录一个 `runner:no_tool` 来源的 capability gap，并在 `run.log.jsonl` 里写入 `CapabilityGapRecorded` 观测事件。
 
-注意：当前 Cohort 可以通过 `code_run` 执行 shell 命令，因此技术上可以运行 `python3 -m pip install --user xxx` 这类安装命令。但完整能力拓展不会直接放开任意安装。当前 `build/doctor/deps/verify/promote` 负责生成项目级 Skill 候选、诊断文件与依赖、生成依赖安装计划、显式批准后安装并记录审计、运行 smoke test 并更新 registry；已 promote 为 `available` 的 skill capability 会进入系统提示词里的 Capability Index，模型命中后仍需先 `skill_read`。`suggestions` 只根据重复 unresolved gaps 给出下一步建议，不会自动创建 proposal 或安装依赖。Tool/MCP adapter 生成和离线反思汇总仍需要后续按 [能力边界拓展技术方案](capability_evolution_technical_design.md) 继续实现。
+注意：当前 Cohort 可以通过 `code_run` 执行 shell 命令，因此技术上可以运行 `python3 -m pip install --user xxx` 这类安装命令。但完整能力拓展不会直接放开任意安装。当前 `build/doctor/deps/verify/promote/enable` 负责生成项目级 Skill 候选、诊断文件与依赖、生成依赖安装计划、显式批准后安装并记录审计、运行 smoke test、更新 registry，并在审核后启用 adapter。已 promote 为 `available` 的 skill capability 会进入系统提示词里的 Capability Index，模型命中后仍需先 `skill_read`。`suggestions` 只根据重复 unresolved gaps 给出下一步建议，不会自动创建 proposal 或安装依赖。更完整离线反思汇总仍需要后续按 [能力边界拓展技术方案](capability_evolution_technical_design.md) 继续实现。
 
-### 4.7 查看 session 列表
+### 4.7 LSP 查询
+
+诊断：
+
+```bash
+cohort lsp diagnostics --language go ./...
+cohort lsp diagnostics --language typescript
+cohort lsp diagnostics --language python .
+```
+
+符号查询：
+
+```bash
+cohort lsp definition --language go internal/foo.go:12:8
+cohort lsp references --language typescript src/main.ts:5:17 --declaration
+cohort lsp hover --language python app.py:10:4
+cohort lsp symbols --language typescript src
+```
+
+Go 的 `definition/references/hover/symbols` 走 `gopls`。TypeScript/Python 第一版走只读 `symbol_scan` fallback，用源文件扫描提供近似定义、引用、hover 和 symbols，不等同于长驻 language server 的类型级精确结果。
+
+### 4.8 Explorer Batch
+
+创建只读验证任务：
+
+```bash
+cohort explorer create "verify plan mode status"
+cohort explorer create "verify capability adapter docs"
+```
+
+并行运行多个 lane 并生成聚合报告：
+
+```bash
+cohort explorer run-batch <id1> <id2> --with-tests
+```
+
+聚合报告写入：
+
+```text
+.cohort/explorers/aggregate_result.md
+```
+
+### 4.9 查看 session 列表
 
 推荐在交互模式里输入：
 
@@ -632,7 +688,7 @@ ID                        TITLE           MESSAGES  UPDATED              CWD
 - `UPDATED`：最后更新时间。
 - `CWD`：创建 session 时所在目录。
 
-### 4.8 恢复 session
+### 4.10 恢复 session
 
 推荐在交互模式里输入：
 

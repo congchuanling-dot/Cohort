@@ -75,3 +75,43 @@ exit 2
 		t.Fatalf("updated task = %#v", updated)
 	}
 }
+
+func TestRunExplorerBatchWritesAggregateReport_BitsUT(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bin, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(`#!/bin/sh
+if [ "$1" = "status" ]; then exit 0; fi
+if [ "$1" = "diff" ]; then exit 0; fi
+exit 2
+`), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	store := NewStore(dir)
+	first, err := store.Create("verify first lane")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.Create("verify second lane")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := store.RunBatch(context.Background(), []string{first.ID, second.ID}, RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Results) != 2 || result.Failed != 0 || result.ReportPath == "" {
+		t.Fatalf("batch result = %#v", result)
+	}
+	data, err := os.ReadFile(result.ReportPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "Explorer Aggregate Result") || !strings.Contains(string(data), first.ID) || !strings.Contains(string(data), second.ID) {
+		t.Fatalf("aggregate = %s", string(data))
+	}
+}

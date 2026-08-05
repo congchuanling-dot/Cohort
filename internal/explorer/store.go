@@ -20,6 +20,8 @@ const (
 	StateFile      = "tasks.json"
 )
 
+var stateFileMu sync.Mutex
+
 type Store struct {
 	ProjectRoot string
 	RootDir     string
@@ -53,6 +55,12 @@ type RunOptions struct {
 type RunResult struct {
 	Task   Task          `json:"task"`
 	Checks []CheckResult `json:"checks"`
+}
+
+type BatchRunResult struct {
+	Results    []RunResult `json:"results"`
+	ReportPath string      `json:"report_path"`
+	Failed     int         `json:"failed"`
 }
 
 type CheckResult struct {
@@ -196,6 +204,47 @@ func (s Store) Run(ctx context.Context, id string, opts RunOptions) (RunResult, 
 	return result, nil
 }
 
+func (s Store) RunBatch(ctx context.Context, ids []string, opts RunOptions) (BatchRunResult, error) {
+	cleanIDs := cleanIDs(ids)
+	if len(cleanIDs) == 0 {
+		return BatchRunResult{}, errors.New("at least one explorer task id is required")
+	}
+	results := make([]RunResult, len(cleanIDs))
+	errs := make([]error, len(cleanIDs))
+	var wg sync.WaitGroup
+	for index, id := range cleanIDs {
+		wg.Add(1)
+		go func(index int, id string) {
+			defer wg.Done()
+			results[index], errs[index] = s.Run(ctx, id, opts)
+		}(index, id)
+	}
+	wg.Wait()
+	failed := 0
+	for index, err := range errs {
+		if err != nil {
+			failed++
+			if results[index].Task.ID == "" {
+				results[index].Task = Task{ID: cleanIDs[index], Status: "failed", LastError: err.Error()}
+			}
+		} else if results[index].Task.Status == "failed" {
+			failed++
+		}
+	}
+	reportPath := filepath.Join(s.RootDir, "aggregate_result.md")
+	batch := BatchRunResult{Results: results, ReportPath: reportPath, Failed: failed}
+	if err := os.MkdirAll(s.RootDir, 0755); err != nil {
+		return batch, err
+	}
+	if err := os.WriteFile(reportPath, []byte(batchResultMarkdown(batch)), 0644); err != nil {
+		return batch, err
+	}
+	if failed > 0 {
+		return batch, fmt.Errorf("explorer batch failed: %d lane(s) failed", failed)
+	}
+	return batch, nil
+}
+
 func (s Store) runChecks(ctx context.Context, opts RunOptions) []CheckResult {
 	commands := []struct {
 		name string
@@ -261,6 +310,8 @@ func (s Store) runCommand(ctx context.Context, name string, argv []string) Check
 }
 
 func (s Store) updateTask(id string, update func(task *Task, now time.Time)) (Task, error) {
+	stateFileMu.Lock()
+	defer stateFileMu.Unlock()
 	id = strings.TrimSpace(id)
 	state, err := s.Load()
 	if err != nil {
@@ -350,6 +401,52 @@ func resultMarkdown(result RunResult) string {
 		}
 	}
 	return b.String()
+}
+
+func batchResultMarkdown(batch BatchRunResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Explorer Aggregate Result\n\n")
+	fmt.Fprintf(&b, "Lanes: %d\n", len(batch.Results))
+	fmt.Fprintf(&b, "Failed: %d\n\n", batch.Failed)
+	for _, result := range batch.Results {
+		status := result.Task.Status
+		if status == "" {
+			status = "unknown"
+		}
+		fmt.Fprintf(&b, "## %s [%s]\n\n", result.Task.ID, status)
+		if result.Task.Question != "" {
+			fmt.Fprintf(&b, "%s\n\n", result.Task.Question)
+		}
+		if result.Task.ResultPath != "" {
+			fmt.Fprintf(&b, "Result: `%s`\n\n", result.Task.ResultPath)
+		}
+		if result.Task.LastError != "" {
+			fmt.Fprintf(&b, "Error: %s\n\n", result.Task.LastError)
+		}
+		for _, check := range result.Checks {
+			checkStatus := "ok"
+			if !check.OK {
+				checkStatus = "fail"
+			}
+			fmt.Fprintf(&b, "- [%s] %s: `%s`\n", checkStatus, check.Name, strings.Join(check.Command, " "))
+		}
+		fmt.Fprintln(&b)
+	}
+	return b.String()
+}
+
+func cleanIDs(ids []string) []string {
+	clean := make([]string, 0, len(ids))
+	seen := map[string]bool{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		clean = append(clean, id)
+	}
+	return clean
 }
 
 func failedChecks(checks []CheckResult) int {

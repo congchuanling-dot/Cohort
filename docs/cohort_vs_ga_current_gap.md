@@ -455,10 +455,10 @@ Cohort 缺：
 ### P2：扩展和协作
 
 1. MCP import/export、旧 SSE 兼容和真实服务矩阵验收。
-2. LSP tools，已接 Go/TypeScript/Python 只读 diagnostics 和 Go definition/references；TS/Python definition/references、hover/symbols 等完整 LSP 查询待补。
+2. LSP tools，已接 Go/TypeScript/Python 只读 diagnostics、Go gopls definition/references/hover/symbols，以及 TS/Python `symbol_scan` definition/references/hover/symbols fallback；TS/Python 长驻 language server 级精确查询待补。
 3. Computer Use 跨 OS 操作层 M0/M1：先落 `computer_see`、`computer_find`、`computer_click`、`computer_type`，再接确认后的 `computer_press`、`computer_check`、`computer_wait`。
 4. Plugin manifest，已支持 `.cohort/plugins/*/plugin.json` 发现、展示和 doctor；自动注册仍待补。
-5. 只读 subagent / explorer，已支持只读 explorer 任务包、隔离子进程执行和并发只读检查；更强 subagent 结果合并待补。
+5. 只读 subagent / explorer，已支持只读 explorer 任务包、隔离子进程执行、并发只读检查、batch lane 和 aggregate report；更强 subagent worker 和语义结果合并待补。
 6. TUI，已支持 `cohort tui status|plan|diff|logs|explorers|watch` 子视图和周期刷新；全屏交互式任务面板待补。
 7. tracing sink。
 
