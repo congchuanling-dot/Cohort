@@ -101,6 +101,7 @@ type RunResult struct {
 	RunID         string       `json:"run_id"`
 	SuiteID       string       `json:"suite_id"`
 	SuiteName     string       `json:"suite_name"`
+	Profile       string       `json:"profile,omitempty"`
 	Model         string       `json:"model,omitempty"`
 	StartedAt     time.Time    `json:"started_at"`
 	FinishedAt    time.Time    `json:"finished_at"`

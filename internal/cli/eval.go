@@ -34,7 +34,7 @@ type evalRunOptions struct {
 
 func runEvalCommand(ctx context.Context, cfg app.Config, args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: cohort eval init|list|run|history|report")
+		return errors.New("usage: cohort eval init|list|run|history|report|stability")
 	}
 	root, err := os.Getwd()
 	if err != nil {
@@ -56,6 +56,8 @@ func runEvalCommand(ctx context.Context, cfg app.Config, args []string, out io.W
 		return printEvalHistory(store, out)
 	case "report":
 		return showEvalReport(store, args[1:], out)
+	case "stability":
+		return runEvalStabilityCommand(store, args[1:], out)
 	default:
 		return fmt.Errorf("unknown eval command %q", args[0])
 	}
@@ -273,6 +275,7 @@ func executeEvalRunOnce(ctx context.Context, cfg app.Config, store evaluation.St
 	}
 	result := evaluation.Run(ctx, suite, execute, evaluation.RunOptions{
 		Workers: opts.Workers,
+		Profile: evalCfg.LLM.Active().ID,
 		Model:   evalCfg.LLM.Active().Model,
 		Repeat:  opts.Repeat,
 	})
@@ -504,7 +507,7 @@ func previousComparableEvalResult(store evaluation.Store, current evaluation.Run
 		if result.RunID == current.RunID {
 			continue
 		}
-		if result.SuiteID == current.SuiteID && result.Model == current.Model && result.StartedAt.Before(current.StartedAt) {
+		if result.SuiteID == current.SuiteID && result.Model == current.Model && result.Profile == current.Profile && result.StartedAt.Before(current.StartedAt) {
 			return result, nil
 		}
 	}

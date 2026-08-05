@@ -26,3 +26,13 @@ func TestParseEvalRunOptionsV3_BitsUT(t *testing.T) {
 		t.Fatalf("gate = %#v", opts.Gate)
 	}
 }
+
+func TestParseEvalStabilityOptions_BitsUT(t *testing.T) {
+	opts, err := parseEvalStabilityOptions([]string{"--window=50", "--suite", "stateful", "--profile=deepseek", "--model", "model-a", "--open", "--flaky"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Window != 50 || opts.SuiteID != "stateful" || opts.Profile != "deepseek" || opts.Model != "model-a" || !opts.Open || !opts.OnlyFlaky {
+		t.Fatalf("opts = %#v", opts)
+	}
+}

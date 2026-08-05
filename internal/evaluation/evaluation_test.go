@@ -241,3 +241,44 @@ func TestEvalV3AssertionsJudgeAndGate_BitsUT(t *testing.T) {
 		t.Fatalf("gate = %#v, want score and stability violations", gate)
 	}
 }
+
+func TestStabilityIndexAndReports_BitsUT(t *testing.T) {
+	now := time.Now()
+	results := []RunResult{
+		{
+			RunID: "r1", SuiteID: "stateful", SuiteName: "Stateful", Profile: "deepseek", Model: "model-a", StartedAt: now.Add(-time.Hour),
+			PassRate: 100, Score: 100, TotalCases: 1,
+			Cases: []CaseResult{{CaseID: "create_config", Name: "Create", Passed: true, Score: 100, StabilityRate: 100}},
+		},
+		{
+			RunID: "r2", SuiteID: "stateful", SuiteName: "Stateful", Profile: "deepseek", Model: "model-a", StartedAt: now,
+			PassRate: 0, Score: 80, FailedCases: 1, TotalCases: 1,
+			Cases: []CaseResult{{
+				CaseID: "create_config", Name: "Create", Passed: false, Score: 80, StabilityRate: 50,
+				AssertionResults: []AssertionResult{{Kind: "max_tool_calls", Expected: "3", Actual: "4", Passed: false}},
+				TracePath:        "/tmp/run.log.jsonl", TraceRunID: "run_2",
+			}},
+		},
+	}
+	index := BuildStabilityIndex(results, StabilityOptions{Window: 20, SuiteID: "stateful", Profile: "deepseek"})
+	if index.Summary.Runs != 2 || index.Summary.FlakyCases != 1 || index.Summary.Regressions != 1 || len(index.FailureSignatures) != 1 {
+		t.Fatalf("index summary = %#v signatures=%#v", index.Summary, index.FailureSignatures)
+	}
+	if len(index.Cases) != 1 || !index.Cases[0].Flaky || index.Cases[0].LatestTraceRunID != "run_2" {
+		t.Fatalf("case metrics = %#v", index.Cases)
+	}
+	store := NewStore(t.TempDir())
+	indexPath, markdownPath, htmlPath, err := WriteStabilityReports(store, index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{indexPath, markdownPath, htmlPath} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), "create_config") {
+			t.Fatalf("%s missing case id", path)
+		}
+	}
+}

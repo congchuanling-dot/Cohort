@@ -276,6 +276,39 @@ Suite 使用显式 JSON：
 cohort eval report --open
 ```
 
+## 稳定性平台
+
+单次 `report.html` 用来分析一个 run；`cohort eval stability` 用来聚合历史 run，回答“最近一段时间 Agent 是否稳定”。
+
+常用命令：
+
+```bash
+cohort eval stability update
+cohort eval stability report --window 20
+cohort eval stability report --suite stateful --profile deepseek --open
+cohort eval stability cases --flaky
+cohort eval stability regressions
+```
+
+稳定性产物写入：
+
+```text
+.cohort/evals/stability/
+  index.json
+  report.md
+  report.html
+```
+
+当前 P0 版本直接读取 `.cohort/evals/runs/*/result.json`，不引入数据库。`--window N` 表示在筛选后的最近 N 次 run 上聚合；`--suite`、`--profile`、`--model` 可缩小分析范围。历史结果缺少 `profile` 时，`--profile` 会兼容匹配 `model`。
+
+平台指标包括：
+
+- 总体平均 Pass Rate、Quality Score、Stability。
+- 按 suite 聚合的稳定性。
+- 按 case 聚合的 pass rate、平均稳定率、flaky 标记、最新 trace。
+- Failure Signature 聚类：按 suite、case、断言类型和期望值聚合失败。
+- Regression 列表：同一 case 从上一次通过变成本次失败。
+
 ## CI 建议
 
 核心回归：

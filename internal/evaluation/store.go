@@ -20,6 +20,9 @@ func NewStore(projectRoot string) Store {
 
 func (s Store) SuitesDir() string { return filepath.Join(s.Root, "suites") }
 func (s Store) RunsDir() string   { return filepath.Join(s.Root, "runs") }
+func (s Store) StabilityDir() string {
+	return filepath.Join(s.Root, "stability")
+}
 func (s Store) SuitePath(id string) string {
 	if strings.HasSuffix(id, ".json") || strings.ContainsRune(id, filepath.Separator) {
 		return id

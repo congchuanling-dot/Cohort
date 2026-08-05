@@ -18,6 +18,7 @@ type ExecuteCaseFunc func(ctx context.Context, request ExecuteRequest) Execution
 
 type RunOptions struct {
 	Workers int
+	Profile string
 	Model   string
 	Repeat  int
 }
@@ -32,6 +33,7 @@ func Run(ctx context.Context, suite Suite, execute ExecuteCaseFunc, opts RunOpti
 		RunID:         fmt.Sprintf("eval_%s", started.Format("20060102T150405.000000000")),
 		SuiteID:       suite.ID,
 		SuiteName:     suite.Name,
+		Profile:       opts.Profile,
 		Model:         opts.Model,
 		StartedAt:     started,
 		TotalCases:    len(suite.Cases),

@@ -1393,6 +1393,12 @@ Usage:
   cohort eval history     list persisted eval runs
   cohort eval report [run_id|latest] [--open]
                           generate or open the offline HTML dashboard
+  cohort eval stability report [--window N] [--suite id] [--profile id] [--open]
+                          aggregate historical eval runs into a stability dashboard
+  cohort eval stability cases [--flaky]
+                          list unstable cases from historical eval runs
+  cohort eval stability regressions
+                          list pass-to-fail case regressions
   cohort mcp list         list configured MCP servers
   cohort mcp status       check configured MCP server availability
   cohort mcp add ...      add an MCP server
