@@ -129,6 +129,8 @@ func Run(args []string) error {
 		return runSessionCommand(context.Background(), cfg, args[1:])
 	case "reflect":
 		return runReflectCommand(cfg, args[1:], os.Stdout)
+	case "tuning":
+		return runTuningCommand(cfg, args[1:], os.Stdout)
 	case "tools":
 		schemas, schemasErr := app.ToolSchemas(cfg)
 		if schemasErr != nil {
@@ -1358,6 +1360,8 @@ Usage:
   cohort perf last        show latest run latency, usage, and bottlenecks
   cohort perf show <session_id> [--run <run_id>]
                           show one session run performance summary
+  cohort tuning report [--limit N] [--out path]
+                          generate an offline tuning report from run.log.jsonl
   cohort mcp list         list configured MCP servers
   cohort mcp status       check configured MCP server availability
   cohort mcp add ...      add an MCP server

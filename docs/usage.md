@@ -332,6 +332,16 @@ cohort perf show <session_id> [--run <run_id>]
 
 `trace` 按时间线展示 `ContextBuilt`、`LLMRequestStarted`、`LLMResponseFinished`、`ToolStarted`、`ToolFinished` 等事件。`perf` 汇总总耗时、LLM 耗时、工具耗时、最近一次请求大小、工具 schema 数量、usage 和最大事件间隔，用于快速判断慢在模型、工具、上下文构建还是外部观测链路。
 
+跨任务调优报告：
+
+```bash
+cohort tuning report
+cohort tuning report --limit 100
+cohort tuning report --out memory/reflection/tuning_report.md
+```
+
+报告默认写入当前 workspace 的 `memory/reflection/tuning_report.md`，只使用事件计数、耗时、工具名、状态码和请求大小等结构化摘要，不写入用户原文或工具结果正文。报告会汇总慢 LLM 调用、失败工具、`ask_user` 频次、权限事件、工具 schema 膨胀、request 膨胀和 context 膨胀，并给出下一步调优建议。
+
 离线 Skill 候选挖掘：
 
 ```bash

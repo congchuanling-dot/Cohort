@@ -442,9 +442,10 @@ exit -> RunFinished
 - Runner 已在 `RunFinished` 汇总 usage/cost。
 - Langfuse sink 已有基础 ingestion，并已通过异步 sink 避免阻塞主流程。
 - trace/perf CLI 已能读本地 usage 和耗时。
+- `cohort tuning report` 已能跨多次 run 汇总慢 LLM、失败工具、ask_user、权限事件、schema/request/context 膨胀。
 - Langfuse 的完整层级 trace 与 OpenTelemetry sink 仍待补。
 
-### P2：调优报告 `[规划]`
+### P2：调优报告 `[部分完成]`
 
 任务：
 
@@ -452,12 +453,15 @@ exit -> RunFinished
 2. 实现 `mine-sop-candidates`。
 3. 实现 `memory-quality-report`。
 4. 实现 `tool-failure-report`。
+5. 实现 `cohort tuning report`。
+6. 后续实现 eval dataset 和 prompt/tool A/B。
 
 验收：
 
 - 能从多次 run log 中发现高频失败工具。
 - 能输出 SOP candidate，但不自动晋级。
 - 能报告 memory 命中后是否被使用。
+- 能输出慢请求、工具 schema 膨胀、request/context 膨胀和下一步调优建议。
 
 ### P3：前端可视化
 

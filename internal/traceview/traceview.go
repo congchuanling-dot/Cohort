@@ -25,6 +25,12 @@ type RunView struct {
 	Events    []observability.Event
 }
 
+type RunIndex struct {
+	SessionID string
+	RunID     string
+	LastTime  time.Time
+}
+
 type Summary struct {
 	SessionID           string
 	RunID               string
@@ -91,18 +97,45 @@ type GapItem struct {
 }
 
 func LoadLatest(root string) (RunView, error) {
-	store := session.NewStore(root)
-	candidates, err := listSessionCandidates(store)
+	views, err := LoadRecentRuns(root, 1)
 	if err != nil {
 		return RunView{}, err
 	}
-	for _, candidate := range candidates {
-		view, err := LoadSessionRun(root, candidate.ID, "")
-		if err == nil && len(view.Events) > 0 {
-			return view, nil
-		}
+	if len(views) == 0 {
+		return RunView{}, errors.New("no session with run.log.jsonl found")
 	}
-	return RunView{}, errors.New("no session with run.log.jsonl found")
+	return views[0], nil
+}
+
+func LoadRecentRuns(root string, limit int) ([]RunView, error) {
+	store := session.NewStore(root)
+	candidates, err := listSessionCandidates(store)
+	if err != nil {
+		return nil, err
+	}
+	indexes := make([]RunIndex, 0, len(candidates))
+	for _, candidate := range candidates {
+		sessionIndexes, err := listSessionRuns(root, candidate.ID)
+		if err != nil {
+			continue
+		}
+		indexes = append(indexes, sessionIndexes...)
+	}
+	sort.Slice(indexes, func(i, j int) bool {
+		return indexes[i].LastTime.After(indexes[j].LastTime)
+	})
+	if limit > 0 && len(indexes) > limit {
+		indexes = indexes[:limit]
+	}
+	views := make([]RunView, 0, len(indexes))
+	for _, index := range indexes {
+		view, err := LoadSessionRun(root, index.SessionID, index.RunID)
+		if err != nil {
+			continue
+		}
+		views = append(views, view)
+	}
+	return views, nil
 }
 
 type sessionCandidate struct {
@@ -171,6 +204,36 @@ func LoadSessionRun(root string, sessionID string, runID string) (RunView, error
 		Path:      path,
 		Events:    filtered,
 	}, nil
+}
+
+func listSessionRuns(root string, sessionID string) ([]RunIndex, error) {
+	path := filepath.Join(session.NewStore(root).SessionDir(sessionID), ObservationLogFileName)
+	events, err := readEvents(path)
+	if err != nil {
+		return nil, err
+	}
+	byRun := map[string]time.Time{}
+	for _, event := range events {
+		runID := strings.TrimSpace(event.RunID)
+		if runID == "" {
+			continue
+		}
+		if event.Time.After(byRun[runID]) {
+			byRun[runID] = event.Time
+		}
+	}
+	indexes := make([]RunIndex, 0, len(byRun))
+	for runID, lastTime := range byRun {
+		indexes = append(indexes, RunIndex{
+			SessionID: sessionID,
+			RunID:     runID,
+			LastTime:  lastTime,
+		})
+	}
+	sort.Slice(indexes, func(i, j int) bool {
+		return indexes[i].LastTime.After(indexes[j].LastTime)
+	})
+	return indexes, nil
 }
 
 func (v RunView) Summary() Summary {
