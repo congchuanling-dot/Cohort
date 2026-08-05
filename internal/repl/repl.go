@@ -47,6 +47,10 @@ const (
 	commandSkill       = "skill"
 	commandMCP         = "mcp"
 	commandDiff        = "diff"
+	commandEval        = "eval"
+	commandTrace       = "trace"
+	commandPerf        = "perf"
+	commandTuning      = "tuning"
 	commandClear       = "clear"
 
 	sessionCommandList   = "list"
@@ -107,6 +111,14 @@ type Options struct {
 	Out io.Writer
 	// Err 是 REPL 命令错误输出目标。
 	Err io.Writer
+	// EvalCommand/TraceCommand/PerfCommand/TuningCommand 由 CLI 注入实现，
+	// 避免 REPL 反向依赖 cli 包形成循环依赖。
+	EvalCommand   func(context.Context, []string, io.Writer) error
+	TraceCommand  func([]string, io.Writer) error
+	PerfCommand   func([]string, io.Writer) error
+	TuningCommand func([]string, io.Writer) error
+	// QueueAutoRefresh 将任务结束后的本地报告刷新投递到异步队列。
+	QueueAutoRefresh func()
 }
 
 // Start 启动 Cohort 交互模式。
@@ -171,6 +183,9 @@ func Start(ctx context.Context, opts Options) error {
 		}
 		if _, err := opts.Runner.Run(ctx, input, agent.NewConsoleSink(opts.Out)); err != nil {
 			fmt.Fprintf(opts.Err, "run error: %v\n", err)
+		}
+		if opts.QueueAutoRefresh != nil {
+			opts.QueueAutoRefresh()
 		}
 	}
 }
@@ -290,6 +305,16 @@ func slashCompleter() *readline.PrefixCompleter {
 			readline.PcItem("rollback"),
 			readline.PcItem("accept"),
 		),
+		readline.PcItem("/eval",
+			readline.PcItem("init"),
+			readline.PcItem("list"),
+			readline.PcItem("run"),
+			readline.PcItem("history"),
+			readline.PcItem("report"),
+		),
+		readline.PcItem("/trace", readline.PcItem("last"), readline.PcItem("show")),
+		readline.PcItem("/perf", readline.PcItem("last"), readline.PcItem("show")),
+		readline.PcItem("/tuning", readline.PcItem("report")),
 		readline.PcItem("/clear"),
 		readline.PcItem("/exit"),
 	)
@@ -425,6 +450,16 @@ func selectSlashCommand(opts Options) (SlashCommand, bool, error) {
 			Command:     SlashCommand{Raw: "/diff", Name: commandDiff},
 		},
 		{
+			Usage:       "/eval history",
+			Description: "查看 Agent Eval 历史结果",
+			Command:     SlashCommand{Raw: "/eval history", Name: commandEval, Args: []string{"history"}},
+		},
+		{
+			Usage:       "/tuning report --open",
+			Description: "刷新并打开日常调优 Dashboard",
+			Command:     SlashCommand{Raw: "/tuning report --open", Name: commandTuning, Args: []string{"report", "--open"}},
+		},
+		{
 			Usage:       "/clear",
 			Description: "清空当前内存上下文，下一次输入创建新 session",
 			Command:     SlashCommand{Raw: "/clear", Name: commandClear},
@@ -538,6 +573,38 @@ func handleSlashCommand(opts Options, cmd SlashCommand) (bool, error) {
 		return false, handleSkillCommand(opts, cmd.Args)
 	case commandDiff:
 		return false, handleDiffCommand(opts, cmd.Args)
+	case commandEval:
+		if opts.EvalCommand == nil {
+			return false, errors.New("/eval is unavailable in this runtime")
+		}
+		return false, opts.EvalCommand(opts.Context, cmd.Args, opts.Out)
+	case commandTrace:
+		if opts.TraceCommand == nil {
+			return false, errors.New("/trace is unavailable in this runtime")
+		}
+		args := cmd.Args
+		if len(args) == 0 {
+			args = []string{"last"}
+		}
+		return false, opts.TraceCommand(args, opts.Out)
+	case commandPerf:
+		if opts.PerfCommand == nil {
+			return false, errors.New("/perf is unavailable in this runtime")
+		}
+		args := cmd.Args
+		if len(args) == 0 {
+			args = []string{"last"}
+		}
+		return false, opts.PerfCommand(args, opts.Out)
+	case commandTuning:
+		if opts.TuningCommand == nil {
+			return false, errors.New("/tuning is unavailable in this runtime")
+		}
+		args := cmd.Args
+		if len(args) == 0 {
+			args = []string{"report"}
+		}
+		return false, opts.TuningCommand(args, opts.Out)
 	case commandClear:
 		opts.Runner.Reset()
 		fmt.Fprintln(opts.Out, "current in-memory session cleared; next task will create a new session")
@@ -974,6 +1041,11 @@ func printSlashHelp(out io.Writer) {
   /diff rollback <file> --confirm
                            仅回滚一个已跟踪文件的 staged/worktree 变更
   /diff accept             保留当前变更并输出确认说明
+  /eval init|list|run|history|report
+                           在 REPL 内管理并运行 Agent Eval
+  /trace [last|show ...]   查看最近或指定运行时间线
+  /perf [last|show ...]    查看最近或指定运行性能
+  /tuning report [--open] 刷新或打开日常调优 Dashboard
   /clear                   清空当前内存上下文，下一次输入会创建新 session
   /exit                    退出 Cohort
 
@@ -1063,6 +1135,9 @@ func printConfig(out io.Writer, cfg app.Config) {
 	fmt.Fprintf(out, "  max_session_memory_chars: %d\n", cfg.Context.MaxSessionMemoryChars)
 	fmt.Fprintf(out, "  max_compact_summary_chars: %d\n", cfg.Context.MaxCompactSummaryChars)
 	fmt.Fprintf(out, "  enable_micro_compact:     %t\n", cfg.Context.EnableMicroCompact)
+	fmt.Fprintln(out, "observability:")
+	fmt.Fprintf(out, "  auto_refresh:             %t\n", cfg.Observability.AutoRefresh)
+	fmt.Fprintf(out, "  auto_refresh_limit:       %d\n", cfg.Observability.AutoRefreshLimit)
 	printModel(out, cfg)
 }
 

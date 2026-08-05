@@ -3,6 +3,8 @@ package repl
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -81,6 +83,65 @@ func TestStartHandlesSlashCommandsLocally(t *testing.T) {
 	for _, want := range []string{"Cohort", "model:", "tools:", "file_read", "bye"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output does not contain %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestStartHandlesObservabilityCommandsAndQueuesRefresh_BitsUT(t *testing.T) {
+	client := &fakeClient{}
+	runner := &agent.Runner{
+		Client: client,
+		Tools:  fakeTools{},
+		LogDir: t.TempDir(),
+	}
+	var out bytes.Buffer
+	refreshes := 0
+	calls := map[string]int{}
+	err := Start(context.Background(), Options{
+		Config:       testConfig(),
+		Runner:       runner,
+		SessionStore: session.NewStore(t.TempDir()),
+		In:           strings.NewReader("hello\n/eval history\n/trace\n/perf\n/tuning\n/exit\n"),
+		Out:          &out,
+		Err:          &out,
+		QueueAutoRefresh: func() {
+			refreshes++
+		},
+		EvalCommand: func(_ context.Context, args []string, out io.Writer) error {
+			calls["eval"]++
+			fmt.Fprintf(out, "eval:%s\n", strings.Join(args, ","))
+			return nil
+		},
+		TraceCommand: func(args []string, out io.Writer) error {
+			calls["trace"]++
+			fmt.Fprintf(out, "trace:%s\n", strings.Join(args, ","))
+			return nil
+		},
+		PerfCommand: func(args []string, out io.Writer) error {
+			calls["perf"]++
+			fmt.Fprintf(out, "perf:%s\n", strings.Join(args, ","))
+			return nil
+		},
+		TuningCommand: func(args []string, out io.Writer) error {
+			calls["tuning"]++
+			fmt.Fprintf(out, "tuning:%s\n", strings.Join(args, ","))
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.calls != 1 || refreshes != 1 {
+		t.Fatalf("model calls/refreshes = %d/%d, want 1/1", client.calls, refreshes)
+	}
+	for _, command := range []string{"eval", "trace", "perf", "tuning"} {
+		if calls[command] != 1 {
+			t.Fatalf("%s calls = %d, want 1", command, calls[command])
+		}
+	}
+	for _, want := range []string{"eval:history", "trace:last", "perf:last", "tuning:report"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("output missing %q:\n%s", want, out.String())
 		}
 	}
 }

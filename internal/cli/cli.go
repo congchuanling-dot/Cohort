@@ -119,6 +119,8 @@ func Run(args []string) error {
 		fmt.Printf("context.max_tool_result_chars: %d\n", cfg.Context.MaxToolResultChars)
 		fmt.Printf("context.max_request_chars: %d\n", cfg.Context.MaxRequestChars)
 		fmt.Printf("context.enable_micro_compact: %t\n", cfg.Context.EnableMicroCompact)
+		fmt.Printf("observability.auto_refresh: %t\n", cfg.Observability.AutoRefresh)
+		fmt.Printf("observability.auto_refresh_limit: %d\n", cfg.Observability.AutoRefreshLimit)
 		if cfg.LLM.APIKey == "" {
 			fmt.Println("api_key: missing")
 		} else {
@@ -1269,6 +1271,12 @@ func startREPL(ctx context.Context, cfg app.Config, runner *agent.Runner) error 
 		return err
 	}
 	mcpStore := mcp.NewStore(projectRoot)
+	refresher := newAsyncTuningRefresher(cfg, os.Stderr)
+	defer refresher.Close()
+	var queueAutoRefresh func()
+	if refresher != nil {
+		queueAutoRefresh = refresher.Queue
+	}
 	return repl.Start(ctx, repl.Options{
 		Config:       cfg,
 		Runner:       runner,
@@ -1277,6 +1285,19 @@ func startREPL(ctx context.Context, cfg app.Config, runner *agent.Runner) error 
 		In:           os.Stdin,
 		Out:          os.Stdout,
 		Err:          os.Stderr,
+		EvalCommand: func(commandCtx context.Context, args []string, out io.Writer) error {
+			return runEvalCommand(commandCtx, cfg, args, out)
+		},
+		TraceCommand: func(args []string, out io.Writer) error {
+			return runTraceCommand(args, out)
+		},
+		PerfCommand: func(args []string, out io.Writer) error {
+			return runPerfCommand(args, out)
+		},
+		TuningCommand: func(args []string, out io.Writer) error {
+			return runTuningCommand(cfg, args, out)
+		},
+		QueueAutoRefresh: queueAutoRefresh,
 	})
 }
 

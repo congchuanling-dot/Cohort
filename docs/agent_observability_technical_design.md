@@ -469,9 +469,10 @@ exit -> RunFinished
 
 任务：
 
-1. REPL 增加 `/trace` 查看本次 run 摘要。
-2. TUI trace panel。
-3. 支持按 session 查看 turn、tool、cost、artifact。
+1. `[完成]` REPL 增加 `/trace`、`/perf`、`/tuning` 和 `/eval`。
+2. `[完成]` 每次普通 REPL 任务后可配置异步刷新 tuning Markdown/HTML Dashboard。
+3. `[部分完成]` 支持按 session 查看 turn、tool、usage 和性能 gap；artifact 深度关联待补。
+4. `[规划]` 全屏 TUI trace panel。
 
 验收：
 

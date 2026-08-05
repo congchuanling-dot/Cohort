@@ -3,6 +3,7 @@ package tuning
 import (
 	"bytes"
 	"fmt"
+	"html/template"
 	"os"
 	"path/filepath"
 	"sort"
@@ -23,6 +24,7 @@ type Options struct {
 
 type Report struct {
 	OutputPath       string
+	DashboardPath    string
 	RunsScanned      int
 	SessionsScanned  int
 	TotalDurationMS  int64
@@ -81,11 +83,15 @@ func Generate(workspace string, opts Options) (Report, error) {
 	}
 	report := buildReport(views)
 	report.OutputPath = opts.OutputPath
+	report.DashboardPath = strings.TrimSuffix(opts.OutputPath, filepath.Ext(opts.OutputPath)) + ".html"
 	content := renderReport(report, views)
 	if err := os.MkdirAll(filepath.Dir(opts.OutputPath), 0755); err != nil {
 		return Report{}, err
 	}
 	if err := os.WriteFile(opts.OutputPath, []byte(content), 0644); err != nil {
+		return Report{}, err
+	}
+	if err := writeDashboard(report.DashboardPath, report); err != nil {
 		return Report{}, err
 	}
 	return report, nil
@@ -284,3 +290,27 @@ func formatMS(ms int64) string {
 	}
 	return (time.Duration(ms) * time.Millisecond).String()
 }
+
+func writeDashboard(path string, report Report) error {
+	tmpl, err := template.New("tuning").Funcs(template.FuncMap{
+		"duration": formatMS,
+	}).Parse(tuningDashboardHTML)
+	if err != nil {
+		return err
+	}
+	var output bytes.Buffer
+	if err := tmpl.Execute(&output, report); err != nil {
+		return err
+	}
+	return os.WriteFile(path, output.Bytes(), 0644)
+}
+
+const tuningDashboardHTML = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cohort Runtime Tuning</title><style>
+:root{--bg:#0b1020;--panel:#131c31;--line:#283755;--text:#eef3ff;--muted:#91a0ba;--blue:#70a9ff;--red:#ff7181;--green:#49d6a0}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 80% 0,#17264a,transparent 38%),var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,sans-serif}.wrap{max-width:1320px;margin:auto;padding:28px}h1{margin:4px 0 3px;font-size:30px}.sub{color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:22px 0}.card,.panel{background:linear-gradient(145deg,var(--panel),#10182a);border:1px solid var(--line);border-radius:14px;padding:17px}.label{font-size:11px;color:var(--muted);letter-spacing:.09em;text-transform:uppercase}.value{font-size:25px;font-weight:750;margin-top:5px}.layout{display:grid;grid-template-columns:1fr 1fr;gap:14px}.panel h2{font-size:15px;margin:0 0 12px}.rec{border-left:3px solid var(--blue);padding:8px 12px;margin:8px 0;background:#182239}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px;border-bottom:1px solid var(--line)}th{color:var(--muted);font-size:11px;text-transform:uppercase}.bad{color:var(--red)}.good{color:var(--green)}@media(max-width:850px){.grid{grid-template-columns:repeat(2,1fr)}.layout{grid-template-columns:1fr}}
+</style></head><body><main class="wrap"><div class="sub">COHORT RUNTIME OBSERVABILITY</div><h1>日常 Agent 调优面板</h1><div class="sub">从最近 {{.RunsScanned}} 次 run.log.jsonl 异步生成，不调用额外模型</div>
+<section class="grid"><div class="card"><div class="label">Runs</div><div class="value">{{.RunsScanned}}</div></div><div class="card"><div class="label">Total Time</div><div class="value">{{duration .TotalDurationMS}}</div></div><div class="card"><div class="label">LLM Time</div><div class="value">{{duration .LLMDurationMS}}</div></div><div class="card"><div class="label">Tool Time</div><div class="value">{{duration .ToolDurationMS}}</div></div><div class="card"><div class="label">Tool Failures</div><div class="value {{if gt .ToolFailures 0}}bad{{else}}good{{end}}">{{.ToolFailures}}</div></div></section>
+<section class="layout"><div class="panel"><h2>调优建议</h2>{{range .Recommendations}}<div class="rec">{{.}}</div>{{end}}</div><div class="panel"><h2>膨胀信号</h2><table><tr><td>Schema bloat</td><td>{{.SchemaBloatRuns}} runs</td></tr><tr><td>Request bloat</td><td>{{.RequestBloatRuns}} runs</td></tr><tr><td>Context bloat</td><td>{{.ContextBloatRuns}} runs</td></tr><tr><td>ask_user</td><td>{{.AskUserCalls}} calls</td></tr><tr><td>Permissions</td><td>{{.PermissionEvents}} events</td></tr></table></div></section>
+<section class="layout" style="margin-top:14px"><div class="panel"><h2>最慢 LLM 调用</h2><table><tr><th>耗时</th><th>Session</th><th>Turn</th><th>Tools</th></tr>{{range .SlowLLMs}}<tr><td>{{duration .DurationMS}}</td><td>{{.SessionID}}</td><td>{{.Turn}}</td><td>{{.ToolSchemaCount}}</td></tr>{{end}}</table></div><div class="panel"><h2>失败工具 Top</h2><table><tr><th>Tool</th><th>Error</th><th>Count</th></tr>{{range .FailedTools}}<tr><td>{{.Tool}}</td><td>{{.ErrorCode}}</td><td>{{.Count}}</td></tr>{{end}}</table></div></section>
+</main></body></html>`

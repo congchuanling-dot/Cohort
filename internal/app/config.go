@@ -91,6 +91,10 @@ type LLMProfile struct {
 // ObservabilityConfig 描述外部观测系统配置。本地 run.log.jsonl 始终由 Runner 默认写入。
 type ObservabilityConfig struct {
 	Langfuse LangfuseConfig
+	// AutoRefresh 在每次 REPL 普通任务结束后异步刷新本地调优报告。
+	AutoRefresh bool
+	// AutoRefreshLimit 限制每次刷新扫描的最近 run 数量。
+	AutoRefreshLimit int
 }
 
 // LangfuseConfig 描述 Langfuse ingestion API 配置。
@@ -191,6 +195,8 @@ func LoadConfig(path string) (Config, error) {
 		} else if section == "observability" {
 			if observabilitySubsection == "langfuse" && indent >= 4 {
 				applyLangfuseValue(&cfg.Observability.Langfuse, key, val)
+			} else if indent >= 2 {
+				applyObservabilityValue(&cfg.Observability, key, val)
 			}
 		} else if section == "tools" {
 			applyToolValue(&cfg.Tools, key, val)
@@ -278,6 +284,7 @@ func (cfg ToolConfig) normalizedGroups() []string {
 
 func defaultObservabilityConfig() ObservabilityConfig {
 	return ObservabilityConfig{
+		AutoRefreshLimit: 50,
 		Langfuse: LangfuseConfig{
 			Enabled:        parseBoolDefault(os.Getenv("COHORT_LANGFUSE_ENABLED"), false),
 			Host:           langfuseHostFromEnvironment(),
@@ -402,6 +409,9 @@ func copyProfileToLegacyFields(cfg *LLMConfig, profile LLMProfile) {
 }
 
 func normalizeObservabilityConfig(cfg ObservabilityConfig) ObservabilityConfig {
+	if cfg.AutoRefreshLimit <= 0 {
+		cfg.AutoRefreshLimit = 50
+	}
 	cfg.Langfuse.Host = normalizeHostValue(expandEnv(cfg.Langfuse.Host))
 	if cfg.Langfuse.Host == "" {
 		cfg.Langfuse.Host = normalizeHostValue(langfuseHostFromEnvironment())
@@ -517,6 +527,15 @@ func applyToolValue(cfg *ToolConfig, key, val string) {
 	switch key {
 	case "enabled_groups":
 		cfg.EnabledGroups = parseStringList(val)
+	}
+}
+
+func applyObservabilityValue(cfg *ObservabilityConfig, key, val string) {
+	switch key {
+	case "auto_refresh":
+		cfg.AutoRefresh = parseBoolDefault(val, cfg.AutoRefresh)
+	case "auto_refresh_limit":
+		cfg.AutoRefreshLimit = atoiDefault(val, cfg.AutoRefreshLimit)
 	}
 }
 

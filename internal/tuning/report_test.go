@@ -98,6 +98,15 @@ func TestGenerateWritesTuningReport_BitsUT(t *testing.T) {
 			t.Fatalf("report missing %q:\n%s", want, content)
 		}
 	}
+	dashboard, err := os.ReadFile(report.DashboardPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"日常 Agent 调优面板", "最慢 LLM 调用", "失败工具 Top"} {
+		if !strings.Contains(string(dashboard), want) {
+			t.Fatalf("dashboard missing %q", want)
+		}
+	}
 }
 
 func tuningEvent(at time.Time, runID string, sessionID string, eventType observability.EventType, turn int, severity observability.Severity, data map[string]any) observability.Event {

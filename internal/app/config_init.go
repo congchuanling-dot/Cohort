@@ -105,6 +105,8 @@ llm:
       max_retries: 2
 
 # observability:
+#   auto_refresh: false
+#   auto_refresh_limit: 50
 #   langfuse:
 #     enabled: false
 #     host: https://cloud.langfuse.com

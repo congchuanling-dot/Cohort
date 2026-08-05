@@ -356,6 +356,35 @@ cohort eval report latest --open
 
 评测支持输出、正则、工具调用、工具轨迹、最终文件状态、轮数、耗时和工具失败断言；支持独立临时 Fixture、重复运行与稳定率，自动与同 suite 的上一次结果比较，并生成 `result.json`、Markdown 和离线 HTML Dashboard。完整协议见 [agent_evaluation.md](agent_evaluation.md)。
 
+进入 `go run .` 后也可以直接使用：
+
+```text
+/eval list
+/eval run core --workers 2
+/eval history
+/eval report latest --open
+/trace
+/perf
+/tuning report --open
+```
+
+日常观测报告可以在每次普通 REPL 任务结束后异步刷新：
+
+```yaml
+observability:
+  auto_refresh: true
+  auto_refresh_limit: 50
+```
+
+自动刷新只读取已有 `run.log.jsonl`，不会额外调用 LLM。产物为：
+
+```text
+<workspace>/memory/reflection/tuning_report.md
+<workspace>/memory/reflection/tuning_report.html
+```
+
+完整 Eval 不会在每次聊天后自动运行，因为它会产生多次真实模型调用；需要时使用 `/eval run ...` 显式触发。
+
 离线 Skill 候选挖掘：
 
 ```bash

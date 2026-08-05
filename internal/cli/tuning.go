@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -17,7 +18,16 @@ func runTuningCommand(cfg app.Config, args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] != "report" {
 		return errors.New("usage: cohort tuning report [--limit N] [--out path]")
 	}
-	opts, err := parseTuningReportOptions(args[1:])
+	open := false
+	reportArgs := make([]string, 0, len(args)-1)
+	for _, arg := range args[1:] {
+		if arg == "--open" {
+			open = true
+			continue
+		}
+		reportArgs = append(reportArgs, arg)
+	}
+	opts, err := parseTuningReportOptions(reportArgs)
 	if err != nil {
 		return err
 	}
@@ -29,6 +39,7 @@ func runTuningCommand(cfg app.Config, args []string, out io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(out, "tuning report: %s\n", report.OutputPath)
+	fmt.Fprintf(out, "dashboard: %s\n", report.DashboardPath)
 	fmt.Fprintf(out, "runs_scanned: %d\n", report.RunsScanned)
 	fmt.Fprintf(out, "sessions_scanned: %d\n", report.SessionsScanned)
 	fmt.Fprintf(out, "llm_time: %s\n", formatDurationMS(report.LLMDurationMS))
@@ -36,6 +47,12 @@ func runTuningCommand(cfg app.Config, args []string, out io.Writer) error {
 	fmt.Fprintf(out, "tool_failures: %d\n", report.ToolFailures)
 	fmt.Fprintf(out, "schema_bloat_runs: %d\n", report.SchemaBloatRuns)
 	fmt.Fprintf(out, "request_bloat_runs: %d\n", report.RequestBloatRuns)
+	if open {
+		if err := exec.Command("open", report.DashboardPath).Start(); err != nil {
+			return fmt.Errorf("open tuning dashboard: %w", err)
+		}
+		fmt.Fprintln(out, "opened: true")
+	}
 	return nil
 }
 

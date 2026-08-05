@@ -215,6 +215,8 @@ log_dir: ./temp/model_responses
 max_turns: 7
 
 observability:
+  auto_refresh: true
+  auto_refresh_limit: 77
   langfuse:
     enabled: true
     host: https://langfuse.example.com/
@@ -242,6 +244,9 @@ llm:
 	}
 
 	langfuse := cfg.Observability.Langfuse
+	if !cfg.Observability.AutoRefresh || cfg.Observability.AutoRefreshLimit != 77 {
+		t.Fatalf("observability auto refresh = %t/%d, want true/77", cfg.Observability.AutoRefresh, cfg.Observability.AutoRefreshLimit)
+	}
 	if !langfuse.Enabled {
 		t.Fatal("langfuse enabled = false, want true")
 	}

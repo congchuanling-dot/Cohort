@@ -46,6 +46,9 @@ context:
   enable_micro_compact: true
 
 observability:
+  # 每次 REPL 普通任务结束后异步刷新本地 tuning report，不额外调用 LLM。
+  auto_refresh: true
+  auto_refresh_limit: 50
   langfuse:
     enabled: ${COHORT_LANGFUSE_ENABLED}
     host: ${LANGFUSE_HOST}
