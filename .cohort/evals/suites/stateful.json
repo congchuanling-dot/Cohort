@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "id": "stateful",
+  "name": "Cohort Stateful Task Evaluation",
+  "description": "在独立临时工作区中验证文件创建、精确修改、测试驱动修复和工具轨迹稳定性。",
+  "tool_groups": [
+    "core",
+    "lsp"
+  ],
+  "default_repeat": 2,
+  "cases": [
+    {
+      "id": "create_config",
+      "name": "创建结构化配置",
+      "prompt": "在当前工作区创建 config/app.json，内容必须是合法 JSON，并包含 name=\"cohort-eval\"、enabled=true、retries=3。完成后简洁说明。",
+      "tags": [
+        "state",
+        "write"
+      ],
+      "timeout_seconds": 120,
+      "fixture": {
+        "mode": "temp"
+      },
+      "assertions": {
+        "status": "done",
+        "required_tools": [
+          "file_write"
+        ],
+        "forbidden_tools": [
+          "ask_user"
+        ],
+        "max_turns": 4,
+        "max_tool_calls": 3,
+        "no_consecutive_tool_repeat": true,
+        "files_exist": [
+          "config/app.json"
+        ],
+        "file_contains": {
+          "config/app.json": [
+            "\"name\"",
+            "\"cohort-eval\"",
+            "\"enabled\"",
+            "true",
+            "\"retries\"",
+            "3"
+          ]
+        }
+      }
+    },
+    {
+      "id": "patch_status",
+      "name": "保留约束的精确修改",
+      "prompt": "读取 state.txt，仅把 status=old 改成 status=ready，必须保留 owner=cohort 和文件中的其他内容。不要重写无关文件。",
+      "tags": [
+        "state",
+        "patch"
+      ],
+      "timeout_seconds": 120,
+      "fixture": {
+        "mode": "temp",
+        "files": {
+          "state.txt": "owner=cohort\nstatus=old\nkeep=this-line\n"
+        }
+      },
+      "assertions": {
+        "status": "done",
+        "required_tools": [
+          "file_read",
+          "file_patch"
+        ],
+        "forbidden_tools": [
+          "file_write",
+          "ask_user"
+        ],
+        "max_turns": 5,
+        "max_tool_calls": 4,
+        "tool_sequence": [
+          "file_read",
+          "file_patch"
+        ],
+        "no_consecutive_tool_repeat": true,
+        "files_exist": [
+          "state.txt"
+        ],
+        "file_contains": {
+          "state.txt": [
+            "owner=cohort",
+            "status=ready",
+            "keep=this-line"
+          ]
+        },
+        "file_not_contains": {
+          "state.txt": [
+            "status=old"
+          ]
+        }
+      }
+    },
+    {
+      "id": "repair_go_test",
+      "name": "测试驱动修复",
+      "prompt": "运行 Go 测试定位失败，修复 calc.go 中 Add 的实现，让现有测试通过。只能修改 calc.go，修复后再次运行测试验证。",
+      "tags": [
+        "state",
+        "code",
+        "test"
+      ],
+      "timeout_seconds": 180,
+      "fixture": {
+        "mode": "temp",
+        "files": {
+          "calc.go": "package calc\n\nfunc Add(a, b int) int {\n\treturn a - b\n}\n",
+          "calc_test.go": "package calc\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif got := Add(2, 3); got != 5 { t.Fatalf(\"Add(2,3)=%d\", got) }\n}\n",
+          "go.mod": "module evalfixture\n\ngo 1.21\n"
+        }
+      },
+      "assertions": {
+        "status": "done",
+        "required_tools": [
+          "code_run",
+          "file_patch"
+        ],
+        "forbidden_tools": [
+          "file_write",
+          "ask_user"
+        ],
+        "max_turns": 7,
+        "max_tool_failures": 1,
+        "max_tool_calls": 7,
+        "tool_sequence": [
+          "code_run",
+          "file_patch",
+          "code_run"
+        ],
+        "files_exist": [
+          "calc.go",
+          "calc_test.go"
+        ],
+        "file_contains": {
+          "calc.go": [
+            "return a + b"
+          ],
+          "calc_test.go": [
+            "func TestAdd"
+          ]
+        },
+        "file_not_contains": {
+          "calc.go": [
+            "return a - b"
+          ]
+        }
+      }
+    }
+  ]
+}

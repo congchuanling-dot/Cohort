@@ -53,6 +53,9 @@ func ValidateSuite(suite Suite) error {
 	if len(suite.Cases) == 0 {
 		return errors.New("suite must contain at least one case")
 	}
+	if suite.DefaultRepeat < 0 || suite.DefaultRepeat > 20 {
+		return errors.New("default_repeat must be between 0 and 20")
+	}
 	seen := map[string]bool{}
 	for index, c := range suite.Cases {
 		if strings.TrimSpace(c.ID) == "" {
@@ -68,14 +71,52 @@ func ValidateSuite(suite Suite) error {
 		if c.TimeoutSec < 0 {
 			return fmt.Errorf("case %q timeout_seconds must be >= 0", c.ID)
 		}
+		if c.Repeat < 0 || c.Repeat > 20 {
+			return fmt.Errorf("case %q repeat must be between 0 and 20", c.ID)
+		}
+		mode := strings.TrimSpace(c.Fixture.Mode)
+		if mode != "" && mode != "project" && mode != "temp" {
+			return fmt.Errorf("case %q fixture.mode must be project or temp", c.ID)
+		}
+		for path := range c.Fixture.Files {
+			if err := validateRelativePath(path); err != nil {
+				return fmt.Errorf("case %q fixture file %q: %w", c.ID, path, err)
+			}
+		}
 		if c.Assertions.MaxTurns < 0 || c.Assertions.MaxDurationMS < 0 || c.Assertions.MaxToolFailures < 0 {
 			return fmt.Errorf("case %q assertion limits must be >= 0", c.ID)
+		}
+		if c.Assertions.MaxToolCalls < 0 {
+			return fmt.Errorf("case %q max_tool_calls must be >= 0", c.ID)
+		}
+		for _, path := range append(append([]string{}, c.Assertions.FilesExist...), c.Assertions.FilesNotExist...) {
+			if err := validateRelativePath(path); err != nil {
+				return fmt.Errorf("case %q state path %q: %w", c.ID, path, err)
+			}
+		}
+		for path := range c.Assertions.FileContains {
+			if err := validateRelativePath(path); err != nil {
+				return fmt.Errorf("case %q file_contains path %q: %w", c.ID, path, err)
+			}
+		}
+		for path := range c.Assertions.FileNotContains {
+			if err := validateRelativePath(path); err != nil {
+				return fmt.Errorf("case %q file_not_contains path %q: %w", c.ID, path, err)
+			}
 		}
 		for _, pattern := range c.Assertions.OutputRegex {
 			if _, err := regexp.Compile(pattern); err != nil {
 				return fmt.Errorf("case %q invalid output_regex %q: %w", c.ID, pattern, err)
 			}
 		}
+	}
+	return nil
+}
+
+func validateRelativePath(path string) error {
+	path = filepath.Clean(strings.TrimSpace(path))
+	if path == "." || path == "" || filepath.IsAbs(path) || path == ".." || strings.HasPrefix(path, ".."+string(filepath.Separator)) {
+		return errors.New("must be a non-empty relative path inside the fixture workspace")
 	}
 	return nil
 }

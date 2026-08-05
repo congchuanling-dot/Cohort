@@ -454,7 +454,7 @@ exit -> RunFinished
 3. 实现 `memory-quality-report`。
 4. 实现 `tool-failure-report`。
 5. 实现 `cohort tuning report`。
-6. 实现 eval suite、确定性断言、历史结果、基线比较和可视化 Dashboard。
+6. 实现 eval suite、确定性断言、隔离 Fixture、最终状态验证、工具轨迹评分、repeat 稳定率、历史结果、基线比较和可视化 Dashboard。
 7. 后续实现 judge 模型评分和 provider/prompt/tool A/B matrix。
 
 验收：

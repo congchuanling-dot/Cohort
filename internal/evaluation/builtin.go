@@ -1,7 +1,7 @@
 package evaluation
 
 func BuiltinSuites() []Suite {
-	return []Suite{coreSuite(), toolRoutingSuite()}
+	return []Suite{coreSuite(), toolRoutingSuite(), statefulSuite()}
 }
 
 func coreSuite() Suite {
@@ -95,6 +95,61 @@ func toolRoutingSuite() Suite {
 				Prompt:     "使用命令工具执行 pwd，并只回答工作目录的最后一级名称。禁止修改文件。",
 				TimeoutSec: 90,
 				Assertions: Assertions{Status: "done", OutputContains: []string{"Cohort"}, RequiredTools: []string{"code_run"}, ForbiddenTools: []string{"file_write", "file_patch"}, MaxTurns: 4},
+			},
+		},
+	}
+}
+
+func statefulSuite() Suite {
+	return Suite{
+		SchemaVersion: SchemaVersion,
+		ID:            "stateful",
+		Name:          "Cohort Stateful Task Evaluation",
+		Description:   "在独立临时工作区中验证文件创建、精确修改、测试驱动修复和工具轨迹稳定性。",
+		ToolGroups:    []string{"core", "lsp"},
+		DefaultRepeat: 2,
+		Cases: []Case{
+			{
+				ID: "create_config", Name: "创建结构化配置", Tags: []string{"state", "write"},
+				Prompt:     "在当前工作区创建 config/app.json，内容必须是合法 JSON，并包含 name=\"cohort-eval\"、enabled=true、retries=3。完成后简洁说明。",
+				TimeoutSec: 120,
+				Fixture:    Fixture{Mode: "temp"},
+				Assertions: Assertions{
+					Status: "done", RequiredTools: []string{"file_write"}, ForbiddenTools: []string{"ask_user"},
+					MaxTurns: 4, MaxToolFailures: 0, MaxToolCalls: 3, NoConsecutiveRepeat: true,
+					FilesExist:   []string{"config/app.json"},
+					FileContains: map[string][]string{"config/app.json": {`"name"`, `"cohort-eval"`, `"enabled"`, "true", `"retries"`, "3"}},
+				},
+			},
+			{
+				ID: "patch_status", Name: "保留约束的精确修改", Tags: []string{"state", "patch"},
+				Prompt:     "读取 state.txt，仅把 status=old 改成 status=ready，必须保留 owner=cohort 和文件中的其他内容。不要重写无关文件。",
+				TimeoutSec: 120,
+				Fixture:    Fixture{Mode: "temp", Files: map[string]string{"state.txt": "owner=cohort\nstatus=old\nkeep=this-line\n"}},
+				Assertions: Assertions{
+					Status: "done", RequiredTools: []string{"file_read", "file_patch"}, ForbiddenTools: []string{"file_write", "ask_user"},
+					ToolSequence: []string{"file_read", "file_patch"}, MaxTurns: 5, MaxToolFailures: 0, MaxToolCalls: 4, NoConsecutiveRepeat: true,
+					FilesExist:      []string{"state.txt"},
+					FileContains:    map[string][]string{"state.txt": {"owner=cohort", "status=ready", "keep=this-line"}},
+					FileNotContains: map[string][]string{"state.txt": {"status=old"}},
+				},
+			},
+			{
+				ID: "repair_go_test", Name: "测试驱动修复", Tags: []string{"state", "code", "test"},
+				Prompt:     "运行 Go 测试定位失败，修复 calc.go 中 Add 的实现，让现有测试通过。只能修改 calc.go，修复后再次运行测试验证。",
+				TimeoutSec: 180,
+				Fixture: Fixture{Mode: "temp", Files: map[string]string{
+					"go.mod":       "module evalfixture\n\ngo 1.21\n",
+					"calc.go":      "package calc\n\nfunc Add(a, b int) int {\n\treturn a - b\n}\n",
+					"calc_test.go": "package calc\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif got := Add(2, 3); got != 5 { t.Fatalf(\"Add(2,3)=%d\", got) }\n}\n",
+				}},
+				Assertions: Assertions{
+					Status: "done", RequiredTools: []string{"code_run", "file_patch"}, ForbiddenTools: []string{"file_write", "ask_user"},
+					ToolSequence: []string{"code_run", "file_patch", "code_run"}, MaxTurns: 7, MaxToolFailures: 1, MaxToolCalls: 7,
+					FilesExist:      []string{"calc.go", "calc_test.go"},
+					FileContains:    map[string][]string{"calc.go": {"return a + b"}, "calc_test.go": {"func TestAdd"}},
+					FileNotContains: map[string][]string{"calc.go": {"return a - b"}},
+				},
 			},
 		},
 	}

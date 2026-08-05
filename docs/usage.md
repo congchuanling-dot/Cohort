@@ -349,11 +349,12 @@ cohort eval init
 cohort eval list
 cohort eval run core
 cohort eval run core --tag codebase --workers 2
+cohort eval run stateful --workers 2 --repeat 3
 cohort eval history
 cohort eval report latest --open
 ```
 
-评测支持输出、正则、工具调用、状态、轮数、耗时和工具失败断言，自动与同 suite 的上一次结果比较，并生成 `result.json`、Markdown 和离线 HTML Dashboard。完整协议见 [agent_evaluation.md](agent_evaluation.md)。
+评测支持输出、正则、工具调用、工具轨迹、最终文件状态、轮数、耗时和工具失败断言；支持独立临时 Fixture、重复运行与稳定率，自动与同 suite 的上一次结果比较，并生成 `result.json`、Markdown 和离线 HTML Dashboard。完整协议见 [agent_evaluation.md](agent_evaluation.md)。
 
 离线 Skill 候选挖掘：
 

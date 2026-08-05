@@ -17,6 +17,7 @@
         "fast"
       ],
       "timeout_seconds": 60,
+      "fixture": {},
       "assertions": {
         "status": "done",
         "output_contains": [
@@ -39,6 +40,7 @@
         "reasoning"
       ],
       "timeout_seconds": 60,
+      "fixture": {},
       "assertions": {
         "status": "done",
         "output_regex": [
@@ -61,6 +63,7 @@
         "tool-routing"
       ],
       "timeout_seconds": 90,
+      "fixture": {},
       "assertions": {
         "status": "done",
         "output_contains": [
@@ -85,6 +88,7 @@
         "config"
       ],
       "timeout_seconds": 90,
+      "fixture": {},
       "assertions": {
         "status": "done",
         "output_contains": [
@@ -109,6 +113,7 @@
         "navigation"
       ],
       "timeout_seconds": 120,
+      "fixture": {},
       "assertions": {
         "status": "done",
         "output_contains": [
@@ -134,6 +139,7 @@
         "observability"
       ],
       "timeout_seconds": 120,
+      "fixture": {},
       "assertions": {
         "status": "done",
         "output_contains": [
@@ -160,6 +166,7 @@
         "routing"
       ],
       "timeout_seconds": 60,
+      "fixture": {},
       "assertions": {
         "status": "done",
         "output_contains": [
@@ -181,6 +188,7 @@
         "codebase"
       ],
       "timeout_seconds": 90,
+      "fixture": {},
       "assertions": {
         "status": "done",
         "min_output_chars": 2,

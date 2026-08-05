@@ -20,6 +20,7 @@
         "routing"
       ],
       "timeout_seconds": 120,
+      "fixture": {},
       "assertions": {
         "status": "done",
         "output_regex": [
@@ -44,6 +45,7 @@
         "routing"
       ],
       "timeout_seconds": 120,
+      "fixture": {},
       "assertions": {
         "status": "done",
         "required_tools": [
@@ -66,6 +68,7 @@
         "routing"
       ],
       "timeout_seconds": 120,
+      "fixture": {},
       "assertions": {
         "status": "done",
         "required_tools": [
@@ -88,6 +91,7 @@
         "routing"
       ],
       "timeout_seconds": 90,
+      "fixture": {},
       "assertions": {
         "status": "done",
         "output_contains": [

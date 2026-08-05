@@ -20,12 +20,13 @@ type TagMetric struct {
 }
 
 type DashboardData struct {
-	Result      RunResult
-	History     []RunResult
-	Tags        []TagMetric
-	GeneratedAt string
-	ResultJSON  template.JS
-	HistoryJSON template.JS
+	Result           RunResult
+	History          []RunResult
+	Tags             []TagMetric
+	AverageStability float64
+	GeneratedAt      string
+	ResultJSON       template.JS
+	HistoryJSON      template.JS
 }
 
 func WriteReports(store Store, result RunResult) (markdownPath, htmlPath string, err error) {
@@ -54,13 +55,13 @@ func renderMarkdown(result RunResult) string {
 		fmt.Fprintf(&b, "## Baseline\n\n- run: `%s`\n- score_delta: %+.1f\n- pass_rate_delta: %+.1f%%\n- duration_delta: %s\n- token_delta: %d\n\n",
 			result.Baseline.RunID, result.Baseline.ScoreDelta, result.Baseline.PassRateDelta, signedDuration(result.Baseline.DurationDeltaMS), result.Baseline.TokenDelta)
 	}
-	fmt.Fprintf(&b, "## Cases\n\n| case | result | score | duration | turns | tokens | tools |\n| --- | --- | ---: | ---: | ---: | ---: | --- |\n")
+	fmt.Fprintf(&b, "## Cases\n\n| case | result | score | stability | attempts | duration | tokens | tools |\n| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |\n")
 	for _, c := range result.Cases {
 		status := "PASS"
 		if !c.Passed {
 			status = "FAIL"
 		}
-		fmt.Fprintf(&b, "| `%s` | %s | %.1f | %s | %d | %d | %s |\n", c.CaseID, status, c.Score, formatDuration(c.DurationMS), c.Turns, c.TotalTokens, strings.Join(c.Tools, ", "))
+		fmt.Fprintf(&b, "| `%s` | %s | %.1f | %.1f%% | %d/%d | %s | %d | %s |\n", c.CaseID, status, c.Score, c.StabilityRate, c.PassedAttempts, c.Attempts, formatDuration(c.DurationMS), c.TotalTokens, strings.Join(c.Tools, ", "))
 	}
 	fmt.Fprintf(&b, "\n## Failures\n\n")
 	failed := 0
@@ -90,12 +91,13 @@ func renderHTML(path string, result RunResult, history []RunResult) error {
 	resultJSON, _ := json.Marshal(result)
 	historyJSON, _ := json.Marshal(history)
 	data := DashboardData{
-		Result:      result,
-		History:     history,
-		Tags:        aggregateTags(result.Cases),
-		GeneratedAt: time.Now().Format("2006-01-02 15:04:05"),
-		ResultJSON:  template.JS(resultJSON),
-		HistoryJSON: template.JS(historyJSON),
+		Result:           result,
+		History:          history,
+		Tags:             aggregateTags(result.Cases),
+		AverageStability: averageStability(result.Cases),
+		GeneratedAt:      time.Now().Format("2006-01-02 15:04:05"),
+		ResultJSON:       template.JS(resultJSON),
+		HistoryJSON:      template.JS(historyJSON),
 	}
 	tmpl, err := template.New("dashboard").Funcs(template.FuncMap{
 		"duration": formatDuration,
@@ -147,6 +149,17 @@ func aggregateTags(cases []CaseResult) []TagMetric {
 	return result
 }
 
+func averageStability(cases []CaseResult) float64 {
+	if len(cases) == 0 {
+		return 0
+	}
+	var total float64
+	for _, c := range cases {
+		total += c.StabilityRate
+	}
+	return total / float64(len(cases))
+}
+
 func formatDuration(ms int64) string {
 	if ms <= 0 {
 		return "0ms"
@@ -168,7 +181,7 @@ const dashboardHTML = `<!doctype html>
 :root{--bg:#0b1020;--panel:#121a2d;--panel2:#182239;--text:#eef3ff;--muted:#8fa0bd;--line:#263451;--blue:#6ea8fe;--green:#43d39e;--red:#ff6b7a;--amber:#f4bd61}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 80% 0,#17264a 0,transparent 36%),var(--bg);color:var(--text);font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,sans-serif}
 .wrap{max-width:1440px;margin:auto;padding:28px}.top{display:flex;justify-content:space-between;gap:24px;align-items:end;margin-bottom:22px}.eyebrow{color:var(--blue);font-weight:700;letter-spacing:.12em;text-transform:uppercase}.top h1{font-size:30px;margin:4px 0}.meta{color:var(--muted);font-family:ui-monospace,monospace}
-.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}.card,.panel{background:linear-gradient(145deg,var(--panel),#10182a);border:1px solid var(--line);border-radius:14px;box-shadow:0 14px 35px #0003}.card{padding:17px}.label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em}.value{font-size:28px;font-weight:750;margin-top:6px}.good{color:var(--green)}.bad{color:var(--red)}.warn{color:var(--amber)}
+.grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}.card,.panel{background:linear-gradient(145deg,var(--panel),#10182a);border:1px solid var(--line);border-radius:14px;box-shadow:0 14px 35px #0003}.card{padding:17px}.label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em}.value{font-size:28px;font-weight:750;margin-top:6px}.good{color:var(--green)}.bad{color:var(--red)}.warn{color:var(--amber)}
 .layout{display:grid;grid-template-columns:1.35fr .65fr;gap:14px;margin-top:14px}.panel{padding:18px}.panel h2{font-size:15px;margin:0 0 15px}.chart{height:180px;position:relative}.chart svg{width:100%;height:100%;overflow:visible}.axis{stroke:var(--line)}.line{fill:none;stroke:var(--blue);stroke-width:3}.dot{fill:var(--blue)}.barrow{display:grid;grid-template-columns:110px 1fr 50px;align-items:center;gap:10px;margin:9px 0}.bar{height:9px;background:#263451;border-radius:9px;overflow:hidden}.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--blue),var(--green))}
 .toolbar{display:flex;gap:10px;margin:18px 0 10px}.toolbar input,.toolbar select{background:var(--panel);border:1px solid var(--line);color:var(--text);padding:10px 12px;border-radius:9px;outline:none}.toolbar input{flex:1}.cases{display:grid;gap:9px}.case{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--green);border-radius:10px;padding:14px}.case.fail{border-left-color:var(--red)}.casehead{display:flex;justify-content:space-between;gap:14px}.case h3{margin:0;font-size:15px}.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.chip{font-size:11px;background:var(--panel2);color:var(--muted);padding:3px 8px;border-radius:99px}.metrics{display:flex;gap:18px;color:var(--muted);font-size:12px;margin-top:9px}.assertions{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}.assert{display:grid;grid-template-columns:18px 150px 1fr;gap:8px;padding:4px 0;color:var(--muted)}.assert strong{color:var(--text)}details summary{cursor:pointer;color:var(--blue)}.output{white-space:pre-wrap;max-height:220px;overflow:auto;background:#090e1b;padding:12px;border-radius:8px;color:#cbd7eb}.empty{color:var(--muted);padding:24px;text-align:center}
 @media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}.layout{grid-template-columns:1fr}.top{display:block}.wrap{padding:16px}}
@@ -178,6 +191,7 @@ const dashboardHTML = `<!doctype html>
 <section class="grid">
 <div class="card"><div class="label">Pass Rate</div><div class="value {{if eq .Result.FailedCases 0}}good{{else}}bad{{end}}">{{pct .Result.PassRate}}</div></div>
 <div class="card"><div class="label">Quality Score</div><div class="value">{{printf "%.1f" .Result.Score}}</div></div>
+<div class="card"><div class="label">Stability</div><div class="value">{{pct .AverageStability}}</div></div>
 <div class="card"><div class="label">Cases</div><div class="value"><span class="good">{{.Result.PassedCases}}</span><span class="meta"> / {{.Result.TotalCases}}</span></div></div>
 <div class="card"><div class="label">Duration</div><div class="value">{{duration .Result.DurationMS}}</div></div>
 <div class="card"><div class="label">Tokens</div><div class="value">{{.Result.TotalTokens}}</div></div>
@@ -188,8 +202,9 @@ const dashboardHTML = `<!doctype html>
 <section id="cases" class="cases">
 {{range .Result.Cases}}<article class="case {{if not .Passed}}fail{{end}}" data-pass="{{.Passed}}" data-search="{{.CaseID}} {{.Name}} {{join .Tags " "}} {{join .Tools " "}}">
 <div class="casehead"><div><h3>{{status .Passed}} · {{.CaseID}} · {{.Name}}</h3><div class="chips">{{range .Tags}}<span class="chip">{{.}}</span>{{end}}{{range .Tools}}<span class="chip">tool:{{.}}</span>{{end}}</div></div><strong class="{{if .Passed}}good{{else}}bad{{end}}">{{printf "%.1f" .Score}}</strong></div>
-<div class="metrics"><span>{{duration .DurationMS}}</span><span>{{.Turns}} turns</span><span>{{.TotalTokens}} tokens</span><span>{{.ToolFailures}} tool failures</span><span>session {{.SessionID}}</span></div>
+<div class="metrics"><span>{{duration .DurationMS}} avg</span><span>{{.PassedAttempts}}/{{.Attempts}} attempts</span><span>{{printf "%.1f" .StabilityRate}}% stable</span><span>{{.Turns}} turns</span><span>{{.TotalTokens}} tokens</span><span>{{.ToolFailures}} tool failures</span></div>
 <div class="assertions">{{range .AssertionResults}}<div class="assert"><span>{{if .Passed}}✓{{else}}✕{{end}}</span><strong>{{.Kind}}</strong><span>期望 {{.Expected}}{{if .Actual}} · 实际 {{.Actual}}{{end}}</span></div>{{end}}</div>
+{{if gt .Attempts 1}}<details><summary>查看 {{.Attempts}} 次 Attempt</summary>{{range .AttemptResults}}<div class="assert"><span>{{if .Passed}}✓{{else}}✕{{end}}</span><strong>#{{.Attempt}} · {{printf "%.1f" .Score}}</strong><span>{{duration .DurationMS}} · {{.Turns}} turns · {{.TotalTokens}} tokens · {{join .Tools " → "}} · {{.Workspace}}</span></div>{{range .AssertionResults}}{{if not .Passed}}<div class="assert"><span>↳</span><strong>{{.Kind}}</strong><span>期望 {{.Expected}}{{if .Actual}} · 实际 {{.Actual}}{{end}}</span></div>{{end}}{{end}}{{end}}</details>{{end}}
 {{if or .Error .Output}}<details><summary>查看执行信息</summary>{{if .Error}}<p class="bad">{{.Error}}</p>{{end}}{{if .Output}}<pre class="output">{{.Output}}</pre>{{end}}</details>{{end}}
 </article>{{end}}</section>
 </main><script>

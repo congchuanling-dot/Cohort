@@ -2,6 +2,8 @@ package evaluation
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -17,6 +19,7 @@ func ScoreCase(c Case, execution Execution) CaseResult {
 		Error:        execution.Error,
 		Output:       execution.Output,
 		SessionID:    execution.SessionID,
+		Workspace:    execution.Workspace,
 		DurationMS:   execution.DurationMS,
 		Turns:        execution.Turns,
 		Tools:        append([]string(nil), execution.Tools...),
@@ -24,6 +27,7 @@ func ScoreCase(c Case, execution Execution) CaseResult {
 		TotalTokens:  execution.TotalTokens,
 		InputTokens:  execution.InputTokens,
 		OutputTokens: execution.OutputTokens,
+		Attempts:     1,
 	}
 	add := func(kind, expected, actual string, passed bool, weight float64, message string) {
 		result.AssertionResults = append(result.AssertionResults, AssertionResult{
@@ -69,6 +73,16 @@ func ScoreCase(c Case, execution Execution) CaseResult {
 	if assertions.MaxToolFailures >= 0 && hasToolFailureAssertion(c) {
 		add("max_tool_failures", strconv.Itoa(assertions.MaxToolFailures), strconv.Itoa(execution.ToolFailures), execution.ToolFailures <= assertions.MaxToolFailures, 2, "")
 	}
+	if assertions.MaxToolCalls > 0 {
+		add("max_tool_calls", strconv.Itoa(assertions.MaxToolCalls), strconv.Itoa(len(execution.Tools)), len(execution.Tools) <= assertions.MaxToolCalls, 1, "")
+	}
+	if len(assertions.ToolSequence) > 0 {
+		add("tool_sequence", strings.Join(assertions.ToolSequence, " -> "), strings.Join(execution.Tools, " -> "), orderedSubsequence(execution.Tools, assertions.ToolSequence), 2, "")
+	}
+	if assertions.NoConsecutiveRepeat {
+		add("no_consecutive_tool_repeat", "no adjacent duplicate tools", strings.Join(execution.Tools, " -> "), !hasConsecutiveRepeat(execution.Tools), 1, "")
+	}
+	scoreStateAssertions(assertions, execution.Workspace, add)
 	if execution.Error != "" {
 		add("execution_error", "none", execution.Error, false, 3, "case execution failed")
 	}
@@ -88,6 +102,10 @@ func ScoreCase(c Case, execution Execution) CaseResult {
 	if total > 0 {
 		result.Score = earned / total * 100
 	}
+	if result.Passed {
+		result.PassedAttempts = 1
+		result.StabilityRate = 100
+	}
 	return result
 }
 
@@ -95,4 +113,65 @@ func hasToolFailureAssertion(c Case) bool {
 	// JSON 的零值无法区分“未设置”和显式 0。只要 case 涉及工具约束，
 	// 默认要求工具零失败；其他 case 不凭空增加该断言。
 	return len(c.Assertions.RequiredTools) > 0 || len(c.Assertions.ForbiddenTools) > 0 || c.Assertions.MaxToolFailures > 0
+}
+
+func orderedSubsequence(actual, expected []string) bool {
+	index := 0
+	for _, tool := range actual {
+		if index < len(expected) && tool == expected[index] {
+			index++
+		}
+	}
+	return index == len(expected)
+}
+
+func hasConsecutiveRepeat(tools []string) bool {
+	for i := 1; i < len(tools); i++ {
+		if tools[i] == tools[i-1] {
+			return true
+		}
+	}
+	return false
+}
+
+func scoreStateAssertions(assertions Assertions, workspace string, add func(string, string, string, bool, float64, string)) {
+	for _, path := range assertions.FilesExist {
+		_, err := os.Stat(filepath.Join(workspace, filepath.Clean(path)))
+		add("file_exists", path, stateActual(err), err == nil, 3, "")
+	}
+	for _, path := range assertions.FilesNotExist {
+		_, err := os.Stat(filepath.Join(workspace, filepath.Clean(path)))
+		add("file_not_exists", path, stateActual(err), os.IsNotExist(err), 3, "")
+	}
+	for path, values := range assertions.FileContains {
+		data, err := os.ReadFile(filepath.Join(workspace, filepath.Clean(path)))
+		for _, value := range values {
+			passed := err == nil && strings.Contains(string(data), value)
+			add("file_contains", path+": "+value, stateFileActual(data, err), passed, 3, "")
+		}
+	}
+	for path, values := range assertions.FileNotContains {
+		data, err := os.ReadFile(filepath.Join(workspace, filepath.Clean(path)))
+		for _, value := range values {
+			passed := err == nil && !strings.Contains(string(data), value)
+			add("file_not_contains", path+": "+value, stateFileActual(data, err), passed, 3, "")
+		}
+	}
+}
+
+func stateActual(err error) string {
+	if err == nil {
+		return "exists"
+	}
+	if os.IsNotExist(err) {
+		return "missing"
+	}
+	return err.Error()
+}
+
+func stateFileActual(data []byte, err error) string {
+	if err != nil {
+		return err.Error()
+	}
+	return fmt.Sprintf("%d bytes", len(data))
 }

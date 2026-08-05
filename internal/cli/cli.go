@@ -1365,9 +1365,9 @@ Usage:
   cohort tuning report [--limit N] [--out path]
                           generate an offline tuning report from run.log.jsonl
   cohort eval init [--force]
-                          create built-in core and tool-routing eval suites
+                          create built-in core, tool-routing, and stateful eval suites
   cohort eval list        list local eval suites
-  cohort eval run [suite] [--case id] [--tag tag] [--workers N]
+  cohort eval run [suite] [--case id] [--tag tag] [--workers N] [--repeat N]
                           run deterministic assertions and compare the previous baseline
   cohort eval history     list persisted eval runs
   cohort eval report [run_id|latest] [--open]

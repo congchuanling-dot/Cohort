@@ -62,6 +62,7 @@ cohort eval run tool-routing --tag browser
 
 ```bash
 cohort eval run core --workers 4
+cohort eval run stateful --workers 2 --repeat 3
 ```
 
 默认 `workers=1`。涉及浏览器、桌面或共享外部状态的 case 不建议并行，避免不同 Agent 互相争抢窗口或页面。
@@ -92,6 +93,16 @@ cohort eval run core --workers 4
 
 该套件会暴露真实环境问题。例如浏览器扩展未连接时，browser case 应失败，而不是被算作核心模型质量下降。
 
+### stateful
+
+真实状态任务集，每个 case 默认重复两次：
+
+- 创建结构化 JSON 文件。
+- 读取并精确 patch 已有文件。
+- 运行测试、修复 Go 实现、再次验证测试。
+
+该套件同时评分最终磁盘状态、工具顺序、工具调用数量、重复调用和稳定率。
+
 ## Suite 协议
 
 Suite 使用显式 JSON：
@@ -103,6 +114,7 @@ Suite 使用显式 JSON：
   "name": "My Agent Suite",
   "description": "项目回归集",
   "tool_groups": ["core", "lsp"],
+  "default_repeat": 3,
   "cases": [
     {
       "id": "read_config",
@@ -110,6 +122,13 @@ Suite 使用显式 JSON：
       "prompt": "读取 configs/config.yaml 并回答 model 值。",
       "tags": ["codebase", "config"],
       "timeout_seconds": 90,
+      "repeat": 5,
+      "fixture": {
+        "mode": "temp",
+        "files": {
+          "input.txt": "status=old\n"
+        }
+      },
       "assertions": {
         "status": "done",
         "output_contains": ["deepseek-v4-pro"],
@@ -121,7 +140,18 @@ Suite 使用显式 JSON：
         "forbidden_tools": ["file_write", "file_patch"],
         "max_turns": 4,
         "max_duration_ms": 60000,
-        "max_tool_failures": 0
+        "max_tool_failures": 0,
+        "max_tool_calls": 5,
+        "tool_sequence": ["file_read", "file_patch"],
+        "no_consecutive_tool_repeat": true,
+        "files_exist": ["output.json"],
+        "files_not_exist": ["unexpected.txt"],
+        "file_contains": {
+          "output.json": ["\"status\"", "\"ready\""]
+        },
+        "file_not_contains": {
+          "output.json": ["status=old"]
+        }
       }
     }
   ]
@@ -143,8 +173,17 @@ Suite 使用显式 JSON：
 | `max_turns` | 最大 Agent turn 数 |
 | `max_duration_ms` | 最大执行时间 |
 | `max_tool_failures` | 最大工具失败数 |
+| `max_tool_calls` | 最大工具调用总数 |
+| `tool_sequence` | 必须按顺序出现的工具子序列 |
+| `no_consecutive_tool_repeat` | 禁止连续重复调用同一工具 |
+| `files_exist` / `files_not_exist` | 最终文件存在性 |
+| `file_contains` / `file_not_contains` | 最终文件内容断言 |
 
 `tool_groups` 用于固定评测时暴露给模型的工具面。省略时继承普通配置；正式 suite 建议显式声明，避免 MCP、桌面或其他无关工具造成授权等待、schema 膨胀和不可复现路由。
+
+`default_repeat` 设置 suite 默认重复次数，case 的 `repeat` 可覆盖它，CLI 的 `--repeat N` 优先级最高。Case 只有所有 attempt 全部通过才算通过；报告同时保留平均分和稳定率。
+
+`fixture.mode=temp` 会为每次 attempt 创建独立工作区，`files` 用于声明初始文件。Fixture 路径和状态断言路径必须是工作区内相对路径，拒绝绝对路径和 `..` 逃逸。
 
 ## 评分语义
 

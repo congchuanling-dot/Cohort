@@ -8,19 +8,23 @@ import (
 	"time"
 )
 
-type ExecuteCaseFunc func(ctx context.Context, c Case) Execution
+type ExecuteRequest struct {
+	RunID   string
+	Case    Case
+	Attempt int
+}
+
+type ExecuteCaseFunc func(ctx context.Context, request ExecuteRequest) Execution
 
 type RunOptions struct {
 	Workers int
 	Model   string
+	Repeat  int
 }
 
 func Run(ctx context.Context, suite Suite, execute ExecuteCaseFunc, opts RunOptions) RunResult {
 	if opts.Workers <= 0 {
 		opts.Workers = 1
-	}
-	if opts.Workers > len(suite.Cases) {
-		opts.Workers = len(suite.Cases)
 	}
 	started := time.Now().UTC()
 	result := RunResult{
@@ -33,55 +37,83 @@ func Run(ctx context.Context, suite Suite, execute ExecuteCaseFunc, opts RunOpti
 		TotalCases:    len(suite.Cases),
 	}
 	type job struct {
-		index int
-		c     Case
+		caseIndex int
+		attempt   int
+		c         Case
+	}
+	totalAttempts := 0
+	for _, c := range suite.Cases {
+		totalAttempts += resolveRepeat(suite, c, opts)
+	}
+	if opts.Workers > totalAttempts {
+		opts.Workers = totalAttempts
 	}
 	jobs := make(chan job)
 	results := make(chan struct {
-		index  int
-		result CaseResult
-	}, len(suite.Cases))
+		caseIndex int
+		attempt   int
+		result    CaseResult
+	}, totalAttempts)
 	var workers sync.WaitGroup
 	for i := 0; i < opts.Workers; i++ {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
 			for item := range jobs {
-				execution := executeCaseWithTimeout(ctx, item.c, execute)
+				request := ExecuteRequest{RunID: result.RunID, Case: item.c, Attempt: item.attempt}
+				execution := executeCaseWithTimeout(ctx, request, execute)
 				results <- struct {
-					index  int
-					result CaseResult
-				}{index: item.index, result: ScoreCase(item.c, execution)}
+					caseIndex int
+					attempt   int
+					result    CaseResult
+				}{caseIndex: item.caseIndex, attempt: item.attempt, result: ScoreCase(item.c, execution)}
 			}
 		}()
 	}
 	go func() {
 		for index, c := range suite.Cases {
-			jobs <- job{index: index, c: c}
+			for attempt := 1; attempt <= resolveRepeat(suite, c, opts); attempt++ {
+				jobs <- job{caseIndex: index, attempt: attempt, c: c}
+			}
 		}
 		close(jobs)
 		workers.Wait()
 		close(results)
 	}()
 	indexed := make([]struct {
-		index  int
-		result CaseResult
-	}, 0, len(suite.Cases))
+		caseIndex int
+		attempt   int
+		result    CaseResult
+	}, 0, totalAttempts)
 	for item := range results {
 		indexed = append(indexed, item)
 	}
-	sort.Slice(indexed, func(i, j int) bool { return indexed[i].index < indexed[j].index })
+	sort.Slice(indexed, func(i, j int) bool {
+		if indexed[i].caseIndex != indexed[j].caseIndex {
+			return indexed[i].caseIndex < indexed[j].caseIndex
+		}
+		return indexed[i].attempt < indexed[j].attempt
+	})
+	grouped := make([][]struct {
+		caseIndex int
+		attempt   int
+		result    CaseResult
+	}, len(suite.Cases))
 	for _, item := range indexed {
-		result.Cases = append(result.Cases, item.result)
-		if item.result.Passed {
+		grouped[item.caseIndex] = append(grouped[item.caseIndex], item)
+	}
+	for index, attempts := range grouped {
+		caseResult := aggregateAttempts(suite.Cases[index], attempts)
+		result.Cases = append(result.Cases, caseResult)
+		if caseResult.Passed {
 			result.PassedCases++
 		} else {
 			result.FailedCases++
 		}
-		result.Score += item.result.Score
-		result.TotalTokens += item.result.TotalTokens
-		result.InputTokens += item.result.InputTokens
-		result.OutputTokens += item.result.OutputTokens
+		result.Score += caseResult.Score
+		result.TotalTokens += caseResult.TotalTokens
+		result.InputTokens += caseResult.InputTokens
+		result.OutputTokens += caseResult.OutputTokens
 	}
 	if result.TotalCases > 0 {
 		result.PassRate = float64(result.PassedCases) / float64(result.TotalCases) * 100
@@ -92,8 +124,8 @@ func Run(ctx context.Context, suite Suite, execute ExecuteCaseFunc, opts RunOpti
 	return result
 }
 
-func executeCaseWithTimeout(parent context.Context, c Case, execute ExecuteCaseFunc) Execution {
-	timeout := time.Duration(c.TimeoutSec) * time.Second
+func executeCaseWithTimeout(parent context.Context, request ExecuteRequest, execute ExecuteCaseFunc) Execution {
+	timeout := time.Duration(request.Case.TimeoutSec) * time.Second
 	if timeout <= 0 {
 		timeout = 3 * time.Minute
 	}
@@ -101,7 +133,7 @@ func executeCaseWithTimeout(parent context.Context, c Case, execute ExecuteCaseF
 	defer cancel()
 	done := make(chan Execution, 1)
 	go func() {
-		done <- execute(ctx, c)
+		done <- execute(ctx, request)
 	}()
 	select {
 	case result := <-done:
@@ -113,6 +145,89 @@ func executeCaseWithTimeout(parent context.Context, c Case, execute ExecuteCaseF
 			DurationMS: timeout.Milliseconds(),
 		}
 	}
+}
+
+func resolveRepeat(suite Suite, c Case, opts RunOptions) int {
+	if opts.Repeat > 0 {
+		return opts.Repeat
+	}
+	if c.Repeat > 0 {
+		return c.Repeat
+	}
+	if suite.DefaultRepeat > 0 {
+		return suite.DefaultRepeat
+	}
+	return 1
+}
+
+func aggregateAttempts(c Case, attempts []struct {
+	caseIndex int
+	attempt   int
+	result    CaseResult
+}) CaseResult {
+	result := CaseResult{
+		CaseID:   c.ID,
+		Name:     c.Name,
+		Tags:     append([]string(nil), c.Tags...),
+		Attempts: len(attempts),
+		Passed:   len(attempts) > 0,
+	}
+	representative := -1
+	for index, item := range attempts {
+		scored := item.result
+		attempt := AttemptResult{
+			Attempt:          item.attempt,
+			Passed:           scored.Passed,
+			Score:            scored.Score,
+			Status:           scored.Status,
+			Error:            scored.Error,
+			Output:           scored.Output,
+			SessionID:        scored.SessionID,
+			Workspace:        scored.Workspace,
+			DurationMS:       scored.DurationMS,
+			Turns:            scored.Turns,
+			Tools:            append([]string(nil), scored.Tools...),
+			ToolFailures:     scored.ToolFailures,
+			TotalTokens:      scored.TotalTokens,
+			InputTokens:      scored.InputTokens,
+			OutputTokens:     scored.OutputTokens,
+			AssertionResults: append([]AssertionResult(nil), scored.AssertionResults...),
+		}
+		result.AttemptResults = append(result.AttemptResults, attempt)
+		result.Score += scored.Score
+		result.DurationMS += scored.DurationMS
+		result.TotalTokens += scored.TotalTokens
+		result.InputTokens += scored.InputTokens
+		result.OutputTokens += scored.OutputTokens
+		if scored.Passed {
+			result.PassedAttempts++
+		} else {
+			result.Passed = false
+			if representative < 0 {
+				representative = index
+			}
+		}
+	}
+	if len(attempts) > 0 {
+		result.Score /= float64(len(attempts))
+		result.DurationMS /= int64(len(attempts))
+		result.StabilityRate = float64(result.PassedAttempts) / float64(len(attempts)) * 100
+	}
+	if representative < 0 && len(attempts) > 0 {
+		representative = 0
+	}
+	if representative >= 0 {
+		scored := attempts[representative].result
+		result.Status = scored.Status
+		result.Error = scored.Error
+		result.Output = scored.Output
+		result.SessionID = scored.SessionID
+		result.Turns = scored.Turns
+		result.Tools = append([]string(nil), scored.Tools...)
+		result.ToolFailures = scored.ToolFailures
+		result.AssertionResults = append([]AssertionResult(nil), scored.AssertionResults...)
+	}
+	return result
 }
 
 func Compare(current RunResult, baseline RunResult) Comparison {

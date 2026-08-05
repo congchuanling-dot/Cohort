@@ -10,6 +10,7 @@ type Suite struct {
 	Name          string   `json:"name"`
 	Description   string   `json:"description,omitempty"`
 	ToolGroups    []string `json:"tool_groups,omitempty"`
+	DefaultRepeat int      `json:"default_repeat,omitempty"`
 	Cases         []Case   `json:"cases"`
 }
 
@@ -19,21 +20,36 @@ type Case struct {
 	Prompt     string     `json:"prompt"`
 	Tags       []string   `json:"tags,omitempty"`
 	TimeoutSec int        `json:"timeout_seconds,omitempty"`
+	Repeat     int        `json:"repeat,omitempty"`
+	Fixture    Fixture    `json:"fixture,omitempty"`
 	Assertions Assertions `json:"assertions"`
 }
 
+type Fixture struct {
+	// Mode 支持 project 和 temp。temp 会为每个 attempt 创建全新工作区。
+	Mode  string            `json:"mode,omitempty"`
+	Files map[string]string `json:"files,omitempty"`
+}
+
 type Assertions struct {
-	Status            string   `json:"status,omitempty"`
-	OutputContains    []string `json:"output_contains,omitempty"`
-	OutputNotContains []string `json:"output_not_contains,omitempty"`
-	OutputRegex       []string `json:"output_regex,omitempty"`
-	MinOutputChars    int      `json:"min_output_chars,omitempty"`
-	MaxOutputChars    int      `json:"max_output_chars,omitempty"`
-	RequiredTools     []string `json:"required_tools,omitempty"`
-	ForbiddenTools    []string `json:"forbidden_tools,omitempty"`
-	MaxTurns          int      `json:"max_turns,omitempty"`
-	MaxDurationMS     int64    `json:"max_duration_ms,omitempty"`
-	MaxToolFailures   int      `json:"max_tool_failures,omitempty"`
+	Status              string              `json:"status,omitempty"`
+	OutputContains      []string            `json:"output_contains,omitempty"`
+	OutputNotContains   []string            `json:"output_not_contains,omitempty"`
+	OutputRegex         []string            `json:"output_regex,omitempty"`
+	MinOutputChars      int                 `json:"min_output_chars,omitempty"`
+	MaxOutputChars      int                 `json:"max_output_chars,omitempty"`
+	RequiredTools       []string            `json:"required_tools,omitempty"`
+	ForbiddenTools      []string            `json:"forbidden_tools,omitempty"`
+	MaxTurns            int                 `json:"max_turns,omitempty"`
+	MaxDurationMS       int64               `json:"max_duration_ms,omitempty"`
+	MaxToolFailures     int                 `json:"max_tool_failures,omitempty"`
+	MaxToolCalls        int                 `json:"max_tool_calls,omitempty"`
+	ToolSequence        []string            `json:"tool_sequence,omitempty"`
+	NoConsecutiveRepeat bool                `json:"no_consecutive_tool_repeat,omitempty"`
+	FilesExist          []string            `json:"files_exist,omitempty"`
+	FilesNotExist       []string            `json:"files_not_exist,omitempty"`
+	FileContains        map[string][]string `json:"file_contains,omitempty"`
+	FileNotContains     map[string][]string `json:"file_not_contains,omitempty"`
 }
 
 type RunResult struct {
@@ -67,6 +83,30 @@ type CaseResult struct {
 	Error            string            `json:"error,omitempty"`
 	Output           string            `json:"output,omitempty"`
 	SessionID        string            `json:"session_id,omitempty"`
+	Workspace        string            `json:"workspace,omitempty"`
+	DurationMS       int64             `json:"duration_ms"`
+	Turns            int               `json:"turns"`
+	Tools            []string          `json:"tools,omitempty"`
+	ToolFailures     int               `json:"tool_failures"`
+	TotalTokens      int64             `json:"total_tokens,omitempty"`
+	InputTokens      int64             `json:"input_tokens,omitempty"`
+	OutputTokens     int64             `json:"output_tokens,omitempty"`
+	Attempts         int               `json:"attempts"`
+	PassedAttempts   int               `json:"passed_attempts"`
+	StabilityRate    float64           `json:"stability_rate"`
+	AttemptResults   []AttemptResult   `json:"attempt_results,omitempty"`
+	AssertionResults []AssertionResult `json:"assertion_results"`
+}
+
+type AttemptResult struct {
+	Attempt          int               `json:"attempt"`
+	Passed           bool              `json:"passed"`
+	Score            float64           `json:"score"`
+	Status           string            `json:"status"`
+	Error            string            `json:"error,omitempty"`
+	Output           string            `json:"output,omitempty"`
+	SessionID        string            `json:"session_id,omitempty"`
+	Workspace        string            `json:"workspace,omitempty"`
 	DurationMS       int64             `json:"duration_ms"`
 	Turns            int               `json:"turns"`
 	Tools            []string          `json:"tools,omitempty"`
@@ -101,6 +141,7 @@ type Execution struct {
 	Output       string
 	Error        string
 	SessionID    string
+	Workspace    string
 	DurationMS   int64
 	Turns        int
 	Tools        []string

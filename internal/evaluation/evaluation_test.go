@@ -72,14 +72,14 @@ func TestRunCompareStoreAndDashboard_BitsUT(t *testing.T) {
 			{ID: "fail", Name: "Fail", Prompt: "x", Tags: []string{"core", "tool"}, Assertions: Assertions{RequiredTools: []string{"file_read"}}},
 		},
 	}
-	baseline := Run(context.Background(), suite, func(context.Context, Case) Execution {
+	baseline := Run(context.Background(), suite, func(context.Context, ExecuteRequest) Execution {
 		return Execution{Status: "done", Output: "ok", Tools: []string{"file_read"}, DurationMS: 10}
 	}, RunOptions{Workers: 2, Model: "fake"})
 	if baseline.FailedCases != 0 || baseline.PassRate != 100 {
 		t.Fatalf("baseline = %#v", baseline)
 	}
-	current := Run(context.Background(), suite, func(_ context.Context, c Case) Execution {
-		if c.ID == "fail" {
+	current := Run(context.Background(), suite, func(_ context.Context, request ExecuteRequest) Execution {
+		if request.Case.ID == "fail" {
 			return Execution{Status: "done", Output: "ok", DurationMS: 20}
 		}
 		return Execution{Status: "done", Output: "ok", DurationMS: 20}
@@ -127,11 +127,66 @@ func TestCaseTimeout_BitsUT(t *testing.T) {
 		SchemaVersion: SchemaVersion, ID: "timeout", Name: "Timeout",
 		Cases: []Case{{ID: "slow", Name: "Slow", Prompt: "x", TimeoutSec: 1}},
 	}
-	result := Run(context.Background(), suite, func(ctx context.Context, _ Case) Execution {
+	result := Run(context.Background(), suite, func(ctx context.Context, _ ExecuteRequest) Execution {
 		<-ctx.Done()
 		return Execution{Status: "cancelled"}
 	}, RunOptions{Workers: 1})
 	if result.Cases[0].Status != "timeout" || result.Cases[0].Passed {
 		t.Fatalf("timeout result = %#v", result.Cases[0])
+	}
+}
+
+func TestStateAndTrajectoryAssertions_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "result.txt"), []byte("status=ready\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	c := Case{
+		ID: "state", Name: "state",
+		Assertions: Assertions{
+			ToolSequence:        []string{"file_read", "file_write"},
+			NoConsecutiveRepeat: true,
+			MaxToolCalls:        3,
+			FilesExist:          []string{"result.txt"},
+			FilesNotExist:       []string{"unexpected.txt"},
+			FileContains:        map[string][]string{"result.txt": {"status=ready"}},
+			FileNotContains:     map[string][]string{"result.txt": {"status=broken"}},
+		},
+	}
+	result := ScoreCase(c, Execution{
+		Status: "done", Workspace: workspace, Tools: []string{"file_read", "code_run", "file_write"},
+	})
+	if !result.Passed || result.Score != 100 {
+		t.Fatalf("state/trajectory result = %#v", result)
+	}
+	result = ScoreCase(c, Execution{
+		Status: "done", Workspace: workspace, Tools: []string{"file_write", "file_write", "file_read"},
+	})
+	if result.Passed {
+		t.Fatalf("bad trajectory passed: %#v", result)
+	}
+}
+
+func TestRepeatedRunReportsStability_BitsUT(t *testing.T) {
+	suite := Suite{
+		SchemaVersion: 1, ID: "repeat", Name: "repeat", DefaultRepeat: 3,
+		Cases: []Case{{ID: "flaky", Name: "flaky", Prompt: "x", Assertions: Assertions{OutputContains: []string{"ok"}}}},
+	}
+	result := Run(context.Background(), suite, func(_ context.Context, request ExecuteRequest) Execution {
+		output := "ok"
+		if request.Attempt == 2 {
+			output = "bad"
+		}
+		return Execution{Status: "done", Output: output, DurationMS: 10, TotalTokens: 5}
+	}, RunOptions{Workers: 3})
+	c := result.Cases[0]
+	if c.Passed || c.Attempts != 3 || c.PassedAttempts != 2 {
+		t.Fatalf("repeat case = %#v", c)
+	}
+	if c.StabilityRate < 66 || c.StabilityRate > 67 {
+		t.Fatalf("stability rate = %f", c.StabilityRate)
+	}
+	if result.TotalTokens != 15 || len(c.AttemptResults) != 3 {
+		t.Fatalf("repeat aggregation = %#v", result)
 	}
 }

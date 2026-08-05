@@ -27,6 +27,7 @@ type evalRunOptions struct {
 	CaseIDs   []string
 	Tags      []string
 	Workers   int
+	Repeat    int
 }
 
 func runEvalCommand(ctx context.Context, cfg app.Config, args []string, out io.Writer) error {
@@ -109,7 +110,7 @@ func parseEvalRunOptions(args []string) (evalRunOptions, error) {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
-		case arg == "--case" || arg == "--tag" || arg == "--workers":
+		case arg == "--case" || arg == "--tag" || arg == "--workers" || arg == "--repeat":
 			if i+1 >= len(args) {
 				return opts, fmt.Errorf("%s requires a value", arg)
 			}
@@ -126,6 +127,12 @@ func parseEvalRunOptions(args []string) (evalRunOptions, error) {
 					return opts, errors.New("--workers must be between 1 and 16")
 				}
 				opts.Workers = workers
+			case "--repeat":
+				repeat, err := strconv.Atoi(value)
+				if err != nil || repeat <= 0 || repeat > 20 {
+					return opts, errors.New("--repeat must be between 1 and 20")
+				}
+				opts.Repeat = repeat
 			}
 		case strings.HasPrefix(arg, "--case="):
 			opts.CaseIDs = append(opts.CaseIDs, splitCSV(strings.TrimPrefix(arg, "--case="))...)
@@ -137,6 +144,12 @@ func parseEvalRunOptions(args []string) (evalRunOptions, error) {
 				return opts, errors.New("--workers must be between 1 and 16")
 			}
 			opts.Workers = workers
+		case strings.HasPrefix(arg, "--repeat="):
+			repeat, err := strconv.Atoi(strings.TrimPrefix(arg, "--repeat="))
+			if err != nil || repeat <= 0 || repeat > 20 {
+				return opts, errors.New("--repeat must be between 1 and 20")
+			}
+			opts.Repeat = repeat
 		case strings.HasPrefix(arg, "-"):
 			return opts, fmt.Errorf("unknown eval run option %q", arg)
 		default:
@@ -162,19 +175,26 @@ func executeEvalRun(ctx context.Context, cfg app.Config, store evaluation.Store,
 		evalCfg.Tools.EnabledGroups = append([]string(nil), suite.ToolGroups...)
 	}
 	var outputMu sync.Mutex
-	execute := func(caseCtx context.Context, c evaluation.Case) evaluation.Execution {
+	execute := func(caseCtx context.Context, request evaluation.ExecuteRequest) evaluation.Execution {
 		outputMu.Lock()
-		fmt.Fprintf(out, "[eval] start %s - %s\n", c.ID, c.Name)
+		fmt.Fprintf(out, "[eval] start %s attempt=%d - %s\n", request.Case.ID, request.Attempt, request.Case.Name)
 		outputMu.Unlock()
-		execution := executeEvalCase(caseCtx, evalCfg, c, filepath.Join(store.Root, "sessions"))
+		caseCfg := evalCfg
+		workspace, workspaceErr := prepareEvalWorkspace(projectRoot, store, request)
+		if workspaceErr != nil {
+			return evaluation.Execution{Status: "error", Error: workspaceErr.Error()}
+		}
+		caseCfg.Workspace = workspace
+		execution := executeEvalCase(caseCtx, caseCfg, request.Case, filepath.Join(store.Root, "sessions"))
 		outputMu.Lock()
-		fmt.Fprintf(out, "[eval] finish %s status=%s duration=%s\n", c.ID, execution.Status, formatDurationMS(execution.DurationMS))
+		fmt.Fprintf(out, "[eval] finish %s attempt=%d status=%s duration=%s\n", request.Case.ID, request.Attempt, execution.Status, formatDurationMS(execution.DurationMS))
 		outputMu.Unlock()
 		return execution
 	}
 	result := evaluation.Run(ctx, suite, execute, evaluation.RunOptions{
 		Workers: opts.Workers,
 		Model:   evalCfg.LLM.Active().Model,
+		Repeat:  opts.Repeat,
 	})
 	if previous, err := store.PreviousResult(suite.ID, result.StartedAt); err == nil {
 		comparison := evaluation.Compare(result, previous)
@@ -214,6 +234,7 @@ func executeEvalCase(ctx context.Context, cfg app.Config, c evaluation.Case, ses
 		Status:     runResult.Status,
 		Output:     cleanEvalOutput(sink.text.String()),
 		SessionID:  runner.SessionID(),
+		Workspace:  cfg.Workspace,
 		DurationMS: time.Since(started).Milliseconds(),
 		Tools:      append([]string(nil), sink.tools...),
 	}
@@ -239,6 +260,34 @@ func executeEvalCase(ctx context.Context, cfg app.Config, c evaluation.Case, ses
 		}
 	}
 	return execution
+}
+
+func prepareEvalWorkspace(projectRoot string, store evaluation.Store, request evaluation.ExecuteRequest) (string, error) {
+	mode := strings.TrimSpace(request.Case.Fixture.Mode)
+	if mode == "" || mode == "project" {
+		return projectRoot, nil
+	}
+	workspace := filepath.Join(store.RunDir(request.RunID), "workspaces", request.Case.ID, fmt.Sprintf("attempt-%02d", request.Attempt))
+	if err := os.RemoveAll(workspace); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(workspace, 0755); err != nil {
+		return "", err
+	}
+	for relativePath, content := range request.Case.Fixture.Files {
+		target := filepath.Join(workspace, filepath.Clean(relativePath))
+		relative, err := filepath.Rel(workspace, target)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return "", fmt.Errorf("fixture path escapes workspace: %s", relativePath)
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(target, []byte(content), 0644); err != nil {
+			return "", err
+		}
+	}
+	return workspace, nil
 }
 
 type evalSink struct {
