@@ -484,7 +484,7 @@ cohort capability disable <id>
 - 相似任务能自动发现已有能力。
 - 高频失败能生成能力建设建议。
 
-状态：部分完成。系统提示词现在会注入 `[Capability Index]`，且只包含 `status=available` 的能力；skill 类型能力会暴露 `skill_id`，模型仍需先调用 `skill_read` 再执行。候选、失败、禁用和缺失能力不会进入路由索引。`cohort capability suggestions` 已能从重复 unresolved gaps 中给出 propose 建议；`reflect once` 的离线汇总和自动生成更完整 proposal 仍是后续项。
+状态：部分完成。系统提示词现在会注入 `[Component Map]` 和 `[Capability Index]`。Component Map 汇总工具组、Project/Plan、Skill、Capability、MCP、Plugin、Eval、Hermes、LSP 与观测入口，供模型做系统级路由；Capability Index 只包含 `status=available` 的能力，skill 类型能力会暴露 `skill_id`，模型仍需先调用 `skill_read` 再执行。候选、失败、禁用和缺失能力不会进入路由索引。用户可用 `cohort components` 查看同一份组件地图，`cohort capability suggestions` 已能从重复 unresolved gaps 中给出 propose 建议；`reflect once` 的离线汇总和自动生成更完整 proposal 仍是后续项。
 
 ## 11. 对外表达
 

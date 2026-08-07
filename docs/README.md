@@ -20,7 +20,7 @@
 1. `[完成]` `FinishGuard` / `NoToolPolicy` 保守早停守卫：无工具默认结束，只对空回复、截断回复、大代码块误输出和疑似未验证完成等强异常做一次性重试。
 2. `[完成]` 严格文本 `<tool_use>` 兜底：降低不同模型或中转服务的 tool calling 波动。
 3. `[部分完成]` Runner 生命周期 `run.log.jsonl` 事件流：Runner、LLM、tool、permission、compact、session start/end、FinishGuard 和 TextToolUse 已落地；`cohort trace last/show` 与 `cohort perf last/show` 已能读取本地事件流并定位 LLM/tool/context 瓶颈；`cohort tuning report` 已能跨 run 输出慢请求、失败工具、schema/request/context 膨胀和调优建议；`internal/hooks` 已提供可注册 Hook 接口并接入 SessionStart/SessionEnd/PreToolUse/PostToolUse/FileChanged/PreCompact/PostCompact，外部插件化执行器、更完整 policy sink、eval 和 A/B 仍待补。
-4. `[部分完成]` `cohort doctor` 总入口：已检查配置、模型、MCP、Skill、浏览器扩展、桌面/OCR helper、workspace/session/log；真实桌面权限深检仍走 `cohort doctor computer`。
+4. `[部分完成]` `cohort doctor` 总入口与 `cohort components` 组件地图：doctor 已检查配置、模型、MCP、Skill、浏览器扩展、桌面/OCR helper、workspace/session/log；components 会汇总工具组、Project/Plan、Skill/Capability/MCP/Plugin、Eval、Hermes、LSP 和观测状态，并把紧凑 Component Map 注入 Agent prompt；真实桌面权限深检仍走 `cohort doctor computer`。
 5. `[完成]` 交互式 diff、变更审阅与受限回滚边界：`/diff`、`/diff show`、`/diff accept`、`/diff rollback <file> --confirm` 已落地。
 6. `[部分完成]` Project / Plan Mode：`cohort project init/status`、`.cohort/project.md`、`.cohort/config.json`、`cohort plan create/status/start/verify/block` 和 `.cohort/plan.json` 已落地；更完整 Project bootstrap 向导仍待补。
 7. `[完成]` Skill Runtime 补强和候选挖掘：内置高频 Skill 包、`SKILL.md permissions`、`/skill run` active policy、Skill 候选离线报告已落地。

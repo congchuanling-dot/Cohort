@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -127,6 +128,8 @@ func Run(args []string) error {
 			fmt.Println("api_key: set")
 		}
 		return nil
+	case "components":
+		return runComponentsCommand(cfg, args[1:], os.Stdout)
 	case "session":
 		return runSessionCommand(context.Background(), cfg, args[1:])
 	case "reflect":
@@ -172,6 +175,44 @@ func Run(args []string) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runComponentsCommand(cfg app.Config, args []string, out io.Writer) error {
+	jsonOutput := false
+	for _, arg := range args {
+		switch arg {
+		case "--json":
+			jsonOutput = true
+		default:
+			return fmt.Errorf("unknown components option %q", arg)
+		}
+	}
+	root, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	inventory := app.BuildComponentInventory(cfg, root, nil)
+	if jsonOutput {
+		data, err := json.MarshalIndent(inventory, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(out, string(data))
+		return nil
+	}
+	fmt.Fprintf(out, "project_root: %s\nworkspace: %s\n\n", inventory.ProjectRoot, inventory.Workspace)
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tKIND\tSTATUS\tDETAIL\tCOMMAND")
+	for _, component := range inventory.Components {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+			component.ID,
+			component.Kind,
+			component.Status,
+			component.Detail,
+			component.UserCommand,
+		)
+	}
+	return w.Flush()
 }
 
 func parseGlobalOptions(args []string) (globalOptions, []string, error) {
@@ -1345,6 +1386,8 @@ Usage:
   cohort capability disable <capability_id>
                           disable a registered capability
   cohort config           show effective config and config path
+  cohort components [--json]
+                          show system component map and visibility status
   cohort project init [title]
                           bootstrap .cohort/project.md and project config entry
   cohort project status   show Project Mode state
