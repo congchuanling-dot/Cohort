@@ -1,6 +1,6 @@
 # Cohort Eval Stability
 
-- generated_at: `2026-08-05T07:43:29Z`
+- generated_at: `2026-08-07T05:31:14Z`
 - runs: `7`
 - suites: `2`
 - cases: `11`
@@ -57,3 +57,55 @@
 | `stateful::create_config::no_consecutive_tool_repeat::no adjacent duplicate tools` | 1 | create_config |
 | `stateful::repair_go_test::judge_score::>= 75.0` | 1 | repair_go_test |
 | `stateful::repair_go_test::max_tool_failures::1` | 1 | repair_go_test |
+
+## Action Items
+
+| severity | category | title | evidence |
+| --- | --- | --- | --- |
+| `high` | `tool_failure` | 消除工具失败 | `tool_failures=2` |
+| `medium` | `trajectory` | 收敛 Agent 执行轨迹 | `max_turns expected="4" actual="8"` |
+| `high` | `tool_failure` | 修复工具失败路径 | `max_tool_failures expected="0" actual="2"` |
+| `high` | `tool_failure` | 消除工具失败 | `tool_failures=2` |
+| `medium` | `answer_quality` | 修正最终回答质量 | `output_contains expected="deepseek-v4-pro" actual=""` |
+| `medium` | `trajectory` | 收敛 Agent 执行轨迹 | `max_turns expected="4" actual="8"` |
+| `high` | `tool_failure` | 修复工具失败路径 | `max_tool_failures expected="0" actual="2"` |
+| `medium` | `trajectory` | 收敛 Agent 执行轨迹 | `max_turns expected="6" actual="12"` |
+| `high` | `tool_failure` | 消除工具失败 | `tool_failures=1` |
+| `medium` | `answer_quality` | 修正最终回答质量 | `output_contains expected="LLMRequestStarted" actual=""` |
+| `medium` | `trajectory` | 收敛 Agent 执行轨迹 | `max_turns expected="5" actual="7"` |
+| `high` | `tool_failure` | 修复工具失败路径 | `max_tool_failures expected="0" actual="1"` |
+| `high` | `tool_failure` | 消除工具失败 | `tool_failures=1` |
+| `medium` | `trajectory` | 收敛 Agent 执行轨迹 | `max_turns expected="4" actual="9"` |
+| `high` | `tool_failure` | 修复工具失败路径 | `max_tool_failures expected="0" actual="1"` |
+| `high` | `tool_failure` | 消除工具失败 | `tool_failures=1` |
+| `high` | `tool_failure` | 修复工具失败路径 | `max_tool_failures expected="0" actual="1"` |
+| `high` | `tool_failure` | 消除工具失败 | `tool_failures=1` |
+| `high` | `tool_failure` | 修复工具失败路径 | `max_tool_failures expected="0" actual="1"` |
+| `high` | `tool_failure` | 消除工具失败 | `tool_failures=1` |
+| `high` | `tool_failure` | 修复工具失败路径 | `max_tool_failures expected="0" actual="1"` |
+| `high` | `tool_failure` | 消除工具失败 | `tool_failures=1` |
+| `high` | `tool_failure` | 修复工具失败路径 | `max_tool_failures expected="0" actual="1"` |
+| `high` | `tool_failure` | 消除工具失败 | `tool_failures=1` |
+| `high` | `tool_failure` | 修复工具失败路径 | `max_tool_failures expected="0" actual="1"` |
+| `medium` | `trajectory` | 收敛 Agent 执行轨迹 | `max_turns expected="4" actual="7"` |
+| `high` | `flaky` | 治理不稳定 case | `passed_attempts=1 attempts=2 stability=50.0%` |
+| `high` | `tool_failure` | 消除工具失败 | `tool_failures=1` |
+| `medium` | `trajectory` | 收敛 Agent 执行轨迹 | `max_tool_calls expected="7" actual="8"` |
+| `high` | `flaky` | 治理不稳定 case | `passed_attempts=1 attempts=2 stability=50.0%` |
+| `medium` | `trace_warning` | 清理失败路径中的 warning 事件 | `warnings=1` |
+| `medium` | `latency` | 压缩慢事件间隔 | `LLMRequestStarted -> LLMResponseFinished gap=4687ms` |
+| `medium` | `trajectory` | 收敛 Agent 执行轨迹 | `max_turns expected="4" actual="6"` |
+| `medium` | `latency` | 压缩慢事件间隔 | `LLMRequestStarted -> LLMResponseFinished gap=3237ms` |
+| `high` | `flaky` | 治理不稳定 case | `passed_attempts=1 attempts=2 stability=50.0%` |
+| `high` | `tool_failure` | 消除工具失败 | `tool_failures=3` |
+| `medium` | `trace_warning` | 清理失败路径中的 warning 事件 | `warnings=4` |
+| `medium` | `latency` | 压缩慢事件间隔 | `LLMRequestStarted -> LLMResponseFinished gap=6104ms` |
+| `high` | `tool_failure` | 修复工具失败路径 | `max_tool_failures expected="1" actual="3"` |
+| `medium` | `trajectory` | 收敛 Agent 执行轨迹 | `max_tool_calls expected="7" actual="8"` |
+| `medium` | `judge_quality` | 提升 Judge 质量评分 | `judge_score expected=">= 75.0" actual="60.0" message=tool overuse: 8 calls > 7; tool failures: 3` |
+| `high` | `flaky` | 治理跨 run 不稳定 case | `passes=1 failures=2 pass_rate=33.3%` |
+| `high` | `flaky` | 治理跨 run 不稳定 case | `passes=1 failures=2 pass_rate=33.3%` |
+| `high` | `flaky` | 治理跨 run 不稳定 case | `passes=1 failures=2 pass_rate=33.3%` |
+| `high` | `flaky` | 治理跨 run 不稳定 case | `passes=1 failures=2 pass_rate=33.3%` |
+| `high` | `flaky` | 治理跨 run 不稳定 case | `passes=1 failures=2 pass_rate=33.3%` |
+| `medium` | `failure_signature` | 合并处理重复失败签名 | `count=2 cases=read_active_model` |

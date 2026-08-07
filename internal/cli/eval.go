@@ -290,6 +290,7 @@ func executeEvalRunOnce(ctx context.Context, cfg app.Config, store evaluation.St
 	}
 	gate := evaluation.EvaluateGate(result, opts.Gate)
 	result.Gate = &gate
+	result = evaluation.EnrichDiagnostics(result)
 	resultPath, err := store.SaveResult(result)
 	if err != nil {
 		return err

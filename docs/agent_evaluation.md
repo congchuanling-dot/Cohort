@@ -316,6 +316,9 @@ cohort eval stability regressions
 - 按 case 聚合的 pass rate、平均稳定率、flaky 标记、最新 trace。
 - Failure Signature 聚类：按 suite、case、断言类型和期望值聚合失败。
 - Regression 列表：同一 case 从上一次通过变成本次失败。
+- Action Items：从失败断言、tool failure、trace warning/error、flaky 和 regression 自动生成修复或调优任务。
+
+单次 `report.html` 会把失败 case 的 `run.log.jsonl` 摘要内嵌为 trace timeline，包含事件数量、turn、LLM/tool 调用、warning/error、最慢事件间隔和受控长度的时间线。这样失败 case 不再只展示 `trace_path`，可以直接在 Dashboard 内定位调用链。
 
 ## CI 建议
 
@@ -361,4 +364,4 @@ cohort eval run tool-routing --tag desktop
 1. 真实 LLM Judge mode，作为当前启发式 Judge 的可选增强。
 2. Eval result 接入 Langfuse dataset。
 3. Hermes daemon 调度周期评测并推送回归告警。
-4. Dashboard 增加 trace timeline 内嵌视图，而不仅是 `trace_path`。
+4. Action Items 接入 Hermes 后台任务队列，形成周期评测、回归告警、自动派发修复任务的闭环。

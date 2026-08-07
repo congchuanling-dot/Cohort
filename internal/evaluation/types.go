@@ -143,6 +143,8 @@ type CaseResult struct {
 	PassedAttempts   int               `json:"passed_attempts"`
 	StabilityRate    float64           `json:"stability_rate"`
 	Judge            *JudgeResult      `json:"judge,omitempty"`
+	Trace            *TraceSummary     `json:"trace,omitempty"`
+	ActionItems      []ActionItem      `json:"action_items,omitempty"`
 	AttemptResults   []AttemptResult   `json:"attempt_results,omitempty"`
 	AssertionResults []AssertionResult `json:"assertion_results"`
 }
@@ -166,7 +168,59 @@ type AttemptResult struct {
 	InputTokens      int64             `json:"input_tokens,omitempty"`
 	OutputTokens     int64             `json:"output_tokens,omitempty"`
 	Judge            *JudgeResult      `json:"judge,omitempty"`
+	Trace            *TraceSummary     `json:"trace,omitempty"`
 	AssertionResults []AssertionResult `json:"assertion_results"`
+}
+
+type TraceSummary struct {
+	Status         string              `json:"status,omitempty"`
+	EventCount     int                 `json:"event_count,omitempty"`
+	TurnCount      int                 `json:"turn_count,omitempty"`
+	WarningCount   int                 `json:"warning_count,omitempty"`
+	ErrorCount     int                 `json:"error_count,omitempty"`
+	ContextBuilds  int                 `json:"context_builds,omitempty"`
+	LLMCalls       int                 `json:"llm_calls,omitempty"`
+	LLMDurationMS  int64               `json:"llm_duration_ms,omitempty"`
+	ToolCalls      int                 `json:"tool_calls,omitempty"`
+	ToolFailures   int                 `json:"tool_failures,omitempty"`
+	ToolDurationMS int64               `json:"tool_duration_ms,omitempty"`
+	DurationMS     int64               `json:"duration_ms,omitempty"`
+	TotalTokens    int64               `json:"total_tokens,omitempty"`
+	InputTokens    int64               `json:"input_tokens,omitempty"`
+	OutputTokens   int64               `json:"output_tokens,omitempty"`
+	Timeline       []TraceTimelineItem `json:"timeline,omitempty"`
+	SlowestGaps    []TraceGap          `json:"slowest_gaps,omitempty"`
+}
+
+type TraceTimelineItem struct {
+	OffsetMS      int64  `json:"offset_ms"`
+	Turn          int    `json:"turn,omitempty"`
+	EventType     string `json:"event_type"`
+	Severity      string `json:"severity,omitempty"`
+	Summary       string `json:"summary,omitempty"`
+	SincePrevious int64  `json:"since_previous_ms,omitempty"`
+}
+
+type TraceGap struct {
+	FromEvent string `json:"from_event"`
+	ToEvent   string `json:"to_event"`
+	GapMS     int64  `json:"gap_ms"`
+	Turn      int    `json:"turn,omitempty"`
+}
+
+type ActionItem struct {
+	ID         string `json:"id"`
+	Scope      string `json:"scope"`
+	Severity   string `json:"severity"`
+	Category   string `json:"category"`
+	Title      string `json:"title"`
+	Detail     string `json:"detail,omitempty"`
+	Evidence   string `json:"evidence,omitempty"`
+	SuiteID    string `json:"suite_id,omitempty"`
+	CaseID     string `json:"case_id,omitempty"`
+	RunID      string `json:"run_id,omitempty"`
+	TracePath  string `json:"trace_path,omitempty"`
+	TraceRunID string `json:"trace_run_id,omitempty"`
 }
 
 type AssertionResult struct {

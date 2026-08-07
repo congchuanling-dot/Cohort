@@ -8,7 +8,110 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"cohort/internal/observability"
+	"cohort/internal/traceview"
 )
+
+func TestEnrichDiagnosticsEmbedsTraceAndActionItems_BitsUT(t *testing.T) {
+	sessionRoot := t.TempDir()
+	sessionID := "sess_diag"
+	traceRunID := "run_diag"
+	traceDir := filepath.Join(sessionRoot, sessionID)
+	if err := os.MkdirAll(traceDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 8, 7, 10, 0, 0, 0, time.UTC)
+	tracePath := filepath.Join(traceDir, traceview.ObservationLogFileName)
+	writeEvalEvents(t, tracePath, []observability.Event{
+		evalTestEvent(base, traceRunID, sessionID, observability.EventRunStarted, 0, observability.SeverityInfo, nil),
+		evalTestEvent(base.Add(100*time.Millisecond), traceRunID, sessionID, observability.EventLLMResponseFinished, 1, observability.SeverityInfo, map[string]any{
+			"duration_ms":     100,
+			"tool_call_count": 1,
+			"usage":           map[string]any{"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+		}),
+		evalTestEvent(base.Add(4200*time.Millisecond), traceRunID, sessionID, observability.EventToolFinished, 1, observability.SeverityWarn, map[string]any{
+			"tool":        "file_read",
+			"status":      "error",
+			"duration_ms": 40,
+			"error_code":  "not_found",
+		}),
+		evalTestEvent(base.Add(4300*time.Millisecond), traceRunID, sessionID, observability.EventRunFinished, 1, observability.SeverityInfo, map[string]any{
+			"status":      "completed",
+			"duration_ms": 4300,
+			"usage":       map[string]any{"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+		}),
+	})
+	result := RunResult{
+		RunID: "eval_diag", SuiteID: "stateful", SuiteName: "Stateful", StartedAt: base, TotalCases: 1, FailedCases: 1,
+		Cases: []CaseResult{{
+			CaseID: "create_config", Name: "Create", Passed: false, Score: 80, Attempts: 1,
+			SessionID: sessionID, TraceRunID: traceRunID, TracePath: tracePath, ToolFailures: 1,
+			AssertionResults: []AssertionResult{{Kind: "max_tool_calls", Expected: "3", Actual: "5", Passed: false}},
+		}},
+	}
+	enriched := EnrichDiagnostics(result)
+	c := enriched.Cases[0]
+	if c.Trace == nil || c.Trace.EventCount != 4 || len(c.Trace.Timeline) != 4 {
+		t.Fatalf("trace summary = %#v", c.Trace)
+	}
+	if len(c.ActionItems) < 2 {
+		t.Fatalf("action items = %#v", c.ActionItems)
+	}
+	store := NewStore(t.TempDir())
+	markdownPath, htmlPath, err := WriteReports(store, enriched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markdown, err := os.ReadFile(markdownPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(markdown), "Action Items") {
+		t.Fatalf("%s missing Action Items", markdownPath)
+	}
+	html, err := os.ReadFile(htmlPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"收敛 Agent 执行轨迹", "ToolFinished"} {
+		if !strings.Contains(string(html), want) {
+			t.Fatalf("%s missing %q", htmlPath, want)
+		}
+	}
+}
+
+func evalTestEvent(at time.Time, runID string, sessionID string, eventType observability.EventType, turn int, severity observability.Severity, data map[string]any) observability.Event {
+	return observability.Event{
+		SchemaVersion: observability.SchemaVersion,
+		EventID:       string(eventType) + "_" + runID,
+		EventType:     eventType,
+		Time:          at,
+		RunID:         runID,
+		SessionID:     sessionID,
+		Turn:          turn,
+		Workspace:     "/tmp/workspace",
+		Source:        "runner",
+		Severity:      severity,
+		Data:          data,
+	}
+}
+
+func writeEvalEvents(t *testing.T, path string, events []observability.Event) {
+	t.Helper()
+	var data []byte
+	for _, event := range events {
+		line, err := json.Marshal(event)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data = append(data, line...)
+		data = append(data, '\n')
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestSuiteValidationFilteringAndRoundTrip_BitsUT(t *testing.T) {
 	suite := coreSuite()

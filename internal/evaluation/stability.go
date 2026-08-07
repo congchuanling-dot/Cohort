@@ -28,6 +28,7 @@ type StabilityIndex struct {
 	Cases             []StabilityCase       `json:"cases"`
 	FailureSignatures []FailureSignature    `json:"failure_signatures"`
 	Regressions       []StabilityRegression `json:"regressions"`
+	ActionItems       []ActionItem          `json:"action_items,omitempty"`
 	Summary           StabilitySummary      `json:"summary"`
 }
 
@@ -47,6 +48,7 @@ type StabilitySummary struct {
 	FlakyCases        int     `json:"flaky_cases"`
 	Regressions       int     `json:"regressions"`
 	FailureSignatures int     `json:"failure_signatures"`
+	ActionItems       int     `json:"action_items"`
 }
 
 type StabilityRun struct {
@@ -141,7 +143,9 @@ func BuildStabilityIndex(results []RunResult, opts StabilityOptions) StabilityIn
 	caseAgg := map[string]*caseAccumulator{}
 	signatureAgg := map[string]*signatureAccumulator{}
 	lastCasePassed := map[string]caseObservation{}
+	seenAction := map[string]bool{}
 	for _, result := range chronological {
+		result = EnrichDiagnostics(result)
 		run := StabilityRun{
 			RunID:         result.RunID,
 			SuiteID:       result.SuiteID,
@@ -178,11 +182,29 @@ func BuildStabilityIndex(results []RunResult, opts StabilityOptions) StabilityIn
 			previous, ok := lastCasePassed[key]
 			if ok && previous.passed && !c.Passed {
 				acc.regressions++
-				index.Regressions = append(index.Regressions, StabilityRegression{
+				regression := StabilityRegression{
 					SuiteID: result.SuiteID, CaseID: c.CaseID, FromRunID: previous.runID, ToRunID: result.RunID, ToStartedAt: result.StartedAt,
+				}
+				index.Regressions = append(index.Regressions, regression)
+				appendUniqueAction(&index.ActionItems, seenAction, ActionItem{
+					ID:         "stability-" + sanitizeID(result.SuiteID) + "-" + sanitizeID(c.CaseID) + "-regression",
+					Scope:      "stability",
+					Severity:   "critical",
+					Category:   "regression",
+					Title:      "修复稳定性回归",
+					Detail:     "该 case 在历史稳定性窗口内从通过转为失败，优先对比两个 run 的 trace 和断言差异。",
+					Evidence:   fmt.Sprintf("from=%s to=%s", previous.runID, result.RunID),
+					SuiteID:    result.SuiteID,
+					CaseID:     c.CaseID,
+					RunID:      result.RunID,
+					TracePath:  c.TracePath,
+					TraceRunID: c.TraceRunID,
 				})
 			}
 			lastCasePassed[key] = caseObservation{runID: result.RunID, passed: c.Passed}
+			for _, item := range c.ActionItems {
+				appendUniqueAction(&index.ActionItems, seenAction, item)
+			}
 			for _, assertion := range c.AssertionResults {
 				if assertion.Passed {
 					continue
@@ -211,6 +233,22 @@ func BuildStabilityIndex(results []RunResult, opts StabilityOptions) StabilityIn
 			continue
 		}
 		index.Cases = append(index.Cases, metric)
+		if metric.Flaky {
+			appendUniqueAction(&index.ActionItems, seenAction, ActionItem{
+				ID:         "stability-" + sanitizeID(metric.SuiteID) + "-" + sanitizeID(metric.CaseID) + "-flaky",
+				Scope:      "stability",
+				Severity:   "high",
+				Category:   "flaky",
+				Title:      "治理跨 run 不稳定 case",
+				Detail:     "该 case 在历史窗口内既通过又失败，优先固定环境、等待条件和工具调用顺序，并用 repeat 验证稳定率。",
+				Evidence:   fmt.Sprintf("passes=%d failures=%d pass_rate=%.1f%%", metric.Passes, metric.Failures, metric.PassRate),
+				SuiteID:    metric.SuiteID,
+				CaseID:     metric.CaseID,
+				RunID:      metric.LatestRunID,
+				TracePath:  metric.LatestTracePath,
+				TraceRunID: metric.LatestTraceRunID,
+			})
+		}
 	}
 	sort.Slice(index.Cases, func(i, j int) bool {
 		if index.Cases[i].Flaky != index.Cases[j].Flaky {
@@ -230,6 +268,20 @@ func BuildStabilityIndex(results []RunResult, opts StabilityOptions) StabilityIn
 		}
 		return index.FailureSignatures[i].Signature < index.FailureSignatures[j].Signature
 	})
+	for i, sig := range index.FailureSignatures {
+		if i >= 5 || sig.Count < 2 {
+			break
+		}
+		appendUniqueAction(&index.ActionItems, seenAction, ActionItem{
+			ID:       "stability-signature-" + sanitizeID(sig.Signature),
+			Scope:    "stability",
+			Severity: "medium",
+			Category: "failure_signature",
+			Title:    "合并处理重复失败签名",
+			Detail:   "多个 run/case 命中同一失败签名，适合优先做系统性修复，而不是逐个 case 调参。",
+			Evidence: fmt.Sprintf("count=%d cases=%s", sig.Count, strings.Join(sig.CaseIDs, ",")),
+		})
+	}
 	index.Summary = summarizeStability(index)
 	return index
 }
@@ -426,6 +478,7 @@ func summarizeStability(index StabilityIndex) StabilitySummary {
 	}
 	summary.Regressions = len(index.Regressions)
 	summary.FailureSignatures = len(index.FailureSignatures)
+	summary.ActionItems = len(index.ActionItems)
 	return summary
 }
 
@@ -445,6 +498,13 @@ func renderStabilityMarkdown(index StabilityIndex) string {
 	fmt.Fprintf(&b, "\n## Failure Signatures\n\n| signature | count | cases |\n| --- | ---: | --- |\n")
 	for _, sig := range index.FailureSignatures {
 		fmt.Fprintf(&b, "| `%s` | %d | %s |\n", sig.Signature, sig.Count, strings.Join(sig.CaseIDs, ", "))
+	}
+	fmt.Fprintf(&b, "\n## Action Items\n\n| severity | category | title | evidence |\n| --- | --- | --- | --- |\n")
+	for _, item := range index.ActionItems {
+		fmt.Fprintf(&b, "| `%s` | `%s` | %s | `%s` |\n", item.Severity, item.Category, item.Title, item.Evidence)
+	}
+	if len(index.ActionItems) == 0 {
+		fmt.Fprintf(&b, "| - | - | No action items | - |\n")
 	}
 	return b.String()
 }
@@ -490,6 +550,7 @@ const stabilityHTML = `<!doctype html>
 <div class="card"><div class="label">Flaky Cases</div><div class="value {{if gt .Index.Summary.FlakyCases 0}}warn{{else}}good{{end}}">{{.Index.Summary.FlakyCases}}</div></div>
 <div class="card"><div class="label">Regressions</div><div class="value {{if gt .Index.Summary.Regressions 0}}bad{{else}}good{{end}}">{{.Index.Summary.Regressions}}</div></div>
 </section>
+<section class="panel"><h2>Action Items</h2><table><thead><tr><th>Severity</th><th>Category</th><th>Task</th><th>Evidence</th><th>Trace</th></tr></thead><tbody>{{range .Index.ActionItems}}<tr><td class="{{if eq .Severity "critical"}}bad{{else if eq .Severity "high"}}bad{{else if eq .Severity "medium"}}warn{{else}}good{{end}}">{{.Severity}}</td><td><span class="chip">{{.Category}}</span></td><td><b>{{.Title}}</b><br><span class="meta">{{.SuiteID}} {{.CaseID}} {{.RunID}}</span><br><span class="meta">{{.Detail}}</span></td><td><code>{{.Evidence}}</code></td><td class="trace">{{.TracePath}}{{if .TraceRunID}}<br>{{.TraceRunID}}{{end}}</td></tr>{{else}}<tr><td colspan="5" class="meta">No action items.</td></tr>{{end}}</tbody></table></section>
 <section class="layout"><div class="panel"><h2>Suite Stability</h2><table><thead><tr><th>Suite</th><th>Runs</th><th>Pass</th><th>Score</th><th>Stability</th><th>Reg</th></tr></thead><tbody>{{range .Index.Suites}}<tr><td><b>{{.SuiteID}}</b><br><span class="meta">{{.SuiteName}}</span></td><td>{{.Runs}}</td><td>{{pct .AveragePassRate}}</td><td>{{printf "%.1f" .AverageScore}}</td><td>{{pct .AverageStability}}</td><td>{{.Regressions}}</td></tr>{{end}}</tbody></table></div>
 <div class="panel"><h2>Failure Signatures</h2><table><thead><tr><th>Signature</th><th>Count</th><th>Cases</th></tr></thead><tbody>{{range .Index.FailureSignatures}}<tr><td><code>{{.Signature}}</code><br><span class="meta">{{.Example}}</span></td><td>{{.Count}}</td><td>{{range .CaseIDs}}<span class="chip">{{.}}</span>{{end}}</td></tr>{{end}}</tbody></table></div></section>
 <section class="panel"><h2>Case Heat</h2><div class="toolbar"><input id="q" placeholder="搜索 case / suite / model / trace"></div><table id="cases"><thead><tr><th>Case</th><th>Pass</th><th>Score</th><th>Stability</th><th>Flaky</th><th>Latest</th><th>Trace</th></tr></thead><tbody>{{range .Index.Cases}}<tr data-search="{{.SuiteID}} {{.CaseID}} {{.Name}} {{.Model}} {{.Profile}} {{.LatestTracePath}}"><td><b>{{.CaseID}}</b><br><span class="meta">{{.SuiteID}} · {{.Name}}</span></td><td><div>{{pct .PassRate}}</div><div class="bar"><i style="width:{{printf "%.1f" .PassRate}}%"></i></div></td><td>{{printf "%.1f" .AverageScore}}</td><td>{{pct .AverageStability}}</td><td class="{{if .Flaky}}warn{{else}}good{{end}}">{{.Flaky}}</td><td>{{status .LatestPassed}}<br><span class="meta">{{.LatestRunID}}</span></td><td class="trace">{{.LatestTracePath}}{{if .LatestTraceRunID}}<br>{{.LatestTraceRunID}}{{end}}</td></tr>{{end}}</tbody></table></section>
@@ -509,4 +570,13 @@ func sortedKeys(values map[string]bool) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func appendUniqueAction(items *[]ActionItem, seen map[string]bool, item ActionItem) {
+	key := strings.Join([]string{item.Scope, item.Severity, item.Category, item.SuiteID, item.CaseID, item.RunID, item.Title}, "\x00")
+	if seen[key] {
+		return
+	}
+	seen[key] = true
+	*items = append(*items, item)
 }

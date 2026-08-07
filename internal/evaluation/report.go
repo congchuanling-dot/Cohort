@@ -30,6 +30,7 @@ type DashboardData struct {
 }
 
 func WriteReports(store Store, result RunResult) (markdownPath, htmlPath string, err error) {
+	result = EnrichDiagnostics(result)
 	history, _ := store.ListResults()
 	dir := store.RunDir(result.RunID)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -74,6 +75,20 @@ func renderMarkdown(result RunResult) string {
 		}
 		fmt.Fprintf(&b, "| `%s` | %s | %.1f | %.1f%% | %d/%d | %s | %d | %s |\n", c.CaseID, status, c.Score, c.StabilityRate, c.PassedAttempts, c.Attempts, formatDuration(c.DurationMS), c.TotalTokens, strings.Join(c.Tools, ", "))
 	}
+	fmt.Fprintf(&b, "\n## Action Items\n\n")
+	actionCount := 0
+	for _, c := range result.Cases {
+		for _, item := range c.ActionItems {
+			actionCount++
+			fmt.Fprintf(&b, "- `%s` [%s/%s] `%s`: %s\n", item.ID, item.Severity, item.Category, c.CaseID, item.Title)
+			if item.Evidence != "" {
+				fmt.Fprintf(&b, "  - evidence: `%s`\n", item.Evidence)
+			}
+		}
+	}
+	if actionCount == 0 {
+		fmt.Fprintln(&b, "No action items.")
+	}
 	fmt.Fprintf(&b, "\n## Failures\n\n")
 	failed := 0
 	for _, c := range result.Cases {
@@ -87,6 +102,9 @@ func renderMarkdown(result RunResult) string {
 		}
 		if c.TracePath != "" {
 			fmt.Fprintf(&b, "- trace: `%s` run `%s`\n", c.TracePath, c.TraceRunID)
+		}
+		if c.Trace != nil {
+			fmt.Fprintf(&b, "- trace_summary: events=%d turns=%d llm=%d tools=%d errors=%d warnings=%d\n", c.Trace.EventCount, c.Trace.TurnCount, c.Trace.LLMCalls, c.Trace.ToolCalls, c.Trace.ErrorCount, c.Trace.WarningCount)
 		}
 		if c.Judge != nil {
 			fmt.Fprintf(&b, "- judge: %.1f `%s`\n", c.Judge.Score, c.Judge.Summary)
@@ -200,7 +218,7 @@ const dashboardHTML = `<!doctype html>
 .wrap{max-width:1440px;margin:auto;padding:28px}.top{display:flex;justify-content:space-between;gap:24px;align-items:end;margin-bottom:22px}.eyebrow{color:var(--blue);font-weight:700;letter-spacing:.12em;text-transform:uppercase}.top h1{font-size:30px;margin:4px 0}.meta{color:var(--muted);font-family:ui-monospace,monospace}
 .grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}.card,.panel{background:linear-gradient(145deg,var(--panel),#10182a);border:1px solid var(--line);border-radius:14px;box-shadow:0 14px 35px #0003}.card{padding:17px}.label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em}.value{font-size:28px;font-weight:750;margin-top:6px}.good{color:var(--green)}.bad{color:var(--red)}.warn{color:var(--amber)}
 .layout{display:grid;grid-template-columns:1.35fr .65fr;gap:14px;margin-top:14px}.panel{padding:18px}.panel h2{font-size:15px;margin:0 0 15px}.chart{height:180px;position:relative}.chart svg{width:100%;height:100%;overflow:visible}.axis{stroke:var(--line)}.line{fill:none;stroke:var(--blue);stroke-width:3}.dot{fill:var(--blue)}.barrow{display:grid;grid-template-columns:110px 1fr 50px;align-items:center;gap:10px;margin:9px 0}.bar{height:9px;background:#263451;border-radius:9px;overflow:hidden}.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--blue),var(--green))}
-.toolbar{display:flex;gap:10px;margin:18px 0 10px}.toolbar input,.toolbar select{background:var(--panel);border:1px solid var(--line);color:var(--text);padding:10px 12px;border-radius:9px;outline:none}.toolbar input{flex:1}.cases{display:grid;gap:9px}.case{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--green);border-radius:10px;padding:14px}.case.fail{border-left-color:var(--red)}.casehead{display:flex;justify-content:space-between;gap:14px}.case h3{margin:0;font-size:15px}.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.chip{font-size:11px;background:var(--panel2);color:var(--muted);padding:3px 8px;border-radius:99px}.metrics{display:flex;gap:18px;color:var(--muted);font-size:12px;margin-top:9px}.assertions{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}.assert{display:grid;grid-template-columns:18px 150px 1fr;gap:8px;padding:4px 0;color:var(--muted)}.assert strong{color:var(--text)}details summary{cursor:pointer;color:var(--blue)}.output{white-space:pre-wrap;max-height:220px;overflow:auto;background:#090e1b;padding:12px;border-radius:8px;color:#cbd7eb}.empty{color:var(--muted);padding:24px;text-align:center}
+.toolbar{display:flex;gap:10px;margin:18px 0 10px}.toolbar input,.toolbar select{background:var(--panel);border:1px solid var(--line);color:var(--text);padding:10px 12px;border-radius:9px;outline:none}.toolbar input{flex:1}.cases{display:grid;gap:9px}.case{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--green);border-radius:10px;padding:14px}.case.fail{border-left-color:var(--red)}.casehead{display:flex;justify-content:space-between;gap:14px}.case h3{margin:0;font-size:15px}.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.chip{font-size:11px;background:var(--panel2);color:var(--muted);padding:3px 8px;border-radius:99px}.metrics{display:flex;gap:18px;color:var(--muted);font-size:12px;margin-top:9px}.assertions,.actions,.tracebox{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}.assert{display:grid;grid-template-columns:18px 150px 1fr;gap:8px;padding:4px 0;color:var(--muted)}.assert strong{color:var(--text)}.action{background:#0b1324;border:1px solid var(--line);border-radius:9px;padding:9px;margin:7px 0}.action b{text-transform:uppercase}.timeline{display:grid;grid-template-columns:82px 46px 170px 1fr;gap:8px;padding:4px 0;color:var(--muted);font-family:ui-monospace,monospace;font-size:12px}.timeline strong{color:var(--text)}details summary{cursor:pointer;color:var(--blue)}.output{white-space:pre-wrap;max-height:220px;overflow:auto;background:#090e1b;padding:12px;border-radius:8px;color:#cbd7eb}.empty{color:var(--muted);padding:24px;text-align:center}
 @media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}.layout{grid-template-columns:1fr}.top{display:block}.wrap{padding:16px}}
 </style></head>
 <body><main class="wrap">
@@ -223,6 +241,8 @@ const dashboardHTML = `<!doctype html>
 <div class="metrics"><span>{{duration .DurationMS}} avg</span><span>{{.PassedAttempts}}/{{.Attempts}} attempts</span><span>{{printf "%.1f" .StabilityRate}}% stable</span><span>{{.Turns}} turns</span><span>{{.TotalTokens}} tokens</span><span>{{.ToolFailures}} tool failures</span></div>
 {{if .TracePath}}<div class="metrics"><span>trace: <code>{{.TracePath}}</code></span><span>run: <code>{{.TraceRunID}}</code></span></div>{{end}}
 {{if .Judge}}<div class="metrics"><span>judge: <b>{{printf "%.1f" .Judge.Score}}</b></span><span>{{.Judge.Summary}}</span></div>{{end}}
+{{if .ActionItems}}<div class="actions">{{range .ActionItems}}<div class="action"><div><b class="{{if eq .Severity "critical"}}bad{{else if eq .Severity "high"}}bad{{else if eq .Severity "medium"}}warn{{else}}good{{end}}">{{.Severity}}</b> <span class="chip">{{.Category}}</span> {{.Title}}</div>{{if .Detail}}<div class="meta">{{.Detail}}</div>{{end}}{{if .Evidence}}<div class="meta">evidence: <code>{{.Evidence}}</code></div>{{end}}</div>{{end}}</div>{{end}}
+{{if .Trace}}<details class="tracebox" {{if not .Passed}}open{{end}}><summary>内嵌 trace timeline · {{.Trace.EventCount}} events · {{.Trace.TurnCount}} turns · {{.Trace.ToolCalls}} tools · {{.Trace.LLMCalls}} llm</summary><div class="metrics"><span>status={{.Trace.Status}}</span><span>duration={{duration .Trace.DurationMS}}</span><span>errors={{.Trace.ErrorCount}}</span><span>warnings={{.Trace.WarningCount}}</span><span>tokens={{.Trace.TotalTokens}}</span></div>{{range .Trace.SlowestGaps}}<div class="assert"><span>⏱</span><strong>{{.GapMS}}ms</strong><span>{{.FromEvent}} → {{.ToEvent}} turn={{.Turn}}</span></div>{{end}}{{range .Trace.Timeline}}<div class="timeline"><span>+{{.OffsetMS}}ms</span><span>t{{.Turn}}</span><strong>{{.EventType}}</strong><span>{{.Summary}}{{if .SincePrevious}} · Δ{{.SincePrevious}}ms{{end}}</span></div>{{end}}</details>{{end}}
 <div class="assertions">{{range .AssertionResults}}<div class="assert"><span>{{if .Passed}}✓{{else}}✕{{end}}</span><strong>{{.Kind}}</strong><span>期望 {{.Expected}}{{if .Actual}} · 实际 {{.Actual}}{{end}}</span></div>{{end}}</div>
 {{if gt .Attempts 1}}<details><summary>查看 {{.Attempts}} 次 Attempt</summary>{{range .AttemptResults}}<div class="assert"><span>{{if .Passed}}✓{{else}}✕{{end}}</span><strong>#{{.Attempt}} · {{printf "%.1f" .Score}}</strong><span>{{duration .DurationMS}} · {{.Turns}} turns · {{.TotalTokens}} tokens · {{join .Tools " → "}} · {{.Workspace}}</span></div>{{if .TracePath}}<div class="assert"><span>↳</span><strong>trace</strong><span>{{.TracePath}} · run {{.TraceRunID}}</span></div>{{end}}{{if .Judge}}<div class="assert"><span>↳</span><strong>judge</strong><span>{{printf "%.1f" .Judge.Score}} · {{.Judge.Summary}}</span></div>{{end}}{{range .AssertionResults}}{{if not .Passed}}<div class="assert"><span>↳</span><strong>{{.Kind}}</strong><span>期望 {{.Expected}}{{if .Actual}} · 实际 {{.Actual}}{{end}}</span></div>{{end}}{{end}}{{end}}</details>{{end}}
 {{if or .Error .Output}}<details><summary>查看执行信息</summary>{{if .Error}}<p class="bad">{{.Error}}</p>{{end}}{{if .Output}}<pre class="output">{{.Output}}</pre>{{end}}</details>{{end}}
