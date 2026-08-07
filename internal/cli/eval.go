@@ -23,13 +23,15 @@ import (
 )
 
 type evalRunOptions struct {
-	SuitePath string
-	CaseIDs   []string
-	Tags      []string
-	Workers   int
-	Repeat    int
-	Profiles  []string
-	Gate      evaluation.GateConfig
+	SuitePath    string
+	CaseIDs      []string
+	Tags         []string
+	Workers      int
+	Repeat       int
+	Profiles     []string
+	JudgeMode    string
+	JudgeProfile string
+	Gate         evaluation.GateConfig
 }
 
 func runEvalCommand(ctx context.Context, cfg app.Config, args []string, out io.Writer) error {
@@ -56,6 +58,8 @@ func runEvalCommand(ctx context.Context, cfg app.Config, args []string, out io.W
 		return printEvalHistory(store, out)
 	case "report":
 		return showEvalReport(store, args[1:], out)
+	case "judge":
+		return runEvalJudgeCommand(ctx, cfg, store, args[1:], out)
 	case "status":
 		return runEvalStabilityCommand(store, []string{"report"}, out)
 	case "stability":
@@ -116,7 +120,7 @@ func parseEvalRunOptions(args []string) (evalRunOptions, error) {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
-		case arg == "--case" || arg == "--tag" || arg == "--workers" || arg == "--repeat" || arg == "--profile" || arg == "--min-score" || arg == "--min-pass-rate" || arg == "--min-stability" || arg == "--max-regressions":
+		case arg == "--case" || arg == "--tag" || arg == "--workers" || arg == "--repeat" || arg == "--profile" || arg == "--judge" || arg == "--judge-profile" || arg == "--min-score" || arg == "--min-pass-rate" || arg == "--min-stability" || arg == "--max-regressions":
 			if i+1 >= len(args) {
 				return opts, fmt.Errorf("%s requires a value", arg)
 			}
@@ -141,6 +145,13 @@ func parseEvalRunOptions(args []string) (evalRunOptions, error) {
 				opts.Repeat = repeat
 			case "--profile":
 				opts.Profiles = append(opts.Profiles, splitCSV(value)...)
+			case "--judge":
+				opts.JudgeMode = strings.ToLower(strings.TrimSpace(value))
+				if opts.JudgeMode != "heuristic" && opts.JudgeMode != "llm" && opts.JudgeMode != "off" {
+					return opts, errors.New("--judge must be heuristic, llm, or off")
+				}
+			case "--judge-profile":
+				opts.JudgeProfile = strings.TrimSpace(value)
 			case "--min-score":
 				minScore, err := parsePercentValue(value, "--min-score")
 				if err != nil {
@@ -184,6 +195,13 @@ func parseEvalRunOptions(args []string) (evalRunOptions, error) {
 			opts.Repeat = repeat
 		case strings.HasPrefix(arg, "--profile="):
 			opts.Profiles = append(opts.Profiles, splitCSV(strings.TrimPrefix(arg, "--profile="))...)
+		case strings.HasPrefix(arg, "--judge="):
+			opts.JudgeMode = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(arg, "--judge=")))
+			if opts.JudgeMode != "heuristic" && opts.JudgeMode != "llm" && opts.JudgeMode != "off" {
+				return opts, errors.New("--judge must be heuristic, llm, or off")
+			}
+		case strings.HasPrefix(arg, "--judge-profile="):
+			opts.JudgeProfile = strings.TrimSpace(strings.TrimPrefix(arg, "--judge-profile="))
 		case strings.HasPrefix(arg, "--min-score="):
 			minScore, err := parsePercentValue(strings.TrimPrefix(arg, "--min-score="), "--min-score")
 			if err != nil {
@@ -284,6 +302,20 @@ func executeEvalRunOnce(ctx context.Context, cfg app.Config, store evaluation.St
 		Model:   evalCfg.LLM.Active().Model,
 		Repeat:  opts.Repeat,
 	})
+	if opts.JudgeMode == "llm" {
+		judgeClient, judgeProfile, err := buildEvalJudgeClient(evalCfg, opts.JudgeProfile)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "[eval] judge mode=llm profile=%s model=%s\n", judgeProfile.ID, judgeProfile.Model)
+		result = evaluation.ApplyLLMJudges(ctx, result, suite, judgeClient, evaluation.LLMJudgeOptions{
+			Enabled:     true,
+			Mode:        "llm",
+			Profile:     judgeProfile.ID,
+			Model:       judgeProfile.Model,
+			ArtifactDir: filepath.Join(store.RunDir(result.RunID), "judge"),
+		})
+	}
 	if previous, err := previousComparableEvalResult(store, result); err == nil {
 		comparison := evaluation.Compare(result, previous)
 		result.Baseline = &comparison

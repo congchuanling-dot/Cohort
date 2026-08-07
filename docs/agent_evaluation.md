@@ -63,6 +63,7 @@ cohort eval run tool-routing --tag browser
 ```bash
 cohort eval run core --workers 4
 cohort eval run stateful --workers 2 --repeat 3
+cohort eval run stateful --repeat 3 --judge llm --allow-failures
 ```
 
 默认 `workers=1`。涉及浏览器、桌面或共享外部状态的 case 不建议并行，避免不同 Agent 互相争抢窗口或页面。
@@ -297,6 +298,7 @@ cohort eval stability regressions
 
 - `cohort eval status`：刷新并打印历史稳定性摘要。
 - `cohort eval stability --open`：刷新并打开稳定性 Dashboard。
+- `cohort hermes actions`：刷新稳定性平台并把 Action Items 同步进本地 Action Queue。
 
 稳定性产物写入：
 
@@ -319,6 +321,59 @@ cohort eval stability regressions
 - Action Items：从失败断言、tool failure、trace warning/error、flaky 和 regression 自动生成修复或调优任务。
 
 单次 `report.html` 会把失败 case 的 `run.log.jsonl` 摘要内嵌为 trace timeline，包含事件数量、turn、LLM/tool 调用、warning/error、最慢事件间隔和受控长度的时间线。这样失败 case 不再只展示 `trace_path`，可以直接在 Dashboard 内定位调用链。
+
+## 真实 LLM Judge
+
+默认 Judge 仍支持本地启发式评分；需要真实模型评审时显式开启：
+
+```bash
+cohort eval run stateful --repeat 3 --judge llm --allow-failures
+cohort eval judge run latest
+cohort eval judge calibrate
+```
+
+LLM Judge 使用独立模型请求，不暴露工具，不写长期记忆。输出必须是可解析 JSON，字段包括 `score`、`passed`、`summary`、`strengths`、`weaknesses`、`failure_category` 和 `repair_hint`。原始 Judge 输入输出落盘到 run 目录下的 `judge/`，便于复查。
+
+`judge_score` 会作为正式断言参与 case 的 pass/score 计算；Judge 请求失败或 JSON 不合法时不会修改被测 Agent 的执行轨迹，但会写入 `judge.error` 并让 `judge_score` 失败。
+
+校准样例位于：
+
+```text
+.cohort/evals/judge_calibration/
+  samples.json
+  artifacts/
+```
+
+首次运行 `cohort eval judge calibrate` 会自动创建本地校准样例。
+
+## Hermes Action Queue
+
+Hermes 将稳定性平台从“报告”推进为本地质量队列：
+
+```bash
+cohort hermes start
+cohort hermes status
+cohort hermes actions
+cohort hermes actions show <id>
+cohort hermes actions ack <id>
+cohort hermes actions start <id>
+cohort hermes actions resolve <id>
+cohort hermes stop
+```
+
+Hermes 产物写入：
+
+```text
+.cohort/hermes/
+  config.json
+  status.json
+  action_queue.json
+  alerts.jsonl
+  runs.jsonl
+  hermes.log
+```
+
+`action_queue.json` 会保留 `open`、`acknowledged`、`in_progress`、`resolved` 和 `dismissed` 状态；已 resolved/dismissed 的 action 不会因为稳定性报告刷新而重新打开。新增 high/critical action 会写入 `alerts.jsonl`。
 
 ## CI 建议
 
@@ -361,7 +416,6 @@ cohort eval run tool-routing --tag desktop
 
 下一阶段：
 
-1. 真实 LLM Judge mode，作为当前启发式 Judge 的可选增强。
-2. Eval result 接入 Langfuse dataset。
-3. Hermes daemon 调度周期评测并推送回归告警。
-4. Action Items 接入 Hermes 后台任务队列，形成周期评测、回归告警、自动派发修复任务的闭环。
+1. Eval result 接入 Langfuse dataset。
+2. Hermes daemon 增加真实周期 `eval run` 调度策略和外部通知 sink。
+3. Action Items 接入自动修复/验证 session。

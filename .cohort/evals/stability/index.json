@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-07T05:31:14.149563Z",
+  "generated_at": "2026-08-07T05:42:27.222413Z",
   "window": 20,
   "filters": {},
   "runs": [
@@ -1214,42 +1214,6 @@
       "trace_run_id": "run_1785913479041337000_112"
     },
     {
-      "id": "stability-core-read-go-version-flaky",
-      "scope": "stability",
-      "severity": "high",
-      "category": "flaky",
-      "title": "治理跨 run 不稳定 case",
-      "detail": "该 case 在历史窗口内既通过又失败，优先固定环境、等待条件和工具调用顺序，并用 repeat 验证稳定率。",
-      "evidence": "passes=1 failures=2 pass_rate=33.3%",
-      "suite_id": "core",
-      "case_id": "read_go_version",
-      "run_id": "eval_20260805T051929.501060000"
-    },
-    {
-      "id": "stability-core-read-active-model-flaky",
-      "scope": "stability",
-      "severity": "high",
-      "category": "flaky",
-      "title": "治理跨 run 不稳定 case",
-      "detail": "该 case 在历史窗口内既通过又失败，优先固定环境、等待条件和工具调用顺序，并用 repeat 验证稳定率。",
-      "evidence": "passes=1 failures=2 pass_rate=33.3%",
-      "suite_id": "core",
-      "case_id": "read_active_model",
-      "run_id": "eval_20260805T051929.501060000"
-    },
-    {
-      "id": "stability-core-summarize-observability-flaky",
-      "scope": "stability",
-      "severity": "high",
-      "category": "flaky",
-      "title": "治理跨 run 不稳定 case",
-      "detail": "该 case 在历史窗口内既通过又失败，优先固定环境、等待条件和工具调用顺序，并用 repeat 验证稳定率。",
-      "evidence": "passes=1 failures=2 pass_rate=33.3%",
-      "suite_id": "core",
-      "case_id": "summarize_observability",
-      "run_id": "eval_20260805T051929.501060000"
-    },
-    {
       "id": "stability-core-read-only-boundary-flaky",
       "scope": "stability",
       "severity": "high",
@@ -1271,6 +1235,42 @@
       "evidence": "passes=1 failures=2 pass_rate=33.3%",
       "suite_id": "core",
       "case_id": "locate_runner",
+      "run_id": "eval_20260805T051929.501060000"
+    },
+    {
+      "id": "stability-core-summarize-observability-flaky",
+      "scope": "stability",
+      "severity": "high",
+      "category": "flaky",
+      "title": "治理跨 run 不稳定 case",
+      "detail": "该 case 在历史窗口内既通过又失败，优先固定环境、等待条件和工具调用顺序，并用 repeat 验证稳定率。",
+      "evidence": "passes=1 failures=2 pass_rate=33.3%",
+      "suite_id": "core",
+      "case_id": "summarize_observability",
+      "run_id": "eval_20260805T051929.501060000"
+    },
+    {
+      "id": "stability-core-read-go-version-flaky",
+      "scope": "stability",
+      "severity": "high",
+      "category": "flaky",
+      "title": "治理跨 run 不稳定 case",
+      "detail": "该 case 在历史窗口内既通过又失败，优先固定环境、等待条件和工具调用顺序，并用 repeat 验证稳定率。",
+      "evidence": "passes=1 failures=2 pass_rate=33.3%",
+      "suite_id": "core",
+      "case_id": "read_go_version",
+      "run_id": "eval_20260805T051929.501060000"
+    },
+    {
+      "id": "stability-core-read-active-model-flaky",
+      "scope": "stability",
+      "severity": "high",
+      "category": "flaky",
+      "title": "治理跨 run 不稳定 case",
+      "detail": "该 case 在历史窗口内既通过又失败，优先固定环境、等待条件和工具调用顺序，并用 repeat 验证稳定率。",
+      "evidence": "passes=1 failures=2 pass_rate=33.3%",
+      "suite_id": "core",
+      "case_id": "read_active_model",
       "run_id": "eval_20260805T051929.501060000"
     },
     {

@@ -93,7 +93,7 @@ func ScoreCase(c Case, execution Execution) CaseResult {
 	scoreStateAssertions(c, assertions, execution.Workspace, add)
 	scoreCommandAssertions(assertions, execution.Workspace, add)
 	scoreGitStatus(assertions, execution.Workspace, add)
-	if assertions.Judge != nil && assertions.Judge.Enabled {
+	if assertions.Judge != nil && assertions.Judge.Enabled && judgeMode(assertions.Judge.Mode) != "llm" {
 		judge := scoreHeuristicJudge(assertions, execution)
 		result.Judge = &judge
 		minScore := assertions.Judge.MinScore
@@ -126,6 +126,14 @@ func ScoreCase(c Case, execution Execution) CaseResult {
 		result.StabilityRate = 100
 	}
 	return result
+}
+
+func judgeMode(mode string) string {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "" {
+		return "heuristic"
+	}
+	return mode
 }
 
 func hasToolFailureAssertion(c Case) bool {

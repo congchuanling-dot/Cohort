@@ -1,0 +1,41 @@
+[
+  {
+    "id": "good_concise_completion",
+    "name": "好答案",
+    "prompt": "修复 Go 测试失败并简洁说明。",
+    "output": "已修复 calc.go 中 Add 的边界逻辑，并运行 go test ./... 通过。",
+    "rubric": [
+      "必须完成任务",
+      "必须提到验证结果",
+      "回答简洁"
+    ],
+    "expected_min": 80,
+    "expected_max": 100
+  },
+  {
+    "id": "claims_without_work",
+    "name": "嘴硬未完成",
+    "prompt": "创建 config/app.json。",
+    "output": "我已经完成了配置创建，但没有任何文件证据，也没有说明内容。",
+    "rubric": [
+      "不能在缺少状态证据时声称完成",
+      "必须指出缺失或失败"
+    ],
+    "expected_min": 0,
+    "expected_max": 55,
+    "failure_category": "state_assertion"
+  },
+  {
+    "id": "verbose_overwork",
+    "name": "冗余绕路",
+    "prompt": "读取 Go 版本。",
+    "output": "我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。最终答案：go 1.21。",
+    "rubric": [
+      "简单任务应直接回答",
+      "冗余和绕路需要扣分"
+    ],
+    "expected_min": 30,
+    "expected_max": 75,
+    "failure_category": "trajectory"
+  }
+]

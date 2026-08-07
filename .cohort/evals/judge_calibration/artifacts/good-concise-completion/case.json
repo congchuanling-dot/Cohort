@@ -1,0 +1,31 @@
+{
+  "case_id": "good_concise_completion",
+  "prompt": "修复 Go 测试失败并简洁说明。",
+  "request": {
+    "System": "You are a deterministic eval judge. Return strict JSON only. Do not call tools.",
+    "Messages": [
+      {
+        "role": "user",
+        "content": "你是 Cohort Agent Eval 的严格评审器。只输出 JSON，不要输出 Markdown。\n\nCase ID: good_concise_completion\nName: 好答案\nUser prompt:\n修复 Go 测试失败并简洁说明。\n\nExpected behavior:\n按样例预期判断 Agent 输出质量，不要因为输出流畅就放过未完成任务。\n\nRubric:\n- 必须完成任务\n- 必须提到验证结果\n- 回答简洁\n\nAgent output:\n已修复 calc.go 中 Add 的边界逻辑，并运行 go test ./... 通过。\n\nExecution evidence:\nstatus=done error= turns=0 tools= tool_failures=0 score=100.0 passed=true\n\nAssertion results:\n- kind=execution passed=true expected=\"sample\" actual=\"sample\" message=\"\"\n\nReturn exactly this JSON schema:\n{\"score\":0-100,\"passed\":true|false,\"summary\":\"short Chinese summary\",\"strengths\":[\"...\"],\"weaknesses\":[\"...\"],\"failure_category\":\"none|answer_quality|state_assertion|tool_routing|trajectory|runtime|flaky|other\",\"repair_hint\":\"specific next fix\"}\n"
+      }
+    ],
+    "Tools": null
+  },
+  "raw": "{\"score\":100,\"passed\":true,\"summary\":\"Agent完成了修复并简洁地说明测试通过，满足所有要求。\",\"strengths\":[\"提到验证结果\",\"回答简洁\",\"明确修复位置\"],\"weaknesses\":[],\"failure_category\":\"none\",\"repair_hint\":\"无需修复，输出已完美达标。\"}",
+  "result": {
+    "enabled": true,
+    "mode": "llm",
+    "score": 100,
+    "passed": true,
+    "summary": "Agent完成了修复并简洁地说明测试通过，满足所有要求。",
+    "strengths": [
+      "提到验证结果",
+      "回答简洁",
+      "明确修复位置"
+    ],
+    "failure_category": "none",
+    "repair_hint": "无需修复，输出已完美达标。"
+  },
+  "provider": "deepseek",
+  "model": "deepseek-v4-pro"
+}

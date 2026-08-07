@@ -1,0 +1,32 @@
+{
+  "case_id": "verbose_overwork",
+  "prompt": "读取 Go 版本。",
+  "request": {
+    "System": "You are a deterministic eval judge. Return strict JSON only. Do not call tools.",
+    "Messages": [
+      {
+        "role": "user",
+        "content": "你是 Cohort Agent Eval 的严格评审器。只输出 JSON，不要输出 Markdown。\n\nCase ID: verbose_overwork\nName: 冗余绕路\nUser prompt:\n读取 Go 版本。\n\nExpected behavior:\n按样例预期判断 Agent 输出质量，不要因为输出流畅就放过未完成任务。\n\nRubric:\n- 简单任务应直接回答\n- 冗余和绕路需要扣分\n\nAgent output:\n我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。我会先进行大量无关分析。最终答案：go 1.21。\n\nExecution evidence:\nstatus=done error= turns=0 tools= tool_failures=0 score=100.0 passed=true\n\nAssertion results:\n- kind=execution passed=true expected=\"sample\" actual=\"sample\" message=\"\"\n\nReturn exactly this JSON schema:\n{\"score\":0-100,\"passed\":true|false,\"summary\":\"short Chinese summary\",\"strengths\":[\"...\"],\"weaknesses\":[\"...\"],\"failure_category\":\"none|answer_quality|state_assertion|tool_routing|trajectory|runtime|flaky|other\",\"repair_hint\":\"specific next fix\"}\n"
+      }
+    ],
+    "Tools": null
+  },
+  "raw": "{\n  \"score\": 30,\n  \"passed\": false,\n  \"summary\": \"Agent在要求读取Go版本时进行了大量无关分析，回答极其冗余，虽最终给出正确版本但质量严重不符合简单任务直接回答的原则。\",\n  \"strengths\": [\"最终给出了正确的Go版本号\"],\n  \"weaknesses\": [\"进行了大量无关分析，内容高度重复\", \"回答冗长且绕路，不符合简单任务直接回答的要求\"],\n  \"failure_category\": \"answer_quality\",\n  \"repair_hint\": \"对于简单查询应直接返回结果，避免无意义的分析陈述和重复信息，确保输出简洁高效。\"\n}",
+  "result": {
+    "enabled": true,
+    "mode": "llm",
+    "score": 30,
+    "summary": "Agent在要求读取Go版本时进行了大量无关分析，回答极其冗余，虽最终给出正确版本但质量严重不符合简单任务直接回答的原则。",
+    "strengths": [
+      "最终给出了正确的Go版本号"
+    ],
+    "weaknesses": [
+      "进行了大量无关分析，内容高度重复",
+      "回答冗长且绕路，不符合简单任务直接回答的要求"
+    ],
+    "failure_category": "answer_quality",
+    "repair_hint": "对于简单查询应直接返回结果，避免无意义的分析陈述和重复信息，确保输出简洁高效。"
+  },
+  "provider": "deepseek",
+  "model": "deepseek-v4-pro"
+}

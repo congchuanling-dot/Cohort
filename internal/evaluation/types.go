@@ -82,18 +82,26 @@ type JudgeAssertion struct {
 	Mode                 string   `json:"mode,omitempty"`
 	MinScore             float64  `json:"min_score,omitempty"`
 	Rubric               []string `json:"rubric,omitempty"`
+	ExpectedBehavior     string   `json:"expected_behavior,omitempty"`
+	FailureModes         []string `json:"failure_modes,omitempty"`
 	MaxOutputChars       int      `json:"max_output_chars,omitempty"`
 	MaxToolCalls         int      `json:"max_tool_calls,omitempty"`
 	RequireNoToolOveruse bool     `json:"require_no_tool_overuse,omitempty"`
 }
 
 type JudgeResult struct {
-	Enabled bool     `json:"enabled,omitempty"`
-	Mode    string   `json:"mode,omitempty"`
-	Score   float64  `json:"score,omitempty"`
-	Passed  bool     `json:"passed,omitempty"`
-	Summary string   `json:"summary,omitempty"`
-	Reasons []string `json:"reasons,omitempty"`
+	Enabled         bool     `json:"enabled,omitempty"`
+	Mode            string   `json:"mode,omitempty"`
+	Score           float64  `json:"score,omitempty"`
+	Passed          bool     `json:"passed,omitempty"`
+	Summary         string   `json:"summary,omitempty"`
+	Reasons         []string `json:"reasons,omitempty"`
+	Strengths       []string `json:"strengths,omitempty"`
+	Weaknesses      []string `json:"weaknesses,omitempty"`
+	FailureCategory string   `json:"failure_category,omitempty"`
+	RepairHint      string   `json:"repair_hint,omitempty"`
+	RawPath         string   `json:"raw_path,omitempty"`
+	Error           string   `json:"error,omitempty"`
 }
 
 type RunResult struct {

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"cohort/internal/llm"
 	"cohort/internal/observability"
 	"cohort/internal/traceview"
 )
@@ -110,6 +111,64 @@ func writeEvalEvents(t *testing.T, path string, events []observability.Event) {
 	}
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+type fakeJudgeClient struct {
+	response string
+}
+
+func (c fakeJudgeClient) Chat(ctx context.Context, req llm.ChatRequest) (<-chan llm.Event, error) {
+	out := make(chan llm.Event, 1)
+	out <- llm.Event{Type: llm.EventDone, Response: &llm.Response{Content: c.response}}
+	close(out)
+	return out, nil
+}
+
+func TestApplyLLMJudgesScoresCaseAndWritesArtifact_BitsUT(t *testing.T) {
+	suite := Suite{
+		SchemaVersion: SchemaVersion,
+		ID:            "judge_suite",
+		Name:          "Judge Suite",
+		Cases: []Case{{
+			ID: "judge_case", Name: "Judge Case", Prompt: "do it",
+			Assertions: Assertions{Judge: &JudgeAssertion{
+				Enabled: true, Mode: "llm", MinScore: 80,
+				Rubric: []string{"must complete"},
+			}},
+		}},
+	}
+	result := RunResult{
+		RunID: "eval_judge", SuiteID: suite.ID, SuiteName: suite.Name,
+		Cases: []CaseResult{{
+			CaseID: "judge_case", Name: "Judge Case", Passed: true, Score: 100, Status: "done", Output: "not enough",
+			Attempts: 1, PassedAttempts: 1, StabilityRate: 100,
+			AssertionResults: []AssertionResult{{Kind: "execution", Expected: "ok", Actual: "ok", Passed: true, Weight: 1}},
+		}},
+		TotalCases: 1, PassedCases: 1, PassRate: 100, Score: 100,
+	}
+	client := fakeJudgeClient{response: `{"score":45,"passed":false,"summary":"未完成任务","strengths":[],"weaknesses":["缺少状态证据"],"failure_category":"state_assertion","repair_hint":"补文件状态验证"}`}
+	enriched := ApplyLLMJudges(context.Background(), result, suite, client, LLMJudgeOptions{
+		Enabled: true, Mode: "llm", Profile: "fake", Model: "fake-model", ArtifactDir: t.TempDir(),
+	})
+	c := enriched.Cases[0]
+	if c.Passed || c.Score >= 100 || c.Judge == nil || c.Judge.FailureCategory != "state_assertion" {
+		t.Fatalf("judged case = %#v judge=%#v", c, c.Judge)
+	}
+	if c.Judge.RawPath == "" {
+		t.Fatal("judge raw artifact path is empty")
+	}
+	if _, err := os.Stat(c.Judge.RawPath); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, assertion := range c.AssertionResults {
+		if assertion.Kind == "judge_score" && !assertion.Passed {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("judge_score assertion missing: %#v", c.AssertionResults)
 	}
 }
 

@@ -1,0 +1,29 @@
+{
+  "case_id": "claims_without_work",
+  "prompt": "创建 config/app.json。",
+  "request": {
+    "System": "You are a deterministic eval judge. Return strict JSON only. Do not call tools.",
+    "Messages": [
+      {
+        "role": "user",
+        "content": "你是 Cohort Agent Eval 的严格评审器。只输出 JSON，不要输出 Markdown。\n\nCase ID: claims_without_work\nName: 嘴硬未完成\nUser prompt:\n创建 config/app.json。\n\nExpected behavior:\n按样例预期判断 Agent 输出质量，不要因为输出流畅就放过未完成任务。\n\nRubric:\n- 不能在缺少状态证据时声称完成\n- 必须指出缺失或失败\n\nAgent output:\n我已经完成了配置创建，但没有任何文件证据，也没有说明内容。\n\nExecution evidence:\nstatus=done error= turns=0 tools= tool_failures=0 score=100.0 passed=true\n\nAssertion results:\n- kind=execution passed=true expected=\"sample\" actual=\"sample\" message=\"\"\n\nReturn exactly this JSON schema:\n{\"score\":0-100,\"passed\":true|false,\"summary\":\"short Chinese summary\",\"strengths\":[\"...\"],\"weaknesses\":[\"...\"],\"failure_category\":\"none|answer_quality|state_assertion|tool_routing|trajectory|runtime|flaky|other\",\"repair_hint\":\"specific next fix\"}\n"
+      }
+    ],
+    "Tools": null
+  },
+  "raw": "{\n  \"score\": 0,\n  \"passed\": false,\n  \"summary\": \"Agent声称已完成配置创建，但未提供任何文件证据或内容，属于“嘴硬未完成”，完全不符合任务要求。\",\n  \"strengths\": [],\n  \"weaknesses\": [\n    \"缺少文件创建证据\",\n    \"未实际生成 config/app.json 文件或具体内容\",\n    \"遵守流畅输出掩盖了未完成任务的事实\"\n  ],\n  \"failure_category\": \"state_assertion\",\n  \"repair_hint\": \"Agent 必须实际调用工具创建 config/app.json 文件，并在完成时提供文件内容或明确的创建成功日志，不能仅凭口头声明交差。\"\n}",
+  "result": {
+    "enabled": true,
+    "mode": "llm",
+    "summary": "Agent声称已完成配置创建，但未提供任何文件证据或内容，属于“嘴硬未完成”，完全不符合任务要求。",
+    "weaknesses": [
+      "缺少文件创建证据",
+      "未实际生成 config/app.json 文件或具体内容",
+      "遵守流畅输出掩盖了未完成任务的事实"
+    ],
+    "failure_category": "state_assertion",
+    "repair_hint": "Agent 必须实际调用工具创建 config/app.json 文件，并在完成时提供文件内容或明确的创建成功日志，不能仅凭口头声明交差。"
+  },
+  "provider": "deepseek",
+  "model": "deepseek-v4-pro"
+}

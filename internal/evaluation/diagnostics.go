@@ -146,6 +146,17 @@ func buildCaseActionItems(suiteID, runID string, regressed bool, c CaseResult) [
 			add("medium", "latency", "压缩慢事件间隔", "trace 中存在明显长间隔，优先检查对应 LLM 或工具调用是否可缓存、裁剪或提前失败。", fmt.Sprintf("%s -> %s gap=%dms", c.Trace.SlowestGaps[0].FromEvent, c.Trace.SlowestGaps[0].ToEvent, c.Trace.SlowestGaps[0].GapMS))
 		}
 	}
+	if c.Judge != nil && c.Judge.Mode == "llm" && !c.Judge.Passed {
+		category := strings.TrimSpace(c.Judge.FailureCategory)
+		if category == "" {
+			category = "judge_quality"
+		}
+		detail := strings.TrimSpace(c.Judge.RepairHint)
+		if detail == "" {
+			detail = "真实 LLM Judge 判定质量不足，优先按 weakness 和 failure_category 收敛实现或提示词。"
+		}
+		add("high", category, "处理 LLM Judge 质量失败", detail, fmt.Sprintf("judge_score=%.1f summary=%s", c.Judge.Score, c.Judge.Summary))
+	}
 	for _, assertion := range c.AssertionResults {
 		if assertion.Passed {
 			continue
