@@ -1412,10 +1412,12 @@ Usage:
                           list pass-to-fail case regressions
   cohort hermes start|stop|status|logs
                           manage the local Hermes daemon
+  cohort hermes fix|review|accept|reject|cancel|auto-repair
+                          short workflow for Hermes repair tasks
   cohort hermes jobs init|add|list|show|run|enable|disable|remove
                           configure persistent scheduled eval jobs
-  cohort hermes actions [list|show|ack|start|verify|resolve|dismiss]
-                          inspect and manage Eval Action Queue items
+  cohort hermes actions|repairs ...
+                          advanced Hermes queue and repair commands
   cohort mcp list         list configured MCP servers
   cohort mcp status       check configured MCP server availability
   cohort mcp add ...      add an MCP server

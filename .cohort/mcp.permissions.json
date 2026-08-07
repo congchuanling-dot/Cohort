@@ -2,6 +2,20 @@
   "grants": [
     {
       "server": "filesystem",
+      "tool": "directory_tree",
+      "args_hash": "sha256:cac8adb6383e28c4cd5d1c1684c048ed3eecd09bf4b6bfbfc371d30271698e04",
+      "scope": "project",
+      "created_at": "2026-08-07T09:47:33.64242Z"
+    },
+    {
+      "server": "filesystem",
+      "tool": "directory_tree",
+      "args_hash": "sha256:e6770b19b9b595cf64918d19ecaf1b0c6ba8b2532ac2ff607cad3d9bb9bea760",
+      "scope": "project",
+      "created_at": "2026-08-07T09:47:31.993323Z"
+    },
+    {
+      "server": "filesystem",
       "tool": "list_directory",
       "args_hash": "sha256:7536377e04274d2fa550e41a5be3cdc74636df19ec063e9795388ad940d8e5a2",
       "scope": "project",
@@ -17,9 +31,30 @@
     {
       "server": "filesystem",
       "tool": "read_text_file",
+      "args_hash": "sha256:74959b89309ed7dcb452f5b856805fa9a6b55d89dddc09258e7e979ea7f81553",
+      "scope": "project",
+      "created_at": "2026-08-07T09:47:58.531187Z"
+    },
+    {
+      "server": "filesystem",
+      "tool": "read_text_file",
       "args_hash": "sha256:9e9426cbab74e8fed815bc969ee26ae491254d134adc6ff29b3d6cc1b4d35d30",
       "scope": "project",
       "created_at": "2026-07-28T08:59:06.17639Z"
+    },
+    {
+      "server": "filesystem",
+      "tool": "read_text_file",
+      "args_hash": "sha256:ab032cf130ae0e6c2ee56baebb8c028911ef6f79d39fd27e32f74a0b0ad355a6",
+      "scope": "project",
+      "created_at": "2026-08-07T09:48:00.201794Z"
+    },
+    {
+      "server": "filesystem",
+      "tool": "read_text_file",
+      "args_hash": "sha256:d697cbb9a5276d8f5f546fbd05cd20b186af15693d387d6ce6be6247d4aad03d",
+      "scope": "project",
+      "created_at": "2026-08-07T09:47:59.477498Z"
     },
     {
       "server": "filesystem",

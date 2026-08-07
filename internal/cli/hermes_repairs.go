@@ -162,6 +162,65 @@ func hermesRepairs(ctx context.Context, root string, cfg app.Config, store herme
 	}
 }
 
+func hermesRepairReview(store hermes.Store, id string, out io.Writer) error {
+	task, err := hermes.FindRepair(store, id)
+	if err != nil {
+		return err
+	}
+	if printErr := printHermesRepair(task, out); printErr != nil {
+		return printErr
+	}
+	if task.DiffPath == "" {
+		fmt.Fprintln(out, "\n--- diff ---\nrepair does not have a persisted diff")
+		return nil
+	}
+	data, err := os.ReadFile(task.DiffPath)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "\n--- diff ---")
+	_, err = out.Write(data)
+	if err == nil && len(data) > 0 && data[len(data)-1] != '\n' {
+		fmt.Fprintln(out)
+	}
+	return err
+}
+
+func hermesRepairAccept(ctx context.Context, root string, cfg app.Config, store hermes.Store, id string, out io.Writer) error {
+	task, err := hermes.ApproveRepair(store, id)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "approved: %s\n", task.ID)
+	service, err := hermes.NewService(root)
+	if err != nil {
+		return err
+	}
+	configureHermesRepairWorker(service, cfg, out)
+	task, err = service.MergeRepair(ctx, task.ID)
+	if err != nil {
+		_ = printHermesRepair(task, out)
+		return err
+	}
+	return printHermesRepair(task, out)
+}
+
+func hermesAutoRepair(store hermes.Store, args []string, out io.Writer) error {
+	if len(args) != 1 || args[0] != "on" && args[0] != "off" {
+		return errors.New("usage: cohort hermes auto-repair on|off")
+	}
+	config, err := store.LoadConfig()
+	if err != nil {
+		return err
+	}
+	config.AutoRepair.Enabled = args[0] == "on"
+	if err := store.SaveConfig(config); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "auto_repair.enabled: %t\n", config.AutoRepair.Enabled)
+	return nil
+}
+
 func configureHermesRepairWorker(service *hermes.Service, cfg app.Config, out io.Writer) {
 	service.Output = out
 	service.RepairRunner = func(ctx context.Context, task hermes.RepairTask, action hermes.QueueAction) (hermes.RepairExecution, error) {

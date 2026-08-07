@@ -23,7 +23,7 @@ import (
 
 func runHermesCommand(ctx context.Context, cfg app.Config, args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: cohort hermes start|stop|status|logs|serve|actions|jobs|repairs")
+		return errors.New("usage: cohort hermes start|stop|status|logs|fix|review|accept|reject|cancel|auto-repair|actions|jobs|repairs")
 	}
 	root, err := os.Getwd()
 	if err != nil {
@@ -47,6 +47,33 @@ func runHermesCommand(ctx context.Context, cfg app.Config, args []string, out io
 		return hermesLogs(store, out)
 	case "serve":
 		return hermesServe(ctx, root, cfg, out)
+	case "fix":
+		if len(args) != 2 {
+			return errors.New("usage: cohort hermes fix <action_id>")
+		}
+		return hermesRepairs(ctx, root, cfg, store, []string{"create", args[1], "--run"}, out)
+	case "review":
+		if len(args) != 2 {
+			return errors.New("usage: cohort hermes review <repair_id>")
+		}
+		return hermesRepairReview(store, args[1], out)
+	case "accept":
+		if len(args) != 2 {
+			return errors.New("usage: cohort hermes accept <repair_id>")
+		}
+		return hermesRepairAccept(ctx, root, cfg, store, args[1], out)
+	case "reject":
+		if len(args) < 2 {
+			return errors.New("usage: cohort hermes reject <repair_id> [reason]")
+		}
+		return hermesRepairs(ctx, root, cfg, store, append([]string{"reject"}, args[1:]...), out)
+	case "cancel":
+		if len(args) < 2 {
+			return errors.New("usage: cohort hermes cancel <repair_id> [reason]")
+		}
+		return hermesRepairs(ctx, root, cfg, store, append([]string{"cancel"}, args[1:]...), out)
+	case "auto-repair", "autorepair":
+		return hermesAutoRepair(store, args[1:], out)
 	case "actions":
 		return hermesActions(ctx, root, cfg, store, args[1:], out)
 	case "jobs":

@@ -355,11 +355,10 @@ Hermes 将稳定性平台从“报告”推进为本地质量队列：
 cohort hermes start
 cohort hermes status
 cohort hermes actions
-cohort hermes actions show <id>
-cohort hermes actions ack <id>
-cohort hermes actions start <id>
-cohort hermes actions verify <id>
-cohort hermes actions resolve <id> --with-run <run_id>
+cohort hermes fix <action_id>
+cohort hermes review <repair_id>
+cohort hermes accept <repair_id>
+cohort hermes reject <repair_id> "reason"
 cohort hermes stop
 ```
 
@@ -379,21 +378,20 @@ Hermes 产物写入：
 
 `action_queue.json` 会保留 `open`、`acknowledged`、`in_progress`、`resolved` 和 `dismissed` 状态。Action 连续两个不同 run 失败会升为 high；连续三个 regression 会升为 critical。resolved 后同 fingerprint 出现在更新的失败 run 中会自动 reopen。
 
-`resolve` 不接受无证据关闭。关联 run 必须晚于 Action 最近状态变更，suite/case 匹配、case 通过且 CI gate 通过。`verify` 会对 Action 对应 case 新跑两次并要求 100% pass/stability，成功后写入 `verification_run_id`，再由 `resolve --with-run` 关闭。
+日常只需要记上面几条短命令。`fix` 会创建隔离 worktree 并运行修复；`review` 同时展示 repair 元数据和 diff；`accept` 是人工批准并合并，仍会重新跑测试和 Eval gate；`reject` 用于明确拒绝本次修复。
+
+底层高级命令仍保留给脚本使用：`cohort hermes actions show|ack|start|verify|resolve|dismiss` 和 `cohort hermes repairs ...`。`resolve` 不接受无证据关闭。关联 run 必须晚于 Action 最近状态变更，suite/case 匹配、case 通过且 CI gate 通过。
 
 ## Hermes Scheduled Eval
 
+常规配置只需要初始化默认任务并启动 daemon：
+
 ```bash
 cohort hermes jobs init
-cohort hermes jobs list
-cohort hermes jobs add nightly-core --suite core --cron "0 2 * * *" \
-  --repeat 2 --workers 2 --judge llm --min-score 85 \
-  --min-pass-rate 90 --min-stability 90 --max-regressions 0 \
-  --max-attempts 2 --backoff 1m
-cohort hermes jobs run nightly-core
-cohort hermes jobs disable nightly-core
 cohort hermes start
 ```
+
+需要自定义调度时再用 `cohort hermes jobs add|run|disable|remove`。
 
 Job 支持五段 cron（列表、范围、步长）或 interval，二者互斥。daemon 使用单 Job 跨进程 lock，失败按 backoff 重试；每次 attempt 都写入 `runs.jsonl`，Eval run IDs、gate 结果、连续失败数和下次运行时间写回 `jobs.json`。
 
@@ -434,15 +432,12 @@ API 禁止监听非 loopback 地址。Action resolve API 同样要求提供通�
 Auto Repair 默认关闭，并且默认要求人工审核。它不会直接在主工作区修改代码：
 
 ```bash
-cohort hermes actions repair <action_id> --run
-cohort hermes repairs list
-cohort hermes repairs show <repair_id>
-cohort hermes repairs diff <repair_id>
-cohort hermes repairs approve <repair_id>
-cohort hermes repairs merge <repair_id>
-cohort hermes repairs reject <repair_id> "reason"
-cohort hermes repairs cancel <repair_id> "reason"
-cohort hermes repairs enable
+cohort hermes auto-repair on
+cohort hermes fix <action_id>
+cohort hermes review <repair_id>
+cohort hermes accept <repair_id>
+cohort hermes reject <repair_id> "reason"
+cohort hermes cancel <repair_id> "reason"
 ```
 
 Repair 状态机为 `queued -> running -> ready_for_review -> approved -> merging -> merged`，失败任务在次数未耗尽时可重试。daemon 开启 Auto Repair 后会按 `min_severity`、`max_concurrent` 和 `max_attempts` 自动派发，但不会自动 approve 或 merge。
