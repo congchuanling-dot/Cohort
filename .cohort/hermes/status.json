@@ -1,7 +1,7 @@
 {
   "running": false,
   "started_at": "2026-08-07T06:50:04.169535Z",
-  "updated_at": "2026-08-07T06:52:38.522606Z",
+  "updated_at": "2026-08-07T09:10:52.601881Z",
   "last_eval_at": "0001-01-01T00:00:00Z",
   "last_stability_at": "2026-08-07T06:50:04.279945Z",
   "last_stability_summary": {
@@ -71,12 +71,32 @@
   "api_port": 18778,
   "api_address": "127.0.0.1:18778",
   "last_job_at": "0001-01-01T00:00:00Z",
+  "last_repair_at": "0001-01-01T00:00:00Z",
   "config": {
     "eval_stability_interval_seconds": 900,
     "scheduler_poll_seconds": 5,
     "api": {
       "enabled": true,
       "listen_address": "127.0.0.1:18778"
+    },
+    "auto_repair": {
+      "enabled": false,
+      "min_severity": "high",
+      "max_concurrent": 1,
+      "max_attempts": 2,
+      "max_changed_files": 12,
+      "max_diff_bytes": 524288,
+      "timeout_seconds": 1800,
+      "require_approval": true,
+      "test_commands": [
+        "go test ./..."
+      ],
+      "protected_paths": [
+        ".git",
+        ".cohort",
+        ".env",
+        ".env.*"
+      ]
     }
   }
 }

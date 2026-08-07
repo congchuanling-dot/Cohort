@@ -200,7 +200,7 @@ def list_windows(payload):
 
 
 def activate(payload):
-    _, running_application, workspace = require_macos_modules()
+    quartz, running_application, workspace = require_macos_modules()
     pid = int(payload.get("pid") or 0)
     if pid <= 0:
         raise DesktopError(
@@ -215,16 +215,67 @@ def activate(payload):
             f"no running application found for pid {pid}",
             "请重新调用 desktop_windows；目标应用可能已退出或 PID 已变化。",
         )
-    app.activateWithOptions_(1 << 1)  # NSApplicationActivateAllWindows
-    time.sleep(0.25)
-    is_active = active_pid(workspace) == pid
+    requested_id = str(payload.get("window_id") or "").strip()
+
+    # 先把应用稳定切到前台，再 raise 具体窗口。部分应用在后台收到 AXRaise 会立刻
+    # 把焦点交还原前台应用，因此不能在激活轮询中反复 raise。
+    is_active = False
+    for _ in range(6):
+        app.activateWithOptions_((1 << 0) | (1 << 1))
+        time.sleep(0.15)
+        if active_pid(workspace) == pid:
+            is_active = True
+            break
     if not is_active:
         raise DesktopError(
             "desktop_activate_failed",
             f"application pid {pid} did not become frontmost",
             "请确认目标应用没有系统模态弹窗、全屏限制或权限限制，再重新枚举窗口。",
         )
-    return {"pid": pid, "active": True, "verified": True}
+    window_verified = False
+    if requested_id:
+        api = load_ax()
+        element, _, expected = find_ax_window_for_payload(api, pid, payload)
+        raise_error = int(api["perform_action"](element, api["raise_action"]))
+        if raise_error != 0:
+            raise DesktopError(
+                "desktop_window_raise_failed",
+                f"unable to raise window {requested_id}: AXError={raise_error}",
+                "请重新枚举窗口；目标模态窗口可能已关闭或不可聚焦。",
+            )
+        app.activateWithOptions_((1 << 0) | (1 << 1))
+        time.sleep(0.15)
+        if active_pid(workspace) != pid:
+            raise DesktopError(
+                "desktop_activate_failed",
+                f"application pid {pid} lost frontmost state while raising window {requested_id}",
+                "请重新枚举窗口；目标窗口可能在切换期间关闭或被其他应用抢占焦点。",
+            )
+        for _ in range(5):
+            focused = ax_attr(api, api["application"](pid), api["focused_window"])
+            if focused is not None:
+                actual = ax_bounds(api, focused, display_scale(quartz))
+                tolerance = 12
+                window_verified = all(
+                    abs(int(actual[key]) - int(expected[key])) <= tolerance
+                    for key in ("x", "y", "width", "height")
+                )
+                if window_verified:
+                    break
+            time.sleep(0.1)
+        if not window_verified:
+            raise DesktopError(
+                "desktop_window_focus_unverified",
+                f"window {requested_id} was raised but focused-window verification failed",
+                "请重新调用 desktop_windows/computer_see 获取最新 window_id。",
+            )
+    return {
+        "pid": pid,
+        "active": True,
+        "verified": True,
+        "window_id": requested_id,
+        "window_verified": window_verified,
+    }
 
 
 def find_window(payload):
@@ -337,10 +388,12 @@ def load_ax():
             kAXDescriptionAttribute,
             kAXEnabledAttribute,
             kAXFocusedAttribute,
+            kAXFocusedWindowAttribute,
             kAXFocusedUIElementAttribute,
             kAXMenuBarAttribute,
             kAXPositionAttribute,
             kAXPressAction,
+            kAXRaiseAction,
             kAXRoleAttribute,
             kAXSizeAttribute,
             kAXTitleAttribute,
@@ -374,8 +427,10 @@ def load_ax():
         "value_attribute": kAXValueAttribute,
         "enabled": kAXEnabledAttribute,
         "focused_attr": kAXFocusedAttribute,
+        "focused_window": kAXFocusedWindowAttribute,
         "position": kAXPositionAttribute,
         "press_action": kAXPressAction,
+        "raise_action": kAXRaiseAction,
         "size": kAXSizeAttribute,
         "point_type": kAXValueCGPointType,
         "size_type": kAXValueCGSizeType,
@@ -1018,7 +1073,13 @@ def press_key(payload):
             "desktop_press_key requires a positive pid",
             "请先通过 desktop_windows 获取目标窗口对应的 pid。",
         )
-    require_active_pid(pid)
+    requested_id = str(payload.get("window_id") or "").strip()
+    window_verified = False
+    if requested_id:
+        activated = activate({"pid": pid, "window_id": requested_id})
+        window_verified = bool(activated.get("window_verified"))
+    else:
+        require_active_pid(pid)
     key = str(payload.get("key") or "").strip()
     keycode, modifiers = parse_key(quartz, key)
     try:
@@ -1037,6 +1098,8 @@ def press_key(payload):
     active_after = active_pid(workspace) == pid
     return {
         "pid": pid,
+        "window_id": requested_id,
+        "window_verified": window_verified,
         "key": key,
         "action": "PressKey",
         "performed": True,

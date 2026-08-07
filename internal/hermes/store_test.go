@@ -1,11 +1,55 @@
 package hermes
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"cohort/internal/evaluation"
 )
+
+func TestLoadConfigMigratesAutoRepairApprovalSafely_BitsUT(t *testing.T) {
+	root := t.TempDir()
+	store := NewStore(root)
+	if err := os.MkdirAll(store.Root, 0755); err != nil {
+		t.Fatal(err)
+	}
+	oldConfig := `{"eval_stability_interval_seconds":900,"api":{"enabled":true,"listen_address":"127.0.0.1:18778"},"auto_repair":{"enabled":true,"max_concurrent":2}}`
+	if err := os.WriteFile(filepath.Join(store.Root, "config.json"), []byte(oldConfig), 0644); err != nil {
+		t.Fatal(err)
+	}
+	config, err := store.LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !config.AutoRepair.Enabled || !config.AutoRepair.RequireApproval || config.AutoRepair.MaxConcurrent != 2 || len(config.AutoRepair.ProtectedPaths) == 0 {
+		t.Fatalf("config=%#v", config.AutoRepair)
+	}
+	if err := store.SaveStatus(Status{
+		Config: Config{EvalStabilityIntervalSeconds: 900, AutoRepair: AutoRepairConfig{RequireApproval: false}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	status, err := store.LoadStatus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.Config.AutoRepair.RequireApproval || status.Config.AutoRepair.MaxConcurrent != 2 {
+		t.Fatalf("status retained stale config snapshot: %#v", status.Config.AutoRepair)
+	}
+	explicit := `{"eval_stability_interval_seconds":900,"api":{"enabled":true,"listen_address":"127.0.0.1:18778"},"auto_repair":{"enabled":true,"require_approval":false}}`
+	if err := os.WriteFile(filepath.Join(store.Root, "config.json"), []byte(explicit), 0644); err != nil {
+		t.Fatal(err)
+	}
+	config, err = store.LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.AutoRepair.RequireApproval {
+		t.Fatalf("explicit require_approval=false was overwritten: %#v", config.AutoRepair)
+	}
+}
 
 func TestSyncActionsPreservesResolvedStatusAndAlerts_BitsUT(t *testing.T) {
 	root := t.TempDir()

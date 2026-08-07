@@ -17,16 +17,19 @@ import (
 type EvalRunner func(context.Context, Job) (EvalRunOutcome, error)
 
 type Service struct {
-	ProjectRoot string
-	Store       Store
-	EvalStore   evaluation.Store
-	Config      Config
-	EvalRunner  EvalRunner
-	Output      io.Writer
-	RetryWait   func(context.Context, time.Duration) error
+	ProjectRoot    string
+	Store          Store
+	EvalStore      evaluation.Store
+	Config         Config
+	EvalRunner     EvalRunner
+	RepairRunner   RepairRunner
+	RepairVerifier RepairVerifier
+	Output         io.Writer
+	RetryWait      func(context.Context, time.Duration) error
 
-	mu      sync.Mutex
-	running map[string]bool
+	mu             sync.Mutex
+	running        map[string]bool
+	runningRepairs map[string]bool
 }
 
 func NewService(projectRoot string) (*Service, error) {
@@ -39,13 +42,14 @@ func NewService(projectRoot string) (*Service, error) {
 		return nil, err
 	}
 	return &Service{
-		ProjectRoot: projectRoot,
-		Store:       store,
-		EvalStore:   evaluation.NewStore(projectRoot),
-		Config:      cfg,
-		Output:      io.Discard,
-		RetryWait:   waitWithContext,
-		running:     map[string]bool{},
+		ProjectRoot:    projectRoot,
+		Store:          store,
+		EvalStore:      evaluation.NewStore(projectRoot),
+		Config:         cfg,
+		Output:         io.Discard,
+		RetryWait:      waitWithContext,
+		running:        map[string]bool{},
+		runningRepairs: map[string]bool{},
 	}, nil
 }
 
@@ -79,6 +83,7 @@ func (s *Service) RefreshStability() (evaluation.StabilityIndex, Queue, []Alert,
 	status.LastAlerts = recentAlerts
 	status.Config = s.Config
 	status.RunningJobs = s.runningJobIDsLocked()
+	status.RunningRepairs = s.runningRepairIDsLocked()
 	status.LastError = ""
 	if notificationErr != nil {
 		status.LastError = "notification: " + notificationErr.Error()
@@ -236,6 +241,9 @@ func (s *Service) Serve(ctx context.Context) error {
 	if err := s.Store.Ensure(); err != nil {
 		return err
 	}
+	if err := s.RecoverInterruptedRepairs(); err != nil {
+		return fmt.Errorf("recover interrupted repairs: %w", err)
+	}
 	status, _ := s.Store.LoadStatus()
 	status.Running = true
 	status.PID = os.Getpid()
@@ -258,6 +266,7 @@ func (s *Service) Serve(ctx context.Context) error {
 		current.Running = false
 		current.PID = 0
 		current.RunningJobs = nil
+		current.RunningRepairs = nil
 		_ = s.Store.SaveStatus(current)
 	}()
 
@@ -287,6 +296,7 @@ func (s *Service) Serve(ctx context.Context) error {
 			}
 		case <-schedulerTicker.C:
 			s.RunDueJobs(ctx, time.Now().UTC())
+			s.DispatchRepairs(ctx)
 		case <-stabilityTicker.C:
 			s.runMaintenance("eval_stability", func() error {
 				_, _, _, err := s.RefreshStability()

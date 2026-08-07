@@ -23,7 +23,7 @@ import (
 
 func runHermesCommand(ctx context.Context, cfg app.Config, args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: cohort hermes start|stop|status|logs|serve|actions|jobs")
+		return errors.New("usage: cohort hermes start|stop|status|logs|serve|actions|jobs|repairs")
 	}
 	root, err := os.Getwd()
 	if err != nil {
@@ -51,6 +51,8 @@ func runHermesCommand(ctx context.Context, cfg app.Config, args []string, out io
 		return hermesActions(ctx, root, cfg, store, args[1:], out)
 	case "jobs":
 		return hermesJobs(ctx, root, cfg, store, args[1:], out)
+	case "repairs":
+		return hermesRepairs(ctx, root, cfg, store, args[1:], out)
 	default:
 		return fmt.Errorf("unknown hermes command %q", args[0])
 	}
@@ -204,6 +206,7 @@ func hermesServe(ctx context.Context, root string, cfg app.Config, out io.Writer
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	configureHermesEvalRunner(service, cfg, out)
+	configureHermesRepairWorker(service, cfg, out)
 	fmt.Fprintf(out, "hermes serve pid=%d\n", os.Getpid())
 	return service.Serve(ctx)
 }
@@ -262,6 +265,15 @@ func hermesActions(ctx context.Context, root string, cfg app.Config, store herme
 		}
 		fmt.Fprintf(out, "verified: %s\nverification_run: %s\n", action.ID, action.VerificationRunID)
 		return nil
+	case "repair":
+		if len(args) < 2 || len(args) > 3 || len(args) == 3 && args[2] != "--run" {
+			return errors.New("usage: cohort hermes actions repair <id> [--run]")
+		}
+		repairArgs := []string{"create", args[1]}
+		if len(args) == 3 {
+			repairArgs = append(repairArgs, "--run")
+		}
+		return hermesRepairs(ctx, root, cfg, store, repairArgs, out)
 	case "dismiss":
 		if len(args) != 2 {
 			return errors.New("usage: cohort hermes actions dismiss <id>")

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,15 +27,16 @@ import (
 )
 
 type evalRunOptions struct {
-	SuitePath    string
-	CaseIDs      []string
-	Tags         []string
-	Workers      int
-	Repeat       int
-	Profiles     []string
-	JudgeMode    string
-	JudgeProfile string
-	Gate         evaluation.GateConfig
+	SuitePath     string
+	CaseIDs       []string
+	Tags          []string
+	Workers       int
+	Repeat        int
+	Profiles      []string
+	JudgeMode     string
+	JudgeProfile  string
+	SkipStability bool
+	Gate          evaluation.GateConfig
 }
 
 func runEvalCommand(ctx context.Context, cfg app.Config, args []string, out io.Writer) error {
@@ -230,6 +233,8 @@ func parseEvalRunOptions(args []string) (evalRunOptions, error) {
 			opts.Gate.MaxRegressions = maxRegressions
 		case arg == "--allow-failures":
 			opts.Gate.AllowFailures = true
+		case arg == "--no-stability":
+			opts.SkipStability = true
 		case strings.HasPrefix(arg, "-"):
 			return opts, fmt.Errorf("unknown eval run option %q", arg)
 		default:
@@ -257,8 +262,10 @@ func executeEvalRun(ctx context.Context, cfg app.Config, store evaluation.Store,
 			failures = append(failures, err.Error())
 		}
 	}
-	if err := refreshEvalStability(store, out); err != nil {
-		fmt.Fprintf(out, "stability: refresh failed: %v\n", err)
+	if !opts.SkipStability {
+		if err := refreshEvalStability(store, out); err != nil {
+			fmt.Fprintf(out, "stability: refresh failed: %v\n", err)
+		}
 	}
 	if len(failures) > 0 {
 		return fmt.Errorf("eval matrix failed:\n%s", strings.Join(failures, "\n"))
@@ -419,6 +426,34 @@ func missingEvalEnvironment(ctx context.Context, requirements evaluation.Environ
 
 func executeEvalCase(ctx context.Context, cfg app.Config, c evaluation.Case, sessionRoot string) evaluation.Execution {
 	started := time.Now()
+	prompt := c.Prompt
+	if application := strings.TrimSpace(c.Fixture.LaunchApplication); application != "" {
+		if runtime.GOOS != "darwin" {
+			return evaluation.Execution{Status: "error", Error: "launch_application fixture requires macOS", DurationMS: time.Since(started).Milliseconds()}
+		}
+		launchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		launchErr := exec.CommandContext(launchCtx, "open", "-a", application).Run()
+		cancel()
+		if launchErr != nil {
+			return evaluation.Execution{Status: "error", Error: fmt.Sprintf("launch fixture application %q: %v", application, launchErr), DurationMS: time.Since(started).Milliseconds()}
+		}
+		select {
+		case <-ctx.Done():
+			return evaluation.Execution{Status: "error", Error: ctx.Err().Error(), DurationMS: time.Since(started).Milliseconds()}
+		case <-time.After(750 * time.Millisecond):
+		}
+	}
+	if fixtureName := strings.TrimSpace(c.Fixture.BrowserFixture); fixtureName != "" {
+		fixtureServer, fixtureErr := startEvalBrowserFixture(fixtureName)
+		if fixtureErr != nil {
+			return evaluation.Execution{Status: "error", Error: fixtureErr.Error(), DurationMS: time.Since(started).Milliseconds()}
+		}
+		defer func() {
+			fixtureServer.CloseClientConnections()
+			fixtureServer.Close()
+		}()
+		prompt = strings.ReplaceAll(prompt, "{{COHORT_BROWSER_FIXTURE_URL}}", fixtureServer.URL)
+	}
 	runner, err := app.NewRunner(cfg)
 	if err != nil {
 		return evaluation.Execution{Status: "error", Error: err.Error(), DurationMS: time.Since(started).Milliseconds()}
@@ -449,10 +484,10 @@ func executeEvalCase(ctx context.Context, cfg app.Config, c evaluation.Case, ses
 	runner.DisableCapabilityGapRecording = true
 	runner.SystemPrompt += "\n[EVALUATION MODE] 这是隔离评测运行。只能调用本次请求实际提供的工具；不要调用长期记忆、checkpoint、ask_user 或未出现在 tool schema 中的工具。完成用户任务后直接给出答案。"
 	sink := &evalSink{}
-	runResult, runErr := runner.Run(ctx, c.Prompt, sink)
+	runResult, runErr := runner.Run(ctx, prompt, sink)
 	execution := evaluation.Execution{
 		Status:     runResult.Status,
-		Output:     cleanEvalOutput(sink.text.String()),
+		Output:     finalEvalOutput(runResult, sink.text.String()),
 		SessionID:  runner.SessionID(),
 		Workspace:  cfg.Workspace,
 		DurationMS: time.Since(started).Milliseconds(),
@@ -482,6 +517,48 @@ func executeEvalCase(ctx context.Context, cfg app.Config, c evaluation.Case, ses
 		}
 	}
 	return execution
+}
+
+func startEvalBrowserFixture(name string) (*httptest.Server, error) {
+	mux := http.NewServeMux()
+	switch name {
+	case "form":
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = io.WriteString(w, `<!doctype html>
+<meta charset="utf-8">
+<title>Cohort Form Fixture</title>
+<h1>Customer form</h1>
+<form method="post" action="/submitted">
+  <label>Customer name <input name="custname" autocomplete="off"></label>
+  <button type="submit">Submit</button>
+</form>`)
+		})
+		mux.HandleFunc("/submitted", func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "form submission is forbidden in this fixture", http.StatusBadRequest)
+		})
+	case "ocr-canvas":
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			// 字符码避免目标文本出现在 DOM 文本中，确保 browser_scan/dom_summary 无法旁路 OCR。
+			_, _ = io.WriteString(w, `<!doctype html>
+<meta charset="utf-8">
+<title>Cohort OCR Fixture</title>
+<canvas id="fixture" width="600" height="200" aria-label="visual test image"></canvas>
+<script>
+const canvas = document.getElementById("fixture");
+const context = canvas.getContext("2d");
+context.fillStyle = "#fff";
+context.fillRect(0, 0, canvas.width, canvas.height);
+context.fillStyle = "#000";
+context.font = "bold 48px sans-serif";
+context.fillText(String.fromCharCode(67,79,72,79,82,84,32,79,67,82,32,82,69,65,68,89), 40, 115);
+</script>`)
+		})
+	default:
+		return nil, fmt.Errorf("unsupported browser fixture %q", name)
+	}
+	return httptest.NewServer(mux), nil
 }
 
 func isEvalToolError(value any) bool {
@@ -667,4 +744,14 @@ var evalRunnerStatusLine = regexp.MustCompile(`(?m)^\s*LLM Running \(Turn \d+\) 
 func cleanEvalOutput(value string) string {
 	value = evalRunnerStatusLine.ReplaceAllString(value, "")
 	return strings.TrimSpace(value)
+}
+
+// finalEvalOutput 只把最后一轮模型响应交给断言和 Judge。
+// sink 包含所有 turn 的流式过程文本，适合终端展示但不是最终答案；将其拼接评审会把
+// 合理的工具过程误判为冗长，同时重复计算 trace 已经覆盖的过程质量。
+func finalEvalOutput(result agent.RunResult, streamed string) string {
+	if result.Response != nil && strings.TrimSpace(result.Response.Content) != "" {
+		return cleanEvalOutput(result.Response.Content)
+	}
+	return cleanEvalOutput(streamed)
 }

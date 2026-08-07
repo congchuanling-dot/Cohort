@@ -41,8 +41,10 @@ type EnvironmentRequirements struct {
 
 type Fixture struct {
 	// Mode 支持 project 和 temp。temp 会为每个 attempt 创建全新工作区。
-	Mode  string            `json:"mode,omitempty"`
-	Files map[string]string `json:"files,omitempty"`
+	Mode              string            `json:"mode,omitempty"`
+	Files             map[string]string `json:"files,omitempty"`
+	BrowserFixture    string            `json:"browser_fixture,omitempty"`
+	LaunchApplication string            `json:"launch_application,omitempty"`
 }
 
 type Assertions struct {

@@ -1,3 +1,27 @@
 {
-  "eval_stability_interval_seconds": 900
+  "eval_stability_interval_seconds": 900,
+  "scheduler_poll_seconds": 5,
+  "api": {
+    "enabled": true,
+    "listen_address": "127.0.0.1:18778"
+  },
+  "auto_repair": {
+    "enabled": false,
+    "min_severity": "high",
+    "max_concurrent": 1,
+    "max_attempts": 2,
+    "max_changed_files": 12,
+    "max_diff_bytes": 524288,
+    "timeout_seconds": 1800,
+    "require_approval": true,
+    "test_commands": [
+      "go test ./..."
+    ],
+    "protected_paths": [
+      ".git",
+      ".cohort",
+      ".env",
+      ".env.*"
+    ]
+  }
 }

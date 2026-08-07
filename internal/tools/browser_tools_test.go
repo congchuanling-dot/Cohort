@@ -91,7 +91,9 @@ type fakeBrowserClient struct {
 	// waitIntervalMS 记录 Wait 方法收到的轮询间隔。
 	waitIntervalMS int
 	// err 是 fake client 各方法统一返回的预设错误。
-	err error
+	err            error
+	executeResults []string
+	executeCalls   int
 }
 
 type fakeOCRRunner struct {
@@ -170,10 +172,19 @@ func (f *fakeBrowserClient) ExecuteJS(ctx context.Context, tabID string, script 
 	f.executeScript = script
 	f.executeNoMonitor = noMonitor
 	f.executeMaxReturn = maxReturnChars
+	jsReturn := "Example"
+	if len(f.executeResults) > 0 {
+		index := f.executeCalls
+		if index >= len(f.executeResults) {
+			index = len(f.executeResults) - 1
+		}
+		jsReturn = f.executeResults[index]
+		f.executeCalls++
+	}
 	return browser.ExecuteJSResult{
 		Status:   agent.ToolStatusSuccess,
 		TabID:    tabID,
-		JSReturn: "Example",
+		JSReturn: jsReturn,
 		NewTabs:  []browser.Tab{},
 	}, nil
 }
@@ -314,6 +325,32 @@ func TestBrowserClickCallsClient(t *testing.T) {
 	}
 	if client.clickTabID != "5" || client.clickX != 12.5 || client.clickY != 40 {
 		t.Fatalf("click call = tab %q x %v y %v", client.clickTabID, client.clickX, client.clickY)
+	}
+}
+
+func TestBrowserTypeElementFocusesWithoutClicking_BitsUT(t *testing.T) {
+	client := &fakeBrowserClient{executeResults: []string{
+		`{"rect":{"x":10,"y":20,"width":200,"height":30,"top":20,"right":210,"bottom":50,"left":10},"point":{"x":110,"y":35},"hit":"input#name","value":""}`,
+		`true`,
+		`{"actual":"COHORT_DOM_READY","verified":true}`,
+	}}
+	outcome, err := NewBrowserTypeElement(client).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{
+			"tab_id": "1", "selector": "input#name", "text": "COHORT_DOM_READY",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, ok := outcome.Data.(browser.ElementTypeResult)
+	if !ok {
+		t.Fatalf("outcome = %#v", outcome.Data)
+	}
+	if client.clickTabID != "" {
+		t.Fatalf("browser_type_element must not click to focus, got tab %q at %.1f,%.1f", client.clickTabID, client.clickX, client.clickY)
+	}
+	if client.typeText != "COHORT_DOM_READY" || !result.Focused || result.FocusMethod != "dom_focus" || !result.Verified {
+		t.Fatalf("client=%#v result=%#v", client, result)
 	}
 }
 

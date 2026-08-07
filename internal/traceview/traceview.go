@@ -332,10 +332,22 @@ func (s *Summary) applyEvent(event observability.Event) {
 		}
 		s.ToolCalls++
 		s.ToolDurationMS += item.DurationMS
-		if item.Status != "" && item.Status != "success" {
+		if item.Status != "" && item.Status != "success" && !expectedControlErrorCode(item.ErrorCode) {
 			s.ToolFailures++
 		}
 		s.Tools = append(s.Tools, item)
+	}
+}
+
+func expectedControlErrorCode(code string) bool {
+	switch code {
+	case "desktop_action_confirmation_required",
+		"computer_execute_plan_confirmation_required",
+		"computer_execute_plan_handoff_required",
+		"mcp_tool_permission_required":
+		return true
+	default:
+		return false
 	}
 }
 

@@ -524,7 +524,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 				})
 			}
 			toolSeverity := observability.SeverityInfo
-			if !outcomeSucceeded(outcome) {
+			if !outcomeSucceeded(outcome) && !expectedControlOutcome(outcome) {
 				toolSeverity = observability.SeverityWarn
 			}
 			r.emitObservation(ctx, obs, runID, observability.EventToolFinished, turn, toolSeverity, toolFinishedData(call, outcome, time.Since(toolStartedAt)))
@@ -855,6 +855,27 @@ func outcomeSucceeded(outcome Outcome) bool {
 		return !strings.HasPrefix(lower, "error:") && !strings.Contains(lower, `"status":"error"`)
 	default:
 		return true
+	}
+}
+
+// expectedControlOutcome 是需要调用方显式确认/接管的安全控制结果。
+// 它仍保持 error 状态，防止 Agent 把动作误认为已执行；但观测层不应把正确拒绝统计为运行故障。
+func expectedControlOutcome(outcome Outcome) bool {
+	code := ""
+	switch data := outcome.Data.(type) {
+	case ToolErrorData:
+		code = data.Code
+	case map[string]any:
+		code, _ = data["code"].(string)
+	}
+	switch code {
+	case "desktop_action_confirmation_required",
+		"computer_execute_plan_confirmation_required",
+		"computer_execute_plan_handoff_required",
+		"mcp_tool_permission_required":
+		return true
+	default:
+		return false
 	}
 }
 

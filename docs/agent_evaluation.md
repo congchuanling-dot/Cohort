@@ -429,9 +429,53 @@ Hermes 默认仅监听 loopback `127.0.0.1:18778`，提供：
 
 API 禁止监听非 loopback 地址。Action resolve API 同样要求提供通过 gate 的 `run_id`。
 
+## Hermes Auto Repair Worker
+
+Auto Repair 默认关闭，并且默认要求人工审核。它不会直接在主工作区修改代码：
+
+```bash
+cohort hermes actions repair <action_id> --run
+cohort hermes repairs list
+cohort hermes repairs show <repair_id>
+cohort hermes repairs diff <repair_id>
+cohort hermes repairs approve <repair_id>
+cohort hermes repairs merge <repair_id>
+cohort hermes repairs reject <repair_id> "reason"
+cohort hermes repairs cancel <repair_id> "reason"
+cohort hermes repairs enable
+```
+
+Repair 状态机为 `queued -> running -> ready_for_review -> approved -> merging -> merged`，失败任务在次数未耗尽时可重试。daemon 开启 Auto Repair 后会按 `min_severity`、`max_concurrent` 和 `max_attempts` 自动派发，但不会自动 approve 或 merge。
+
+每个任务固定创建时的 `base_commit`，在 `.cohort/hermes/worktrees/` 建立独立 Git worktree。Repair Agent 只加载 `core` 和 `lsp` 工具组，禁用长期记忆与 capability gap 写入。提交前执行以下 gate：
+
+- 限制 changed files 数量与 binary diff 大小。
+- 拒绝 `.git`、`.cohort`、`.env*` 等受保护路径和符号链接。
+- 执行 `auto_repair.test_commands`。
+- 对 Action 对应 case 运行两次 Eval，要求 score/pass/stability gate 全部通过。
+- 验证后重新检查 diff，防止验证脚本修改待提交内容。
+
+人工 approve 后，Hermes 在主工作区执行 `git merge --no-ff --no-commit`，重新跑测试和 Eval，并验证 staged diff 未发生变化。任何失败都会 `git merge --abort`；只有 merge commit 和新的验证 run 都成功，Action 才会 resolved。
+
+Repair 元数据和审计产物位于：
+
+```text
+.cohort/hermes/
+  repairs.json
+  repair-artifacts/<repair_id>/
+    agent-output.md
+    diff.patch
+    worktree-check-*.log
+    merge-check-*.log
+```
+
+Local API 同时提供 `GET/POST /repairs` 和 `GET/POST /repairs/:id`。POST operation 支持 `run`、`approve`、`reject`、`cancel`、`merge`；运行和合并返回 `202 Accepted` 后异步执行。
+
 ## Computer Use 真实回归
 
-`computer-use-real` 是真实环境 suite，不使用 mock，覆盖浏览器 DOM 输入后复读、DOM 不可读时 OCR fallback、TextEdit AX 输入与后验验证，以及菜单/文件对话框确认边界。case 在执行前检查 macOS、命令、应用、Browser Bridge 和桌面权限；环境不满足时记录为 skip，全部 skip 会使 CI gate 失败，避免把“没执行”当作通过。
+`computer-use-real` 是真实环境 suite，不使用 mock，覆盖浏览器 DOM 输入后复读、DOM 不可读时 OCR fallback、TextEdit AX 输入与后验验证，以及菜单/文件对话框确认边界。浏览器 case 使用进程内 loopback fixture，仍由真实 Chrome/Bridge 操作，但不依赖 httpbin/dummyimage 等公共站点；桌面 case 通过结构化 fixture 启动 TextEdit。case 在执行前检查 macOS、命令、应用、Browser Bridge 和桌面权限；环境不满足时记录为 skip，全部 skip 会使 CI gate 失败，避免把“没执行”当作通过。
+
+`desktop_action_confirmation_required` 等安全控制结果继续以 error 状态返回给 Agent，防止误认为动作已执行；trace/eval 不把这种正确拒绝计为运行故障。文件对话框 Escape、菜单和文件操作都绑定最新 `window_id`，必须先通过具体窗口焦点校验。
 
 ## CI 建议
 
@@ -475,5 +519,5 @@ cohort eval run tool-routing --tag desktop
 下一阶段：
 
 1. Eval result 接入 Langfuse dataset。
-2. Hermes daemon 增加真实周期 `eval run` 调度策略和外部通知 sink。
-3. Action Items 接入自动修复/验证 session。
+2. 为 Hermes Local API 增加 IDE/Web/IM adapter。
+3. Eval 与 Repair 历史存储升级为可迁移的查询层。

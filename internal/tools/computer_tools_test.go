@@ -678,7 +678,8 @@ func TestComputerPressRequiresConfirmationForSubmitKey_BitsUT(t *testing.T) {
 		ActiveWindow: computerTestWindowRef(),
 	})
 	driver := fakeComputerDriver(computerAXRoot(""))
-	driver.pressKey = desktop.PressKeyResult{PID: 123, Key: "Cmd+Enter", Action: "PressKey", Performed: true, ActiveBefore: true, ActiveAfter: true}
+	driver.activate = desktop.ActivateResult{PID: 123, Active: true, Verified: true, WindowID: "w1", WindowVerified: true}
+	driver.pressKey = desktop.PressKeyResult{PID: 123, WindowID: "w1", WindowVerified: true, Key: "Cmd+Enter", Action: "PressKey", Performed: true, ActiveBefore: true, ActiveAfter: true}
 	confirmations := NewConfirmationStore()
 	tool := NewComputerPress(driver, store, confirmations)
 	args := map[string]any{"key": "Cmd+Enter", "reason": "发送已确认消息"}
@@ -701,8 +702,29 @@ func TestComputerPressRequiresConfirmationForSubmitKey_BitsUT(t *testing.T) {
 		t.Fatal(err)
 	}
 	data := outcome.Data.(map[string]any)
-	if driver.pressKeyRequest.Key != "Cmd+Enter" || data["status"] != agent.ToolStatusSuccess || data["verified"] != true {
+	if driver.pressKeyRequest.Key != "Cmd+Enter" || driver.pressKeyRequest.WindowID != "w1" || data["status"] != agent.ToolStatusSuccess || data["verified"] != true {
 		t.Fatalf("outcome = %#v, request = %#v", data, driver.pressKeyRequest)
+	}
+}
+
+func TestComputerPressRejectsUnverifiedTargetWindow_BitsUT(t *testing.T) {
+	store := computeruse.NewStore(time.Minute)
+	store.SaveState(computeruse.ComputerState{
+		OS:           "darwin",
+		ActivePID:    123,
+		ActiveWindow: computerTestWindowRef(),
+	})
+	driver := fakeComputerDriver(computerAXRoot(""))
+	driver.activate = desktop.ActivateResult{PID: 123, Active: true, Verified: true, WindowID: "w1", WindowVerified: false}
+	outcome, err := NewComputerPress(driver, store, nil).Run(context.Background(), agent.ToolCallContext{
+		Args: map[string]any{"key": "Escape", "reason": "关闭当前模态窗口"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := outcome.Data.(agent.ToolErrorData)
+	if data.Code != "computer_press_window_unverified" || driver.pressKeyRequest.Key != "" {
+		t.Fatalf("outcome=%#v request=%#v", data, driver.pressKeyRequest)
 	}
 }
 
@@ -1052,7 +1074,7 @@ func TestComputerWindowSwitchActivatesMatchedWindowAndUpdatesState_BitsUT(t *tes
 		{WindowID: "w1", PID: 123, AppName: "WeChat", Title: "聊天", Bounds: desktop.Bounds{X: 0, Y: 0, Width: 800, Height: 600}, IsVisible: true, IsActive: true},
 		{WindowID: "w2", PID: 456, AppName: "Finder", Title: "Downloads", Bounds: desktop.Bounds{X: 10, Y: 10, Width: 700, Height: 500}, IsVisible: true},
 	}}
-	driver.activate = desktop.ActivateResult{PID: 456, Active: true, Verified: true}
+	driver.activate = desktop.ActivateResult{PID: 456, Active: true, Verified: true, WindowID: "w2", WindowVerified: true}
 
 	outcome, err := NewComputerWindowSwitch(driver, store).Run(context.Background(), agent.ToolCallContext{
 		Args: map[string]any{"app_name": "Finder", "reason": "切到下载目录"},
@@ -1106,8 +1128,8 @@ func TestComputerMenuRequiresConfirmationForExternalMenu_BitsUT(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(driver.menuSelectRequest.MenuPath, ">") != "File>Save" {
-		t.Fatalf("menu request = %#v", driver.menuSelectRequest)
+	if strings.Join(driver.menuSelectRequest.MenuPath, ">") != "File>Save" || driver.activateRequest.WindowID != "w1" {
+		t.Fatalf("activate=%#v menu=%#v", driver.activateRequest, driver.menuSelectRequest)
 	}
 	data := outcome.Data.(map[string]any)
 	if data["status"] != agent.ToolStatusSuccess || data["risk"] != desktopRiskExternal || data["verified"] != true {
@@ -1145,7 +1167,7 @@ func TestComputerFileDialogConfirmRequiresConfirmation_BitsUT(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if driver.fileDialogRequest.Path != "/tmp/report.txt" || !driver.fileDialogRequest.Confirm {
+	if driver.fileDialogRequest.Path != "/tmp/report.txt" || !driver.fileDialogRequest.Confirm || driver.activateRequest.WindowID != "w1" {
 		t.Fatalf("file dialog request = %#v", driver.fileDialogRequest)
 	}
 	data := outcome.Data.(map[string]any)
@@ -1304,6 +1326,9 @@ func TestComputerWaitForTextPollsAXSnapshot_BitsUT(t *testing.T) {
 
 func fakeComputerDriver(root desktop.AXNode) *fakeDesktopDriver {
 	return &fakeDesktopDriver{
+		activate: desktop.ActivateResult{
+			PID: 123, Active: true, Verified: true, WindowID: "w1", WindowVerified: true,
+		},
 		windows: desktop.ListWindowsResult{Windows: []desktop.Window{{
 			WindowID:  "w1",
 			PID:       123,

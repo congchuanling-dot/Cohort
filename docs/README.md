@@ -26,7 +26,7 @@
 7. `[完成]` Skill Runtime 补强和候选挖掘：内置高频 Skill 包、`SKILL.md permissions`、`/skill run` active policy、Skill 候选离线报告已落地。
 8. `[部分完成]` MCP 补全、usage/cost 和离线反思增强：MCP import/export、旧 SSE 兼容、per-tool policy CLI、Runner usage/cost 汇总、`mine-skill-candidates` 已落地；OAuth 体验深优化和 L4 闭环仍待补。
 9. `[部分完成]` LSP / Plugin / Adapter / Explorer / TUI 底座：Go 使用 gopls；TS/Python 已支持 `typescript-language-server` / `pyright-langserver` 长驻 stdio、workspace 文件同步、definition/references/hover/symbols、短期查询缓存、健康状态、显式重启和一次自动恢复，服务不可用时才回退 `symbol_scan` 并展示 fallback reason；`cohort lsp doctor --install` 会安装兼容的 TypeScript 5.x、typescript-language-server 与 pyright。Plugin/Adapter/Explorer/TUI 基础能力已落地；更强 subagent 语义合并和全屏 TUI 仍待补。
-10. `[部分完成]` Hermes daemon / Local API：持久化 Eval Jobs、cron/interval、跨进程 Job lock、失败重试、真实 Eval Runner、Action 自动升级与重开、验证后关闭、stdout/file/webhook 通知，以及 loopback `/status`、`/actions`、`/eval/runs`、`/trace`、`/jobs`、`/events` API 已落地；下一步是 IDE/Web/IM adapter。
+10. `[部分完成]` Hermes daemon / Local API：持久化 Eval Jobs、cron/interval、跨进程 Job lock、失败重试、真实 Eval Runner、Action 自动升级与重开、Auto Repair 隔离 worktree/Agent 修复/测试与 Eval gate/人工审核/事务合并/验证后关闭、stdout/file/webhook 通知，以及 loopback `/status`、`/actions`、`/repairs`、`/eval/runs`、`/trace`、`/jobs`、`/events` API 已落地；下一步是 IDE/Web/IM adapter。
 11. `[验收支线]` 用官方飞书 MCP 完成 OAuth、只读和受控写操作的真实端到端验收。
 12. `[部分完成]` Agent Eval：确定性状态断言、真实 LLM Judge、重复稳定率、A/B matrix、CI gate、trace timeline、Action Items、Hermes 调度闭环及 `computer-use-real` 浏览器/桌面真实 App suite 已落地；Langfuse dataset 接入与 SQLite 化待补。
 

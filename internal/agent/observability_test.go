@@ -33,3 +33,14 @@ func TestLLMResponseDataIncludesUsage_BitsUT(t *testing.T) {
 		t.Fatalf("langfuse io missing from response data: %#v", data)
 	}
 }
+
+func TestExpectedControlOutcomeIsNotOperationalFailure_BitsUT(t *testing.T) {
+	confirmation := Outcome{Data: NewToolError("desktop_action_confirmation_required", "confirmation required", "confirm")}
+	if !expectedControlOutcome(confirmation) || outcomeSucceeded(confirmation) {
+		t.Fatalf("confirmation outcome classification is incorrect: %#v", confirmation)
+	}
+	failure := Outcome{Data: NewToolError("desktop_target_not_active", "inactive", "refresh")}
+	if expectedControlOutcome(failure) || outcomeSucceeded(failure) {
+		t.Fatalf("runtime failure classification is incorrect: %#v", failure)
+	}
+}

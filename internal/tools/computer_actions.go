@@ -863,26 +863,33 @@ func (t *ComputerPress) Run(ctx context.Context, call agent.ToolCallContext) (ag
 			return desktopPressKeyApprovalRequiredOutcome(approval, risk), nil
 		}
 	}
-	if activateErr := activateDesktopTarget(ctx, t.driver, state.ActivePID); activateErr != nil {
+	windowID := state.ActiveWindow.WindowID
+	activated, activateErr := t.driver.Activate(ctx, desktop.ActivateRequest{PID: state.ActivePID, WindowID: windowID})
+	if activateErr != nil {
 		return desktopToolError(activateErr), nil
 	}
-	result, err := t.driver.PressKey(ctx, desktop.PressKeyRequest{PID: state.ActivePID, Key: normalizedKey})
+	if windowID != "" && !activated.WindowVerified {
+		return computerToolError("computer_press_window_unverified", "target window focus was not verified before key press", "请重新调用 computer_see 或 computer_window_switch 获取最新窗口状态。"), nil
+	}
+	result, err := t.driver.PressKey(ctx, desktop.PressKeyRequest{PID: state.ActivePID, WindowID: windowID, Key: normalizedKey})
 	if err != nil {
 		return desktopToolError(err), nil
 	}
-	verified := result.Performed && result.ActiveBefore && result.ActiveAfter
+	verified := result.Performed && result.ActiveBefore && result.ActiveAfter && (windowID == "" || result.WindowVerified)
 	data := map[string]any{
-		"status":        agent.ToolStatusSuccess,
-		"state_id":      state.ID,
-		"pid":           result.PID,
-		"key":           result.Key,
-		"intent":        intent,
-		"action":        result.Action,
-		"risk":          risk,
-		"performed":     result.Performed,
-		"active_before": result.ActiveBefore,
-		"active_after":  result.ActiveAfter,
-		"verified":      verified,
+		"status":          agent.ToolStatusSuccess,
+		"state_id":        state.ID,
+		"pid":             result.PID,
+		"window_id":       result.WindowID,
+		"window_verified": result.WindowVerified,
+		"key":             result.Key,
+		"intent":          intent,
+		"action":          result.Action,
+		"risk":            risk,
+		"performed":       result.Performed,
+		"active_before":   result.ActiveBefore,
+		"active_after":    result.ActiveAfter,
+		"verified":        verified,
 	}
 	if !verified {
 		data["status"] = agent.ToolStatusError
@@ -1508,7 +1515,7 @@ func (t *ComputerWindowSwitch) Run(ctx context.Context, call agent.ToolCallConte
 		ActiveWindow: computerWindowRef(runtime.GOOS, target),
 		Windows:      result.Windows,
 	})
-	verified := activated.Active && activated.Verified
+	verified := activated.Active && activated.Verified && (target.WindowID == "" || activated.WindowVerified)
 	data := map[string]any{
 		"status":            agent.ToolStatusSuccess,
 		"state_id":          state.ID,
@@ -1517,6 +1524,7 @@ func (t *ComputerWindowSwitch) Run(ctx context.Context, call agent.ToolCallConte
 		"matched_count":     len(matches),
 		"selected_index":    index,
 		"active":            activated.Active,
+		"window_verified":   activated.WindowVerified,
 		"verified":          verified,
 		"pid":               activated.PID,
 		"window_id":         target.WindowID,
@@ -1625,8 +1633,17 @@ func (t *ComputerMenu) Run(ctx context.Context, call agent.ToolCallContext) (age
 			return computerApprovalRequiredOutcome(approval, risk, "computer_menu"), nil
 		}
 	}
-	if err := activateDesktopTarget(ctx, t.driver, state.ActivePID); err != nil {
-		return desktopToolError(err), nil
+	activated, activateErr := t.driver.Activate(ctx, desktop.ActivateRequest{
+		PID: state.ActivePID, WindowID: state.ActiveWindow.WindowID,
+	})
+	if activateErr != nil {
+		return desktopToolError(activateErr), nil
+	}
+	if state.ActiveWindow.WindowID != "" && !activated.WindowVerified {
+		return computerToolError("computer_menu_window_unverified", "target window focus was not verified before menu selection", "请重新调用 computer_see 获取最新窗口状态。"), nil
+	}
+	if !activated.Active || !activated.Verified {
+		return computerToolError("computer_menu_target_not_active", "target application was not verified active before menu selection", "请重新调用 computer_see 获取最新窗口状态。"), nil
 	}
 	result, err := t.driver.MenuSelect(ctx, desktop.MenuSelectRequest{PID: state.ActivePID, MenuPath: menuPath})
 	if err != nil {
@@ -1719,8 +1736,17 @@ func (t *ComputerFileDialog) Run(ctx context.Context, call agent.ToolCallContext
 			return computerApprovalRequiredOutcome(approval, risk, "computer_file_dialog"), nil
 		}
 	}
-	if err := activateDesktopTarget(ctx, t.driver, state.ActivePID); err != nil {
-		return desktopToolError(err), nil
+	activated, activateErr := t.driver.Activate(ctx, desktop.ActivateRequest{
+		PID: state.ActivePID, WindowID: state.ActiveWindow.WindowID,
+	})
+	if activateErr != nil {
+		return desktopToolError(activateErr), nil
+	}
+	if state.ActiveWindow.WindowID != "" && !activated.WindowVerified {
+		return computerToolError("computer_file_dialog_window_unverified", "target dialog focus was not verified before file dialog operation", "请重新调用 computer_see 获取最新对话框窗口。"), nil
+	}
+	if !activated.Active || !activated.Verified {
+		return computerToolError("computer_file_dialog_target_not_active", "target application was not verified active before file dialog operation", "请重新调用 computer_see 获取最新对话框窗口。"), nil
 	}
 	result, err := t.driver.FileDialog(ctx, desktop.FileDialogRequest{PID: state.ActivePID, Path: path, Confirm: confirm})
 	if err != nil {

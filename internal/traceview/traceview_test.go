@@ -52,6 +52,13 @@ func TestLoadLatestSummarizesRunLog_BitsUT(t *testing.T) {
 			"error_code":   "bridge_unavailable",
 			"result_chars": 120,
 		}),
+		testEvent(base.Add(1900*time.Millisecond), "run_new", sess.ID, observability.EventToolFinished, 1, observability.SeverityInfo, map[string]any{
+			"tool":         "computer_file_dialog",
+			"status":       "error",
+			"duration_ms":  20,
+			"error_code":   "desktop_action_confirmation_required",
+			"result_chars": 0,
+		}),
 		testEvent(base.Add(2*time.Second), "run_new", sess.ID, observability.EventRunFinished, 1, observability.SeverityInfo, map[string]any{
 			"status":      "completed",
 			"duration_ms": 1000,
@@ -78,7 +85,7 @@ func TestLoadLatestSummarizesRunLog_BitsUT(t *testing.T) {
 	if summary.LLMCalls != 1 || summary.LLMDurationMS != 500 {
 		t.Fatalf("llm summary = %#v", summary)
 	}
-	if summary.ToolCalls != 1 || summary.ToolFailures != 1 || summary.ToolDurationMS != 90 {
+	if summary.ToolCalls != 2 || summary.ToolFailures != 1 || summary.ToolDurationMS != 110 {
 		t.Fatalf("tool summary = %#v", summary)
 	}
 	if summary.LastToolSchemaCount != 81 || summary.LastRequestChars != 77000 {

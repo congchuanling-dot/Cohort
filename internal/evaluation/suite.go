@@ -91,6 +91,13 @@ func ValidateSuite(suite Suite) error {
 				return fmt.Errorf("case %q fixture file %q: %w", c.ID, path, err)
 			}
 		}
+		browserFixture := strings.TrimSpace(c.Fixture.BrowserFixture)
+		if browserFixture != "" && browserFixture != "form" && browserFixture != "ocr-canvas" {
+			return fmt.Errorf("case %q fixture.browser_fixture must be form or ocr-canvas", c.ID)
+		}
+		if strings.ContainsRune(c.Fixture.LaunchApplication, '\x00') {
+			return fmt.Errorf("case %q fixture.launch_application contains an invalid NUL byte", c.ID)
+		}
 		if c.Assertions.MaxTurns < 0 || c.Assertions.MaxDurationMS < 0 || c.Assertions.MaxToolFailures < 0 {
 			return fmt.Errorf("case %q assertion limits must be >= 0", c.ID)
 		}

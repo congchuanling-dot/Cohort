@@ -261,8 +261,12 @@ type ElementTypeResult struct {
 	Selector string `json:"selector"`
 	// Rect 是目标元素输入前的 viewport 边界框。
 	Rect Rect `json:"rect"`
-	// TypedAt 是聚焦目标元素时点击的 viewport 坐标。
+	// TypedAt 是定位时验证命中的 viewport 坐标，仅用于诊断；输入聚焦不再点击该点。
 	TypedAt Point `json:"typed_at"`
+	// FocusMethod 说明输入前采用的无副作用聚焦方式。
+	FocusMethod string `json:"focus_method,omitempty"`
+	// Focused 表示输入前已确认 document.activeElement 是目标元素或其内部节点。
+	Focused bool `json:"focused"`
 	// Text 是本次输入的文本。
 	Text string `json:"text,omitempty"`
 	// Clear 表示输入前是否清空了已有文本。

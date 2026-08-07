@@ -88,6 +88,10 @@ type ActivateResult struct {
 	Active bool `json:"active"`
 	// Verified 表示 helper 是否能够可靠验证 Active。
 	Verified bool `json:"verified"`
+	// WindowID 是请求精确激活的窗口标识。
+	WindowID string `json:"window_id,omitempty"`
+	// WindowVerified 表示辅助功能焦点窗口与请求窗口边界匹配。
+	WindowVerified bool `json:"window_verified,omitempty"`
 }
 
 // ScreenshotRequest 指定要截取的窗口与由上层控制的输出路径。
@@ -346,6 +350,8 @@ type RightClickResult struct {
 type PressKeyRequest struct {
 	// PID 是目标应用进程。
 	PID int `json:"pid"`
+	// WindowID 可选地把按键绑定到同一 PID 下的精确窗口或模态对话框。
+	WindowID string `json:"window_id,omitempty"`
 	// Key 是经过上层白名单校验的按键或组合键。
 	Key string `json:"key"`
 }
@@ -354,6 +360,10 @@ type PressKeyRequest struct {
 type PressKeyResult struct {
 	// PID 是被操作的进程。
 	PID int `json:"pid"`
+	// WindowID 是执行前被 raise 并验证的目标窗口。
+	WindowID string `json:"window_id,omitempty"`
+	// WindowVerified 表示按键发送前目标窗口焦点已验证。
+	WindowVerified bool `json:"window_verified,omitempty"`
 	// Key 是实际发送的按键。
 	Key string `json:"key"`
 	// Action 是 helper 记录的动作名称。

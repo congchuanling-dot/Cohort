@@ -66,6 +66,8 @@ func (s *Service) apiHandler() http.Handler {
 	mux.HandleFunc("/trace/", s.handleTrace)
 	mux.HandleFunc("/jobs", s.handleJobs)
 	mux.HandleFunc("/jobs/", s.handleJob)
+	mux.HandleFunc("/repairs", s.handleRepairs)
+	mux.HandleFunc("/repairs/", s.handleRepair)
 	mux.HandleFunc("/events", s.handleEvents)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -245,6 +247,113 @@ func (s *Service) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	events, err := s.Store.LoadEvents(queryLimit(r, 100, 1000))
 	writeAPIResult(w, events, err)
+}
+
+func (s *Service) handleRepairs(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		repairs, err := s.Store.LoadRepairs()
+		if err == nil {
+			limit := queryLimit(r, len(repairs.Repairs), 1000)
+			if len(repairs.Repairs) > limit {
+				repairs.Repairs = repairs.Repairs[:limit]
+			}
+		}
+		writeAPIResult(w, repairs, err)
+	case http.MethodPost:
+		var request struct {
+			ActionID string `json:"action_id"`
+			Run      bool   `json:"run,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			writeAPIError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		task, err := CreateRepair(s.Store, s.ProjectRoot, request.ActionID, s.Config.AutoRepair)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if request.Run {
+			go func() {
+				if _, runErr := s.RunRepair(context.Background(), task.ID); runErr != nil {
+					s.recordError(runErr)
+				}
+			}()
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(task)
+			return
+		}
+		writeAPIResult(w, task, nil)
+	default:
+		writeAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (s *Service) handleRepair(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/repairs/"))
+	if id == "" || strings.Contains(id, "/") {
+		writeAPIError(w, http.StatusBadRequest, "invalid repair id")
+		return
+	}
+	if r.Method == http.MethodGet {
+		task, err := FindRepair(s.Store, id)
+		if err != nil {
+			writeAPIError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeAPIResult(w, task, nil)
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var request struct {
+		Operation string `json:"operation"`
+		Reason    string `json:"reason,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	switch request.Operation {
+	case "approve":
+		task, err := ApproveRepair(s.Store, id)
+		writeAPIResult(w, task, err)
+	case "reject":
+		task, err := RejectRepair(s.Store, id, request.Reason)
+		writeAPIResult(w, task, err)
+	case "cancel":
+		task, err := CancelRepair(s.Store, s.ProjectRoot, id, request.Reason)
+		writeAPIResult(w, task, err)
+	case "run":
+		if s.RepairRunner == nil || s.RepairVerifier == nil {
+			writeAPIError(w, http.StatusServiceUnavailable, "repair worker is not configured")
+			return
+		}
+		go func() {
+			if _, err := s.RunRepair(context.Background(), id); err != nil {
+				s.recordError(err)
+			}
+		}()
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "accepted", "repair_id": id})
+	case "merge":
+		if s.RepairVerifier == nil {
+			writeAPIError(w, http.StatusServiceUnavailable, "repair verifier is not configured")
+			return
+		}
+		go func() {
+			if _, err := s.MergeRepair(context.Background(), id); err != nil {
+				s.recordError(err)
+			}
+		}()
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "accepted", "repair_id": id})
+	default:
+		writeAPIError(w, http.StatusBadRequest, "operation must be approve, reject, cancel, run, or merge")
+	}
 }
 
 func validateLoopbackAddress(address string) error {

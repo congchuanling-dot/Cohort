@@ -9,6 +9,16 @@ const (
 	QueueStatusResolved     = "resolved"
 	QueueStatusDismissed    = "dismissed"
 
+	RepairStatusQueued         = "queued"
+	RepairStatusRunning        = "running"
+	RepairStatusReadyForReview = "ready_for_review"
+	RepairStatusFailed         = "failed"
+	RepairStatusApproved       = "approved"
+	RepairStatusRejected       = "rejected"
+	RepairStatusMerging        = "merging"
+	RepairStatusMerged         = "merged"
+	RepairStatusCancelled      = "cancelled"
+
 	AlertSeverityInfo     = "info"
 	AlertSeverityHigh     = "high"
 	AlertSeverityCritical = "critical"
@@ -21,6 +31,20 @@ type Config struct {
 	SchedulerPollSeconds         int                  `json:"scheduler_poll_seconds,omitempty"`
 	API                          APIConfig            `json:"api"`
 	Notifications                []NotificationConfig `json:"notifications,omitempty"`
+	AutoRepair                   AutoRepairConfig     `json:"auto_repair"`
+}
+
+type AutoRepairConfig struct {
+	Enabled         bool     `json:"enabled"`
+	MinSeverity     string   `json:"min_severity,omitempty"`
+	MaxConcurrent   int      `json:"max_concurrent,omitempty"`
+	MaxAttempts     int      `json:"max_attempts,omitempty"`
+	MaxChangedFiles int      `json:"max_changed_files,omitempty"`
+	MaxDiffBytes    int      `json:"max_diff_bytes,omitempty"`
+	TimeoutSeconds  int      `json:"timeout_seconds,omitempty"`
+	RequireApproval bool     `json:"require_approval"`
+	TestCommands    []string `json:"test_commands,omitempty"`
+	ProtectedPaths  []string `json:"protected_paths,omitempty"`
 }
 
 type APIConfig struct {
@@ -54,6 +78,8 @@ type Status struct {
 	APIAddress           string           `json:"api_address,omitempty"`
 	RunningJobs          []string         `json:"running_jobs,omitempty"`
 	LastJobAt            time.Time        `json:"last_job_at,omitempty"`
+	LastRepairAt         time.Time        `json:"last_repair_at,omitempty"`
+	RunningRepairs       []string         `json:"running_repairs,omitempty"`
 	Config               Config           `json:"config"`
 }
 
@@ -179,4 +205,72 @@ type Event struct {
 	Severity string    `json:"severity,omitempty"`
 	SourceID string    `json:"source_id,omitempty"`
 	Data     any       `json:"data,omitempty"`
+}
+
+type Repairs struct {
+	UpdatedAt time.Time    `json:"updated_at"`
+	Repairs   []RepairTask `json:"repairs"`
+}
+
+type RepairTask struct {
+	ID                string           `json:"id"`
+	ActionID          string           `json:"action_id"`
+	ActionFingerprint string           `json:"action_fingerprint"`
+	Status            string           `json:"status"`
+	Severity          string           `json:"severity"`
+	SuiteID           string           `json:"suite_id,omitempty"`
+	CaseID            string           `json:"case_id,omitempty"`
+	SourceRunID       string           `json:"source_run_id,omitempty"`
+	BaseCommit        string           `json:"base_commit"`
+	Branch            string           `json:"branch"`
+	WorktreePath      string           `json:"worktree_path"`
+	ArtifactDir       string           `json:"artifact_dir"`
+	Attempt           int              `json:"attempt"`
+	MaxAttempts       int              `json:"max_attempts"`
+	CreatedAt         time.Time        `json:"created_at"`
+	UpdatedAt         time.Time        `json:"updated_at"`
+	StartedAt         time.Time        `json:"started_at,omitempty"`
+	FinishedAt        time.Time        `json:"finished_at,omitempty"`
+	ApprovedAt        time.Time        `json:"approved_at,omitempty"`
+	RejectedAt        time.Time        `json:"rejected_at,omitempty"`
+	MergedAt          time.Time        `json:"merged_at,omitempty"`
+	RepairCommit      string           `json:"repair_commit,omitempty"`
+	MergeCommit       string           `json:"merge_commit,omitempty"`
+	Summary           string           `json:"summary,omitempty"`
+	Error             string           `json:"error,omitempty"`
+	ChangedFiles      []string         `json:"changed_files,omitempty"`
+	DiffPath          string           `json:"diff_path,omitempty"`
+	DiffBytes         int              `json:"diff_bytes,omitempty"`
+	Execution         RepairExecution  `json:"execution,omitempty"`
+	Validation        RepairValidation `json:"validation,omitempty"`
+	MergeValidation   RepairValidation `json:"merge_validation,omitempty"`
+	VerificationRunID string           `json:"verification_run_id,omitempty"`
+}
+
+type RepairExecution struct {
+	Summary    string `json:"summary,omitempty"`
+	OutputPath string `json:"output_path,omitempty"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
+	Turns      int    `json:"turns,omitempty"`
+	Tokens     int64  `json:"tokens,omitempty"`
+}
+
+type RepairValidation struct {
+	Passed     bool              `json:"passed"`
+	StartedAt  time.Time         `json:"started_at,omitempty"`
+	FinishedAt time.Time         `json:"finished_at,omitempty"`
+	Checks     []ValidationCheck `json:"checks,omitempty"`
+	EvalRunIDs []string          `json:"eval_run_ids,omitempty"`
+	GatePassed bool              `json:"gate_passed,omitempty"`
+	Error      string            `json:"error,omitempty"`
+}
+
+type ValidationCheck struct {
+	Name       string `json:"name"`
+	Command    string `json:"command,omitempty"`
+	Passed     bool   `json:"passed"`
+	ExitCode   int    `json:"exit_code,omitempty"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
+	OutputPath string `json:"output_path,omitempty"`
+	Error      string `json:"error,omitempty"`
 }

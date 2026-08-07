@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -147,7 +148,7 @@ func TestWebhookNotificationAndAPIRoutes_BitsUT(t *testing.T) {
 	}
 	server := httptest.NewServer(service.apiHandler())
 	defer server.Close()
-	for _, path := range []string{"/status", "/actions", "/jobs", "/eval/runs", "/events"} {
+	for _, path := range []string{"/status", "/actions", "/jobs", "/repairs", "/eval/runs", "/events"} {
 		response, err := http.Get(server.URL + path)
 		if err != nil {
 			t.Fatal(err)
@@ -156,6 +157,58 @@ func TestWebhookNotificationAndAPIRoutes_BitsUT(t *testing.T) {
 			t.Fatalf("%s status=%d", path, response.StatusCode)
 		}
 		_ = response.Body.Close()
+	}
+}
+
+func TestRepairAPICreateApproveAndReject_BitsUT(t *testing.T) {
+	root := initRepairGitRepo(t)
+	store := NewStore(root)
+	action := seedRepairAction(t, store)
+	service, err := NewService(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(service.apiHandler())
+	defer server.Close()
+
+	body := strings.NewReader(`{"action_id":"` + action.ID + `"}`)
+	response, err := http.Post(server.URL+"/repairs", "application/json", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("create status=%d", response.StatusCode)
+	}
+	var task RepairTask
+	if err := json.NewDecoder(response.Body).Decode(&task); err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != RepairStatusQueued {
+		t.Fatalf("task=%#v", task)
+	}
+	task.Status = RepairStatusReadyForReview
+	if err := UpdateRepair(store, task); err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequest(http.MethodPost, server.URL+"/repairs/"+task.ID, strings.NewReader(`{"operation":"approve"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err = http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("approve status=%d", response.StatusCode)
+	}
+	if err := json.NewDecoder(response.Body).Decode(&task); err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != RepairStatusApproved {
+		t.Fatalf("task=%#v", task)
 	}
 }
 

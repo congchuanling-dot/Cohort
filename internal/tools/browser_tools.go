@@ -449,7 +449,7 @@ func (t *BrowserType) Run(ctx context.Context, call agent.ToolCallContext) (agen
 	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
 }
 
-// BrowserTypeElement 先按 selector 定位并点击聚焦，再输入文本。
+// BrowserTypeElement 先按 selector 定位并无副作用聚焦，再输入文本。
 type BrowserTypeElement struct {
 	// client 是浏览器桥能力接口，用来定位输入元素并发送文本。
 	client browser.Client
@@ -464,7 +464,7 @@ func (t *BrowserTypeElement) Name() string { return ToolNameBrowserTypeElement }
 func (t *BrowserTypeElement) Schema() llm.ToolSchema {
 	return llm.ToolSchema{Type: "function", Function: llm.FunctionSchema{
 		Name:        t.Name(),
-		Description: "Find an input-like element by CSS selector, click it with CDP to focus, then type text with CDP keyboard input.",
+		Description: "Find an input-like element by CSS selector, focus it without clicking or submitting, then type text with CDP keyboard input.",
 		Parameters: objectSchema(map[string]any{
 			"tab_id":     stringProp("Optional tab ID. If empty, uses the active tab."),
 			"selector":   stringProp("CSS selector for the target input element."),
@@ -497,8 +497,12 @@ func (t *BrowserTypeElement) Run(ctx context.Context, call agent.ToolCallContext
 		return browserToolError(err), nil
 	}
 	point := target.Point
-	if _, clickErr := t.client.Click(ctx, tabID, point.X, point.Y, true); clickErr != nil {
-		return browserToolError(clickErr), nil
+	focused, focusErr := focusElementForTyping(ctx, t.client, tabID, selector)
+	if focusErr != nil {
+		return browserToolError(focusErr), nil
+	}
+	if !focused {
+		return browserToolError(errors.New("browser input target did not receive focus")), nil
 	}
 	typed, err := t.client.Type(ctx, tabID, text, asBool(call.Args["clear"], false), asBool(call.Args["no_monitor"], false))
 	if err != nil {
@@ -509,18 +513,47 @@ func (t *BrowserTypeElement) Run(ctx context.Context, call agent.ToolCallContext
 		return browserToolError(verifyErr), nil
 	}
 	result := browser.ElementTypeResult{
-		Status:   typed.Status,
-		TabID:    typed.TabID,
-		Selector: selector,
-		Rect:     target.Rect,
-		TypedAt:  point,
-		Text:     typed.Text,
-		Clear:    typed.Clear,
-		Actual:   actual,
-		Verified: verified,
-		Diff:     typed.Diff,
+		Status:      typed.Status,
+		TabID:       typed.TabID,
+		Selector:    selector,
+		Rect:        target.Rect,
+		TypedAt:     point,
+		FocusMethod: "dom_focus",
+		Focused:     focused,
+		Text:        typed.Text,
+		Clear:       typed.Clear,
+		Actual:      actual,
+		Verified:    verified,
+		Diff:        typed.Diff,
 	}
 	return agent.Outcome{Data: result, NextPrompt: "\n"}, nil
+}
+
+// focusElementForTyping 聚焦已完成可见性和命中测试的可编辑元素。
+// 聚焦本身不使用鼠标事件，避免坐标漂移或 label/button 默认行为触发表单提交；
+// 随后的文字仍由 CDP Input.insertText 注入，页面可收到真实输入事件链。
+func focusElementForTyping(ctx context.Context, client browser.Client, tabID string, selector string) (bool, error) {
+	selectorJSON, err := json.Marshal(selector)
+	if err != nil {
+		return false, err
+	}
+	script := fmt.Sprintf(`const element = document.querySelector(%s);
+if (!element) throw new Error("element not found before focus");
+element.focus({ preventScroll: true });
+await new Promise((resolve) => requestAnimationFrame(resolve));
+return document.activeElement === element || element.contains(document.activeElement);`, string(selectorJSON))
+	result, err := client.ExecuteJS(ctx, tabID, script, true, 1000)
+	if err != nil {
+		return false, err
+	}
+	if result.Status == "error" {
+		return false, fmt.Errorf("browser input focus error: %v", result.Error)
+	}
+	var focused bool
+	if err := json.Unmarshal([]byte(result.JSReturn), &focused); err != nil {
+		return false, fmt.Errorf("decode browser input focus result: %w", err)
+	}
+	return focused, nil
 }
 
 // BrowserPressKey 发送 Enter、Escape、Tab、Cmd+Enter 等真实键盘按键。

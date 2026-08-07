@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,16 +23,19 @@ func NewStore(projectRoot string) Store {
 	return Store{Root: filepath.Join(projectRoot, ".cohort", "hermes")}
 }
 
-func (s Store) ConfigPath() string { return filepath.Join(s.Root, "config.json") }
-func (s Store) StatusPath() string { return filepath.Join(s.Root, "status.json") }
-func (s Store) QueuePath() string  { return filepath.Join(s.Root, "action_queue.json") }
-func (s Store) JobsPath() string   { return filepath.Join(s.Root, "jobs.json") }
-func (s Store) AlertsPath() string { return filepath.Join(s.Root, "alerts.jsonl") }
-func (s Store) EventsPath() string { return filepath.Join(s.Root, "events.jsonl") }
-func (s Store) RunsPath() string   { return filepath.Join(s.Root, "runs.jsonl") }
-func (s Store) PIDPath() string    { return filepath.Join(s.Root, "hermes.pid") }
-func (s Store) LockPath() string   { return filepath.Join(s.Root, "hermes.lock") }
-func (s Store) LogPath() string    { return filepath.Join(s.Root, "hermes.log") }
+func (s Store) ConfigPath() string         { return filepath.Join(s.Root, "config.json") }
+func (s Store) StatusPath() string         { return filepath.Join(s.Root, "status.json") }
+func (s Store) QueuePath() string          { return filepath.Join(s.Root, "action_queue.json") }
+func (s Store) JobsPath() string           { return filepath.Join(s.Root, "jobs.json") }
+func (s Store) RepairsPath() string        { return filepath.Join(s.Root, "repairs.json") }
+func (s Store) WorktreesDir() string       { return filepath.Join(s.Root, "worktrees") }
+func (s Store) RepairArtifactsDir() string { return filepath.Join(s.Root, "repair-artifacts") }
+func (s Store) AlertsPath() string         { return filepath.Join(s.Root, "alerts.jsonl") }
+func (s Store) EventsPath() string         { return filepath.Join(s.Root, "events.jsonl") }
+func (s Store) RunsPath() string           { return filepath.Join(s.Root, "runs.jsonl") }
+func (s Store) PIDPath() string            { return filepath.Join(s.Root, "hermes.pid") }
+func (s Store) LockPath() string           { return filepath.Join(s.Root, "hermes.lock") }
+func (s Store) LogPath() string            { return filepath.Join(s.Root, "hermes.log") }
 
 func DefaultConfig() Config {
 	return Config{
@@ -40,6 +44,17 @@ func DefaultConfig() Config {
 		API: APIConfig{
 			Enabled:       true,
 			ListenAddress: "127.0.0.1:18778",
+		},
+		AutoRepair: AutoRepairConfig{
+			MinSeverity:     AlertSeverityHigh,
+			MaxConcurrent:   1,
+			MaxAttempts:     2,
+			MaxChangedFiles: 12,
+			MaxDiffBytes:    512 * 1024,
+			TimeoutSeconds:  30 * 60,
+			RequireApproval: true,
+			TestCommands:    []string{"go test ./..."},
+			ProtectedPaths:  []string{".git", ".cohort", ".env", ".env.*"},
 		},
 	}
 }
@@ -66,16 +81,35 @@ func (s Store) LoadConfig() (Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Config{}, err
 	}
+	needsMigration := false
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(data, &fields) == nil {
 		if _, exists := fields["api"]; !exists {
 			cfg.API = DefaultConfig().API
+			needsMigration = true
+		}
+		if raw, exists := fields["auto_repair"]; !exists {
+			cfg.AutoRepair = DefaultConfig().AutoRepair
+			needsMigration = true
+		} else {
+			var repairFields map[string]json.RawMessage
+			if json.Unmarshal(raw, &repairFields) == nil {
+				if _, hasApproval := repairFields["require_approval"]; !hasApproval {
+					cfg.AutoRepair.RequireApproval = DefaultConfig().AutoRepair.RequireApproval
+					needsMigration = true
+				}
+			}
 		}
 	}
 	if cfg.EvalStabilityIntervalSeconds <= 0 {
 		cfg.EvalStabilityIntervalSeconds = DefaultConfig().EvalStabilityIntervalSeconds
 	}
 	normalizeConfig(&cfg)
+	if needsMigration {
+		if err := writeJSONFile(s.ConfigPath(), cfg); err != nil {
+			return Config{}, fmt.Errorf("persist migrated hermes config: %w", err)
+		}
+	}
 	return cfg, nil
 }
 
@@ -98,6 +132,30 @@ func normalizeConfig(cfg *Config) {
 	if strings.TrimSpace(cfg.API.ListenAddress) == "" {
 		cfg.API.ListenAddress = defaults.API.ListenAddress
 	}
+	if strings.TrimSpace(cfg.AutoRepair.MinSeverity) == "" {
+		cfg.AutoRepair.MinSeverity = defaults.AutoRepair.MinSeverity
+	}
+	if cfg.AutoRepair.MaxConcurrent <= 0 {
+		cfg.AutoRepair.MaxConcurrent = defaults.AutoRepair.MaxConcurrent
+	}
+	if cfg.AutoRepair.MaxAttempts <= 0 {
+		cfg.AutoRepair.MaxAttempts = defaults.AutoRepair.MaxAttempts
+	}
+	if cfg.AutoRepair.MaxChangedFiles <= 0 {
+		cfg.AutoRepair.MaxChangedFiles = defaults.AutoRepair.MaxChangedFiles
+	}
+	if cfg.AutoRepair.MaxDiffBytes <= 0 {
+		cfg.AutoRepair.MaxDiffBytes = defaults.AutoRepair.MaxDiffBytes
+	}
+	if cfg.AutoRepair.TimeoutSeconds <= 0 {
+		cfg.AutoRepair.TimeoutSeconds = defaults.AutoRepair.TimeoutSeconds
+	}
+	if len(cfg.AutoRepair.TestCommands) == 0 {
+		cfg.AutoRepair.TestCommands = append([]string(nil), defaults.AutoRepair.TestCommands...)
+	}
+	if len(cfg.AutoRepair.ProtectedPaths) == 0 {
+		cfg.AutoRepair.ProtectedPaths = append([]string(nil), defaults.AutoRepair.ProtectedPaths...)
+	}
 }
 
 func (s Store) LoadStatus() (Status, error) {
@@ -113,8 +171,8 @@ func (s Store) LoadStatus() (Status, error) {
 	if err := json.Unmarshal(data, &status); err != nil {
 		return Status{}, err
 	}
-	if status.Config.EvalStabilityIntervalSeconds <= 0 {
-		status.Config, _ = s.LoadConfig()
+	if cfg, loadErr := s.LoadConfig(); loadErr == nil {
+		status.Config = cfg
 	}
 	return status, nil
 }
@@ -175,6 +233,115 @@ func (s Store) SaveJobs(jobs Jobs) error {
 	}
 	sort.SliceStable(jobs.Jobs, func(i, j int) bool { return jobs.Jobs[i].ID < jobs.Jobs[j].ID })
 	return writeJSONFile(s.JobsPath(), jobs)
+}
+
+func (s Store) LoadRepairs() (Repairs, error) {
+	data, err := os.ReadFile(s.RepairsPath())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return Repairs{UpdatedAt: time.Now().UTC()}, nil
+		}
+		return Repairs{}, err
+	}
+	var repairs Repairs
+	if err := json.Unmarshal(data, &repairs); err != nil {
+		return Repairs{}, err
+	}
+	return repairs, nil
+}
+
+func (s Store) SaveRepairs(repairs Repairs) error {
+	repairs.UpdatedAt = time.Now().UTC()
+	sort.SliceStable(repairs.Repairs, func(i, j int) bool {
+		return repairs.Repairs[i].CreatedAt.After(repairs.Repairs[j].CreatedAt)
+	})
+	return writeJSONFile(s.RepairsPath(), repairs)
+}
+
+func (s Store) AcquireRepairLock(repairID string) (func(), error) {
+	if err := os.MkdirAll(filepath.Join(s.Root, "locks"), 0755); err != nil {
+		return nil, err
+	}
+	path := s.repairLockPath(repairID)
+	for attempt := 0; attempt < 2; attempt++ {
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+		if err == nil {
+			_, _ = fmt.Fprintf(file, "%d\n", os.Getpid())
+			_ = file.Close()
+			return func() { _ = os.Remove(path) }, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return nil, err
+		}
+		active, checkErr := processLockActive(path)
+		if checkErr != nil {
+			return nil, checkErr
+		}
+		if active {
+			return nil, fmt.Errorf("repair %q is already running", repairID)
+		}
+	}
+	return nil, fmt.Errorf("unable to acquire repair lock %q", repairID)
+}
+
+func (s Store) RepairLockActive(repairID string) (bool, error) {
+	return processLockActive(s.repairLockPath(repairID))
+}
+
+func (s Store) repairLockPath(repairID string) string {
+	return filepath.Join(s.Root, "locks", "repair-"+sanitizeFileID(repairID)+".lock")
+}
+
+func processLockActive(path string) (bool, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	pid, parseErr := strconv.Atoi(strings.TrimSpace(string(data)))
+	if parseErr == nil && processRunning(pid) {
+		return true, nil
+	}
+	info, statErr := os.Stat(path)
+	if parseErr != nil && statErr == nil && time.Since(info.ModTime()) < 5*time.Second {
+		// 创建者可能仍处于 O_EXCL 成功后写入 PID 的极短窗口，不能误删活锁。
+		return true, nil
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return false, fmt.Errorf("remove stale process lock: %w", err)
+	}
+	return false, nil
+}
+
+func (s Store) AcquireGlobalLock() (func(), error) {
+	if err := os.MkdirAll(s.Root, 0755); err != nil {
+		return nil, err
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		file, err := os.OpenFile(s.LockPath(), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+		if err == nil {
+			_, _ = fmt.Fprintf(file, "%d\n", os.Getpid())
+			_ = file.Close()
+			return func() { _ = os.Remove(s.LockPath()) }, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return nil, err
+		}
+		data, readErr := os.ReadFile(s.LockPath())
+		if readErr != nil {
+			return nil, fmt.Errorf("read hermes lock: %w", readErr)
+		}
+		pid, parseErr := strconv.Atoi(strings.TrimSpace(string(data)))
+		if parseErr == nil && processRunning(pid) {
+			return nil, fmt.Errorf("hermes store is locked by pid %d", pid)
+		}
+		if removeErr := os.Remove(s.LockPath()); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			return nil, fmt.Errorf("remove stale hermes lock: %w", removeErr)
+		}
+	}
+	return nil, errors.New("unable to acquire hermes store lock")
 }
 
 func (s Store) AcquireJobLock(jobID string) (func(), error) {
