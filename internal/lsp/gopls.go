@@ -35,14 +35,15 @@ type CheckResult struct {
 }
 
 type QueryResult struct {
-	Language string   `json:"language,omitempty"`
-	Kind     string   `json:"kind"`
-	Position string   `json:"position"`
-	Engine   string   `json:"engine,omitempty"`
-	Command  []string `json:"command"`
-	Output   string   `json:"output"`
-	OK       bool     `json:"ok"`
-	ExitCode int      `json:"exit_code"`
+	Language       string   `json:"language,omitempty"`
+	Kind           string   `json:"kind"`
+	Position       string   `json:"position"`
+	Engine         string   `json:"engine,omitempty"`
+	FallbackReason string   `json:"fallback_reason,omitempty"`
+	Command        []string `json:"command"`
+	Output         string   `json:"output"`
+	OK             bool     `json:"ok"`
+	ExitCode       int      `json:"exit_code"`
 }
 
 func (g Gopls) Doctor(ctx context.Context) (DoctorResult, error) {

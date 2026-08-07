@@ -18,6 +18,7 @@
         "write"
       ],
       "timeout_seconds": 120,
+      "environment": {},
       "fixture": {
         "mode": "temp"
       },
@@ -61,6 +62,7 @@
         "patch"
       ],
       "timeout_seconds": 120,
+      "environment": {},
       "fixture": {
         "mode": "temp",
         "files": {
@@ -125,6 +127,7 @@
         "test"
       ],
       "timeout_seconds": 180,
+      "environment": {},
       "fixture": {
         "mode": "temp",
         "files": {

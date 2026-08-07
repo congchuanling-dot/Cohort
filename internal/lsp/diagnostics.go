@@ -20,13 +20,15 @@ const (
 )
 
 type Diagnostics struct {
-	Root              string
-	Timeout           time.Duration
-	InstallTimeout    time.Duration
-	GoCommand         string
-	TypeScriptCommand string
-	PythonCommand     string
-	NPMCommand        string
+	Root                    string
+	Timeout                 time.Duration
+	InstallTimeout          time.Duration
+	GoCommand               string
+	TypeScriptCommand       string
+	PythonCommand           string
+	TypeScriptServerCommand string
+	PythonServerCommand     string
+	NPMCommand              string
 }
 
 type LanguageDoctorResult struct {
@@ -177,8 +179,8 @@ func (d Diagnostics) installPlan(language string) (installPlan, bool) {
 	case LanguageTypeScript:
 		return installPlan{
 			Language: language,
-			Package:  "typescript",
-			Command:  []string{npm, "install", "-g", "typescript"},
+			Package:  "typescript@5 + typescript-language-server",
+			Command:  []string{npm, "install", "-g", "typescript@5", "typescript-language-server"},
 		}, true
 	case LanguagePython:
 		return installPlan{

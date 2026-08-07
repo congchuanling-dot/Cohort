@@ -74,6 +74,14 @@ func ValidateSuite(suite Suite) error {
 		if c.Repeat < 0 || c.Repeat > 20 {
 			return fmt.Errorf("case %q repeat must be between 0 and 20", c.ID)
 		}
+		if c.Environment.OnMissing != "" && c.Environment.OnMissing != "skip" && c.Environment.OnMissing != "fail" {
+			return fmt.Errorf("case %q environment.on_missing must be skip or fail", c.ID)
+		}
+		for _, value := range append(append(append([]string{}, c.Environment.OperatingSystems...), c.Environment.Commands...), c.Environment.Applications...) {
+			if strings.TrimSpace(value) == "" {
+				return fmt.Errorf("case %q environment requirements must not contain empty values", c.ID)
+			}
+		}
 		mode := strings.TrimSpace(c.Fixture.Mode)
 		if mode != "" && mode != "project" && mode != "temp" {
 			return fmt.Errorf("case %q fixture.mode must be project or temp", c.ID)

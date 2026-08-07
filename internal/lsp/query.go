@@ -45,7 +45,13 @@ func (d Diagnostics) Query(ctx context.Context, opts QueryOptions) (QueryResult,
 			return QueryResult{Language: language, Kind: kind, ExitCode: -1}, fmt.Errorf("unsupported lsp query kind %q", kind)
 		}
 	case LanguageTypeScript, LanguagePython:
-		return d.symbolScanQuery(language, kind, opts)
+		result, err := d.languageServerQuery(ctx, language, kind, opts)
+		if err == nil {
+			return result, nil
+		}
+		fallback, fallbackErr := d.symbolScanQuery(language, kind, opts)
+		fallback.FallbackReason = err.Error()
+		return fallback, fallbackErr
 	default:
 		return QueryResult{Language: language, Kind: kind, ExitCode: -1}, fmt.Errorf("unsupported lsp query language %q", opts.Language)
 	}

@@ -136,7 +136,7 @@ func Run(args []string) error {
 	case "eval":
 		return runEvalCommand(context.Background(), cfg, args[1:], os.Stdout)
 	case "hermes":
-		return runHermesCommand(context.Background(), args[1:], os.Stdout)
+		return runHermesCommand(context.Background(), cfg, args[1:], os.Stdout)
 	case "tools":
 		schemas, schemasErr := app.ToolSchemas(cfg)
 		if schemasErr != nil {
@@ -1371,6 +1371,8 @@ Usage:
                           show symbol hover/context
   cohort lsp symbols [--language go|typescript|python] [path]
                           list symbols in a file or directory
+  cohort lsp server status|restart|stop [--language typescript|python|all]
+                          inspect or manage persistent language servers
   cohort plugin list|show|doctor
                           inspect .cohort/plugins manifests
   cohort explorer create "question"
@@ -1410,7 +1412,9 @@ Usage:
                           list pass-to-fail case regressions
   cohort hermes start|stop|status|logs
                           manage the local Hermes daemon
-  cohort hermes actions [list|show|ack|start|resolve|dismiss]
+  cohort hermes jobs init|add|list|show|run|enable|disable|remove
+                          configure persistent scheduled eval jobs
+  cohort hermes actions [list|show|ack|start|verify|resolve|dismiss]
                           inspect and manage Eval Action Queue items
   cohort mcp list         list configured MCP servers
   cohort mcp status       check configured MCP server availability

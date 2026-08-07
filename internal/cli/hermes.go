@@ -16,12 +16,14 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"cohort/internal/app"
+	"cohort/internal/evaluation"
 	"cohort/internal/hermes"
 )
 
-func runHermesCommand(ctx context.Context, args []string, out io.Writer) error {
+func runHermesCommand(ctx context.Context, cfg app.Config, args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: cohort hermes start|stop|status|logs|serve|actions")
+		return errors.New("usage: cohort hermes start|stop|status|logs|serve|actions|jobs")
 	}
 	root, err := os.Getwd()
 	if err != nil {
@@ -33,6 +35,9 @@ func runHermesCommand(ctx context.Context, args []string, out io.Writer) error {
 	}
 	switch args[0] {
 	case "start":
+		if len(args) == 2 && args[1] == "--foreground" {
+			return hermesServe(ctx, root, cfg, out)
+		}
 		return hermesStart(store, args[1:], out)
 	case "stop":
 		return hermesStop(store, out)
@@ -41,9 +46,11 @@ func runHermesCommand(ctx context.Context, args []string, out io.Writer) error {
 	case "logs":
 		return hermesLogs(store, out)
 	case "serve":
-		return hermesServe(ctx, root, out)
+		return hermesServe(ctx, root, cfg, out)
 	case "actions":
-		return hermesActions(root, store, args[1:], out)
+		return hermesActions(ctx, root, cfg, store, args[1:], out)
+	case "jobs":
+		return hermesJobs(ctx, root, cfg, store, args[1:], out)
 	default:
 		return fmt.Errorf("unknown hermes command %q", args[0])
 	}
@@ -51,9 +58,7 @@ func runHermesCommand(ctx context.Context, args []string, out io.Writer) error {
 
 func hermesStart(store hermes.Store, args []string, out io.Writer) error {
 	for _, arg := range args {
-		if arg != "--foreground" {
-			return fmt.Errorf("unknown hermes start option %q", arg)
-		}
+		return fmt.Errorf("unknown hermes start option %q", arg)
 	}
 	status, _ := store.LoadStatus()
 	if pidFromFile, ok := readPID(store.PIDPath()); ok {
@@ -89,6 +94,17 @@ func hermesStart(store hermes.Store, args []string, out io.Writer) error {
 	}
 	if err := os.WriteFile(store.PIDPath(), []byte(fmt.Sprintf("%d\n", cmd.Process.Pid)), 0644); err != nil {
 		return err
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if !isPIDRunning(cmd.Process.Pid) {
+			return fmt.Errorf("hermes process %d exited during startup; inspect %s", cmd.Process.Pid, store.LogPath())
+		}
+		current, loadErr := store.LoadStatus()
+		if loadErr == nil && current.Running && current.PID == cmd.Process.Pid {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 	fmt.Fprintf(out, "started: true\npid: %d\nlog: %s\n", cmd.Process.Pid, store.LogPath())
 	return cmd.Process.Release()
@@ -180,18 +196,19 @@ func hermesLogs(store hermes.Store, out io.Writer) error {
 	return nil
 }
 
-func hermesServe(ctx context.Context, root string, out io.Writer) error {
+func hermesServe(ctx context.Context, root string, cfg app.Config, out io.Writer) error {
 	service, err := hermes.NewService(root)
 	if err != nil {
 		return err
 	}
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	configureHermesEvalRunner(service, cfg, out)
 	fmt.Fprintf(out, "hermes serve pid=%d\n", os.Getpid())
 	return service.Serve(ctx)
 }
 
-func hermesActions(root string, store hermes.Store, args []string, out io.Writer) error {
+func hermesActions(ctx context.Context, root string, cfg app.Config, store hermes.Store, args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "list" {
 		service, err := hermes.NewService(root)
 		if err == nil {
@@ -226,14 +243,24 @@ func hermesActions(root string, store hermes.Store, args []string, out io.Writer
 		fmt.Fprintf(out, "in_progress: %s\n", action.ID)
 		return nil
 	case "resolve":
-		if len(args) != 2 {
-			return errors.New("usage: cohort hermes actions resolve <id>")
+		if len(args) != 4 || args[2] != "--with-run" {
+			return errors.New("usage: cohort hermes actions resolve <id> --with-run <run_id>")
 		}
-		action, err := hermes.UpdateActionStatus(store, args[1], hermes.QueueStatusResolved)
+		action, err := hermes.VerifyActionWithRun(store, evaluation.NewStore(root), args[1], args[3], true)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "resolved: %s\n", action.ID)
+		fmt.Fprintf(out, "resolved: %s\nverification_run: %s\n", action.ID, action.VerificationRunID)
+		return nil
+	case "verify":
+		if len(args) != 2 {
+			return errors.New("usage: cohort hermes actions verify <id>")
+		}
+		action, err := runHermesActionVerification(ctx, root, cfg, store, args[1], out)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "verified: %s\nverification_run: %s\n", action.ID, action.VerificationRunID)
 		return nil
 	case "dismiss":
 		if len(args) != 2 {

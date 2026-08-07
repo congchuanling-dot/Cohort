@@ -25,7 +25,9 @@ func NewStore(projectRoot string) Store {
 func (s Store) ConfigPath() string { return filepath.Join(s.Root, "config.json") }
 func (s Store) StatusPath() string { return filepath.Join(s.Root, "status.json") }
 func (s Store) QueuePath() string  { return filepath.Join(s.Root, "action_queue.json") }
+func (s Store) JobsPath() string   { return filepath.Join(s.Root, "jobs.json") }
 func (s Store) AlertsPath() string { return filepath.Join(s.Root, "alerts.jsonl") }
+func (s Store) EventsPath() string { return filepath.Join(s.Root, "events.jsonl") }
 func (s Store) RunsPath() string   { return filepath.Join(s.Root, "runs.jsonl") }
 func (s Store) PIDPath() string    { return filepath.Join(s.Root, "hermes.pid") }
 func (s Store) LockPath() string   { return filepath.Join(s.Root, "hermes.lock") }
@@ -34,6 +36,11 @@ func (s Store) LogPath() string    { return filepath.Join(s.Root, "hermes.log") 
 func DefaultConfig() Config {
 	return Config{
 		EvalStabilityIntervalSeconds: 15 * 60,
+		SchedulerPollSeconds:         5,
+		API: APIConfig{
+			Enabled:       true,
+			ListenAddress: "127.0.0.1:18778",
+		},
 	}
 }
 
@@ -59,9 +66,16 @@ func (s Store) LoadConfig() (Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Config{}, err
 	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(data, &fields) == nil {
+		if _, exists := fields["api"]; !exists {
+			cfg.API = DefaultConfig().API
+		}
+	}
 	if cfg.EvalStabilityIntervalSeconds <= 0 {
 		cfg.EvalStabilityIntervalSeconds = DefaultConfig().EvalStabilityIntervalSeconds
 	}
+	normalizeConfig(&cfg)
 	return cfg, nil
 }
 
@@ -72,7 +86,18 @@ func (s Store) SaveConfig(cfg Config) error {
 	if cfg.EvalStabilityIntervalSeconds <= 0 {
 		cfg.EvalStabilityIntervalSeconds = DefaultConfig().EvalStabilityIntervalSeconds
 	}
+	normalizeConfig(&cfg)
 	return writeJSONFile(s.ConfigPath(), cfg)
+}
+
+func normalizeConfig(cfg *Config) {
+	defaults := DefaultConfig()
+	if cfg.SchedulerPollSeconds <= 0 {
+		cfg.SchedulerPollSeconds = defaults.SchedulerPollSeconds
+	}
+	if strings.TrimSpace(cfg.API.ListenAddress) == "" {
+		cfg.API.ListenAddress = defaults.API.ListenAddress
+	}
 }
 
 func (s Store) LoadStatus() (Status, error) {
@@ -125,6 +150,50 @@ func (s Store) SaveQueue(queue Queue) error {
 	return writeJSONFile(s.QueuePath(), queue)
 }
 
+func (s Store) LoadJobs() (Jobs, error) {
+	data, err := os.ReadFile(s.JobsPath())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return Jobs{UpdatedAt: time.Now().UTC()}, nil
+		}
+		return Jobs{}, err
+	}
+	var jobs Jobs
+	if err := json.Unmarshal(data, &jobs); err != nil {
+		return Jobs{}, err
+	}
+	for i := range jobs.Jobs {
+		normalizeJob(&jobs.Jobs[i])
+	}
+	return jobs, nil
+}
+
+func (s Store) SaveJobs(jobs Jobs) error {
+	jobs.UpdatedAt = time.Now().UTC()
+	for i := range jobs.Jobs {
+		normalizeJob(&jobs.Jobs[i])
+	}
+	sort.SliceStable(jobs.Jobs, func(i, j int) bool { return jobs.Jobs[i].ID < jobs.Jobs[j].ID })
+	return writeJSONFile(s.JobsPath(), jobs)
+}
+
+func (s Store) AcquireJobLock(jobID string) (func(), error) {
+	if err := os.MkdirAll(filepath.Join(s.Root, "locks"), 0755); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(s.Root, "locks", sanitizeFileID(jobID)+".lock")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return nil, fmt.Errorf("job %q is already running", jobID)
+		}
+		return nil, err
+	}
+	_, _ = fmt.Fprintf(file, "%d\n", os.Getpid())
+	_ = file.Close()
+	return func() { _ = os.Remove(path) }, nil
+}
+
 func (s Store) AppendAlert(alert Alert) error {
 	if err := os.MkdirAll(s.Root, 0755); err != nil {
 		return err
@@ -147,7 +216,47 @@ func (s Store) AppendAlert(alert Alert) error {
 	if _, err := file.Write(append(line, '\n')); err != nil {
 		return err
 	}
-	return nil
+	return s.AppendEvent(Event{Type: "alert", Severity: alert.Severity, SourceID: alert.ActionID, Data: alert})
+}
+
+func (s Store) AppendEvent(event Event) error {
+	if err := os.MkdirAll(s.Root, 0755); err != nil {
+		return err
+	}
+	if event.ID == "" {
+		event.ID = fmt.Sprintf("event_%d", time.Now().UTC().UnixNano())
+	}
+	if event.Time.IsZero() {
+		event.Time = time.Now().UTC()
+	}
+	line, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	file, err := os.OpenFile(s.EventsPath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	_, err = file.Write(append(line, '\n'))
+	return err
+}
+
+func (s Store) LoadEvents(limit int) ([]Event, error) {
+	var events []Event
+	if err := readJSONLines(s.EventsPath(), func(line []byte) {
+		var event Event
+		if json.Unmarshal(line, &event) == nil {
+			events = append(events, event)
+		}
+	}); err != nil {
+		return nil, err
+	}
+	sort.Slice(events, func(i, j int) bool { return events[i].Time.After(events[j].Time) })
+	if limit > 0 && len(events) > limit {
+		events = events[:limit]
+	}
+	return events, nil
 }
 
 func (s Store) LoadAlerts(limit int) ([]Alert, error) {
@@ -199,7 +308,24 @@ func (s Store) AppendRun(record RunRecord) error {
 	if _, err := file.Write(append(line, '\n')); err != nil {
 		return err
 	}
-	return nil
+	return s.AppendEvent(Event{Type: "job_run", Severity: runSeverity(record), SourceID: record.JobID, Data: record})
+}
+
+func (s Store) LoadRuns(limit int) ([]RunRecord, error) {
+	var runs []RunRecord
+	if err := readJSONLines(s.RunsPath(), func(line []byte) {
+		var run RunRecord
+		if json.Unmarshal(line, &run) == nil {
+			runs = append(runs, run)
+		}
+	}); err != nil {
+		return nil, err
+	}
+	sort.Slice(runs, func(i, j int) bool { return runs[i].Time.After(runs[j].Time) })
+	if limit > 0 && len(runs) > limit {
+		runs = runs[:limit]
+	}
+	return runs, nil
 }
 
 func SyncActions(store Store, index evaluation.StabilityIndex) (Queue, []Alert, error) {
@@ -215,6 +341,22 @@ func SyncActions(store Store, index evaluation.StabilityIndex) (Queue, []Alert, 
 			queue.Actions[i] = action
 		}
 		byFingerprint[action.Fingerprint] = i
+	}
+	latestCases := map[string]evaluation.StabilityCase{}
+	for _, metric := range index.Cases {
+		key := metric.SuiteID + "\x00" + metric.CaseID
+		current, exists := latestCases[key]
+		if !exists || metric.LatestAt.After(current.LatestAt) {
+			latestCases[key] = metric
+		}
+	}
+	for i := range queue.Actions {
+		action := &queue.Actions[i]
+		metric, exists := latestCases[action.SuiteID+"\x00"+action.CaseID]
+		if exists && metric.LatestPassed && metric.LatestRunID != action.RunID {
+			action.FailureStreak = 0
+			action.RegressionStreak = 0
+		}
 	}
 	var alerts []Alert
 	for _, item := range index.ActionItems {
@@ -236,8 +378,36 @@ func SyncActions(store Store, index evaluation.StabilityIndex) (Queue, []Alert, 
 		if existingIndex, ok := byFingerprint[action.Fingerprint]; ok {
 			existing := queue.Actions[existingIndex]
 			existing.LastSeenAt = now
-			existing.Occurrences++
-			existing.Severity = action.Severity
+			isNewRun := action.RunID != "" && !containsString(existing.SeenRunIDs, action.RunID)
+			if isNewRun {
+				existing.Occurrences++
+				existing.SeenRunIDs = appendBounded(existing.SeenRunIDs, action.RunID, 50)
+				existing.FailureStreak++
+				if action.Category == "regression" {
+					existing.RegressionStreak++
+				} else {
+					existing.RegressionStreak = 0
+				}
+				previousSeverity := existing.Severity
+				if existing.RegressionStreak >= 3 {
+					existing.Severity = "critical"
+				} else if existing.FailureStreak >= 2 && severityRank(existing.Severity) < severityRank("high") {
+					existing.Severity = "high"
+				}
+				if existing.Status == QueueStatusResolved {
+					existing.Status = QueueStatusOpen
+					existing.LastStatusAt = now
+					existing.ReopenCount++
+					existing.VerificationRunID = ""
+					existing.VerifiedAt = time.Time{}
+					alerts = append(alerts, actionAlert(existing, "reopened eval action"))
+				} else if severityRank(existing.Severity) > severityRank(previousSeverity) {
+					alerts = append(alerts, actionAlert(existing, "escalated eval action"))
+				}
+			}
+			if severityRank(action.Severity) > severityRank(existing.Severity) {
+				existing.Severity = action.Severity
+			}
 			existing.Category = action.Category
 			existing.Title = action.Title
 			existing.Detail = action.Detail
@@ -254,17 +424,17 @@ func SyncActions(store Store, index evaluation.StabilityIndex) (Queue, []Alert, 
 		action.LastSeenAt = now
 		action.LastStatusAt = now
 		action.Occurrences = 1
+		action.FailureStreak = 1
+		if action.Category == "regression" {
+			action.RegressionStreak = 1
+		}
+		if action.RunID != "" {
+			action.SeenRunIDs = []string{action.RunID}
+		}
 		queue.Actions = append(queue.Actions, action)
 		byFingerprint[action.Fingerprint] = len(queue.Actions) - 1
 		if action.Severity == "critical" || action.Severity == "high" {
-			alerts = append(alerts, Alert{
-				Severity:    action.Severity,
-				Category:    action.Category,
-				Title:       "new eval action: " + action.Title,
-				Detail:      action.Evidence,
-				ActionID:    action.ID,
-				Fingerprint: action.Fingerprint,
-			})
+			alerts = append(alerts, actionAlert(action, "new eval action"))
 		}
 	}
 	if err := store.SaveQueue(queue); err != nil {
@@ -280,7 +450,7 @@ func SyncActions(store Store, index evaluation.StabilityIndex) (Queue, []Alert, 
 
 func UpdateActionStatus(store Store, id string, status string) (QueueAction, error) {
 	status = strings.TrimSpace(status)
-	if status != QueueStatusOpen && status != QueueStatusAcknowledged && status != QueueStatusInProgress && status != QueueStatusResolved && status != QueueStatusDismissed {
+	if status != QueueStatusOpen && status != QueueStatusAcknowledged && status != QueueStatusInProgress && status != QueueStatusDismissed {
 		return QueueAction{}, fmt.Errorf("invalid action status %q", status)
 	}
 	queue, err := store.LoadQueue()
@@ -291,14 +461,71 @@ func UpdateActionStatus(store Store, id string, status string) (QueueAction, err
 		if queue.Actions[i].ID == id || queue.Actions[i].Fingerprint == id {
 			queue.Actions[i].Status = status
 			queue.Actions[i].LastStatusAt = time.Now().UTC()
-			if status == QueueStatusResolved {
-				queue.Actions[i].ResolvedFromRun = queue.Actions[i].RunID
-			}
 			if err := store.SaveQueue(queue); err != nil {
 				return QueueAction{}, err
 			}
 			return queue.Actions[i], nil
 		}
+	}
+	return QueueAction{}, fmt.Errorf("action %q not found", id)
+}
+
+func VerifyActionWithRun(store Store, evalStore evaluation.Store, id string, runID string, resolve bool) (QueueAction, error) {
+	result, err := evalStore.LoadResult(runID)
+	if err != nil {
+		return QueueAction{}, fmt.Errorf("load verification run %q: %w", runID, err)
+	}
+	if result.Gate == nil || !result.Gate.Passed {
+		return QueueAction{}, fmt.Errorf("verification run %q did not pass its gate", result.RunID)
+	}
+	queue, err := store.LoadQueue()
+	if err != nil {
+		return QueueAction{}, err
+	}
+	for i := range queue.Actions {
+		action := &queue.Actions[i]
+		if action.ID != id && action.Fingerprint != id {
+			continue
+		}
+		if result.StartedAt.IsZero() || !result.StartedAt.After(action.LastStatusAt) {
+			return QueueAction{}, fmt.Errorf("verification run %q is not newer than the action status change", result.RunID)
+		}
+		if action.SuiteID != "" && action.SuiteID != result.SuiteID {
+			return QueueAction{}, fmt.Errorf("verification run suite %q does not match action suite %q", result.SuiteID, action.SuiteID)
+		}
+		if action.CaseID != "" {
+			matched := false
+			for _, caseResult := range result.Cases {
+				if caseResult.CaseID == action.CaseID {
+					matched = true
+					if !caseResult.Passed {
+						return QueueAction{}, fmt.Errorf("verification case %q did not pass", action.CaseID)
+					}
+					break
+				}
+			}
+			if !matched {
+				return QueueAction{}, fmt.Errorf("verification run %q does not contain case %q", result.RunID, action.CaseID)
+			}
+		}
+		action.VerificationRunID = result.RunID
+		action.VerifiedAt = time.Now().UTC()
+		if resolve {
+			action.Status = QueueStatusResolved
+			action.ResolvedFromRun = result.RunID
+			action.FailureStreak = 0
+			action.RegressionStreak = 0
+		}
+		action.LastStatusAt = time.Now().UTC()
+		if err := store.SaveQueue(queue); err != nil {
+			return QueueAction{}, err
+		}
+		eventType := "action_verified"
+		if resolve {
+			eventType = "action_resolved"
+		}
+		_ = store.AppendEvent(Event{Type: eventType, Severity: AlertSeverityInfo, SourceID: action.ID, Data: *action})
+		return *action, nil
 	}
 	return QueueAction{}, fmt.Errorf("action %q not found", id)
 }
@@ -347,7 +574,24 @@ func writeJSONFile(path string, value any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(data, '\n'), 0644)
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err := tmp.Write(append(data, '\n')); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 func severityRank(severity string) int {
@@ -363,4 +607,71 @@ func severityRank(severity string) int {
 	default:
 		return 0
 	}
+}
+
+func actionAlert(action QueueAction, prefix string) Alert {
+	return Alert{
+		Severity:    action.Severity,
+		Category:    action.Category,
+		Title:       prefix + ": " + action.Title,
+		Detail:      action.Evidence,
+		ActionID:    action.ID,
+		Fingerprint: action.Fingerprint,
+	}
+}
+
+func containsString(values []string, value string) bool {
+	for _, item := range values {
+		if item == value {
+			return true
+		}
+	}
+	return false
+}
+
+func appendBounded(values []string, value string, limit int) []string {
+	values = append(values, value)
+	if limit > 0 && len(values) > limit {
+		values = values[len(values)-limit:]
+	}
+	return values
+}
+
+func sanitizeFileID(value string) string {
+	var b strings.Builder
+	for _, r := range value {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	if b.Len() == 0 {
+		return "job"
+	}
+	return b.String()
+}
+
+func readJSONLines(path string, visit func([]byte)) error {
+	file, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	for scanner.Scan() {
+		visit(scanner.Bytes())
+	}
+	return scanner.Err()
+}
+
+func runSeverity(record RunRecord) string {
+	if record.Status == "success" {
+		return AlertSeverityInfo
+	}
+	return AlertSeverityHigh
 }

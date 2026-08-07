@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 
 	"cohort/internal/agent"
 	"cohort/internal/app"
+	"cohort/internal/desktop"
 	"cohort/internal/evaluation"
 	"cohort/internal/llm"
 	"cohort/internal/session"
@@ -280,11 +282,27 @@ func executeEvalRunOnce(ctx context.Context, cfg app.Config, store evaluation.St
 		evalCfg.Tools.EnabledGroups = append([]string(nil), suite.ToolGroups...)
 	}
 	var outputMu sync.Mutex
+	var environmentMu sync.Mutex
+	environmentCache := map[string][]string{}
 	execute := func(caseCtx context.Context, request evaluation.ExecuteRequest) evaluation.Execution {
 		outputMu.Lock()
 		fmt.Fprintf(out, "[eval] start %s attempt=%d - %s\n", request.Case.ID, request.Attempt, request.Case.Name)
 		outputMu.Unlock()
 		caseCfg := evalCfg
+		environmentMu.Lock()
+		missing, checked := environmentCache[request.Case.ID]
+		if !checked {
+			missing = missingEvalEnvironment(caseCtx, request.Case.Environment)
+			environmentCache[request.Case.ID] = append([]string(nil), missing...)
+		}
+		environmentMu.Unlock()
+		if len(missing) > 0 {
+			reason := "missing environment requirements: " + strings.Join(missing, ", ")
+			if request.Case.Environment.OnMissing == "fail" {
+				return evaluation.Execution{Status: "error", Error: reason}
+			}
+			return evaluation.Execution{Status: "skipped", Skipped: true, SkipReason: reason}
+		}
 		workspace, workspaceErr := prepareEvalWorkspace(projectRoot, store, request)
 		if workspaceErr != nil {
 			return evaluation.Execution{Status: "error", Error: workspaceErr.Error()}
@@ -341,6 +359,64 @@ func executeEvalRunOnce(ctx context.Context, cfg app.Config, store evaluation.St
 	return nil
 }
 
+func missingEvalEnvironment(ctx context.Context, requirements evaluation.EnvironmentRequirements) []string {
+	var missing []string
+	if len(requirements.OperatingSystems) > 0 {
+		matched := false
+		for _, operatingSystem := range requirements.OperatingSystems {
+			if strings.EqualFold(strings.TrimSpace(operatingSystem), runtime.GOOS) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			missing = append(missing, "os="+runtime.GOOS)
+		}
+	}
+	for _, command := range requirements.Commands {
+		if _, err := exec.LookPath(strings.TrimSpace(command)); err != nil {
+			missing = append(missing, "command="+command)
+		}
+	}
+	for _, name := range requirements.Environment {
+		if strings.TrimSpace(os.Getenv(strings.TrimSpace(name))) == "" {
+			missing = append(missing, "env="+name)
+		}
+	}
+	if runtime.GOOS == "darwin" {
+		for _, application := range requirements.Applications {
+			checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			cmd := exec.CommandContext(checkCtx, "open", "-Ra", strings.TrimSpace(application))
+			err := cmd.Run()
+			cancel()
+			if err != nil {
+				missing = append(missing, "app="+application)
+			}
+		}
+	} else if len(requirements.Applications) > 0 {
+		for _, application := range requirements.Applications {
+			missing = append(missing, "app="+application)
+		}
+	}
+	if requirements.DesktopPermissions {
+		workspace, _ := os.Getwd()
+		script := app.ResolveRuntimeScriptPath(workspace, app.DesktopDarwinHelperPath)
+		driver := desktop.NewPythonDriver("python3", script, desktop.DefaultTimeout)
+		permissions, err := driver.Permissions(ctx)
+		if err != nil {
+			missing = append(missing, "desktop_permissions="+err.Error())
+		} else {
+			if permissions.Accessibility == nil || !*permissions.Accessibility {
+				missing = append(missing, "desktop_accessibility")
+			}
+			if permissions.ScreenRecording == nil || !*permissions.ScreenRecording {
+				missing = append(missing, "desktop_screen_recording")
+			}
+		}
+	}
+	return missing
+}
+
 func executeEvalCase(ctx context.Context, cfg app.Config, c evaluation.Case, sessionRoot string) evaluation.Execution {
 	started := time.Now()
 	runner, err := app.NewRunner(cfg)
@@ -348,6 +424,25 @@ func executeEvalCase(ctx context.Context, cfg app.Config, c evaluation.Case, ses
 		return evaluation.Execution{Status: "error", Error: err.Error(), DurationMS: time.Since(started).Milliseconds()}
 	}
 	defer runner.Close()
+	if c.Environment.BrowserBridge {
+		bridgeCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+		defer cancel()
+		for {
+			outcome, bridgeErr := runner.Tools.Run(bridgeCtx, agent.ToolCallContext{Name: "browser_tabs", Args: map[string]any{}})
+			if bridgeErr == nil && !isEvalToolError(outcome.Data) {
+				break
+			}
+			select {
+			case <-bridgeCtx.Done():
+				reason := "browser bridge is not connected"
+				if bridgeErr != nil {
+					reason += ": " + bridgeErr.Error()
+				}
+				return evaluation.Execution{Status: "skipped", Skipped: true, SkipReason: reason}
+			case <-time.After(250 * time.Millisecond):
+			}
+		}
+	}
 	evalSessionStore := session.NewStore(sessionRoot)
 	runner.SessionStore = &evalSessionStore
 	runner.DisableLongTermMemoryReview = true
@@ -387,6 +482,19 @@ func executeEvalCase(ctx context.Context, cfg app.Config, c evaluation.Case, ses
 		}
 	}
 	return execution
+}
+
+func isEvalToolError(value any) bool {
+	switch typed := value.(type) {
+	case agent.ToolErrorData:
+		return typed.Status == agent.ToolStatusError
+	case *agent.ToolErrorData:
+		return typed != nil && typed.Status == agent.ToolStatusError
+	case map[string]any:
+		return fmt.Sprint(typed["status"]) == agent.ToolStatusError
+	default:
+		return false
+	}
 }
 
 func applyEvalProfile(cfg *app.Config, profile string) error {

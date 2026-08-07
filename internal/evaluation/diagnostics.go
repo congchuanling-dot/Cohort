@@ -22,6 +22,9 @@ func EnrichDiagnostics(result RunResult) RunResult {
 		}
 	}
 	for i := range result.Cases {
+		if result.Cases[i].Skipped {
+			continue
+		}
 		enrichCaseDiagnostics(result.SuiteID, result.RunID, regressed[result.Cases[i].CaseID], &result.Cases[i])
 	}
 	return result

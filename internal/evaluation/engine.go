@@ -107,7 +107,9 @@ func Run(ctx context.Context, suite Suite, execute ExecuteCaseFunc, opts RunOpti
 	for index, attempts := range grouped {
 		caseResult := aggregateAttempts(suite.Cases[index], attempts)
 		result.Cases = append(result.Cases, caseResult)
-		if caseResult.Passed {
+		if caseResult.Skipped {
+			result.SkippedCases++
+		} else if caseResult.Passed {
 			result.PassedCases++
 		} else {
 			result.FailedCases++
@@ -117,9 +119,10 @@ func Run(ctx context.Context, suite Suite, execute ExecuteCaseFunc, opts RunOpti
 		result.InputTokens += caseResult.InputTokens
 		result.OutputTokens += caseResult.OutputTokens
 	}
-	if result.TotalCases > 0 {
-		result.PassRate = float64(result.PassedCases) / float64(result.TotalCases) * 100
-		result.Score /= float64(result.TotalCases)
+	executedCases := result.TotalCases - result.SkippedCases
+	if executedCases > 0 {
+		result.PassRate = float64(result.PassedCases) / float64(executedCases) * 100
+		result.Score /= float64(executedCases)
 	}
 	result.FinishedAt = time.Now().UTC()
 	result.DurationMS = result.FinishedAt.Sub(result.StartedAt).Milliseconds()
@@ -175,11 +178,14 @@ func aggregateAttempts(c Case, attempts []struct {
 		Passed:   len(attempts) > 0,
 	}
 	representative := -1
+	executedAttempts := 0
 	for index, item := range attempts {
 		scored := item.result
 		attempt := AttemptResult{
 			Attempt:          item.attempt,
 			Passed:           scored.Passed,
+			Skipped:          scored.Skipped,
+			SkipReason:       scored.SkipReason,
 			Score:            scored.Score,
 			Status:           scored.Status,
 			Error:            scored.Error,
@@ -204,25 +210,37 @@ func aggregateAttempts(c Case, attempts []struct {
 		result.TotalTokens += scored.TotalTokens
 		result.InputTokens += scored.InputTokens
 		result.OutputTokens += scored.OutputTokens
-		if scored.Passed {
+		if scored.Skipped {
+			if representative < 0 {
+				representative = index
+			}
+		} else if scored.Passed {
+			executedAttempts++
 			result.PassedAttempts++
 		} else {
+			executedAttempts++
 			result.Passed = false
 			if representative < 0 {
 				representative = index
 			}
 		}
 	}
-	if len(attempts) > 0 {
-		result.Score /= float64(len(attempts))
+	if executedAttempts > 0 {
+		result.Score /= float64(executedAttempts)
 		result.DurationMS /= int64(len(attempts))
-		result.StabilityRate = float64(result.PassedAttempts) / float64(len(attempts)) * 100
+		result.StabilityRate = float64(result.PassedAttempts) / float64(executedAttempts) * 100
+	} else if len(attempts) > 0 {
+		result.Skipped = true
+		result.Passed = false
+		result.Score = 0
 	}
 	if representative < 0 && len(attempts) > 0 {
 		representative = 0
 	}
 	if representative >= 0 {
 		scored := attempts[representative].result
+		result.Skipped = scored.Skipped
+		result.SkipReason = scored.SkipReason
 		result.Status = scored.Status
 		result.Error = scored.Error
 		result.Output = scored.Output
@@ -251,8 +269,11 @@ func Compare(current RunResult, baseline RunResult) Comparison {
 		oldCases[c.CaseID] = c
 	}
 	for _, c := range current.Cases {
+		if c.Skipped {
+			continue
+		}
 		old, ok := oldCases[c.CaseID]
-		if !ok {
+		if !ok || old.Skipped {
 			continue
 		}
 		if old.Passed && !c.Passed {
@@ -269,6 +290,9 @@ func EvaluateGate(result RunResult, cfg GateConfig) GateResult {
 	gate := GateResult{Passed: true}
 	if cfg.AllowFailures {
 		return gate
+	}
+	if result.TotalCases > 0 && result.SkippedCases == result.TotalCases {
+		gate.Violations = append(gate.Violations, "all eval cases were skipped because environment requirements were not met")
 	}
 	if cfg.MinScore > 0 && result.Score < cfg.MinScore {
 		gate.Violations = append(gate.Violations, fmt.Sprintf("score %.1f < %.1f", result.Score, cfg.MinScore))
@@ -293,14 +317,19 @@ func EvaluateGate(result RunResult, cfg GateConfig) GateResult {
 }
 
 func averageCaseStability(cases []CaseResult) float64 {
-	if len(cases) == 0 {
+	var total float64
+	count := 0
+	for _, c := range cases {
+		if c.Skipped {
+			continue
+		}
+		total += c.StabilityRate
+		count++
+	}
+	if count == 0 {
 		return 0
 	}
-	var total float64
-	for _, c := range cases {
-		total += c.StabilityRate
-	}
-	return total / float64(len(cases))
+	return total / float64(count)
 }
 
 func cloneJudge(judge *JudgeResult) *JudgeResult {

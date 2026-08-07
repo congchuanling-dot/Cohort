@@ -1,0 +1,81 @@
+{
+  "updated_at": "2026-08-07T06:18:03.818144Z",
+  "jobs": [
+    {
+      "id": "core-regression",
+      "enabled": true,
+      "suite": "core",
+      "repeat": 1,
+      "workers": 2,
+      "gate": {
+        "min_score": 85,
+        "min_pass_rate": 90,
+        "min_stability": 90,
+        "max_regressions": 0
+      },
+      "schedule": {
+        "interval_seconds": 21600
+      },
+      "retry": {
+        "max_attempts": 2,
+        "backoff_seconds": 60
+      },
+      "created_at": "2026-08-07T06:12:51.219532Z",
+      "updated_at": "2026-08-07T06:18:03.817901Z",
+      "next_run_at": "2026-08-07T12:18:03.817901Z",
+      "last_run_at": "2026-08-07T06:18:03.817901Z",
+      "last_run_ids": [
+        "eval_20260807T061737.437982000"
+      ],
+      "last_status": "success"
+    },
+    {
+      "id": "stateful-stability",
+      "enabled": true,
+      "suite": "stateful",
+      "judge": "llm",
+      "repeat": 3,
+      "workers": 2,
+      "gate": {
+        "min_score": 80,
+        "min_pass_rate": 90,
+        "min_stability": 90,
+        "max_regressions": 0
+      },
+      "schedule": {
+        "interval_seconds": 43200
+      },
+      "retry": {
+        "max_attempts": 2,
+        "backoff_seconds": 120
+      },
+      "created_at": "2026-08-07T06:12:51.226414Z",
+      "updated_at": "2026-08-07T06:12:51.226414Z",
+      "next_run_at": "2026-08-07T18:12:51.226414Z",
+      "last_run_at": "0001-01-01T00:00:00Z"
+    },
+    {
+      "id": "tool-routing-daily",
+      "enabled": true,
+      "suite": "tool-routing",
+      "repeat": 1,
+      "workers": 1,
+      "gate": {
+        "min_score": 80,
+        "min_pass_rate": 75,
+        "max_regressions": 0
+      },
+      "schedule": {
+        "cron": "0 9 * * *"
+      },
+      "retry": {
+        "max_attempts": 2,
+        "backoff_seconds": 60
+      },
+      "created_at": "2026-08-07T06:12:51.230973Z",
+      "updated_at": "2026-08-07T06:12:51.230973Z",
+      "next_run_at": "2026-08-07T09:00:00Z",
+      "last_run_at": "0001-01-01T00:00:00Z"
+    }
+  ]
+}

@@ -64,6 +64,7 @@ cohort eval run tool-routing --tag browser
 cohort eval run core --workers 4
 cohort eval run stateful --workers 2 --repeat 3
 cohort eval run stateful --repeat 3 --judge llm --allow-failures
+cohort eval run computer-use-real --workers 1 --allow-failures
 ```
 
 默认 `workers=1`。涉及浏览器、桌面或共享外部状态的 case 不建议并行，避免不同 Agent 互相争抢窗口或页面。
@@ -357,7 +358,8 @@ cohort hermes actions
 cohort hermes actions show <id>
 cohort hermes actions ack <id>
 cohort hermes actions start <id>
-cohort hermes actions resolve <id>
+cohort hermes actions verify <id>
+cohort hermes actions resolve <id> --with-run <run_id>
 cohort hermes stop
 ```
 
@@ -368,12 +370,68 @@ Hermes 产物写入：
   config.json
   status.json
   action_queue.json
+  jobs.json
   alerts.jsonl
+  events.jsonl
   runs.jsonl
   hermes.log
 ```
 
-`action_queue.json` 会保留 `open`、`acknowledged`、`in_progress`、`resolved` 和 `dismissed` 状态；已 resolved/dismissed 的 action 不会因为稳定性报告刷新而重新打开。新增 high/critical action 会写入 `alerts.jsonl`。
+`action_queue.json` 会保留 `open`、`acknowledged`、`in_progress`、`resolved` 和 `dismissed` 状态。Action 连续两个不同 run 失败会升为 high；连续三个 regression 会升为 critical。resolved 后同 fingerprint 出现在更新的失败 run 中会自动 reopen。
+
+`resolve` 不接受无证据关闭。关联 run 必须晚于 Action 最近状态变更，suite/case 匹配、case 通过且 CI gate 通过。`verify` 会对 Action 对应 case 新跑两次并要求 100% pass/stability，成功后写入 `verification_run_id`，再由 `resolve --with-run` 关闭。
+
+## Hermes Scheduled Eval
+
+```bash
+cohort hermes jobs init
+cohort hermes jobs list
+cohort hermes jobs add nightly-core --suite core --cron "0 2 * * *" \
+  --repeat 2 --workers 2 --judge llm --min-score 85 \
+  --min-pass-rate 90 --min-stability 90 --max-regressions 0 \
+  --max-attempts 2 --backoff 1m
+cohort hermes jobs run nightly-core
+cohort hermes jobs disable nightly-core
+cohort hermes start
+```
+
+Job 支持五段 cron（列表、范围、步长）或 interval，二者互斥。daemon 使用单 Job 跨进程 lock，失败按 backoff 重试；每次 attempt 都写入 `runs.jsonl`，Eval run IDs、gate 结果、连续失败数和下次运行时间写回 `jobs.json`。
+
+`cohort hermes jobs init` 创建 core、stateful、tool-routing 三条默认正式策略，但不会立即消耗模型额度；需要启动即跑时使用 `--run-now`。
+
+通知配置位于 `.cohort/hermes/config.json`，支持 stdout、file、webhook：
+
+```json
+{
+  "notifications": [
+    {
+      "id": "quality-webhook",
+      "type": "webhook",
+      "target": "http://127.0.0.1:9000/cohort",
+      "min_severity": "high",
+      "timeout_seconds": 5,
+      "enabled": true
+    }
+  ]
+}
+```
+
+## Local API
+
+Hermes 默认仅监听 loopback `127.0.0.1:18778`，提供：
+
+- `GET /status`
+- `GET /actions`、`GET/POST /actions/:id`
+- `GET /eval/runs`
+- `GET /trace/:session?run_id=...`
+- `GET /jobs`、`GET /jobs/:id`
+- `GET /events`
+
+API 禁止监听非 loopback 地址。Action resolve API 同样要求提供通过 gate 的 `run_id`。
+
+## Computer Use 真实回归
+
+`computer-use-real` 是真实环境 suite，不使用 mock，覆盖浏览器 DOM 输入后复读、DOM 不可读时 OCR fallback、TextEdit AX 输入与后验验证，以及菜单/文件对话框确认边界。case 在执行前检查 macOS、命令、应用、Browser Bridge 和桌面权限；环境不满足时记录为 skip，全部 skip 会使 CI gate 失败，避免把“没执行”当作通过。
 
 ## CI 建议
 

@@ -16,6 +16,7 @@ import (
 	"cohort/internal/debugperf"
 	"cohort/internal/desktop"
 	"cohort/internal/llm"
+	"cohort/internal/lsp"
 	"cohort/internal/mcp"
 	"cohort/internal/observability"
 	"cohort/internal/plan"
@@ -124,16 +125,19 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 
 	// Runner 不直接知道具体工具类型，只依赖 ToolRunner 接口。
 	runner := &agent.Runner{
-		Client:           client,
-		Tools:            registry,
-		SystemPrompt:     BuildSystemPromptForProject(cfg, skillStore, cwd),
-		MaxTurns:         cfg.MaxTurns,
-		LogDir:           filepath.Clean(cfg.LogDir),
-		ContextManager:   contextManager,
-		SessionStore:     &sessionStore,
-		SessionCWD:       cwd,
-		SessionModel:     active.Model,
-		CloseFunc:        mcpManager.Close,
+		Client:         client,
+		Tools:          registry,
+		SystemPrompt:   BuildSystemPromptForProject(cfg, skillStore, cwd),
+		MaxTurns:       cfg.MaxTurns,
+		LogDir:         filepath.Clean(cfg.LogDir),
+		ContextManager: contextManager,
+		SessionStore:   &sessionStore,
+		SessionCWD:     cwd,
+		SessionModel:   active.Model,
+		CloseFunc: func() error {
+			lsp.CloseRoot(workspace)
+			return mcpManager.Close()
+		},
 		SkillStore:       skillStore,
 		ObservationSinks: buildObservationSinks(cfg.Observability),
 	}

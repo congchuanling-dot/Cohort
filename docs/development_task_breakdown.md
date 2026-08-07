@@ -35,7 +35,8 @@
 | 10 | usage/cost 统计 | `[部分完成]` | Runner 会聚合 token/cache usage 并写入 `RunFinished`；只有显式配置 `COHORT_COST_*_USD_PER_1M` 时估算成本，避免隐藏价格默认值。 |
 | 11 | 离线反思增强 | `[部分完成]` | 已有 session archive、failure pattern、memory quality 和 skill candidate 报告；更强 L4 session archive 自动归档和闭环评分仍待补。 |
 | 12 | 飞书 MCP 真实端到端验收 | `[验收支线]` | 用户显式装配官方 Server 后，完成 OAuth、只读文档、R2 写操作确认和 `run.log` 检查；不阻塞内置 Skill 包主线。 |
-| 13 | Agent Eval 与可视化 | `[部分完成]` | 已提供 `eval init/list/run/history/report`、core/tool-routing/stateful 内置 suite、多维确定性断言、隔离 session/temp Fixture、最终文件状态验证、JSON 等价、文件 diff、后验命令、Git 状态断言、工具轨迹评分、启发式 Judge、真实 LLM Judge、Judge 校准样例、repeat 稳定率、profile A/B matrix、CI gate、trace path 打通、失败 case 内嵌 trace timeline、flaky/regression Action Items、Hermes Action Queue、并发执行、同 profile/model 自动基线比较、JSON/Markdown/HTML Dashboard，以及 `eval stability` 历史稳定性平台；Langfuse dataset 接入、更完整 Hermes eval run 调度、外部通知 sink 与 SQLite 化待补。 |
+| 13 | Agent Eval 与可视化 | `[部分完成]` | 已提供 core/tool-routing/stateful/computer-use-real 内置 suite、多维状态断言、真实 LLM Judge、repeat 稳定率、A/B matrix、CI gate、trace timeline、Action Items；Hermes 已具备持久化 jobs、cron/interval、真实 Eval Runner、重试与 lock、Action 自动升级/重开/验证后关闭、stdout/file/webhook 通知和 loopback Local API。Langfuse dataset 接入与 SQLite 化待补。 |
+| 14 | TS/Python Language Server | `[已完成]` | TypeScript/Python 已使用 `typescript-language-server`/`pyright-langserver` 长驻 stdio，支持 initialize、文件同步、definition/references/hover/symbols、查询缓存、状态、重启、自动恢复和显式 fallback reason；安装计划固定 TypeScript 5.x 兼容版本。 |
 
 ### 延后项
 

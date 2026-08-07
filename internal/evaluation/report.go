@@ -50,8 +50,8 @@ func WriteReports(store Store, result RunResult) (markdownPath, htmlPath string,
 func renderMarkdown(result RunResult) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Cohort Eval: %s\n\n", result.SuiteName)
-	fmt.Fprintf(&b, "- run: `%s`\n- model: `%s`\n- pass_rate: %.1f%%\n- score: %.1f\n- cases: %d passed / %d failed\n- duration: %s\n- tokens: %d\n\n",
-		result.RunID, result.Model, result.PassRate, result.Score, result.PassedCases, result.FailedCases, formatDuration(result.DurationMS), result.TotalTokens)
+	fmt.Fprintf(&b, "- run: `%s`\n- model: `%s`\n- pass_rate: %.1f%%\n- score: %.1f\n- cases: %d passed / %d failed / %d skipped\n- duration: %s\n- tokens: %d\n\n",
+		result.RunID, result.Model, result.PassRate, result.Score, result.PassedCases, result.FailedCases, result.SkippedCases, formatDuration(result.DurationMS), result.TotalTokens)
 	if result.Baseline != nil {
 		fmt.Fprintf(&b, "## Baseline\n\n- run: `%s`\n- score_delta: %+.1f\n- pass_rate_delta: %+.1f%%\n- duration_delta: %s\n- token_delta: %d\n\n",
 			result.Baseline.RunID, result.Baseline.ScoreDelta, result.Baseline.PassRateDelta, signedDuration(result.Baseline.DurationDeltaMS), result.Baseline.TokenDelta)
@@ -70,7 +70,9 @@ func renderMarkdown(result RunResult) string {
 	fmt.Fprintf(&b, "## Cases\n\n| case | result | score | stability | attempts | duration | tokens | tools |\n| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |\n")
 	for _, c := range result.Cases {
 		status := "PASS"
-		if !c.Passed {
+		if c.Skipped {
+			status = "SKIP"
+		} else if !c.Passed {
 			status = "FAIL"
 		}
 		fmt.Fprintf(&b, "| `%s` | %s | %.1f | %.1f%% | %d/%d | %s | %d | %s |\n", c.CaseID, status, c.Score, c.StabilityRate, c.PassedAttempts, c.Attempts, formatDuration(c.DurationMS), c.TotalTokens, strings.Join(c.Tools, ", "))
@@ -92,6 +94,9 @@ func renderMarkdown(result RunResult) string {
 	fmt.Fprintf(&b, "\n## Failures\n\n")
 	failed := 0
 	for _, c := range result.Cases {
+		if c.Skipped {
+			continue
+		}
 		if c.Passed {
 			continue
 		}
@@ -227,7 +232,7 @@ const dashboardHTML = `<!doctype html>
 <div class="card"><div class="label">Pass Rate</div><div class="value {{if eq .Result.FailedCases 0}}good{{else}}bad{{end}}">{{pct .Result.PassRate}}</div></div>
 <div class="card"><div class="label">Quality Score</div><div class="value">{{printf "%.1f" .Result.Score}}</div></div>
 <div class="card"><div class="label">Stability</div><div class="value">{{pct .AverageStability}}</div></div>
-<div class="card"><div class="label">Cases</div><div class="value"><span class="good">{{.Result.PassedCases}}</span><span class="meta"> / {{.Result.TotalCases}}</span></div></div>
+<div class="card"><div class="label">Cases</div><div class="value"><span class="good">{{.Result.PassedCases}}</span><span class="meta"> / {{.Result.TotalCases}} · skip {{.Result.SkippedCases}}</span></div></div>
 <div class="card"><div class="label">Duration</div><div class="value">{{duration .Result.DurationMS}}</div></div>
 <div class="card"><div class="label">Tokens</div><div class="value">{{.Result.TotalTokens}}</div></div>
 </section>
@@ -236,8 +241,9 @@ const dashboardHTML = `<!doctype html>
 <section class="layout"><div class="panel"><h2>历史趋势</h2><div id="trend" class="chart"></div></div><div class="panel"><h2>标签通过率</h2>{{range .Tags}}<div class="barrow"><span>{{.Tag}}</span><div class="bar"><i style="width:{{printf "%.1f" .PassRate}}%"></i></div><b>{{printf "%.0f" .PassRate}}%</b></div>{{end}}</div></section>
 <div class="toolbar"><input id="search" placeholder="搜索 case、标签、工具、失败断言"><select id="filter"><option value="all">全部结果</option><option value="pass">仅通过</option><option value="fail">仅失败</option></select></div>
 <section id="cases" class="cases">
-{{range .Result.Cases}}<article class="case {{if not .Passed}}fail{{end}}" data-pass="{{.Passed}}" data-search="{{.CaseID}} {{.Name}} {{join .Tags " "}} {{join .Tools " "}}">
-<div class="casehead"><div><h3>{{status .Passed}} · {{.CaseID}} · {{.Name}}</h3><div class="chips">{{range .Tags}}<span class="chip">{{.}}</span>{{end}}{{range .Tools}}<span class="chip">tool:{{.}}</span>{{end}}</div></div><strong class="{{if .Passed}}good{{else}}bad{{end}}">{{printf "%.1f" .Score}}</strong></div>
+{{range .Result.Cases}}<article class="case {{if and (not .Passed) (not .Skipped)}}fail{{end}}" data-pass="{{.Passed}}" data-search="{{.CaseID}} {{.Name}} {{join .Tags " "}} {{join .Tools " "}}">
+<div class="casehead"><div><h3>{{if .Skipped}}SKIP{{else}}{{status .Passed}}{{end}} · {{.CaseID}} · {{.Name}}</h3><div class="chips">{{range .Tags}}<span class="chip">{{.}}</span>{{end}}{{range .Tools}}<span class="chip">tool:{{.}}</span>{{end}}</div></div><strong class="{{if .Passed}}good{{else}}bad{{end}}">{{printf "%.1f" .Score}}</strong></div>
+{{if .Skipped}}<div class="assert"><span>↷</span><strong>environment</strong><span>{{.SkipReason}}</span></div>{{end}}
 <div class="metrics"><span>{{duration .DurationMS}} avg</span><span>{{.PassedAttempts}}/{{.Attempts}} attempts</span><span>{{printf "%.1f" .StabilityRate}}% stable</span><span>{{.Turns}} turns</span><span>{{.TotalTokens}} tokens</span><span>{{.ToolFailures}} tool failures</span></div>
 {{if .TracePath}}<div class="metrics"><span>trace: <code>{{.TracePath}}</code></span><span>run: <code>{{.TraceRunID}}</code></span></div>{{end}}
 {{if .Judge}}<div class="metrics"><span>judge: <b>{{printf "%.1f" .Judge.Score}}</b></span><span>{{.Judge.Summary}}</span></div>{{end}}

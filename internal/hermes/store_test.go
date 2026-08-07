@@ -8,7 +8,8 @@ import (
 )
 
 func TestSyncActionsPreservesResolvedStatusAndAlerts_BitsUT(t *testing.T) {
-	store := NewStore(t.TempDir())
+	root := t.TempDir()
+	store := NewStore(root)
 	index := evaluation.StabilityIndex{
 		GeneratedAt: time.Now().UTC(),
 		ActionItems: []evaluation.ActionItem{{
@@ -24,7 +25,17 @@ func TestSyncActionsPreservesResolvedStatusAndAlerts_BitsUT(t *testing.T) {
 	if len(queue.Actions) != 1 || len(alerts) != 1 {
 		t.Fatalf("queue=%#v alerts=%#v", queue.Actions, alerts)
 	}
-	resolved, err := UpdateActionStatus(store, "a1", QueueStatusResolved)
+	evalStore := evaluation.NewStore(root)
+	if _, err := evalStore.SaveResult(evaluation.RunResult{
+		RunID:     "verify-r1",
+		SuiteID:   "stateful",
+		StartedAt: time.Now().UTC().Add(time.Second),
+		Gate:      &evaluation.GateResult{Passed: true},
+		Cases:     []evaluation.CaseResult{{CaseID: "create_config", Passed: true}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := VerifyActionWithRun(store, evalStore, "a1", "verify-r1", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +49,7 @@ func TestSyncActionsPreservesResolvedStatusAndAlerts_BitsUT(t *testing.T) {
 	if len(alerts) != 0 {
 		t.Fatalf("resolved existing action should not alert again: %#v", alerts)
 	}
-	if len(queue.Actions) != 1 || queue.Actions[0].Status != QueueStatusResolved || queue.Actions[0].Occurrences < 2 {
+	if len(queue.Actions) != 1 || queue.Actions[0].Status != QueueStatusResolved || queue.Actions[0].Occurrences != 1 {
 		t.Fatalf("resolved action not preserved: %#v", queue.Actions)
 	}
 	open, critical, high := CountOpen(queue)

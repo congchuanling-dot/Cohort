@@ -53,6 +53,9 @@ func ApplyLLMJudges(ctx context.Context, result RunResult, suite Suite, client l
 		cases[c.ID] = c
 	}
 	for i := range result.Cases {
+		if result.Cases[i].Skipped {
+			continue
+		}
 		c, ok := cases[result.Cases[i].CaseID]
 		if !ok {
 			continue
@@ -276,8 +279,13 @@ func recalculateCaseScore(c *CaseResult) {
 func recalculateRunScore(result *RunResult) {
 	result.PassedCases = 0
 	result.FailedCases = 0
+	result.SkippedCases = 0
 	result.Score = 0
 	for _, c := range result.Cases {
+		if c.Skipped {
+			result.SkippedCases++
+			continue
+		}
 		if c.Passed {
 			result.PassedCases++
 		} else {
@@ -286,9 +294,10 @@ func recalculateRunScore(result *RunResult) {
 		result.Score += c.Score
 	}
 	result.TotalCases = len(result.Cases)
-	if result.TotalCases > 0 {
-		result.Score /= float64(result.TotalCases)
-		result.PassRate = float64(result.PassedCases) / float64(result.TotalCases) * 100
+	executedCases := result.TotalCases - result.SkippedCases
+	if executedCases > 0 {
+		result.Score /= float64(executedCases)
+		result.PassRate = float64(result.PassedCases) / float64(executedCases) * 100
 	}
 }
 

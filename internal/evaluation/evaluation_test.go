@@ -172,6 +172,31 @@ func TestApplyLLMJudgesScoresCaseAndWritesArtifact_BitsUT(t *testing.T) {
 	}
 }
 
+func TestRunExcludesSkippedCasesFromMetricsAndGate_BitsUT(t *testing.T) {
+	suite := Suite{
+		SchemaVersion: SchemaVersion,
+		ID:            "environment",
+		Name:          "Environment",
+		Cases: []Case{
+			{ID: "skip", Name: "skip", Prompt: "skip", Assertions: Assertions{Status: "done"}},
+			{ID: "pass", Name: "pass", Prompt: "pass", Assertions: Assertions{Status: "done"}},
+		},
+	}
+	result := Run(context.Background(), suite, func(ctx context.Context, request ExecuteRequest) Execution {
+		if request.Case.ID == "skip" {
+			return Execution{Skipped: true, SkipReason: "missing app", Status: "skipped"}
+		}
+		return Execution{Status: "done", Output: "ok"}
+	}, RunOptions{Workers: 2})
+	if result.SkippedCases != 1 || result.PassedCases != 1 || result.FailedCases != 0 || result.PassRate != 100 {
+		t.Fatalf("result=%#v", result)
+	}
+	gate := EvaluateGate(result, GateConfig{MinPassRate: 100})
+	if !gate.Passed {
+		t.Fatalf("gate=%#v", gate)
+	}
+}
+
 func TestSuiteValidationFilteringAndRoundTrip_BitsUT(t *testing.T) {
 	suite := coreSuite()
 	path := filepath.Join(t.TempDir(), "core.json")

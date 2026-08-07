@@ -13,6 +13,8 @@
 /.cohort/evals/latest
 /.cohort/evals/runs/
 /.cohort/evals/sessions/
+/.cohort/desktop/
+/.cohort/screenshots/
 /packages/npm/vendor/cohort
 /packages/npm/vendor/*.download
 /packages/npm/*.tgz

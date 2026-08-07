@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -19,8 +20,11 @@ func runLSPCommand(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	defer lsp.CloseRoot(root)
 	client := lsp.Diagnostics{Root: root}
 	switch args[0] {
+	case "server":
+		return runLSPServerCommand(ctx, root, args[1:], out)
 	case "doctor":
 		language, targets, install, err := parseLSPDoctorArgs(args[1:])
 		if err != nil {
@@ -92,6 +96,45 @@ func runLSPCommand(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	default:
 		return fmt.Errorf("unknown lsp command %q, use doctor, diagnostics, definition, references, hover, or symbols", args[0])
+	}
+}
+
+func runLSPServerCommand(ctx context.Context, root string, args []string, out io.Writer) error {
+	if len(args) == 0 || args[0] == "status" {
+		data, err := json.MarshalIndent(lsp.ServerStatuses(root), "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(out, string(data))
+		return nil
+	}
+	language := lsp.LanguageAll
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--language" && i+1 < len(args) {
+			i++
+			language = lsp.NormalizeLanguage(args[i])
+		} else if strings.HasPrefix(arg, "--language=") {
+			language = lsp.NormalizeLanguage(strings.TrimPrefix(arg, "--language="))
+		} else {
+			return fmt.Errorf("unknown lsp server option %q", arg)
+		}
+	}
+	switch args[0] {
+	case "restart":
+		if language == lsp.LanguageAll {
+			for _, item := range []string{lsp.LanguageTypeScript, lsp.LanguagePython} {
+				if err := lsp.RestartServer(ctx, root, item); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		return lsp.RestartServer(ctx, root, language)
+	case "stop":
+		return lsp.StopServer(root, language)
+	default:
+		return fmt.Errorf("unknown lsp server command %q", args[0])
 	}
 }
 
@@ -208,6 +251,9 @@ func printLSPQueryResult(result lsp.QueryResult, out io.Writer) {
 	fmt.Fprintf(out, "kind: %s\n", result.Kind)
 	if result.Engine != "" {
 		fmt.Fprintf(out, "engine: %s\n", result.Engine)
+	}
+	if result.FallbackReason != "" {
+		fmt.Fprintf(out, "fallback_reason: %s\n", result.FallbackReason)
 	}
 	fmt.Fprintf(out, "position: %s\n", result.Position)
 	fmt.Fprintf(out, "command: %s\n", strings.Join(result.Command, " "))

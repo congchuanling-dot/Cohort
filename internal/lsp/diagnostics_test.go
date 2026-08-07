@@ -117,7 +117,7 @@ const message = greet("cohort")
 		t.Fatal(err)
 	}
 
-	result, err := (Diagnostics{Root: root}).Query(context.Background(), QueryOptions{
+	result, err := (Diagnostics{Root: root, TypeScriptServerCommand: filepath.Join(root, "missing-typescript-language-server")}).Query(context.Background(), QueryOptions{
 		Language:           LanguageTypeScript,
 		Kind:               QueryReferences,
 		Position:           "main.ts:5:17",
@@ -143,7 +143,7 @@ def greet():
 		t.Fatal(err)
 	}
 
-	result, err := (Diagnostics{Root: root}).Query(context.Background(), QueryOptions{
+	result, err := (Diagnostics{Root: root, PythonServerCommand: filepath.Join(root, "missing-pyright-langserver")}).Query(context.Background(), QueryOptions{
 		Language: LanguagePython,
 		Kind:     QuerySymbols,
 		Target:   ".",
@@ -163,9 +163,9 @@ if [ "$1" = "version" ]; then echo "gopls test"; exit 0; fi
 exit 2
 `)
 	writeExecutable(t, filepath.Join(dir, "npm"), `#!/bin/sh
-pkg="$3"
+args="$*"
 script_dir="${0%/*}"
-if [ "$pkg" = "typescript" ]; then
+if echo "$args" | /usr/bin/grep -q "typescript"; then
   /bin/cat > "$script_dir/tsc" <<'SCRIPT'
 #!/bin/sh
 echo "Version installed-typescript"
@@ -174,7 +174,7 @@ SCRIPT
   echo "installed typescript"
   exit 0
 fi
-if [ "$pkg" = "pyright" ]; then
+if echo "$args" | /usr/bin/grep -q "pyright"; then
   /bin/cat > "$script_dir/pyright" <<'SCRIPT'
 #!/bin/sh
 echo "pyright installed-pyright"

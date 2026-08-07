@@ -172,6 +172,9 @@ func BuildStabilityIndex(results []RunResult, opts StabilityOptions) StabilityIn
 		}
 		suite.add(run)
 		for _, c := range result.Cases {
+			if c.Skipped {
+				continue
+			}
 			key := stabilityCaseKey(result, c)
 			acc := caseAgg[key]
 			if acc == nil {
@@ -189,7 +192,7 @@ func BuildStabilityIndex(results []RunResult, opts StabilityOptions) StabilityIn
 				appendUniqueAction(&index.ActionItems, seenAction, ActionItem{
 					ID:         "stability-" + sanitizeID(result.SuiteID) + "-" + sanitizeID(c.CaseID) + "-regression",
 					Scope:      "stability",
-					Severity:   "critical",
+					Severity:   "high",
 					Category:   "regression",
 					Title:      "修复稳定性回归",
 					Detail:     "该 case 在历史稳定性窗口内从通过转为失败，优先对比两个 run 的 trace 和断言差异。",
@@ -573,8 +576,15 @@ func sortedKeys(values map[string]bool) []string {
 }
 
 func appendUniqueAction(items *[]ActionItem, seen map[string]bool, item ActionItem) {
-	key := strings.Join([]string{item.Scope, item.Severity, item.Category, item.SuiteID, item.CaseID, item.RunID, item.Title}, "\x00")
+	key := strings.Join([]string{item.Scope, item.Category, item.SuiteID, item.CaseID, item.Title}, "\x00")
 	if seen[key] {
+		for i := range *items {
+			existingKey := strings.Join([]string{(*items)[i].Scope, (*items)[i].Category, (*items)[i].SuiteID, (*items)[i].CaseID, (*items)[i].Title}, "\x00")
+			if existingKey == key {
+				(*items)[i] = item
+				break
+			}
+		}
 		return
 	}
 	seen[key] = true

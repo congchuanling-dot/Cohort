@@ -18,14 +18,25 @@ type Suite struct {
 }
 
 type Case struct {
-	ID         string     `json:"id"`
-	Name       string     `json:"name"`
-	Prompt     string     `json:"prompt"`
-	Tags       []string   `json:"tags,omitempty"`
-	TimeoutSec int        `json:"timeout_seconds,omitempty"`
-	Repeat     int        `json:"repeat,omitempty"`
-	Fixture    Fixture    `json:"fixture,omitempty"`
-	Assertions Assertions `json:"assertions"`
+	ID          string                  `json:"id"`
+	Name        string                  `json:"name"`
+	Prompt      string                  `json:"prompt"`
+	Tags        []string                `json:"tags,omitempty"`
+	TimeoutSec  int                     `json:"timeout_seconds,omitempty"`
+	Repeat      int                     `json:"repeat,omitempty"`
+	Environment EnvironmentRequirements `json:"environment,omitempty"`
+	Fixture     Fixture                 `json:"fixture,omitempty"`
+	Assertions  Assertions              `json:"assertions"`
+}
+
+type EnvironmentRequirements struct {
+	OperatingSystems   []string `json:"operating_systems,omitempty"`
+	Commands           []string `json:"commands,omitempty"`
+	Applications       []string `json:"applications,omitempty"`
+	Environment        []string `json:"environment,omitempty"`
+	BrowserBridge      bool     `json:"browser_bridge,omitempty"`
+	DesktopPermissions bool     `json:"desktop_permissions,omitempty"`
+	OnMissing          string   `json:"on_missing,omitempty"`
 }
 
 type Fixture struct {
@@ -117,6 +128,7 @@ type RunResult struct {
 	TotalCases    int          `json:"total_cases"`
 	PassedCases   int          `json:"passed_cases"`
 	FailedCases   int          `json:"failed_cases"`
+	SkippedCases  int          `json:"skipped_cases,omitempty"`
 	PassRate      float64      `json:"pass_rate"`
 	Score         float64      `json:"score"`
 	TotalTokens   int64        `json:"total_tokens,omitempty"`
@@ -132,6 +144,8 @@ type CaseResult struct {
 	Name             string            `json:"name"`
 	Tags             []string          `json:"tags,omitempty"`
 	Passed           bool              `json:"passed"`
+	Skipped          bool              `json:"skipped,omitempty"`
+	SkipReason       string            `json:"skip_reason,omitempty"`
 	Score            float64           `json:"score"`
 	Status           string            `json:"status"`
 	Error            string            `json:"error,omitempty"`
@@ -160,6 +174,8 @@ type CaseResult struct {
 type AttemptResult struct {
 	Attempt          int               `json:"attempt"`
 	Passed           bool              `json:"passed"`
+	Skipped          bool              `json:"skipped,omitempty"`
+	SkipReason       string            `json:"skip_reason,omitempty"`
 	Score            float64           `json:"score"`
 	Status           string            `json:"status"`
 	Error            string            `json:"error,omitempty"`
@@ -265,6 +281,8 @@ type Execution struct {
 	TotalTokens  int64
 	InputTokens  int64
 	OutputTokens int64
+	Skipped      bool
+	SkipReason   string
 }
 
 type GateConfig struct {

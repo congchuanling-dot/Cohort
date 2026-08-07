@@ -17,6 +17,7 @@
         "fast"
       ],
       "timeout_seconds": 60,
+      "environment": {},
       "fixture": {},
       "assertions": {
         "status": "done",
@@ -40,6 +41,7 @@
         "reasoning"
       ],
       "timeout_seconds": 60,
+      "environment": {},
       "fixture": {},
       "assertions": {
         "status": "done",
@@ -63,6 +65,7 @@
         "tool-routing"
       ],
       "timeout_seconds": 90,
+      "environment": {},
       "fixture": {},
       "assertions": {
         "status": "done",
@@ -88,6 +91,7 @@
         "config"
       ],
       "timeout_seconds": 90,
+      "environment": {},
       "fixture": {},
       "assertions": {
         "status": "done",
@@ -113,6 +117,7 @@
         "navigation"
       ],
       "timeout_seconds": 120,
+      "environment": {},
       "fixture": {},
       "assertions": {
         "status": "done",
@@ -139,6 +144,7 @@
         "observability"
       ],
       "timeout_seconds": 120,
+      "environment": {},
       "fixture": {},
       "assertions": {
         "status": "done",
@@ -166,6 +172,7 @@
         "routing"
       ],
       "timeout_seconds": 60,
+      "environment": {},
       "fixture": {},
       "assertions": {
         "status": "done",
@@ -188,6 +195,7 @@
         "codebase"
       ],
       "timeout_seconds": 90,
+      "environment": {},
       "fixture": {},
       "assertions": {
         "status": "done",

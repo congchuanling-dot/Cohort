@@ -37,6 +37,15 @@ func ScoreCase(c Case, execution Execution) CaseResult {
 		OutputTokens: execution.OutputTokens,
 		Attempts:     1,
 	}
+	if execution.Skipped {
+		result.Skipped = true
+		result.SkipReason = execution.SkipReason
+		result.Status = "skipped"
+		result.AssertionResults = []AssertionResult{{
+			Kind: "environment", Expected: "requirements met", Actual: execution.SkipReason, Passed: false, Weight: 0,
+		}}
+		return result
+	}
 	add := func(kind, expected, actual string, passed bool, weight float64, message string) {
 		result.AssertionResults = append(result.AssertionResults, AssertionResult{
 			Kind: kind, Expected: expected, Actual: actual, Passed: passed, Weight: weight, Message: message,
