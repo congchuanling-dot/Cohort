@@ -105,7 +105,10 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 		"elapsed_ms": debugperf.Since(debugStart),
 	})
 	// #endregion
-	browserClient := newBrowserClient()
+	var browserClient browser.Client
+	if cfg.Tools.groupEnabled("browser") {
+		browserClient = newBrowserClient()
+	}
 	registryStart := time.Now()
 	registry := newRegistry(workspace, cwd, browserClient, mcpManager, mcpPermissions, skillStore, cfg.Tools)
 	schemaCount := len(registry.Schemas())
@@ -480,10 +483,96 @@ func buildSystemPromptWithIndex(cfg Config, skillStore *skill.Store, capabilityI
 	if skillStore != nil {
 		skillIndex = skillStore.IndexPrompt()
 	}
+	var b strings.Builder
 	if cfg.Language == "en" {
-		return "You are Cohort, a command-line local agent. Use tools when needed, keep responses concise, and stop when the user task is complete. When multiple tool calls are independent and do not depend on each other's results, issue them in the same assistant response instead of splitting them across turns; keep dependent actions sequential." + toolNarrationInstructionEN + userQuestionInstructionEN + " Use Project Mode as the durable project contract when present. Use Plan Mode as the active recoverable task state; never mark a plan step complete without verification evidence. Use the Component Map to route system-level tasks to the right subsystem or CLI command; do not assume disabled, missing, or empty components are available. Use the SOP Index as navigation only: when a task matches an SOP scene, read the referenced SOP file before acting, then call update_working_checkpoint to store the key constraints and related_sop. Use the Skill Index as navigation only: when a task matches a Skill, call skill_read with the listed skill_id before acting, then call update_working_checkpoint to store the key constraints and related_skill. Use the Capability Index as verified capability navigation only: when a task matches an available capability, follow its skill_id via skill_read before acting; do not use candidate, failed, disabled, or missing capabilities as active instructions. For web lookup tasks, prefer browser_open, then browser_wait_for_load and browser_wait_for_stable, then browser_scan. For browser interaction, use browser_snapshot to discover clickable/input elements; use browser_dom_summary when scan/snapshot is insufficient but DOM is still available, especially for forms, same-origin iframes, open shadow roots, or fixed overlays; use browser_execute_js only for specific DOM reads, then browser_click_element, browser_type_element, or browser_press_key for real CDP input. After navigation or async actions, wait for load, url, selector, text, or stable before judging failure. When visual text remains unavailable after DOM summary, use browser_ocr with a workspace image or let it capture the viewport; its bounding boxes are screenshot-local and must not be treated as screen coordinates. For native desktop applications, read the desktop SOP and use desktop_permissions -> desktop_windows -> desktop_activate -> desktop_ax_snapshot. Desktop input is restricted to desktop_ax_press with exact current AX node metadata, desktop_ax_focus for editable AX nodes, desktop_click only on a current AX node center, desktop_visual_click only with a desktop_screenshot image plus OCR/UI bbox, desktop_press_key with an allowlisted key, and desktop_type_text for drafting into the currently focused editable field or consuming a visual_focus_token returned by desktop_visual_click when AX cannot prove WebView editable focus. For transient search/dropdown/autocomplete UI, use desktop_press_key with key=Enter and intent=open_selected_result to open the selected result as R1 navigation; do not call ask_user in the middle because the transient UI may disappear on focus loss. Do not use code_run or scripts to bypass desktop input boundaries. R2 actions require the one-time token issued by ask_user for the exact pid and node_id, image_path+bbox, or key plus reason. R3 actions are refused for manual completion. desktop_type_text must not be used to send; send/submit remains a separate desktop_press_key or confirmed desktop_click/desktop_visual_click action when risky, and open_selected_result must never be used for send/submit. Use desktop_screenshot and desktop_ocr when AX is insufficient; their bbox coordinates are screenshot-local and may only be converted by desktop_visual_click using the screenshot manifest. Do not pass OCR bbox to desktop_click. Use a visual_focus_token only when desktop_visual_click returned it for an input/search bbox; the token is short-lived, single-use, and only permits drafting text, never sending. No arbitrary desktop coordinate click tool exists. Advanced browser internals may be routed through browser_execute_js JSON commands, but prefer high-level browser tools for normal actions. Do not use OCR for normal web pages unless DOM text is unavailable. After meaningful or long tasks, consider start_long_term_update; only persist verified reusable memory, and skip routine one-off facts." + projectPrompt + planPrompt + componentMap + sopIndex + skillIndex + capabilityIndex
+		b.WriteString("You are Cohort, a command-line local agent. Use only tools present in the current tool schema, keep responses concise, and stop when the user task is complete. Run independent tool calls in one response and keep dependent actions sequential.")
+		b.WriteString(toolNarrationInstructionEN)
+		if cfg.Tools.groupEnabled("ask") {
+			b.WriteString(userQuestionInstructionEN)
+		}
+		b.WriteString(" Use Project Mode as the durable project contract when present. Use Plan Mode as recoverable task state and never complete a step without verification evidence. Use the Component Map as status-aware routing: configured is not connected, registered is not necessarily healthy, and only ready/running capabilities may be assumed operational.")
+		if cfg.Tools.groupEnabled("core") {
+			b.WriteString(" Use the SOP Index as navigation only. Read a matching SOP before acting.")
+			if cfg.Tools.groupEnabled("memory") {
+				b.WriteString(" After reading it, call update_working_checkpoint with its constraints and related_sop.")
+			}
+		}
+		if cfg.Tools.groupEnabled("skill") {
+			b.WriteString(" Use the Skill Index as navigation only. For a matching Skill, call skill_read before acting.")
+			if cfg.Tools.groupEnabled("memory") {
+				b.WriteString(" Then call update_working_checkpoint with related_skill and key constraints.")
+			}
+			b.WriteString(" Use the Capability Index only for an available capability. Skill capabilities require skill_read and must not be inferred from candidate, failed, disabled, or missing entries.")
+		}
+		if cfg.Tools.groupEnabled("browser") {
+			b.WriteString(" For web tasks use browser_open, wait for load/stability, then browser_scan or browser_snapshot. Prefer selectors and real browser input; use DOM summary and OCR only as fallbacks, and verify state after actions.")
+		}
+		if cfg.Tools.groupEnabled("computer") {
+			b.WriteString(" For native GUI tasks prefer computer_see -> computer_find -> computer_execute_step and verify each action. R2 actions require the exact one-time confirmation token; R3 actions are refused.")
+		} else if cfg.Tools.groupEnabled("desktop") {
+			b.WriteString(" For native desktop diagnosis use desktop_permissions -> desktop_windows -> desktop_activate -> desktop_ax_snapshot. Use only verified AX nodes or screenshot-local visual targets; never bypass desktop boundaries with scripts.")
+		}
+		if cfg.Tools.groupEnabled("memory") {
+			b.WriteString(" After meaningful reusable work, consider start_long_term_update and persist only verified durable knowledge.")
+		}
+		b.WriteString(projectPrompt)
+		b.WriteString(planPrompt)
+		b.WriteString(componentMap)
+		if cfg.Tools.groupEnabled("core") {
+			b.WriteString(sopIndex)
+		}
+		if cfg.Tools.groupEnabled("skill") {
+			b.WriteString(skillIndex)
+		}
+		if cfg.Tools.groupEnabled("skill") {
+			b.WriteString(capabilityIndex)
+		}
+		return b.String()
 	}
-	return "你是 Cohort，一个命令行本地 Agent。需要读取文件、写文件、执行命令或查询网页时必须调用工具；当多个工具调用彼此独立、后一个不依赖前一个结果时，应在同一轮 assistant 响应中一次性发出多个 tool_calls，不要拆成多轮；有前后依赖的动作必须保持顺序执行。" + toolNarrationInstructionZH + userQuestionInstructionZH + " Project Mode 是项目级持久契约；存在时必须遵循其中的目标、约束和项目记忆指针。Plan Mode 是可恢复的当前计划状态；未记录验证证据的步骤不得标记完成。Component Map 是系统级组件路由图；遇到组件、状态、评测、修复、插件、MCP、Skill、LSP、浏览器或桌面能力相关任务时，优先按其中的 route 和 command 选择入口；disabled/missing/empty 组件不得当作已可用能力。SOP Index 只作为导航：任务命中 SOP 场景时，先读取索引指向的 SOP 文件再行动，并调用 update_working_checkpoint 保存关键约束和 related_sop。Skill Index 只作为导航：任务命中 Skill 场景时，先用 skill_read 读取对应 skill_id 的完整 SKILL.md 再行动，并调用 update_working_checkpoint 保存关键约束和 related_skill。Capability Index 只作为已验证能力导航：任务命中 available capability 时，先根据 skill_id 调用 skill_read 再行动；candidate、failed、disabled、missing 能力不得作为已启用能力执行。网页查询优先使用 browser_open 打开页面，再用 browser_wait_for_load 和 browser_wait_for_stable 等页面稳定，然后用 browser_scan 读取 DOM 文本。浏览器交互优先用 browser_snapshot 发现可点击/可输入元素；当 scan/snapshot 不够但 DOM 仍可访问时，用 browser_dom_summary 查看表单、同源 iframe、open shadowRoot 和固定浮层；只在需要精确 DOM 信息时用 browser_execute_js，再用 browser_click_element、browser_type_element 或 browser_press_key 执行真实 CDP 输入。点击、输入、按键、跳转或异步操作后，必须先等待 load、url、selector、text 或 stable，再判断失败。DOM 文本和 DOM 摘要都无法读取页面文字时，使用 browser_ocr 读取 workspace 图片或让它自动截取浏览器视口；它返回的 bbox 是 screenshot-local 坐标，不能直接当作系统屏幕坐标。处理桌面原生应用时，先读取 desktop SOP 并遵循 desktop_permissions -> desktop_windows -> desktop_activate -> desktop_ax_snapshot 的顺序。桌面输入只允许基于当前 AX 节点精确语义执行 desktop_ax_press、用 desktop_ax_focus 聚焦可编辑 AX 节点、用 desktop_click 点击当前 AX 节点中心、用 desktop_visual_click 基于 desktop_screenshot 图片和 OCR/UI bbox 执行受控视觉点击、使用 allowlist 的 desktop_press_key，以及用 desktop_type_text 在当前焦点可编辑输入框起草文本，或在 AX 无法证明 WebView 可编辑焦点时消费 desktop_visual_click 返回的 visual_focus_token 起草文本；搜索结果/下拉候选/自动补全等临时 UI 中，使用 desktop_press_key 的 key=Enter 且 intent=open_selected_result 打开已选结果，这是 R1 导航，中途不得调用 ask_user，避免失焦导致临时 UI 消失；不能借助 code_run 或脚本绕过桌面输入边界。R2 操作必须使用 ask_user 为同一 pid、node_id、image_path+bbox 或 key、reason 签发的一次性令牌，R3 操作拒绝自动执行。desktop_type_text 不能负责发送，发送/提交必须拆成单独 desktop_press_key 或经确认的 desktop_click/desktop_visual_click 且按风险确认，open_selected_result 绝不能用于发送/提交。AX 不可用时才用 desktop_screenshot 和 desktop_ocr；它们的 bbox 仅为 screenshot-local 坐标，只能由 desktop_visual_click 读取截图 manifest 后转换。不得把 OCR bbox 传给 desktop_click。visual_focus_token 只能在 desktop_visual_click 为输入框/搜索框 bbox 返回后使用，短时一次性，只允许起草文本，不授权发送。当前没有任意桌面坐标点击工具。高级浏览器内部能力可通过 browser_execute_js 的 JSON 命令路由使用，但普通动作优先用高层浏览器工具。普通网页不要默认使用 OCR，只有 DOM 文本不可用时才考虑截图/OCR。完成有复用价值或耗时较长的任务后，可调用 start_long_term_update；只沉淀经过验证、未来可复用的记忆，普通一次性事实应 skip。任务完成后直接给用户简洁结论。" + projectPrompt + planPrompt + componentMap + sopIndex + skillIndex + capabilityIndex
+	b.WriteString("你是 Cohort，一个命令行本地 Agent。只能调用当前 tool schema 中真实存在的工具；回复保持简洁，任务完成后停止。互不依赖的工具调用应在同一轮并行发出，有依赖的动作保持顺序。")
+	b.WriteString(toolNarrationInstructionZH)
+	if cfg.Tools.groupEnabled("ask") {
+		b.WriteString(userQuestionInstructionZH)
+	}
+	b.WriteString(" Project Mode 是项目级持久契约；Plan Mode 是可恢复任务状态，未取得验证证据不得完成步骤。Component Map 是带状态的路由真值：configured 不代表已连接，registered 不代表运行健康，只有 ready/running 可以直接视为可用。")
+	if cfg.Tools.groupEnabled("core") {
+		b.WriteString(" SOP Index 只用于导航；命中场景时先读取对应 SOP 再行动。")
+		if cfg.Tools.groupEnabled("memory") {
+			b.WriteString("读取后调用 update_working_checkpoint 保存关键约束和 related_sop。")
+		}
+	}
+	if cfg.Tools.groupEnabled("skill") {
+		b.WriteString(" Skill Index 只用于导航；命中 Skill 时先调用 skill_read 读取正文。")
+		if cfg.Tools.groupEnabled("memory") {
+			b.WriteString("随后调用 update_working_checkpoint 保存 related_skill 和关键约束。")
+		}
+		b.WriteString(" Capability Index 只允许使用 available capability；Skill 类型先调用 skill_read，不得从 candidate、failed、disabled 或 missing 条目推断能力。")
+	}
+	if cfg.Tools.groupEnabled("browser") {
+		b.WriteString("网页任务使用 browser_open，等待 load/stable 后再用 browser_scan 或 browser_snapshot；优先 selector 和真实浏览器输入，DOM summary 与 OCR 仅作为回退，动作后必须验证状态。")
+	}
+	if cfg.Tools.groupEnabled("computer") {
+		b.WriteString("原生 GUI 任务优先使用 computer_see -> computer_find -> computer_execute_step，并逐步验证。R2 动作必须使用精确的一次性确认令牌，R3 动作拒绝自动执行。")
+	} else if cfg.Tools.groupEnabled("desktop") {
+		b.WriteString("桌面诊断使用 desktop_permissions -> desktop_windows -> desktop_activate -> desktop_ax_snapshot；只能操作已验证 AX 节点或截图局部目标，不得用脚本绕过桌面边界。")
+	}
+	if cfg.Tools.groupEnabled("memory") {
+		b.WriteString("完成有复用价值的任务后可调用 start_long_term_update，只沉淀经过验证的长期知识。")
+	}
+	b.WriteString("任务完成后直接给用户结论。")
+	b.WriteString(projectPrompt)
+	b.WriteString(planPrompt)
+	b.WriteString(componentMap)
+	if cfg.Tools.groupEnabled("core") {
+		b.WriteString(sopIndex)
+	}
+	if cfg.Tools.groupEnabled("skill") {
+		b.WriteString(skillIndex)
+	}
+	if cfg.Tools.groupEnabled("skill") {
+		b.WriteString(capabilityIndex)
+	}
+	return b.String()
 }
 
 func buildSystemPrompt(cfg Config) string {

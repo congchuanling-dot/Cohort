@@ -46,7 +46,11 @@ func Run(args []string) error {
 		args = []string{"run"}
 	}
 	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		printHelp()
+		if len(args) > 1 && args[1] == "--all" {
+			printFullHelp()
+		} else {
+			printHelp()
+		}
 		return nil
 	}
 	if args[0] == "version" || args[0] == "--version" || args[0] == "-v" {
@@ -64,9 +68,6 @@ func Run(args []string) error {
 	}
 	if args[0] == "plugin" {
 		return runPluginCommand(args[1:], os.Stdout)
-	}
-	if args[0] == "explorer" {
-		return runExplorerCommand(args[1:], os.Stdout)
 	}
 	if args[0] == "tui" {
 		return runTUICommand(args[1:], os.Stdout)
@@ -140,6 +141,8 @@ func Run(args []string) error {
 		return runEvalCommand(context.Background(), cfg, args[1:], os.Stdout)
 	case "hermes":
 		return runHermesCommand(context.Background(), cfg, args[1:], os.Stdout)
+	case "explorer":
+		return runExplorerCommand(context.Background(), cfg, configPath, args[1:], os.Stdout)
 	case "tools":
 		schemas, schemasErr := app.ToolSchemas(cfg)
 		if schemasErr != nil {
@@ -202,12 +205,13 @@ func runComponentsCommand(cfg app.Config, args []string, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "project_root: %s\nworkspace: %s\n\n", inventory.ProjectRoot, inventory.Workspace)
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tKIND\tSTATUS\tDETAIL\tCOMMAND")
+	fmt.Fprintln(w, "ID\tKIND\tSTATUS\tAGENT_ROUTE\tDETAIL\tCOMMAND")
 	for _, component := range inventory.Components {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			component.ID,
 			component.Kind,
 			component.Status,
+			component.AgentRoute,
 			component.Detail,
 			component.UserCommand,
 		)
@@ -1344,8 +1348,29 @@ func startREPL(ctx context.Context, cfg app.Config, runner *agent.Runner) error 
 	})
 }
 
-// printHelp 输出当前支持的最小命令集合。
+// printHelp 只展示普通用户完成安装、诊断和执行任务所需的稳定入口。
 func printHelp() {
+	fmt.Print(`Cohort
+
+Usage:
+  cohort                         start interactive Agent
+  cohort ask "task"              run one task
+  cohort init [--provider name]  initialize model configuration
+  cohort doctor [--connect]      diagnose configuration and connectivity
+  cohort doctor computer         diagnose browser and desktop runtime
+  cohort extension open          install/open the Chrome Bridge
+  cohort session list            list saved sessions
+  cohort session resume <id>     resume a session
+  cohort components              show component readiness
+  cohort --version               show version
+
+Inside the interactive Agent, type / to open the command menu.
+Advanced operator and developer commands: cohort help --all
+`)
+}
+
+// printFullHelp 输出高级运维和开发命令；普通帮助不再倾倒整套内部控制面。
+func printFullHelp() {
 	fmt.Print(`Cohort
 
 Usage:

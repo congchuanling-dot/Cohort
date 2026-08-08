@@ -93,6 +93,30 @@ llm:
 	}
 }
 
+func TestDefaultConfigUsesFullToolSurface_BitsUT(t *testing.T) {
+	cfg := defaultConfig()
+	got := strings.Join(cfg.Tools.normalizedGroups(), ",")
+	want := "*"
+	if got != want {
+		t.Fatalf("default tool groups = %q, want %q", got, want)
+	}
+	content, err := DefaultConfigContent("/tmp/workspace", "/tmp/logs", ProfileDeepSeek)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(content, "enabled_groups: [*]") {
+		t.Fatalf("generated config does not preserve full tool surface:\n%s", content)
+	}
+	empty := ToolConfig{}
+	if !empty.groupEnabled("core") || !empty.groupEnabled("browser") || !empty.groupEnabled("mcp") || !empty.groupEnabled("desktop") {
+		t.Fatalf("empty tool config did not preserve full defaults: %#v", empty.normalizedGroups())
+	}
+	all := ToolConfig{EnabledGroups: []string{"*"}}
+	if !all.groupEnabled("mcp") || !all.groupEnabled("desktop") {
+		t.Fatal("explicit wildcard did not enable the full tool surface")
+	}
+}
+
 func TestLoadConfigParsesLLMProfiles_BitsUT(t *testing.T) {
 	t.Setenv("LOCAL_OPENAI_API_KEY", "local-key")
 	t.Setenv("DEEPSEEK_API_KEY", "deepseek-key")

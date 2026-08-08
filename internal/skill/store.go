@@ -101,6 +101,43 @@ func (p Permissions) Summary() string {
 	return strings.Join(parts, " ")
 }
 
+// NormalizePermissions 把常见的 Claude Code 风格工具名转换为 Cohort 工具名。
+//
+// 很多现有 Skill 使用 Bash/Read/Write/Edit。若直接把这些名字交给 Runner 的
+// allowlist，模型会看不到任何真实工具，因此在发现阶段统一兼容这些稳定别名。
+// 未知名字保持原样，便于自定义 adapter/MCP 工具继续按真实名称授权。
+func NormalizePermissions(input Permissions) Permissions {
+	var output Permissions
+	for _, name := range input.AllowTools {
+		output.AllowTools = appendUniqueMany(output.AllowTools, canonicalPermissionTools(name)...)
+	}
+	for _, name := range input.DenyTools {
+		output.DenyTools = appendUniqueMany(output.DenyTools, canonicalPermissionTools(name)...)
+	}
+	return output
+}
+
+func canonicalPermissionTools(name string) []string {
+	name = strings.TrimSpace(name)
+	switch strings.ToLower(name) {
+	case "bash", "shell", "command", "run":
+		return []string{"code_run"}
+	case "read":
+		return []string{"file_read"}
+	case "write":
+		return []string{"file_write", "file_patch"}
+	case "edit", "patch":
+		return []string{"file_patch"}
+	case "grep", "glob":
+		return []string{"code_run"}
+	default:
+		if name == "" {
+			return nil
+		}
+		return []string{name}
+	}
+}
+
 // ReadResult 是 skill_read 返回给模型的结构化内容。
 type ReadResult struct {
 	Skill     Skill  `json:"skill"`
@@ -368,7 +405,7 @@ func parseMetadata(data []byte, fallbackName string) Metadata {
 		UserInvocable: userInvocable,
 		ArgumentHint:  argumentHint,
 		Requires:      frontMatterData.Requires,
-		Permissions:   frontMatterData.Permissions,
+		Permissions:   NormalizePermissions(frontMatterData.Permissions),
 	}
 }
 

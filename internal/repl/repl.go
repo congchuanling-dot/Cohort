@@ -213,39 +213,29 @@ func (r *scannerLineReader) ReadLine() (string, error) {
 }
 
 type readlineLineReader struct {
-	// in 是真实终端输入文件。
-	in *os.File
-	// out 是 readline 普通输出目标。
-	out io.Writer
-	// err 是 readline 错误输出目标。
-	err io.Writer
+	rl *readline.Instance
 }
 
 func (r readlineLineReader) ReadLine() (string, error) {
-	rl, err := readline.NewEx(&readline.Config{
-		Prompt:            promptText,
-		Stdin:             r.in,
-		Stdout:            r.out,
-		Stderr:            r.err,
-		AutoComplete:      slashCompleter(),
-		InterruptPrompt:   "^C",
-		EOFPrompt:         "exit",
-		HistorySearchFold: true,
-	})
-	if err != nil {
-		return "", err
-	}
-	defer rl.Close()
-	return rl.Readline()
+	return r.rl.Readline()
 }
 
 func newLineReader(opts Options) (lineReader, func(), error) {
 	if file, ok := opts.In.(*os.File); ok && term.IsTerminal(int(file.Fd())) {
-		return readlineLineReader{
-			in:  file,
-			out: opts.Out,
-			err: opts.Err,
-		}, func() {}, nil
+		rl, err := readline.NewEx(&readline.Config{
+			Prompt:            promptText,
+			Stdin:             file,
+			Stdout:            opts.Out,
+			Stderr:            opts.Err,
+			AutoComplete:      slashCompleter(),
+			InterruptPrompt:   "^C",
+			EOFPrompt:         "exit",
+			HistorySearchFold: true,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return readlineLineReader{rl: rl}, func() { _ = rl.Close() }, nil
 	}
 
 	reader := &scannerLineReader{
@@ -1662,12 +1652,13 @@ func runSkill(opts Options, id string, args []string) error {
 	}
 	restoreTools := opts.Runner.Tools
 	if !item.Permissions.Empty() {
+		runtimePermissions := skillRuntimePermissions(item.Permissions)
 		opts.Runner.Tools = agent.ToolPolicyRunner{
 			Base: restoreTools,
 			Policy: agent.ToolPolicy{
 				Name:       "skill:" + item.ID,
-				AllowTools: item.Permissions.AllowTools,
-				DenyTools:  item.Permissions.DenyTools,
+				AllowTools: runtimePermissions.AllowTools,
+				DenyTools:  runtimePermissions.DenyTools,
 			},
 		}
 		defer func() {
@@ -1686,6 +1677,40 @@ func runSkill(opts Options, id string, args []string) error {
 	}
 	_, err = opts.Runner.Run(opts.Context, task, agent.NewConsoleSink(opts.Out))
 	return err
+}
+
+func skillRuntimePermissions(declared skill.Permissions) skill.Permissions {
+	runtime := skill.NormalizePermissions(declared)
+	controlTools := []string{"skill_read", "update_working_checkpoint", "ask_user"}
+	if len(runtime.AllowTools) > 0 {
+		for _, name := range controlTools {
+			runtime.AllowTools = appendUniqueString(runtime.AllowTools, name)
+		}
+	}
+	denied := runtime.DenyTools[:0]
+	for _, name := range runtime.DenyTools {
+		if !containsString(controlTools, name) {
+			denied = append(denied, name)
+		}
+	}
+	runtime.DenyTools = denied
+	return runtime
+}
+
+func appendUniqueString(values []string, value string) []string {
+	if containsString(values, value) {
+		return values
+	}
+	return append(values, value)
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func printSkillList(out io.Writer, skills []skill.Skill) error {

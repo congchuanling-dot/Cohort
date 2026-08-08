@@ -53,8 +53,9 @@ type RunOptions struct {
 }
 
 type RunResult struct {
-	Task   Task          `json:"task"`
-	Checks []CheckResult `json:"checks"`
+	Task     Task          `json:"task"`
+	Findings string        `json:"findings,omitempty"`
+	Checks   []CheckResult `json:"checks,omitempty"`
 }
 
 type BatchRunResult struct {
@@ -204,6 +205,46 @@ func (s Store) Run(ctx context.Context, id string, opts RunOptions) (RunResult, 
 	return result, nil
 }
 
+// RunAgent 运行真正的只读调查回调，并把回答和状态原子地写回 Explorer 任务。
+//
+// Store 不依赖具体 LLM 或工具实现；CLI 负责注入受限 Agent，测试也可以注入轻量回调。
+func (s Store) RunAgent(ctx context.Context, id string, investigate func(context.Context, Task) (string, error)) (RunResult, error) {
+	if investigate == nil {
+		return RunResult{}, errors.New("explorer investigator is required")
+	}
+	task, err := s.updateTask(id, func(task *Task, now time.Time) {
+		task.Status = "running"
+		task.LastError = ""
+		task.UpdatedAt = now
+	})
+	if err != nil {
+		return RunResult{}, err
+	}
+	findings, runErr := investigate(ctx, task)
+	now := time.Now().UTC()
+	task.Status = "completed"
+	task.LastError = ""
+	if runErr != nil {
+		task.Status = "failed"
+		task.LastError = runErr.Error()
+	}
+	task.CompletedAt = now
+	task.UpdatedAt = now
+	result := RunResult{Task: task, Findings: strings.TrimSpace(findings)}
+	if err := os.WriteFile(task.ResultPath, []byte(resultMarkdown(result)), 0644); err != nil {
+		return result, err
+	}
+	if _, err := s.updateTask(id, func(stored *Task, _ time.Time) {
+		stored.Status = task.Status
+		stored.CompletedAt = task.CompletedAt
+		stored.UpdatedAt = task.UpdatedAt
+		stored.LastError = task.LastError
+	}); err != nil {
+		return result, err
+	}
+	return result, runErr
+}
+
 func (s Store) RunBatch(ctx context.Context, ids []string, opts RunOptions) (BatchRunResult, error) {
 	cleanIDs := cleanIDs(ids)
 	if len(cleanIDs) == 0 {
@@ -229,6 +270,46 @@ func (s Store) RunBatch(ctx context.Context, ids []string, opts RunOptions) (Bat
 			}
 		} else if results[index].Task.Status == "failed" {
 			failed++
+		}
+	}
+	reportPath := filepath.Join(s.RootDir, "aggregate_result.md")
+	batch := BatchRunResult{Results: results, ReportPath: reportPath, Failed: failed}
+	if err := os.MkdirAll(s.RootDir, 0755); err != nil {
+		return batch, err
+	}
+	if err := os.WriteFile(reportPath, []byte(batchResultMarkdown(batch)), 0644); err != nil {
+		return batch, err
+	}
+	if failed > 0 {
+		return batch, fmt.Errorf("explorer batch failed: %d lane(s) failed", failed)
+	}
+	return batch, nil
+}
+
+// RunAgentBatch 并行执行多条只读 Agent 调查，并生成与单任务一致的汇总报告。
+func (s Store) RunAgentBatch(ctx context.Context, ids []string, investigate func(context.Context, Task) (string, error)) (BatchRunResult, error) {
+	cleanIDs := cleanIDs(ids)
+	if len(cleanIDs) == 0 {
+		return BatchRunResult{}, errors.New("at least one explorer task id is required")
+	}
+	results := make([]RunResult, len(cleanIDs))
+	errs := make([]error, len(cleanIDs))
+	var wg sync.WaitGroup
+	for index, id := range cleanIDs {
+		wg.Add(1)
+		go func(index int, id string) {
+			defer wg.Done()
+			results[index], errs[index] = s.RunAgent(ctx, id, investigate)
+		}(index, id)
+	}
+	wg.Wait()
+	failed := 0
+	for index, err := range errs {
+		if err != nil {
+			failed++
+			if results[index].Task.ID == "" {
+				results[index].Task = Task{ID: cleanIDs[index], Status: "failed", LastError: err.Error()}
+			}
 		}
 	}
 	reportPath := filepath.Join(s.RootDir, "aggregate_result.md")
@@ -385,6 +466,9 @@ func resultMarkdown(result RunResult) string {
 		fmt.Fprintf(&b, "Completed: %s\n", result.Task.CompletedAt.Format(time.RFC3339))
 	}
 	fmt.Fprintf(&b, "\n## Question\n\n%s\n\n", result.Task.Question)
+	if result.Findings != "" {
+		fmt.Fprintf(&b, "## Findings\n\n%s\n\n", result.Findings)
+	}
 	fmt.Fprintf(&b, "## Checks\n\n")
 	for _, check := range result.Checks {
 		status := "ok"

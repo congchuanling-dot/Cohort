@@ -96,6 +96,7 @@ func TestStoreBuildVerifyPromoteDisable_BitsUT(t *testing.T) {
 	if found.ID != "project/local_csv_analysis" {
 		t.Fatalf("skill id = %q, want project/local_csv_analysis", found.ID)
 	}
+	implementTestSkillCapability(t, projectRoot, item.ID)
 
 	verified, output, err := store.Verify(item.ID)
 	if err != nil {
@@ -137,8 +138,8 @@ func TestStorePromoteRequiresSuccessfulVerification_BitsUT(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Promote(item.ID); err == nil || !strings.Contains(err.Error(), "no successful verification") {
-		t.Fatalf("promote error = %v, want verification guard", err)
+	if _, err := store.Promote(item.ID); err == nil || !strings.Contains(err.Error(), "verification is not currently passing") {
+		t.Fatalf("promote error = %v, want current verification guard", err)
 	}
 }
 
@@ -162,15 +163,23 @@ func TestStoreDoctorChecksCandidateAndVerification_BitsUT(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.ReadyToVerify || result.ReadyToPromote {
-		t.Fatalf("doctor readiness = verify:%t promote:%t, want true/false", result.ReadyToVerify, result.ReadyToPromote)
+	if result.ReadyToVerify || result.ReadyToPromote {
+		t.Fatalf("doctor readiness = verify:%t promote:%t, want false/false for scaffold", result.ReadyToVerify, result.ReadyToPromote)
 	}
-	for _, want := range []string{"skill_entry", "manifest", "smoke_test", "command:bash", "verification"} {
+	for _, want := range []string{"skill_entry", "skill_implementation", "manifest", "smoke_test", "command:bash", "verification"} {
 		if !doctorHasCheck(result, want) {
 			t.Fatalf("doctor checks missing %q: %#v", want, result.Checks)
 		}
 	}
 
+	implementTestSkillCapability(t, projectRoot, item.ID)
+	result, err = store.Doctor(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.ReadyToVerify || result.ReadyToPromote {
+		t.Fatalf("implemented doctor readiness = verify:%t promote:%t, want true/false", result.ReadyToVerify, result.ReadyToPromote)
+	}
 	if _, _, err := store.Verify(item.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -180,6 +189,44 @@ func TestStoreDoctorChecksCandidateAndVerification_BitsUT(t *testing.T) {
 	}
 	if !result.ReadyToVerify || !result.ReadyToPromote {
 		t.Fatalf("doctor readiness after verify = verify:%t promote:%t, want true/true", result.ReadyToVerify, result.ReadyToPromote)
+	}
+}
+
+func TestGeneratedSkillCannotBeVerified_BitsUT(t *testing.T) {
+	root := t.TempDir()
+	store := NewStore(root)
+	gap, err := store.AddGap(NewGapFromTask("generated skill"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := store.AddProposal(NewProposalFromGap(gap))
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := store.Build(proposal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.Verify(item.ID); err == nil || !strings.Contains(err.Error(), "generated Skill scaffold") {
+		t.Fatalf("verify error = %v, want generated scaffold rejection", err)
+	}
+}
+
+func implementTestSkillCapability(t *testing.T, root string, capabilityID string) {
+	t.Helper()
+	skillPath := filepath.Join(root, ".cohort", "skills", capabilityID, "SKILL.md")
+	data, err := os.ReadFile(skillPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = []byte(strings.ReplaceAll(string(data), skillScaffoldMarker, "IMPLEMENTED"))
+	if err := os.WriteFile(skillPath, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	scriptPath := filepath.Join(root, ".cohort", "skills", capabilityID, "tests", "smoke.sh")
+	script := "#!/usr/bin/env bash\nset -euo pipefail\necho \"capability smoke passed: " + capabilityID + "\"\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatal(err)
 	}
 }
 

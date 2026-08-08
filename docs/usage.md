@@ -675,7 +675,7 @@ cohort capability show <id>
 
 交互运行时，如果模型没有调用工具就明确表示“缺少工具 / 无法处理 / 不支持该能力”，Runner 会自动记录一个 `runner:no_tool` 来源的 capability gap，并在 `run.log.jsonl` 里写入 `CapabilityGapRecorded` 观测事件。
 
-注意：当前 Cohort 可以通过 `code_run` 执行 shell 命令，因此技术上可以运行 `python3 -m pip install --user xxx` 这类安装命令。但完整能力拓展不会直接放开任意安装。当前 `build/doctor/deps/verify/promote/enable` 负责生成项目级 Skill 候选、诊断文件与依赖、生成依赖安装计划、显式批准后安装并记录审计、运行 smoke test、更新 registry，并在审核后启用 adapter。已 promote 为 `available` 的 skill capability 会进入系统提示词里的 Capability Index，模型命中后仍需先 `skill_read`。`suggestions` 只根据重复 unresolved gaps 给出下一步建议，不会自动创建 proposal 或安装依赖。更完整离线反思汇总仍需要后续按 [能力边界拓展技术方案](capability_evolution_technical_design.md) 继续实现。
+注意：当前 Cohort 可以通过 `code_run` 执行 shell 命令，因此技术上可以运行 `python3 -m pip install --user xxx` 这类安装命令。但完整能力拓展不会直接放开任意安装。当前 `build/doctor/deps/verify/promote/enable` 负责生成项目级 Skill 候选、诊断文件与依赖、生成依赖安装计划、显式批准后安装并记录审计、运行行为级验证、更新 registry，并在审核后启用 adapter。自动生成的 Skill/Tool/MCP 只是 scaffold，保留 incomplete 标记且不能直接 verify/promote；必须先实现真实行为并替换结构性 smoke test。`promote` 会重新执行验证，避免使用过期结果。已 promote 为 `available` 的 skill capability 会进入系统提示词里的 Capability Index，模型命中后仍需先 `skill_read`。`suggestions` 只根据重复 unresolved gaps 给出下一步建议，不会自动创建 proposal 或安装依赖。
 
 ### 4.7 LSP 查询
 
@@ -698,19 +698,27 @@ cohort lsp symbols --language typescript src
 
 Go 的 `definition/references/hover/symbols` 走 `gopls`。TypeScript/Python 第一版走只读 `symbol_scan` fallback，用源文件扫描提供近似定义、引用、hover 和 symbols，不等同于长驻 language server 的类型级精确结果。
 
-### 4.8 Explorer Batch
+### 4.8 Explorer
 
-创建只读验证任务：
+Explorer 是真实的只读 Agent 调查任务，不再只是固定 Git 检查。创建任务：
 
 ```bash
 cohort explorer create "verify plan mode status"
 cohort explorer create "verify capability adapter docs"
 ```
 
+运行单个任务：
+
+```bash
+cohort explorer run <id>
+```
+
+Explorer 只暴露 `file_read`、LSP 和结构化 `explorer_search`，不会向模型提供通用 Shell 或写文件工具。结论必须回答原始问题并写入任务的 `result.md`。
+
 并行运行多个 lane 并生成聚合报告：
 
 ```bash
-cohort explorer run-batch <id1> <id2> --with-tests
+cohort explorer run-batch <id1> <id2>
 ```
 
 聚合报告写入：
@@ -1337,6 +1345,9 @@ go run . config
 # 查看帮助
 go run . help
 cohort help
+
+# 查看高级运维和开发命令
+cohort help --all
 
 # 进入交互模式
 go run .

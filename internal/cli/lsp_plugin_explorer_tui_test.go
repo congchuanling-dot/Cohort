@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"cohort/internal/app"
 	"cohort/internal/explorer"
 )
 
@@ -170,7 +171,7 @@ func TestRunExplorerCommandCreatesTask_BitsUT(t *testing.T) {
 	})
 
 	var out bytes.Buffer
-	if err := runExplorerCommand([]string{"create", "verify logs"}, &out); err != nil {
+	if err := runExplorerCommand(context.Background(), app.Config{}, "", []string{"create", "verify logs"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "read_only: true") || !strings.Contains(out.String(), "result:") {
@@ -178,7 +179,7 @@ func TestRunExplorerCommandCreatesTask_BitsUT(t *testing.T) {
 	}
 }
 
-func TestRunExplorerCommandRunsTask_BitsUT(t *testing.T) {
+func TestRunExplorerCommandKeepsChildEntryInternal_BitsUT(t *testing.T) {
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -190,29 +191,15 @@ func TestRunExplorerCommandRunsTask_BitsUT(t *testing.T) {
 	t.Cleanup(func() {
 		_ = os.Chdir(wd)
 	})
-	bin := filepath.Join(root, "bin")
-	if err := os.MkdirAll(bin, 0755); err != nil {
-		t.Fatal(err)
-	}
-	writeExecutableForCLI(t, filepath.Join(bin, "git"), `#!/bin/sh
-if [ "$1" = "status" ]; then echo " M file.go"; exit 0; fi
-if [ "$1" = "diff" ]; then echo "file.go"; exit 0; fi
-exit 2
-`)
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-
 	var out bytes.Buffer
-	if err := runExplorerCommand([]string{"create", "verify diff"}, &out); err != nil {
+	if err := runExplorerCommand(context.Background(), app.Config{}, "", []string{"create", "verify diff"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	id := outputValueFromText(t, out.String(), "explorer")
-	t.Setenv(explorerChildEnv, "1")
 	out.Reset()
-	if err := runExplorerCommand([]string{"run-child", id}, &out); err != nil {
-		t.Fatalf("run error = %v\n%s", err, out.String())
-	}
-	if !strings.Contains(out.String(), "status: completed") || !strings.Contains(out.String(), "git_status") {
-		t.Fatalf("run output = %q", out.String())
+	err = runExplorerCommand(context.Background(), app.Config{}, "", []string{"run-child", id}, &out)
+	if err == nil || !strings.Contains(err.Error(), "internal") {
+		t.Fatalf("run error = %v, want internal child guard", err)
 	}
 }
 
@@ -261,7 +248,7 @@ func TestRunTUICommandExplorers_BitsUT(t *testing.T) {
 	t.Cleanup(func() {
 		_ = os.Chdir(wd)
 	})
-	if err := runExplorerCommand([]string{"create", "verify explorer panel"}, &bytes.Buffer{}); err != nil {
+	if err := runExplorerCommand(context.Background(), app.Config{}, "", []string{"create", "verify explorer panel"}, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 

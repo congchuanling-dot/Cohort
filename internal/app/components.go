@@ -7,11 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"cohort/internal/capability"
 	"cohort/internal/evaluation"
+	"cohort/internal/explorer"
 	"cohort/internal/hermes"
 	"cohort/internal/lsp"
 	"cohort/internal/mcp"
@@ -21,7 +24,7 @@ import (
 	"cohort/internal/skill"
 )
 
-const maxComponentPromptItems = 18
+const maxComponentPromptItems = 32
 
 // ComponentInventory 是 Cohort 对自身能力面的轻量快照。
 //
@@ -75,11 +78,12 @@ func BuildComponentInventory(cfg Config, projectRoot string, skillStore *skill.S
 
 	addToolGroups(&inventory, cfg)
 	addProjectPlanComponents(add, projectRoot)
-	addSkillComponent(add, projectRoot, skillStore)
+	addSkillComponent(add, cfg, projectRoot, skillStore)
 	addCapabilityComponents(add, projectRoot)
 	addMCPComponent(add, projectRoot, cfg)
 	addPluginComponent(add, projectRoot)
 	addEvalComponent(add, projectRoot)
+	addExplorerComponent(add, cfg, projectRoot)
 	addHermesComponent(add, projectRoot)
 	addObservabilityComponent(add, cfg)
 
@@ -97,15 +101,15 @@ func ComponentPrompt(cfg Config, projectRoot string, skillStore *skill.Store) st
 	}
 	var b strings.Builder
 	b.WriteString("\n\n[Component Map]\n")
-	b.WriteString("这是 Cohort 当前组件地图。遇到相关任务时优先按 agent_route 路由；需要人工自查或用户询问系统状态时，运行 user_command；完整地图可运行 `cohort components`。不要把 disabled/missing/empty 组件当作已可用能力。\n")
+	b.WriteString("这是 Cohort 当前组件地图。ready/running 表示可直接使用；registered 表示工具 schema 已注册但首次调用仍可能需要运行态检查；configured 只表示存在配置。disabled/missing/empty/degraded/stopped 不可当作已可用能力。需要自查时运行 user_command；完整地图可运行 `cohort components`。\n")
 	count := 0
 	for _, component := range inventory.Components {
-		if count >= maxComponentPromptItems {
-			fmt.Fprintf(&b, "- ... %d more components; use `cohort components` for the full map.\n", len(inventory.Components)-count)
-			break
-		}
 		if component.Status == "disabled" && component.AgentRoute == "" {
 			continue
+		}
+		if count >= maxComponentPromptItems {
+			fmt.Fprintf(&b, "- ... more components; use `cohort components` for the full map.\n")
+			break
 		}
 		fmt.Fprintf(&b, "- `%s` [%s/%s]: %s", component.ID, component.Kind, component.Status, component.Name)
 		if component.AgentRoute != "" {
@@ -145,7 +149,7 @@ func addToolGroups(inventory *ComponentInventory, cfg Config) {
 	for _, group := range groups {
 		status := "disabled"
 		if cfg.Tools.groupEnabled(strings.TrimPrefix(group.id, "tools.")) {
-			status = "enabled"
+			status = "registered"
 		}
 		inventory.Components = append(inventory.Components, ComponentStatus{
 			ID:          group.id,
@@ -178,7 +182,7 @@ func addProjectPlanComponents(add func(ComponentStatus), projectRoot string) {
 	}
 }
 
-func addSkillComponent(add func(ComponentStatus), projectRoot string, skillStore *skill.Store) {
+func addSkillComponent(add func(ComponentStatus), cfg Config, projectRoot string, skillStore *skill.Store) {
 	if skillStore == nil {
 		skillStore = skill.NewStore(projectRoot, "")
 		if err := skillStore.Reload(); err != nil {
@@ -193,7 +197,7 @@ func addSkillComponent(add func(ComponentStatus), projectRoot string, skillStore
 		Kind:        "registry",
 		Status:      emptyIf(len(skills) > 0),
 		Detail:      fmt.Sprintf("%d discovered skills", len(skills)),
-		AgentRoute:  routeIf(len(skills) > 0, "match summary then call skill_read before using a Skill"),
+		AgentRoute:  routeIf(len(skills) > 0 && cfg.Tools.groupEnabled("skill"), "match summary then call skill_read before using a Skill"),
 		UserCommand: "cohort skill list",
 	})
 }
@@ -232,9 +236,12 @@ func addMCPComponent(add func(ComponentStatus), projectRoot string, cfg Config) 
 	}
 	status := "disabled"
 	if cfg.Tools.groupEnabled("mcp") {
-		status = emptyIf(len(servers) > 0)
+		status = "empty"
+		if len(servers) > 0 {
+			status = "configured"
+		}
 	}
-	add(ComponentStatus{ID: "mcp.registry", Name: "MCP Registry", Kind: "registry", Status: status, Detail: fmt.Sprintf("%d configured servers", len(servers)), AgentRoute: enabledRoute(status, "use mcp_* tools exposed by configured servers"), UserCommand: "cohort mcp status"})
+	add(ComponentStatus{ID: "mcp.registry", Name: "MCP Registry", Kind: "registry", Status: status, Detail: fmt.Sprintf("%d configured servers; run status to verify connectivity", len(servers)), UserCommand: "cohort mcp status"})
 }
 
 func addPluginComponent(add func(ComponentStatus), projectRoot string) {
@@ -243,7 +250,11 @@ func addPluginComponent(add func(ComponentStatus), projectRoot string) {
 		add(ComponentStatus{ID: "plugin.manifests", Name: "Plugin Manifests", Kind: "registry", Status: "degraded", Detail: err.Error(), UserCommand: "cohort plugin list"})
 		return
 	}
-	add(ComponentStatus{ID: "plugin.manifests", Name: "Plugin Manifests", Kind: "registry", Status: emptyIf(len(plugins) > 0), Detail: fmt.Sprintf("%d project plugins", len(plugins)), UserCommand: "cohort plugin list"})
+	status := "empty"
+	if len(plugins) > 0 {
+		status = "inspection_only"
+	}
+	add(ComponentStatus{ID: "plugin.manifests", Name: "Plugin Manifests", Kind: "registry", Status: status, Detail: fmt.Sprintf("%d project plugins; manifests are inspected but not auto-mounted", len(plugins)), UserCommand: "cohort plugin list"})
 }
 
 func addEvalComponent(add func(ComponentStatus), projectRoot string) {
@@ -254,7 +265,43 @@ func addEvalComponent(add func(ComponentStatus), projectRoot string) {
 		add(ComponentStatus{ID: "eval.suites", Name: "Eval Suites", Kind: "quality", Status: "degraded", Detail: err.Error(), UserCommand: "cohort eval list"})
 		return
 	}
-	add(ComponentStatus{ID: "eval.suites", Name: "Eval Suites", Kind: "quality", Status: readyIf(suiteCount > 0), Detail: fmt.Sprintf("%d suites; %d saved runs", suiteCount, len(results)), AgentRoute: "use eval suites for regression verification and gates", UserCommand: "cohort eval list"})
+	status := readyIf(suiteCount > 0)
+	add(ComponentStatus{ID: "eval.suites", Name: "Eval Suites", Kind: "quality", Status: status, Detail: fmt.Sprintf("%d suites; %d saved runs", suiteCount, len(results)), AgentRoute: enabledRoute(status, "use eval suites for regression verification and gates"), UserCommand: "cohort eval list"})
+}
+
+func addExplorerComponent(add func(ComponentStatus), cfg Config, projectRoot string) {
+	tasks, err := explorer.NewStore(projectRoot).List()
+	if err != nil {
+		add(ComponentStatus{ID: "explorer.lanes", Name: "Read-only Explorer Lanes", Kind: "runtime", Status: "degraded", Detail: err.Error(), UserCommand: "cohort explorer list"})
+		return
+	}
+	status := "ready"
+	if strings.TrimSpace(cfg.LLM.Active().APIKey) == "" {
+		status = "missing"
+	}
+	open := 0
+	running := 0
+	completed := 0
+	for _, task := range tasks {
+		switch task.Status {
+		case "open":
+			open++
+		case "running":
+			running++
+		case "completed":
+			completed++
+		}
+	}
+	detail := fmt.Sprintf("tasks=%d open=%d running=%d completed=%d", len(tasks), open, running, completed)
+	add(ComponentStatus{
+		ID:          "explorer.lanes",
+		Name:        "Read-only Explorer Lanes",
+		Kind:        "runtime",
+		Status:      status,
+		Detail:      detail,
+		AgentRoute:  enabledRoute(status, "use `cohort explorer create` and `cohort explorer run` for isolated read-only investigation"),
+		UserCommand: "cohort explorer list",
+	})
 }
 
 func addHermesComponent(add func(ComponentStatus), projectRoot string) {
@@ -262,24 +309,36 @@ func addHermesComponent(add func(ComponentStatus), projectRoot string) {
 	status := "stopped"
 	var snapshot hermes.Status
 	if data, err := os.ReadFile(store.StatusPath()); err == nil {
-		_ = json.Unmarshal(data, &snapshot)
-		if snapshot.Running {
+		if err := json.Unmarshal(data, &snapshot); err != nil {
+			add(ComponentStatus{ID: "hermes.daemon", Name: "Hermes Quality Daemon", Kind: "runtime", Status: "degraded", Detail: err.Error(), UserCommand: "cohort hermes status"})
+			return
+		}
+		if pid := hermesPID(store, snapshot.PID); componentProcessRunning(pid) {
 			status = "running"
 		}
 	}
-	queue, _ := store.LoadQueue()
-	jobs, _ := store.LoadJobs()
-	repairs, _ := store.LoadRepairs()
+	queue, queueErr := store.LoadQueue()
+	jobs, jobsErr := store.LoadJobs()
+	repairs, repairsErr := store.LoadRepairs()
+	if err := errors.Join(queueErr, jobsErr, repairsErr); err != nil {
+		add(ComponentStatus{ID: "hermes.daemon", Name: "Hermes Quality Daemon", Kind: "runtime", Status: "degraded", Detail: err.Error(), UserCommand: "cohort hermes status"})
+		return
+	}
 	open, critical, high := hermes.CountOpen(queue)
 	detail := fmt.Sprintf("open_actions=%d critical=%d high=%d jobs=%d repairs=%d", open, critical, high, len(jobs.Jobs), len(repairs.Repairs))
-	add(ComponentStatus{ID: "hermes.daemon", Name: "Hermes Quality Daemon", Kind: "runtime", Status: status, Detail: detail, AgentRoute: "use Hermes for scheduled eval, action queue, and repair workflow", UserCommand: "cohort hermes status"})
+	add(ComponentStatus{ID: "hermes.daemon", Name: "Hermes Quality Daemon", Kind: "runtime", Status: status, Detail: detail, AgentRoute: enabledRoute(status, "use Hermes for scheduled eval, action queue, and repair workflow"), UserCommand: "cohort hermes status"})
 }
 
 func addObservabilityComponent(add func(ComponentStatus), cfg Config) {
 	status := "ready"
 	detail := "local run.log.jsonl enabled"
 	if cfg.Observability.Langfuse.Enabled {
-		detail += "; langfuse enabled"
+		if strings.TrimSpace(cfg.Observability.Langfuse.PublicKey) == "" || strings.TrimSpace(cfg.Observability.Langfuse.SecretKey) == "" {
+			status = "degraded"
+			detail += "; langfuse enabled but credentials are missing"
+		} else {
+			detail += "; langfuse enabled"
+		}
 	}
 	if cfg.Observability.AutoRefresh {
 		detail += "; auto refresh enabled"
@@ -327,10 +386,33 @@ func emptyIf(ok bool) string {
 }
 
 func enabledRoute(status string, route string) string {
-	if status == "enabled" || status == "ready" || status == "running" {
+	if status == "registered" || status == "ready" || status == "running" {
 		return route
 	}
 	return ""
+}
+
+func hermesPID(store hermes.Store, fallback int) int {
+	data, err := os.ReadFile(store.PIDPath())
+	if err != nil {
+		return fallback
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return fallback
+	}
+	return pid
+}
+
+func componentProcessRunning(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return process.Signal(syscall.Signal(0)) == nil
 }
 
 func routeIf(ok bool, route string) string {

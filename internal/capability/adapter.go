@@ -1,10 +1,12 @@
 package capability
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +19,7 @@ import (
 
 const AdapterDir = "adapters"
 const EnabledAdaptersFile = "enabled_adapters.json"
+const adapterScaffoldMarker = "COHORT_ADAPTER_SCAFFOLD_INCOMPLETE"
 
 func (s Store) BuildAdapter(proposalID string, adapterType string) (Capability, []string, error) {
 	proposalID = strings.TrimSpace(proposalID)
@@ -69,7 +72,6 @@ func (s Store) BuildAdapter(proposalID string, adapterType string) (Capability, 
 	} else {
 		existing := registry.Capabilities[index]
 		candidate.CreatedAt = existing.CreatedAt
-		candidate.Verification.LastPassedAt = existing.Verification.LastPassedAt
 		registry.Capabilities[index] = candidate
 	}
 	registry.Proposals[proposalIndex].Status = StatusCandidate
@@ -160,16 +162,21 @@ created_at: %s
 func adapterGoStub(capabilityID string) string {
 	return fmt.Sprintf(`package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+)
 
 func main() {
-	fmt.Println("candidate tool adapter %s: implement and register manually")
+	fmt.Fprintln(os.Stderr, "%s: candidate tool adapter %s must be implemented before verification")
+	os.Exit(2)
 }
-`, capabilityID)
+`, adapterScaffoldMarker, capabilityID)
 }
 
 func adapterMCPJSON(capabilityID string) string {
 	return fmt.Sprintf(`{
+  "_cohort_scaffold": true,
   "mcpServers": {
     "%s": {
       "type": "stdio",
@@ -258,6 +265,15 @@ func (s Store) verifyToolAdapter(root string, add func(name string, ok bool, mes
 		add("tool.adapter_go", false, "missing adapter.go")
 		return
 	}
+	source, err := os.ReadFile(adapterPath)
+	if err != nil {
+		add("tool.adapter_go", false, err.Error())
+		return
+	}
+	if bytes.Contains(source, []byte(adapterScaffoldMarker)) {
+		add("tool.implementation", false, "adapter is still the generated scaffold; implement behavior and focused verification first")
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "run", "./adapter.go")
@@ -291,10 +307,19 @@ func (s Store) verifyMCPAdapter(root string, add func(name string, ok bool, mess
 		return
 	}
 	var parsed struct {
-		MCPServers map[string]any `json:"mcpServers"`
+		Scaffold   bool `json:"_cohort_scaffold"`
+		MCPServers map[string]struct {
+			Type    string `json:"type"`
+			Command string `json:"command"`
+			URL     string `json:"url"`
+		} `json:"mcpServers"`
 	}
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		add("mcp.config", false, err.Error())
+		return
+	}
+	if parsed.Scaffold {
+		add("mcp.implementation", false, "MCP config is still the generated scaffold")
 		return
 	}
 	if len(parsed.MCPServers) == 0 {
@@ -302,6 +327,29 @@ func (s Store) verifyMCPAdapter(root string, add func(name string, ok bool, mess
 		return
 	}
 	add("mcp.config", true, fmt.Sprintf("%d server(s)", len(parsed.MCPServers)))
+	for name, server := range parsed.MCPServers {
+		serverType := strings.ToLower(strings.TrimSpace(server.Type))
+		command := strings.TrimSpace(server.Command)
+		rawURL := strings.TrimSpace(server.URL)
+		switch {
+		case serverType == "http" || rawURL != "":
+			parsedURL, err := url.ParseRequestURI(rawURL)
+			add("mcp.server."+name, err == nil && parsedURL.Scheme != "" && parsedURL.Host != "", firstNonEmpty(rawURL, "HTTP server requires url"))
+		case command != "":
+			if strings.ContainsRune(command, filepath.Separator) {
+				path := command
+				if !filepath.IsAbs(path) {
+					path = filepath.Join(root, path)
+				}
+				add("mcp.server."+name, fileExistsLocal(path), filepath.Clean(path))
+				continue
+			}
+			_, err := exec.LookPath(command)
+			add("mcp.server."+name, err == nil, command)
+		default:
+			add("mcp.server."+name, false, "stdio server requires command")
+		}
+	}
 }
 
 func adapterVerificationOutput(checks []adapterVerifyCheck) string {

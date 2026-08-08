@@ -76,6 +76,32 @@ exit 2
 	}
 }
 
+func TestRunAgentUsesQuestionAndPersistsFindings_BitsUT(t *testing.T) {
+	store := NewStore(t.TempDir())
+	task, err := store.Create("where is the runtime assembled?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var received string
+	result, err := store.RunAgent(context.Background(), task.ID, func(_ context.Context, task Task) (string, error) {
+		received = task.Question
+		return "Runner is assembled in internal/app/app.go:40.", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if received != task.Question || result.Task.Status != "completed" || !strings.Contains(result.Findings, "app.go:40") {
+		t.Fatalf("result = %#v received=%q", result, received)
+	}
+	data, err := os.ReadFile(task.ResultPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "## Findings") || !strings.Contains(string(data), "app.go:40") {
+		t.Fatalf("result markdown = %s", string(data))
+	}
+}
+
 func TestRunExplorerBatchWritesAggregateReport_BitsUT(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "bin")

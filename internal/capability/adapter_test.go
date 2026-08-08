@@ -84,6 +84,7 @@ func TestVerifyAndPromoteToolAdapter_BitsUT(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	implementTestToolAdapter(t, root, item.ID)
 
 	verified, output, err := store.Verify(item.ID)
 	if err != nil {
@@ -116,6 +117,7 @@ func TestEnablePromotedToolAdapterWritesExplicitAllowlist_BitsUT(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	implementTestToolAdapter(t, root, item.ID)
 	if _, _, err := store.Verify(item.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -154,6 +156,7 @@ func TestVerifyMCPAdapter_BitsUT(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	implementTestMCPAdapter(t, root, item.ID)
 
 	verified, output, err := store.Verify(item.ID)
 	if err != nil {
@@ -161,5 +164,62 @@ func TestVerifyMCPAdapter_BitsUT(t *testing.T) {
 	}
 	if verified.Verification.LastPassedAt.IsZero() || !strings.Contains(output, "mcp.config") {
 		t.Fatalf("verified = %#v output=%q", verified, output)
+	}
+}
+
+func TestGeneratedAdaptersCannotBeVerified_BitsUT(t *testing.T) {
+	for _, adapterType := range []string{TypeTool, TypeMCP} {
+		t.Run(adapterType, func(t *testing.T) {
+			root := t.TempDir()
+			store := NewStore(root)
+			gap, err := store.AddGap(NewGapFromTask("generated " + adapterType))
+			if err != nil {
+				t.Fatal(err)
+			}
+			proposal, err := store.AddProposal(NewProposalFromGap(gap))
+			if err != nil {
+				t.Fatal(err)
+			}
+			item, _, err := store.BuildAdapter(proposal.ID, adapterType)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := store.Verify(item.ID); err == nil || !strings.Contains(err.Error(), "verification failed") {
+				t.Fatalf("verify error = %v, want generated scaffold rejection", err)
+			}
+		})
+	}
+}
+
+func implementTestToolAdapter(t *testing.T, root string, capabilityID string) {
+	t.Helper()
+	path := filepath.Join(root, ".cohort", "adapters", capabilityID, "adapter.go")
+	content := `package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("adapter behavior passed")
+}
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func implementTestMCPAdapter(t *testing.T, root string, capabilityID string) {
+	t.Helper()
+	path := filepath.Join(root, ".cohort", "adapters", capabilityID, "mcp.json")
+	content := `{
+  "mcpServers": {
+    "test": {
+      "type": "stdio",
+      "command": "go"
+    }
+  }
+}
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
 	}
 }

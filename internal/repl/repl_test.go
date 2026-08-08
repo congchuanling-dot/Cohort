@@ -714,6 +714,24 @@ func TestStartDryRunsSkillInstallLocally_BitsUT(t *testing.T) {
 	}
 }
 
+func TestSkillRuntimePermissionsPreserveControlTools_BitsUT(t *testing.T) {
+	permissions := skillRuntimePermissions(skill.Permissions{
+		AllowTools: []string{"Bash", "Read"},
+		DenyTools:  []string{"skill_read", "mcp_prod_delete"},
+	})
+	for _, want := range []string{"code_run", "file_read", "skill_read", "update_working_checkpoint", "ask_user"} {
+		if !containsString(permissions.AllowTools, want) {
+			t.Fatalf("runtime allow tools missing %q: %#v", want, permissions.AllowTools)
+		}
+	}
+	if containsString(permissions.DenyTools, "skill_read") {
+		t.Fatalf("control tool remained denied: %#v", permissions.DenyTools)
+	}
+	if !containsString(permissions.DenyTools, "mcp_prod_delete") {
+		t.Fatalf("declared business deny was lost: %#v", permissions.DenyTools)
+	}
+}
+
 func TestStartConfirmsSkillInstallWithYesFlag_BitsUT(t *testing.T) {
 	workspace := t.TempDir()
 	source := filepath.Join(t.TempDir(), "repl-install-skill")

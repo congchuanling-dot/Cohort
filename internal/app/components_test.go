@@ -34,12 +34,12 @@ func TestBuildComponentInventorySummarizesCoreSubsystems_BitsUT(t *testing.T) {
 	for _, component := range inventory.Components {
 		byID[component.ID] = component
 	}
-	for _, id := range []string{"tools.core", "tools.lsp", "tools.browser", "project.mode", "skill.index", "eval.suites", "hermes.daemon"} {
+	for _, id := range []string{"tools.core", "tools.lsp", "tools.browser", "project.mode", "skill.index", "eval.suites", "explorer.lanes", "hermes.daemon"} {
 		if _, ok := byID[id]; !ok {
 			t.Fatalf("component %s missing from inventory: %#v", id, inventory.Components)
 		}
 	}
-	if byID["tools.core"].Status != "enabled" || byID["tools.browser"].Status != "disabled" {
+	if byID["tools.core"].Status != "registered" || byID["tools.browser"].Status != "disabled" {
 		t.Fatalf("tool group statuses = core:%s browser:%s", byID["tools.core"].Status, byID["tools.browser"].Status)
 	}
 	if byID["project.mode"].Status != "ready" {
@@ -64,6 +64,26 @@ func TestBuildSystemPromptInjectsComponentMap_BitsUT(t *testing.T) {
 	for _, want := range []string{"[Component Map]", "tools.core", "cohort components", "disabled/missing"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	allPrompt := BuildSystemPromptForProject(Config{Language: "zh"}, nil, root)
+	for _, want := range []string{"tools.memory", "tools.skill"} {
+		if !strings.Contains(allPrompt, want) {
+			t.Fatalf("component map was truncated before %q:\n%s", want, allPrompt)
+		}
+	}
+}
+
+func TestBuildSystemPromptOmitsDisabledToolInstructions_BitsUT(t *testing.T) {
+	prompt := BuildSystemPromptForProject(Config{
+		Language: "zh",
+		Tools: ToolConfig{
+			EnabledGroups: []string{"core", "lsp"},
+		},
+	}, nil, t.TempDir())
+	for _, forbidden := range []string{"browser_open", "desktop_permissions", "computer_see", "必须调用 ask_user", "调用 skill_read"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("prompt contains disabled tool instruction %q:\n%s", forbidden, prompt)
 		}
 	}
 }

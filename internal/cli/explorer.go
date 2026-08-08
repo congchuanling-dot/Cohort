@@ -8,15 +8,18 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
+	"cohort/internal/agent"
+	"cohort/internal/app"
 	"cohort/internal/explorer"
 )
 
 const explorerChildEnv = "COHORT_EXPLORER_CHILD"
 
-func runExplorerCommand(args []string, out io.Writer) error {
+func runExplorerCommand(ctx context.Context, cfg app.Config, configPath string, args []string, out io.Writer) error {
 	if len(args) == 0 {
 		return errors.New("usage: cohort explorer create|list|show|run ...")
 	}
@@ -77,13 +80,13 @@ func runExplorerCommand(args []string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		return runExplorerIsolated(root, id, opts, out)
+		return runExplorerIsolated(root, configPath, id, opts, out)
 	case "run-batch":
 		ids, opts, err := parseExplorerRunBatchArgs(args[1:])
 		if err != nil {
 			return err
 		}
-		return runExplorerBatchIsolated(root, ids, opts, out)
+		return runExplorerBatchIsolated(root, configPath, ids, opts, out)
 	case "run-child":
 		if os.Getenv(explorerChildEnv) != "1" {
 			return errors.New("explorer run-child is internal; use cohort explorer run <id>")
@@ -92,8 +95,9 @@ func runExplorerCommand(args []string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		result, err := store.Run(context.Background(), id, opts)
+		result, err := store.RunAgent(ctx, id, explorerInvestigator(cfg, root, opts, out))
 		if err != nil {
+			_ = printExplorerRunResult(result, out)
 			return err
 		}
 		return printExplorerRunResult(result, out)
@@ -105,7 +109,7 @@ func runExplorerCommand(args []string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		result, err := store.RunBatch(context.Background(), ids, opts)
+		result, err := store.RunAgentBatch(ctx, ids, explorerInvestigator(cfg, root, opts, io.Discard))
 		if printErr := printExplorerBatchRunResult(result, out); printErr != nil {
 			return printErr
 		}
@@ -115,7 +119,50 @@ func runExplorerCommand(args []string, out io.Writer) error {
 	}
 }
 
-func runExplorerIsolated(root string, id string, opts explorer.RunOptions, out io.Writer) error {
+func explorerInvestigator(cfg app.Config, root string, opts explorer.RunOptions, out io.Writer) func(context.Context, explorer.Task) (string, error) {
+	return func(ctx context.Context, task explorer.Task) (string, error) {
+		runCfg := cfg
+		runCfg.Workspace = root
+		runCfg.LogDir = filepath.Join(filepath.Dir(task.ResultPath), "logs")
+		runCfg.Tools.EnabledGroups = []string{"core", "lsp"}
+		runCfg.Observability.AutoRefresh = false
+		runner, err := app.NewRunner(runCfg)
+		if err != nil {
+			return "", err
+		}
+		defer runner.Close()
+		runner.Tools = explorer.NewReadOnlyToolRunner(runner.Tools, root)
+		runner.SessionStore = nil
+		runner.DisableLongTermMemoryReview = true
+		runner.DisableCapabilityGapRecording = true
+		runner.SystemPrompt += `
+[EXPLORER MODE]
+你正在执行隔离的只读代码调查。只能使用当前 schema 中的读取、搜索和 LSP 工具。
+不得修改文件、安装依赖、启动服务或执行带副作用的命令。结论必须直接回答问题，
+列出代码证据和文件行号；证据不足时明确说明，不得把命令成功当作问题已回答。`
+		prompt := task.Question
+		if strings.TrimSpace(opts.Search) != "" {
+			prompt += "\n优先检索模式：" + strings.TrimSpace(opts.Search)
+		}
+		if opts.WithTests {
+			prompt += "\n用户要求同时检查现有测试覆盖；Explorer 仍保持只读，不执行测试代码。"
+		}
+		result, err := runner.Run(ctx, prompt, agent.NewConsoleSink(out))
+		if err != nil {
+			return "", err
+		}
+		if result.Status != agent.RunStatusDone || result.Response == nil {
+			return "", fmt.Errorf("explorer agent finished with status %s", result.Status)
+		}
+		findings := strings.TrimSpace(result.Response.Content)
+		if findings == "" {
+			return "", errors.New("explorer agent returned no findings")
+		}
+		return findings, nil
+	}
+}
+
+func runExplorerIsolated(root string, configPath string, id string, opts explorer.RunOptions, out io.Writer) error {
 	executable, err := os.Executable()
 	if err != nil {
 		return err
@@ -124,6 +171,9 @@ func runExplorerIsolated(root string, id string, opts explorer.RunOptions, out i
 	cmd := exec.Command(executable, args...)
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), explorerChildEnv+"=1")
+	if strings.TrimSpace(configPath) != "" {
+		cmd.Env = append(cmd.Env, app.EnvConfigPath+"="+configPath)
+	}
 	output, err := cmd.CombinedOutput()
 	if len(output) > 0 {
 		if _, writeErr := out.Write(output); writeErr != nil {
@@ -147,7 +197,7 @@ func explorerChildArgs(id string, opts explorer.RunOptions) []string {
 	return args
 }
 
-func runExplorerBatchIsolated(root string, ids []string, opts explorer.RunOptions, out io.Writer) error {
+func runExplorerBatchIsolated(root string, configPath string, ids []string, opts explorer.RunOptions, out io.Writer) error {
 	executable, err := os.Executable()
 	if err != nil {
 		return err
@@ -156,6 +206,9 @@ func runExplorerBatchIsolated(root string, ids []string, opts explorer.RunOption
 	cmd := exec.Command(executable, args...)
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), explorerChildEnv+"=1")
+	if strings.TrimSpace(configPath) != "" {
+		cmd.Env = append(cmd.Env, app.EnvConfigPath+"="+configPath)
+	}
 	output, err := cmd.CombinedOutput()
 	if len(output) > 0 {
 		if _, writeErr := out.Write(output); writeErr != nil {

@@ -63,9 +63,8 @@ log_dir: "%s"
 max_turns: 300
 
 tools:
-  # Empty or omitted enabled_groups preserves the historical full tool surface.
-  # For faster default chat with browser tools, use: [core, lsp, browser, memory, skill, ask]
-  enabled_groups: []
+  # Register the full tool surface; Component Map still reports runtime readiness separately.
+  enabled_groups: [*]
 
 llm:
   active_profile: %s

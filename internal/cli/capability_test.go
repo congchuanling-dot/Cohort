@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -74,10 +75,11 @@ func TestRunCapabilityLifecycleCommand_BitsUT(t *testing.T) {
 	if err := runCapabilityCommand([]string{"doctor", capabilityID}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "ready_to_verify: true") || !strings.Contains(out.String(), "smoke_test") {
+	if !strings.Contains(out.String(), "ready_to_verify: false") || !strings.Contains(out.String(), "skill_implementation") {
 		t.Fatalf("doctor output = %q", out.String())
 	}
 
+	implementCLITestSkillCapability(t, dir, capabilityID)
 	out.Reset()
 	if err := runCapabilityCommand([]string{"verify", capabilityID}, &out); err != nil {
 		t.Fatal(err)
@@ -161,6 +163,7 @@ func TestRunCapabilityAdapterVerifyPromote_BitsUT(t *testing.T) {
 		t.Fatal(err)
 	}
 	capabilityID := outputValue(t, out.String(), "capability")
+	implementCLITestToolAdapter(t, dir, capabilityID)
 	out.Reset()
 	if err := runCapabilityCommand([]string{"verify", capabilityID}, &out); err != nil {
 		t.Fatalf("verify error = %v\n%s", err, out.String())
@@ -174,6 +177,33 @@ func TestRunCapabilityAdapterVerifyPromote_BitsUT(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "status: available") {
 		t.Fatalf("promote output = %q", out.String())
+	}
+}
+
+func implementCLITestSkillCapability(t *testing.T, root string, capabilityID string) {
+	t.Helper()
+	skillPath := filepath.Join(root, ".cohort", "skills", capabilityID, "SKILL.md")
+	data, err := os.ReadFile(skillPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = []byte(strings.ReplaceAll(string(data), "COHORT_SKILL_SCAFFOLD_INCOMPLETE", "IMPLEMENTED"))
+	if err := os.WriteFile(skillPath, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	scriptPath := filepath.Join(root, ".cohort", "skills", capabilityID, "tests", "smoke.sh")
+	script := "#!/usr/bin/env bash\nset -euo pipefail\necho \"capability smoke passed: " + capabilityID + "\"\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func implementCLITestToolAdapter(t *testing.T, root string, capabilityID string) {
+	t.Helper()
+	path := filepath.Join(root, ".cohort", "adapters", capabilityID, "adapter.go")
+	content := "package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(\"adapter behavior passed\") }\n"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
 	}
 }
 

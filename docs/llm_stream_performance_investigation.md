@@ -50,18 +50,17 @@ tools:
 
 规则：
 
-- `enabled_groups` 为空或省略时，保持历史兼容，注册全量工具。
+- `enabled_groups` 为空或省略时，保持全量工具注册。
 - 显式配置后，只注册列出的工具组。
+- `[*]` 用于明确声明全量工具。
 - `mcp` 组未启用时，不加载 MCP Manager，也不启动外部 MCP Server。
 
-当前项目配置已恢复历史默认：
+当前项目显式注册全量工具：
 
 ```yaml
 tools:
-  enabled_groups: []
+  enabled_groups: [*]
 ```
-
-也就是注册全部工具组，保证 SOP 命中后模型可以直接看到对应工具，例如桌面 SOP 可以看到 `desktop_permissions`、`desktop_windows`、`desktop_activate` 等工具。
 
 轻量模式建议保留：
 
@@ -79,13 +78,13 @@ tools:
 - `mcp`
 - `adapter`
 
-这些能力需要时再显式加入，避免普通对话被重型工具面拖慢。当前项目为了保证桌面/Computer/MCP SOP 可直接执行，没有启用该轻量模式。
+这些能力需要时再显式加入，避免普通对话被重型工具面拖慢。
 
 ### 2. MCP 按需加载
 
 优化前：只要项目存在 `.cohort/local.mcp.json`，Runner 启动就会加载 MCP Server。
 
-优化后：只有显式配置非空 `enabled_groups` 且未包含 `mcp` 时，才跳过 MCP Manager 和外部 MCP Server。当前项目 `enabled_groups: []` 保持历史默认，因此仍会按原逻辑加载 MCP。
+优化后：全量模式会加载 MCP Manager；只有显式精简列表未包含 `mcp` 时，才跳过 MCP Manager 和外部 MCP Server。
 
 ### 3. 本地观测日志异步化
 

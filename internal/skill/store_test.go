@@ -221,6 +221,32 @@ permissions:
 	}
 }
 
+func TestStoreNormalizesLegacyPermissionToolNames_BitsUT(t *testing.T) {
+	workspace := t.TempDir()
+	writeSkill(t, filepath.Join(workspace, ".cohort", "skills", "legacy", SkillFileName), `---
+name: legacy
+description: Legacy permission names.
+allowed-tools: Bash, Read, Write, Edit
+---
+
+# Legacy
+`)
+
+	store := NewStore(workspace, t.TempDir())
+	if err := store.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	item, err := store.Find("legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(item.Permissions.AllowTools, ",")
+	want := "code_run,file_read,file_write,file_patch"
+	if got != want {
+		t.Fatalf("allow tools = %q, want %q", got, want)
+	}
+}
+
 func writeSkill(t *testing.T, path string, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {

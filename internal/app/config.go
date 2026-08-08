@@ -28,7 +28,7 @@ type Config struct {
 	Context contextmgr.Config
 	// Observability 保存本地和外部观测输出配置。
 	Observability ObservabilityConfig
-	// Tools 控制哪些工具组会暴露给模型；空列表保持历史兼容，注册全部工具组。
+	// Tools 控制哪些工具组会暴露给模型；空列表和 "*" 都注册全部工具组。
 	Tools ToolConfig
 }
 
@@ -108,8 +108,8 @@ type LangfuseConfig struct {
 	TimeoutSeconds int
 }
 
-// ToolConfig 控制工具注册面。EnabledGroups 为空时沿用旧行为，注册全部工具；
-// 一旦显式配置，就只注册列出的工具组。
+// ToolConfig 控制工具注册面。EnabledGroups 为空或包含 "*" 时启用全部工具；
+// 其他情况只注册显式列出的工具组。
 type ToolConfig struct {
 	EnabledGroups []string
 }
@@ -236,7 +236,7 @@ func defaultConfig() Config {
 		Context:       contextmgr.DefaultConfig(),
 		Observability: defaultObservabilityConfig(),
 		Tools: ToolConfig{
-			EnabledGroups: nil,
+			EnabledGroups: []string{"*"},
 		},
 		LLM: LLMConfig{
 			Provider:              "openai",
@@ -269,6 +269,9 @@ func (cfg ToolConfig) groupEnabled(group string) bool {
 }
 
 func (cfg ToolConfig) normalizedGroups() []string {
+	if len(cfg.EnabledGroups) == 0 {
+		return []string{"*"}
+	}
 	groups := make([]string, 0, len(cfg.EnabledGroups))
 	seen := map[string]bool{}
 	for _, group := range cfg.EnabledGroups {
