@@ -107,12 +107,12 @@ func TestDefaultConfigUsesFullToolSurface_BitsUT(t *testing.T) {
 	if !strings.Contains(content, "enabled_groups: [*]") {
 		t.Fatalf("generated config does not preserve full tool surface:\n%s", content)
 	}
-	if !cfg.Tools.AdaptiveRouting || cfg.Tools.AdaptiveMaxExternalTools != 8 ||
+	if cfg.Tools.AdaptiveRouting || cfg.Tools.AdaptiveMaxExternalTools != 8 ||
 		cfg.Tools.AdaptiveFailureThreshold != 2 || cfg.Tools.AdaptiveMinSchemaCount != 20 {
 		t.Fatalf("default adaptive tool routing = %#v", cfg.Tools)
 	}
-	if !strings.Contains(content, "adaptive_routing: true") {
-		t.Fatalf("generated config does not enable adaptive routing:\n%s", content)
+	if !strings.Contains(content, "adaptive_routing: false") {
+		t.Fatalf("generated config does not preserve the full tool surface:\n%s", content)
 	}
 	empty := ToolConfig{}
 	if !empty.groupEnabled("core") || !empty.groupEnabled("browser") || !empty.groupEnabled("mcp") || !empty.groupEnabled("desktop") {

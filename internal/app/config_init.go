@@ -65,8 +65,8 @@ max_turns: 300
 tools:
   # Register the full tool surface; Component Map still reports runtime readiness separately.
   enabled_groups: [*]
-  # Route a compact schema set by intent, then expose the full set after capability/failure escalation.
-  adaptive_routing: true
+  # Keep the complete tool surface by default; enable adaptive routing only when schema reduction is desired.
+  adaptive_routing: false
   adaptive_max_external_tools: 8
   adaptive_failure_threshold: 2
   adaptive_min_schema_count: 20

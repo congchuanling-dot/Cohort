@@ -253,7 +253,7 @@ func defaultConfig() Config {
 		Observability: defaultObservabilityConfig(),
 		Tools: ToolConfig{
 			EnabledGroups:            []string{"*"},
-			AdaptiveRouting:          true,
+			AdaptiveRouting:          false,
 			AdaptiveMaxExternalTools: 8,
 			AdaptiveFailureThreshold: 2,
 			AdaptiveMinSchemaCount:   20,

@@ -198,6 +198,8 @@ cohort tuning report
 
 ## 8. 配置
 
+该能力默认关闭。需要降低工具 Schema Payload 时显式开启：
+
 ```yaml
 tools:
   enabled_groups: [*]

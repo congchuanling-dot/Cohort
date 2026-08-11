@@ -6,8 +6,8 @@ max_turns: 300
 tools:
   # 注册完整工具面；具体运行可用性由 Component Map 和各工具健康检查判断。
   enabled_groups: [*]
-  # 按任务意图渐进暴露 schema；能力不足或连续失败时自动升级到完整工具面。
-  adaptive_routing: true
+  # 默认保留完整工具面；需要节省 schema 时可显式开启自适应路由。
+  adaptive_routing: false
   adaptive_max_external_tools: 8
   adaptive_failure_threshold: 2
   adaptive_min_schema_count: 20

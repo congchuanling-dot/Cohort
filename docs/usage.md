@@ -594,18 +594,19 @@ cohort tools route "分析当前 Go 项目并修复测试"
 cohort tools route "打开 https://example.com 检查登录按钮"
 ```
 
-默认开启自适应工具路由：
+默认保留完整工具面，避免意图误判隐藏浏览器等能力：
 
 ```yaml
 tools:
   enabled_groups: [*]
-  adaptive_routing: true
+  adaptive_routing: false
   adaptive_max_external_tools: 8
   adaptive_failure_threshold: 2
   adaptive_min_schema_count: 20
 ```
 
-`enabled_groups` 控制实际注册能力；自适应路由只控制每轮 LLM 请求可见的 schema。
+需要降低 Schema Payload 时可将 `adaptive_routing` 显式改为 `true`。`enabled_groups`
+控制实际注册能力；自适应路由只控制每轮 LLM 请求可见的 schema。
 模型因工具不可见准备早停，或工具连续失败两次时，会自动升级到完整工具面。Skill、MCP
 和 Computer Use 的权限门禁不会被路由器绕过。
 
