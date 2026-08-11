@@ -1337,6 +1337,42 @@ go run . skill reload
 go run . config
 ```
 
+### 9.5 自动反思队列
+
+普通交互任务结束后，`SessionEnd` Hook 默认只把轻量 trigger 写入：
+
+```text
+.cohort/reflection/queue/pending/
+```
+
+它不会在用户回答主路径执行反思，也不会保存 prompt、工具结果正文或密钥。Eval、Hermes
+Repair 和 Explorer 运行不会进入该队列。
+
+配置：
+
+```yaml
+reflection:
+  auto_enqueue: true
+  debounce_seconds: 30
+  max_attempts: 3
+```
+
+查看和手动消费：
+
+```bash
+cohort reflect status
+cohort reflect drain
+cohort reflect retry <job_id>
+```
+
+Hermes daemon 运行时会自动批量消费到期任务：
+
+```bash
+cohort hermes start
+```
+
+反思只生成 session archive、质量报告和 SOP/Skill candidate，不会自动 promote。
+
 ## 10. 命令速查
 
 外部 CLI：

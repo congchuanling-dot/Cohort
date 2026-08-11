@@ -480,6 +480,7 @@ func executeEvalCase(ctx context.Context, cfg app.Config, c evaluation.Case, ses
 	}
 	evalSessionStore := session.NewStore(sessionRoot)
 	runner.SessionStore = &evalSessionStore
+	runner.RunMode = agent.RunModeEval
 	runner.DisableLongTermMemoryReview = true
 	runner.DisableCapabilityGapRecording = true
 	runner.SystemPrompt += "\n[EVALUATION MODE] 这是隔离评测运行。只能调用本次请求实际提供的工具；不要调用长期记忆、checkpoint、ask_user 或未出现在 tool schema 中的工具。完成用户任务后直接给出答案。"

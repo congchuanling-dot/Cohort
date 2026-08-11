@@ -17,6 +17,7 @@
 /.cohort/screenshots/
 /.cohort/hermes/worktrees/
 /.cohort/hermes/repair-artifacts/
+/.cohort/reflection/
 /packages/npm/vendor/cohort
 /packages/npm/vendor/*.download
 /packages/npm/*.tgz

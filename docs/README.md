@@ -63,6 +63,7 @@
 | `[部分完成]` | [computer_control_roadmap.md](computer_control_roadmap.md) | “操控电脑的所有操作”的能力缺口、风险边界和开发顺序；P1 核心原语、`computer_visual_snapshot`、`computer_execute_step`、结构化 recover policy、detector 协议和 `doctor computer --smoke-app` 已完成；下一步是模型/SDK 级 UI detector、多显示器和更多真实 App 回归样例。 |
 | `[规划]` | [human_os_operation_technical_design.md](human_os_operation_technical_design.md) | Computer Use 跨 OS 操作层方案；对模型暴露 `computer_see/find/click/type/press/check/wait`，底层键鼠输入绑定窗口、风险等级、验证和审计。 |
 | `[部分完成]` | [self_evolution_technical_design.md](self_evolution_technical_design.md) | 受控长期记忆、证据、SOP candidate、离线 session archive、failure pattern、memory quality 和 Skill candidate 报告已完成；后台反射和更强 L4 质量闭环未完成。 |
+| `[完成]` | [session_end_reflection_queue_design.md](session_end_reflection_queue_design.md) | `SessionEnd Hook -> 持久队列 -> Reflect Worker` 已落地；包含去重、水位、批处理、失败恢复、Hermes daemon 调度和禁止自动 promote 的边界。 |
 | `[部分完成]` | [capability_evolution_technical_design.md](capability_evolution_technical_design.md) | 能力边界拓展闭环方案；本地 registry、手动 gap/proposal CLI、Runner no-tool gap 记录、项目级 Skill scaffold、doctor 诊断、依赖安装审核与审计、smoke test、registry promote、available capability 索引注入、重复 gap CLI 建议、Skill 候选离线挖掘和 Tool/MCP adapter scaffold + verify/promote/enable 已落地；更强自动路由和离线反思汇总仍待补。 |
 | `[部分完成]` | [cohort_self_evolution_research.md](cohort_self_evolution_research.md) | 自进化调研及后续路线，P1-P3 仍为规划。 |
 

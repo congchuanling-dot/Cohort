@@ -30,6 +30,8 @@ type Config struct {
 	Observability ObservabilityConfig
 	// Tools 控制哪些工具组会暴露给模型；空列表和 "*" 都注册全部工具组。
 	Tools ToolConfig
+	// Reflection 控制 SessionEnd 自动入队和后台反思队列参数。
+	Reflection ReflectionConfig
 }
 
 // LLMConfig 描述模型服务配置。
@@ -112,6 +114,13 @@ type LangfuseConfig struct {
 // 其他情况只注册显式列出的工具组。
 type ToolConfig struct {
 	EnabledGroups []string
+}
+
+// ReflectionConfig 控制自动反思触发。它不允许跳过候选审核或自动 promote。
+type ReflectionConfig struct {
+	AutoEnqueue     bool
+	DebounceSeconds int
+	MaxAttempts     int
 }
 
 // LoadConfig 读取项目根目录的配置文件，并用环境变量替换 ${VAR}。
@@ -200,6 +209,8 @@ func LoadConfig(path string) (Config, error) {
 			}
 		} else if section == "tools" {
 			applyToolValue(&cfg.Tools, key, val)
+		} else if section == "reflection" {
+			applyReflectionValue(&cfg.Reflection, key, val)
 		} else {
 			applyRootValue(&cfg, key, val)
 		}
@@ -221,6 +232,7 @@ func finalizeConfig(cfg Config) (Config, error) {
 		return cfg, err
 	}
 	cfg.Observability = normalizeObservabilityConfig(cfg.Observability)
+	cfg.Reflection = normalizeReflectionConfig(cfg.Reflection)
 	active := cfg.LLM.Active()
 	cfg.Context.ContextWindowTokens = contextmgr.ResolveContextWindowTokens(active.Model)
 	return cfg, nil
@@ -237,6 +249,11 @@ func defaultConfig() Config {
 		Observability: defaultObservabilityConfig(),
 		Tools: ToolConfig{
 			EnabledGroups: []string{"*"},
+		},
+		Reflection: ReflectionConfig{
+			AutoEnqueue:     true,
+			DebounceSeconds: 30,
+			MaxAttempts:     3,
 		},
 		LLM: LLMConfig{
 			Provider:              "openai",
@@ -432,6 +449,16 @@ func normalizeObservabilityConfig(cfg ObservabilityConfig) ObservabilityConfig {
 	return cfg
 }
 
+func normalizeReflectionConfig(cfg ReflectionConfig) ReflectionConfig {
+	if cfg.DebounceSeconds < 0 {
+		cfg.DebounceSeconds = 0
+	}
+	if cfg.MaxAttempts <= 0 {
+		cfg.MaxAttempts = 3
+	}
+	return cfg
+}
+
 // applyRootValue 写入顶层配置字段。
 func applyRootValue(cfg *Config, key, val string) {
 	switch key {
@@ -539,6 +566,17 @@ func applyObservabilityValue(cfg *ObservabilityConfig, key, val string) {
 		cfg.AutoRefresh = parseBoolDefault(val, cfg.AutoRefresh)
 	case "auto_refresh_limit":
 		cfg.AutoRefreshLimit = atoiDefault(val, cfg.AutoRefreshLimit)
+	}
+}
+
+func applyReflectionValue(cfg *ReflectionConfig, key, val string) {
+	switch key {
+	case "auto_enqueue":
+		cfg.AutoEnqueue = parseBoolDefault(val, cfg.AutoEnqueue)
+	case "debounce_seconds":
+		cfg.DebounceSeconds = atoiDefault(val, cfg.DebounceSeconds)
+	case "max_attempts":
+		cfg.MaxAttempts = atoiDefault(val, cfg.MaxAttempts)
 	}
 }
 

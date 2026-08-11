@@ -13,6 +13,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"cohort/internal/agent"
 	"cohort/internal/app"
 	"cohort/internal/evaluation"
 	"cohort/internal/hermes"
@@ -239,6 +240,7 @@ func configureHermesRepairWorker(service *hermes.Service, cfg app.Config, out io
 		defer runner.Close()
 		repairSessions := session.NewStore(filepath.Join(task.ArtifactDir, "sessions"))
 		runner.SessionStore = &repairSessions
+		runner.RunMode = agent.RunModeRepair
 		runner.DisableLongTermMemoryReview = true
 		runner.DisableCapabilityGapRecording = true
 		runner.SystemPrompt += `

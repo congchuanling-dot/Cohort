@@ -66,6 +66,12 @@ tools:
   # Register the full tool surface; Component Map still reports runtime readiness separately.
   enabled_groups: [*]
 
+reflection:
+  # SessionEnd only enqueues lightweight metadata; reflection runs in the local daemon.
+  auto_enqueue: true
+  debounce_seconds: 30
+  max_attempts: 3
+
 llm:
   active_profile: %s
   # fallback_profiles: [local]

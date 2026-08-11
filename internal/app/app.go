@@ -15,6 +15,8 @@ import (
 	"cohort/internal/contextmgr"
 	"cohort/internal/debugperf"
 	"cohort/internal/desktop"
+	"cohort/internal/evolution"
+	"cohort/internal/hooks"
 	"cohort/internal/llm"
 	"cohort/internal/lsp"
 	"cohort/internal/mcp"
@@ -121,28 +123,45 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 	})
 	// #endregion
 	sessionStore := session.NewStore(session.DefaultRootDir)
+	sessionRoot := normalizeWorkspace(sessionStore.RootDir)
 	contextManager := &contextmgr.Manager{
 		Config:     cfg.Context.Normalize(),
 		MemoryRoot: filepath.Join(workspace, "memory"),
 	}
+	reflectionQueue := evolution.NewReflectionQueue(cwd)
+	reflectionHook := evolution.NewSessionEndReflectionHandler(
+		reflectionQueue,
+		evolution.SessionEndReflectionConfig{
+			Enabled:         cfg.Reflection.AutoEnqueue,
+			ProjectRoot:     cwd,
+			MemoryWorkspace: workspace,
+			SessionRoot:     sessionRoot,
+			Debounce:        time.Duration(cfg.Reflection.DebounceSeconds) * time.Second,
+			MaxAttempts:     cfg.Reflection.MaxAttempts,
+		},
+	)
 
 	// Runner 不直接知道具体工具类型，只依赖 ToolRunner 接口。
 	runner := &agent.Runner{
-		Client:         client,
-		Tools:          registry,
-		SystemPrompt:   BuildSystemPromptForProject(cfg, skillStore, cwd),
-		MaxTurns:       cfg.MaxTurns,
-		LogDir:         filepath.Clean(cfg.LogDir),
-		ContextManager: contextManager,
-		SessionStore:   &sessionStore,
-		SessionCWD:     cwd,
-		SessionModel:   active.Model,
+		Client:                    client,
+		Tools:                     registry,
+		SystemPrompt:              BuildSystemPromptForProject(cfg, skillStore, cwd),
+		MaxTurns:                  cfg.MaxTurns,
+		LogDir:                    filepath.Clean(cfg.LogDir),
+		ContextManager:            contextManager,
+		SessionStore:              &sessionStore,
+		SessionCWD:                cwd,
+		SessionModel:              active.Model,
+		RunMode:                   agent.RunModeInteractive,
+		ReflectionMemoryWorkspace: workspace,
+		ReflectionSessionRoot:     sessionRoot,
 		CloseFunc: func() error {
 			lsp.CloseRoot(workspace)
 			return mcpManager.Close()
 		},
 		SkillStore:       skillStore,
 		ObservationSinks: buildObservationSinks(cfg.Observability),
+		Hooks:            hooks.NewRegistry(reflectionHook),
 	}
 	// #region debug-point A:runner-ready
 	debugperf.Event("pre-fix", "A", "internal/app/app.go:NewRunner", "NewRunner ready", map[string]any{

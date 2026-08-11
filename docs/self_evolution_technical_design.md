@@ -3,7 +3,9 @@
 > 文档状态：`[部分完成]`。状态基线为 2026-07-26；完整文档导航见 [docs/README.md](README.md)。
 >
 > 已完成：工作记忆、受控长期记忆、EvidenceLedger、项目/相关记忆注入、memory audit、
-> SOP candidate 和人工晋级。未完成：L4 会话归档、后台反射、跨会话候选挖掘和质量闭环。
+> SOP candidate 和人工晋级、L4 会话归档、跨会话候选挖掘，以及
+> `SessionEnd -> 持久队列 -> Reflect Worker` 后台反思。更强语义提炼和晋级后效果评估仍待完善。
+> 自动反思队列实现见 [SessionEnd Hook 自动反思队列接入方案](session_end_reflection_queue_design.md)。
 
 本文档描述 Cohort 后续实现“自我进化能力”的技术方案。
 

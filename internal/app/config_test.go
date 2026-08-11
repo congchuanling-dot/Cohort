@@ -115,6 +115,39 @@ func TestDefaultConfigUsesFullToolSurface_BitsUT(t *testing.T) {
 	if !all.groupEnabled("mcp") || !all.groupEnabled("desktop") {
 		t.Fatal("explicit wildcard did not enable the full tool surface")
 	}
+	if !cfg.Reflection.AutoEnqueue || cfg.Reflection.DebounceSeconds != 30 || cfg.Reflection.MaxAttempts != 3 {
+		t.Fatalf("default reflection config = %#v", cfg.Reflection)
+	}
+	if !strings.Contains(content, "reflection:") || !strings.Contains(content, "auto_enqueue: true") {
+		t.Fatalf("generated config does not include reflection defaults:\n%s", content)
+	}
+}
+
+func TestLoadConfigParsesReflectionSection_BitsUT(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := `reflection:
+  auto_enqueue: false
+  debounce_seconds: 7
+  max_attempts: 5
+
+llm:
+  provider: openai
+  name: test
+  api_key: test-key
+  api_base: https://example.com/v1
+  model: test-model
+  stream: false
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Reflection.AutoEnqueue || cfg.Reflection.DebounceSeconds != 7 || cfg.Reflection.MaxAttempts != 5 {
+		t.Fatalf("reflection config = %#v, want disabled/7/5", cfg.Reflection)
+	}
 }
 
 func TestLoadConfigParsesLLMProfiles_BitsUT(t *testing.T) {

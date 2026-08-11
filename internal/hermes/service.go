@@ -15,21 +15,24 @@ import (
 )
 
 type EvalRunner func(context.Context, Job) (EvalRunOutcome, error)
+type ReflectionRunner func(context.Context) error
 
 type Service struct {
-	ProjectRoot    string
-	Store          Store
-	EvalStore      evaluation.Store
-	Config         Config
-	EvalRunner     EvalRunner
-	RepairRunner   RepairRunner
-	RepairVerifier RepairVerifier
-	Output         io.Writer
-	RetryWait      func(context.Context, time.Duration) error
+	ProjectRoot      string
+	Store            Store
+	EvalStore        evaluation.Store
+	Config           Config
+	EvalRunner       EvalRunner
+	RepairRunner     RepairRunner
+	RepairVerifier   RepairVerifier
+	ReflectionRunner ReflectionRunner
+	Output           io.Writer
+	RetryWait        func(context.Context, time.Duration) error
 
-	mu             sync.Mutex
-	running        map[string]bool
-	runningRepairs map[string]bool
+	mu                sync.Mutex
+	running           map[string]bool
+	runningRepairs    map[string]bool
+	reflectionRunning bool
 }
 
 func NewService(projectRoot string) (*Service, error) {
@@ -237,6 +240,31 @@ func (s *Service) RunDueJobs(ctx context.Context, now time.Time) {
 	}
 }
 
+// DispatchReflection 串行派发后台反思，避免 scheduler ticker 重入。
+// 跨进程并发由 evolution.ReflectionQueue 的 worker lock 再做最终保护。
+func (s *Service) DispatchReflection(ctx context.Context) {
+	if s.ReflectionRunner == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.reflectionRunning {
+		s.mu.Unlock()
+		return
+	}
+	s.reflectionRunning = true
+	s.mu.Unlock()
+	go func() {
+		defer func() {
+			s.mu.Lock()
+			s.reflectionRunning = false
+			s.mu.Unlock()
+		}()
+		if err := s.ReflectionRunner(ctx); err != nil {
+			s.recordError(fmt.Errorf("reflection worker: %w", err))
+		}
+	}()
+}
+
 func (s *Service) Serve(ctx context.Context) error {
 	if err := s.Store.Ensure(); err != nil {
 		return err
@@ -297,6 +325,7 @@ func (s *Service) Serve(ctx context.Context) error {
 		case <-schedulerTicker.C:
 			s.RunDueJobs(ctx, time.Now().UTC())
 			s.DispatchRepairs(ctx)
+			s.DispatchReflection(ctx)
 		case <-stabilityTicker.C:
 			s.runMaintenance("eval_stability", func() error {
 				_, _, _, err := s.RefreshStability()

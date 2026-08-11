@@ -62,6 +62,17 @@ const (
 	RunStatusMaxTurnsExceeded = "max_turns_exceeded"
 )
 
+// RunMode 标识 Runner 的调用来源。生命周期 Hook 依赖它隔离普通交互、
+// Eval、Repair 和 Explorer，禁止后台运行污染用户长期反思队列。
+type RunMode string
+
+const (
+	RunModeInteractive RunMode = "interactive"
+	RunModeEval        RunMode = "eval"
+	RunModeRepair      RunMode = "repair"
+	RunModeExplorer    RunMode = "explorer"
+)
+
 // RunResult 表示一次 Runner.Run 的最终状态。
 type RunResult struct {
 	// Status 表示 Runner 结束原因，例如 done、exited 或 max_turns_exceeded。

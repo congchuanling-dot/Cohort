@@ -33,7 +33,7 @@
 | 8 | Skill 自动候选挖掘 | `[部分完成]` | `cohort reflect once --task mine-skill-candidates` 已从 session、tool evidence 和 failure patterns 生成候选 Skill 报告；不会自动安装或启用。 |
 | 9 | MCP 补全 | `[部分完成]` | 已支持 `cohort mcp import/export`、旧 `type=sse` 配置兼容、`cohort mcp policy list/set/remove`；OAuth 体验深优化和飞书真实验收待补。 |
 | 10 | usage/cost 统计 | `[部分完成]` | Runner 会聚合 token/cache usage 并写入 `RunFinished`；只有显式配置 `COHORT_COST_*_USD_PER_1M` 时估算成本，避免隐藏价格默认值。 |
-| 11 | 离线反思增强 | `[部分完成]` | 已有 session archive、failure pattern、memory quality 和 skill candidate 报告；更强 L4 session archive 自动归档和闭环评分仍待补。 |
+| 11 | 离线反思增强 | `[部分完成]` | 已有 session archive、failure pattern、memory quality、SOP/Skill candidate 报告，以及 `SessionEnd -> 持久队列 -> Reflect Worker` 自动归档、去重水位、失败恢复和 Hermes daemon 调度；更强语义提炼和晋级后闭环评分仍待补。 |
 | 12 | 飞书 MCP 真实端到端验收 | `[验收支线]` | 用户显式装配官方 Server 后，完成 OAuth、只读文档、R2 写操作确认和 `run.log` 检查；不阻塞内置 Skill 包主线。 |
 | 13 | Agent Eval 与可视化 | `[部分完成]` | 已提供 core/tool-routing/stateful/computer-use-real 内置 suite、多维状态断言、真实 LLM Judge、repeat 稳定率、A/B matrix、CI gate、trace timeline、Action Items；Hermes 已具备持久化 jobs、cron/interval、真实 Eval Runner、重试与 lock、Action 自动升级/重开、Auto Repair 隔离 worktree/安全 diff/测试与 Eval gate/人工审核/事务合并/验证后关闭、stdout/file/webhook 通知和 loopback Local API。Langfuse dataset 接入与 SQLite 化待补。 |
 | 14 | TS/Python Language Server | `[已完成]` | TypeScript/Python 已使用 `typescript-language-server`/`pyright-langserver` 长驻 stdio，支持 initialize、文件同步、definition/references/hover/symbols、查询缓存、状态、重启、自动恢复和显式 fallback reason；安装计划固定 TypeScript 5.x 兼容版本。 |
@@ -44,7 +44,7 @@
 - Computer Use 跨 OS 操作层：先按 `docs/human_os_operation_technical_design.md` 建 `computer_see/find` 和 target cache，再做 `computer_click/type` 起草消息 MVP，之后接 `computer_press/check/wait` 的确认发送链路。
 - Plugin manifest、LSP、多模型 fallback：在 Project/Plan Mode 的最小形态稳定后开始。
 - Marketplace、daemon、Gateway、Cohort 作为 MCP Server：在权限、审计、运行事件和真实 MCP 验收稳定后开始。
-- 自动反射、L4 会话挖掘：离线报告已有基础，下一步做调度、质量评分和闭环回写。
+- 自动反射、L4 会话挖掘：持久队列和 daemon 调度已完成，下一步做更强语义提炼、质量评分和闭环回写。
 
 ### 更新规则
 

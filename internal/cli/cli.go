@@ -123,6 +123,9 @@ func Run(args []string) error {
 		fmt.Printf("context.enable_micro_compact: %t\n", cfg.Context.EnableMicroCompact)
 		fmt.Printf("observability.auto_refresh: %t\n", cfg.Observability.AutoRefresh)
 		fmt.Printf("observability.auto_refresh_limit: %d\n", cfg.Observability.AutoRefreshLimit)
+		fmt.Printf("reflection.auto_enqueue: %t\n", cfg.Reflection.AutoEnqueue)
+		fmt.Printf("reflection.debounce_seconds: %d\n", cfg.Reflection.DebounceSeconds)
+		fmt.Printf("reflection.max_attempts: %d\n", cfg.Reflection.MaxAttempts)
 		if cfg.LLM.APIKey == "" {
 			fmt.Println("api_key: missing")
 		} else {
@@ -413,9 +416,9 @@ func runMCPCommand(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: cohort mcp add|list|status|tools|probe|remove ...")
 	}
-	projectRoot, err := os.Getwd()
-	if err != nil {
-		return err
+	projectRoot, getwdErr := os.Getwd()
+	if getwdErr != nil {
+		return getwdErr
 	}
 	store := mcp.NewStore(projectRoot)
 	switch args[0] {
@@ -1210,8 +1213,54 @@ func runSessionCommand(ctx context.Context, cfg app.Config, args []string) error
 }
 
 func runReflectCommand(cfg app.Config, args []string, out io.Writer) error {
-	if len(args) == 0 || args[0] != "once" {
-		return fmt.Errorf("usage: cohort reflect once --task %s", reflectTaskUsage)
+	if len(args) == 0 {
+		return fmt.Errorf("usage: cohort reflect once --task %s | status | drain | retry <job_id>", reflectTaskUsage)
+	}
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	queue := evolution.NewReflectionQueue(projectRoot)
+	switch args[0] {
+	case "status":
+		if len(args) != 1 {
+			return errors.New("usage: cohort reflect status")
+		}
+		status, statusErr := queue.Status()
+		if statusErr != nil {
+			return statusErr
+		}
+		data, marshalErr := json.MarshalIndent(status, "", "  ")
+		if marshalErr != nil {
+			return marshalErr
+		}
+		fmt.Fprintln(out, string(data))
+		return nil
+	case "drain":
+		if len(args) != 1 {
+			return errors.New("usage: cohort reflect drain")
+		}
+		worker := evolution.NewReflectionWorker(queue, evolution.ReflectionWorkerConfig{})
+		result, drainErr := worker.Drain(context.Background())
+		data, marshalErr := json.MarshalIndent(result, "", "  ")
+		if marshalErr != nil {
+			return marshalErr
+		}
+		fmt.Fprintln(out, string(data))
+		return drainErr
+	case "retry":
+		if len(args) != 2 {
+			return errors.New("usage: cohort reflect retry <job_id>")
+		}
+		item, retryErr := queue.Retry(args[1])
+		if retryErr != nil {
+			return retryErr
+		}
+		fmt.Fprintf(out, "retried: %s\navailable_at: %s\n", item.ID, item.AvailableAt.Format(time.RFC3339))
+		return nil
+	case "once":
+	default:
+		return fmt.Errorf("unknown reflect command %q", args[0])
 	}
 	task := ""
 	for i := 1; i < len(args); i++ {
@@ -1233,9 +1282,9 @@ func runReflectCommand(cfg app.Config, args []string, out io.Writer) error {
 		return fmt.Errorf("usage: cohort reflect once --task %s", reflectTaskUsage)
 	}
 	manager := evolution.NewManager(cfg.Workspace)
-	result, err := manager.ReflectOnce(task, session.DefaultRootDir)
-	if err != nil {
-		return err
+	result, reflectErr := manager.ReflectOnce(task, session.DefaultRootDir)
+	if reflectErr != nil {
+		return reflectErr
 	}
 	fmt.Fprintf(out, "reflect task: %s\n", result.Task)
 	fmt.Fprintf(out, "sessions_scanned: %d\n", result.SessionsScanned)
@@ -1514,6 +1563,8 @@ Usage:
                           resume a local session and enter REPL
   cohort reflect once --task session-archive|mine-sop-candidates|mine-skill-candidates|memory-quality-report|tool-failure-report
                           generate offline reflection reports without starting an LLM
+  cohort reflect status|drain|retry <job_id>
+                          inspect, consume, or retry the persistent reflection queue
 
 Development:
   go run .                start interactive CLI

@@ -154,6 +154,12 @@ type Runner struct {
 	ObservationSinks []observability.Sink
 	// Hooks 是内部生命周期 Hook 注册表。Hook 是旁路能力：执行失败只进入观测事件，不中断 Runner。
 	Hooks *hooks.Registry
+	// RunMode 标识普通交互、评测、修复或只读探索运行。为空时按 interactive 处理。
+	RunMode RunMode
+	// ReflectionMemoryWorkspace 是反思产物使用的 workspace 绝对路径，只进入 Hook 元数据。
+	ReflectionMemoryWorkspace string
+	// ReflectionSessionRoot 是当前 SessionStore 根目录的绝对路径，只进入 Hook 元数据。
+	ReflectionSessionRoot string
 	// DisableLongTermMemoryReview 关闭任务末尾的长期记忆提示与强制复核。
 	// 评测、批处理等隔离运行可显式开启，普通交互默认保持原行为。
 	DisableLongTermMemoryReview bool
@@ -259,8 +265,12 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			"status":      data["status"],
 		})
 		r.emitHook(ctx, obs, runID, hooks.EventSessionEnd, lastTurn, map[string]any{
-			"history_len": len(r.history),
-			"status":      data["status"],
+			"history_len":  len(r.history),
+			"status":       data["status"],
+			"run_mode":     string(r.effectiveRunMode()),
+			"memory_root":  r.ReflectionMemoryWorkspace,
+			"session_root": r.ReflectionSessionRoot,
+			"trigger_kind": "run_boundary",
 		})
 		return result, err
 	}
@@ -1099,6 +1109,13 @@ func (r *Runner) Close() error {
 // 此时返回空字符串。这样欢迎页可以展示 "new session"，而不是强行创建空会话。
 func (r *Runner) SessionID() string {
 	return r.sessionID
+}
+
+func (r *Runner) effectiveRunMode() RunMode {
+	if r.RunMode == "" {
+		return RunModeInteractive
+	}
+	return r.RunMode
 }
 
 // HistoryLen 返回当前内存历史消息数量。

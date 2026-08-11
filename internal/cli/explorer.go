@@ -133,6 +133,7 @@ func explorerInvestigator(cfg app.Config, root string, opts explorer.RunOptions,
 		defer runner.Close()
 		runner.Tools = explorer.NewReadOnlyToolRunner(runner.Tools, root)
 		runner.SessionStore = nil
+		runner.RunMode = agent.RunModeExplorer
 		runner.DisableLongTermMemoryReview = true
 		runner.DisableCapabilityGapRecording = true
 		runner.SystemPrompt += `

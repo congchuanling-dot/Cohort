@@ -7,6 +7,12 @@ tools:
   # 注册完整工具面；具体运行可用性由 Component Map 和各工具健康检查判断。
   enabled_groups: [*]
 
+reflection:
+  # SessionEnd 只写轻量 trigger；反思任务由本地 daemon 批量消费。
+  auto_enqueue: true
+  debounce_seconds: 30
+  max_attempts: 3
+
 llm:
   active_profile: deepseek
   # fallback_profiles: [local]

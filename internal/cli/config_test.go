@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"cohort/internal/app"
+	"cohort/internal/evolution"
 )
 
 func TestParseGlobalOptionsConsumesConfigPath_BitsUT(t *testing.T) {
@@ -154,5 +156,49 @@ func TestRunReflectCommandDoesNotRequireAPIKey_BitsUT(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(workspace, "memory", "raw_sessions", "all_histories.md")); err != nil {
 		t.Fatalf("expected session archive report: %v", err)
+	}
+}
+
+func TestRunReflectStatusAndDrainQueue_BitsUT(t *testing.T) {
+	root := t.TempDir()
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	workspace := filepath.Join(root, "workspace")
+	queue := evolution.NewReflectionQueue(root)
+	if _, created, err := queue.Enqueue(evolution.ReflectionTrigger{
+		ProjectRoot:     root,
+		MemoryWorkspace: workspace,
+		SessionRoot:     filepath.Join(root, "sessions"),
+		SessionID:       "session-cli",
+		HistoryLen:      2,
+		RunStatus:       "done",
+		AvailableAt:     time.Now().Add(-time.Second),
+	}); err != nil || !created {
+		t.Fatalf("enqueue created=%t err=%v", created, err)
+	}
+
+	var statusOut bytes.Buffer
+	if err := runReflectCommand(app.Config{Workspace: workspace}, []string{"status"}, &statusOut); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(statusOut.String(), `"pending": 1`) {
+		t.Fatalf("status output=%q, want one pending trigger", statusOut.String())
+	}
+
+	var drainOut bytes.Buffer
+	if err := runReflectCommand(app.Config{Workspace: workspace}, []string{"drain"}, &drainOut); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"claimed": 1`, `"completed": 1`, `"session-archive"`} {
+		if !strings.Contains(drainOut.String(), want) {
+			t.Fatalf("drain output=%q, missing %q", drainOut.String(), want)
+		}
 	}
 }

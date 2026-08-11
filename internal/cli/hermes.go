@@ -18,6 +18,7 @@ import (
 
 	"cohort/internal/app"
 	"cohort/internal/evaluation"
+	"cohort/internal/evolution"
 	"cohort/internal/hermes"
 )
 
@@ -234,6 +235,14 @@ func hermesServe(ctx context.Context, root string, cfg app.Config, out io.Writer
 	defer stop()
 	configureHermesEvalRunner(service, cfg, out)
 	configureHermesRepairWorker(service, cfg, out)
+	reflectionWorker := evolution.NewReflectionWorker(
+		evolution.NewReflectionQueue(root),
+		evolution.ReflectionWorkerConfig{},
+	)
+	service.ReflectionRunner = func(ctx context.Context) error {
+		_, err := reflectionWorker.Drain(ctx)
+		return err
+	}
 	fmt.Fprintf(out, "hermes serve pid=%d\n", os.Getpid())
 	return service.Serve(ctx)
 }

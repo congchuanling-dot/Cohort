@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"cohort/internal/contextmgr"
+	"cohort/internal/hooks"
 	"cohort/internal/llm"
 	"cohort/internal/session"
 )
@@ -109,6 +110,43 @@ func TestRunnerInjectsWorkingCheckpoint_BitsUT(t *testing.T) {
 	}
 	if !strings.Contains(last.Content, "按 browser SOP 先 wait 再 scan") || !strings.Contains(last.Content, "sops/browser_sop.md") {
 		t.Fatalf("checkpoint content = %q", last.Content)
+	}
+}
+
+func TestRunnerSessionEndHookIncludesRunModeAndReflectionPaths_BitsUT(t *testing.T) {
+	client := &contextRecordingClient{responses: []llm.Response{{Content: "ok"}}}
+	store := session.NewStore(filepath.Join(t.TempDir(), "sessions"))
+	var captured hooks.Event
+	runner := &Runner{
+		Client:                    client,
+		Tools:                     contextFakeTools{},
+		MaxTurns:                  1,
+		SessionStore:              &store,
+		SessionCWD:                t.TempDir(),
+		RunMode:                   RunModeEval,
+		ReflectionMemoryWorkspace: "/tmp/cohort-memory",
+		ReflectionSessionRoot:     "/tmp/cohort-sessions",
+		Hooks: hooks.NewRegistry(hooks.HandlerFunc{
+			ID: "capture-session-end",
+			Fn: func(_ context.Context, event hooks.Event) error {
+				if event.Type == hooks.EventSessionEnd {
+					captured = event
+				}
+				return nil
+			},
+		}),
+	}
+	if _, err := runner.Run(context.Background(), "hook contract", NewConsoleSink(&bytes.Buffer{})); err != nil {
+		t.Fatal(err)
+	}
+	if captured.Type != hooks.EventSessionEnd || captured.SessionID == "" {
+		t.Fatalf("captured=%#v, want SessionEnd with session ID", captured)
+	}
+	if captured.Data["run_mode"] != string(RunModeEval) ||
+		captured.Data["memory_root"] != "/tmp/cohort-memory" ||
+		captured.Data["session_root"] != "/tmp/cohort-sessions" ||
+		captured.Data["trigger_kind"] != "run_boundary" {
+		t.Fatalf("hook data=%#v, want reflection contract", captured.Data)
 	}
 }
 

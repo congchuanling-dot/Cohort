@@ -528,6 +528,19 @@ cohort session list
 cohort session resume <session_id>
 cohort reflect once --task tool-failure-report
 cohort reflect once --task session-archive
+cohort reflect status
+cohort reflect drain
+```
+
+普通交互任务结束后，`SessionEnd` Hook 默认将轻量 trigger 写入持久反思队列。Hermes
+daemon 会批量生成 session archive、质量报告和 SOP/Skill candidate；该流程不调用 LLM，
+也不会自动 promote：
+
+```yaml
+reflection:
+  auto_enqueue: true
+  debounce_seconds: 30
+  max_attempts: 3
 ```
 
 如果你希望在网页平台查看 trace，可以接入 Langfuse。配置环境变量后，`cohort` 和 `cohort ask` 会把 Runner 生命周期、LLM 输入输出摘要、token usage 和工具事件上报到 Langfuse。
