@@ -1,12 +1,16 @@
 # Cohort 证据驱动的多 Agent 交付引擎
 
-> 文档状态：`[规划]`
+> 文档状态：`[部分完成]`
 >
 > 调研与设计基线：2026-08-12
 >
 > 工作名称：Evidence-Driven Multi-Agent Delivery
 >
 > 推荐 CLI：`cohort deliver`
+>
+> 当前进展：Delivery 状态机、原子 Store、Acceptance Contract / Task DAG 本地校验，以及
+> `deliver plan/list/status/show/cancel` 已落地；隔离 Builder、Evidence、Integration、
+> Verifier Council、返修和事务合并仍按本文阶段继续实现。
 
 ## 1. 执行摘要
 

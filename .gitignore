@@ -18,6 +18,8 @@
 /.cohort/hermes/worktrees/
 /.cohort/hermes/repair-artifacts/
 /.cohort/reflection/
+/.cohort/deliveries/
+/.cohort/delivery-worktrees/
 /packages/npm/vendor/cohort
 /packages/npm/vendor/*.download
 /packages/npm/*.tgz

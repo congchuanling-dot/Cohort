@@ -87,6 +87,9 @@ func Run(args []string) error {
 	if args[0] == "perf" {
 		return runPerfCommand(args[1:], os.Stdout)
 	}
+	if args[0] == "deliver" {
+		return runDeliveryCommand(context.Background(), opts.ConfigPath, args[1:], os.Stdout)
+	}
 
 	configPath, err := app.ResolveConfigPath(opts.ConfigPath)
 	if err != nil {
@@ -1491,6 +1494,10 @@ Usage:
   cohort config           show effective config and config path
   cohort tools route "task"
                           preview adaptive tool routing without calling an LLM
+  cohort deliver plan "requirement"
+                          compile a repository-grounded acceptance contract and task DAG
+  cohort deliver list|status|show|cancel
+                          inspect or cancel persistent delivery plans
   cohort components [--json]
                           show system component map and visibility status
   cohort project init [title]

@@ -52,7 +52,7 @@
 | `[部分完成]` | [cohort_vs_ga_current_gap.md](cohort_vs_ga_current_gap.md) | 当前差距分析；MCP、渐进式 Skill Runtime、保守 NoToolPolicy、文本 tool_use 兜底、diff、Project/Plan Mode 基础已补齐，Hook、长期自治和前端生态仍未完成。 |
 | `[部分完成]` | [agent_observability_technical_design.md](agent_observability_technical_design.md) | 提炼 GA hook、Langfuse、checkpoint 和 L4 反射经验；Runner lifecycle events、usage/cost 汇总、Langfuse 基础、trace/perf CLI 和 tuning report 已落地，完整 tracing sink、TUI trace panel、eval 与 A/B 仍待补。 |
 | `[完成]` | [adaptive_tool_routing.md](adaptive_tool_routing.md) | 按任务意图渐进暴露工具 schema，能力早停或连续失败时自动扩容；含真实 81→15 工具和 payload 降低 82.6% 的测量结果。 |
-| `[规划]` | [evidence_driven_multi_agent_delivery.md](evidence_driven_multi_agent_delivery.md) | 需求契约、任务 DAG、隔离并行 Builder、独立 Verifier、证据新鲜度、定向返修和事务合并的完整交付闭环。 |
+| `[部分完成]` | [evidence_driven_multi_agent_delivery.md](evidence_driven_multi_agent_delivery.md) | 状态机、原子 Store、Acceptance Contract、Task DAG 校验和只读计划 CLI 已落地；隔离并行 Builder、独立 Verifier、证据新鲜度、定向返修和事务合并继续实现。 |
 | `[历史]` | [cohort_vs_ga_gap.md](cohort_vs_ga_gap.md) | 早期 MVP 差距快照，已由 `cohort_vs_ga_current_gap.md` 取代。 |
 
 ## 核心能力设计

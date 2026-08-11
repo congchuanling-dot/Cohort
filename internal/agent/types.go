@@ -67,10 +67,13 @@ const (
 type RunMode string
 
 const (
-	RunModeInteractive RunMode = "interactive"
-	RunModeEval        RunMode = "eval"
-	RunModeRepair      RunMode = "repair"
-	RunModeExplorer    RunMode = "explorer"
+	RunModeInteractive      RunMode = "interactive"
+	RunModeEval             RunMode = "eval"
+	RunModeRepair           RunMode = "repair"
+	RunModeExplorer         RunMode = "explorer"
+	RunModeDeliveryPlanner  RunMode = "delivery_planner"
+	RunModeDeliveryBuilder  RunMode = "delivery_builder"
+	RunModeDeliveryVerifier RunMode = "delivery_verifier"
 )
 
 // RunResult 表示一次 Runner.Run 的最终状态。

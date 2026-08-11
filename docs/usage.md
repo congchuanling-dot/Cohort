@@ -134,7 +134,27 @@ cohort plan status
 
 步骤只能通过 `plan verify <id> <evidence>` 标记完成；空 evidence 会被拒绝。REPL 中同样支持 `/project ...` 和 `/plan ...`，状态变更后会刷新当前 Runner 的系统提示词。
 
-## 0.2 Chrome Bridge 扩展
+## 0.3 Evidence-Driven Delivery
+
+`deliver plan` 会启动只读 Planner 调查当前 Git 仓库，并生成持久化 Acceptance Contract
+和 Task DAG。计划阶段不会修改代码：
+
+```bash
+cohort deliver plan "为服务增加限流、指标和降级策略"
+cohort deliver list
+cohort deliver status [delivery_id]
+cohort deliver show <delivery_id>
+cohort deliver cancel <delivery_id>
+```
+
+计划保存在 `.cohort/deliveries/<delivery_id>/`。Mandatory Criterion、执行 Gate、仓库相对
+scope、节点依赖和 write set 会经过本地确定性校验；存在 blocking question 时状态为
+`needs_human_decision`，不能进入执行阶段。
+
+完整并行 Builder、独立 Verifier、Integration Gate 和事务合并设计见
+[证据驱动的多 Agent 交付引擎](evidence_driven_multi_agent_delivery.md)。
+
+## 0.4 Chrome Bridge 扩展
 
 浏览器工具依赖 Cohort Browser Bridge Chrome 扩展。npm 和 GitHub installer 都会准备本地扩展目录，但 Chrome 出于安全限制仍需要用户手动加载 unpacked extension。
 
