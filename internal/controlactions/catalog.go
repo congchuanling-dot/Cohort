@@ -7,7 +7,11 @@ import (
 	"cohort/internal/controlplane"
 )
 
-func NewCatalog() (*controlplane.Catalog, error) {
+func NewCatalog(configPaths ...string) (*controlplane.Catalog, error) {
+	configPath := ""
+	if len(configPaths) > 0 {
+		configPath = configPaths[0]
+	}
 	specs := []controlplane.ActionSpec{
 		{
 			ID:          "system.ping",
@@ -30,5 +34,12 @@ func NewCatalog() (*controlplane.Catalog, error) {
 	}
 	specs = append(specs, deliveryActions()...)
 	specs = append(specs, hermesActions()...)
+	specs = append(specs, capabilityActions()...)
+	specs = append(specs, mcpActions()...)
+	specs = append(specs, skillActions()...)
+	specs = append(specs, lspActions()...)
+	specs = append(specs, reflectionActions()...)
+	specs = append(specs, agentActions(configPath)...)
+	specs = append(specs, settingsActions(configPath)...)
 	return controlplane.NewCatalog(specs...)
 }

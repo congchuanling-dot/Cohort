@@ -38,15 +38,15 @@ func runUICommand(ctx context.Context, explicitConfigPath string, args []string,
 	if err != nil {
 		return err
 	}
-	catalog, err := controlactions.NewCatalog()
+	configPath, err := app.ResolveConfigPath(explicitConfigPath)
+	if err != nil {
+		return err
+	}
+	catalog, err := controlactions.NewCatalog(configPath)
 	if err != nil {
 		return err
 	}
 	assets, err := consoleui.Assets()
-	if err != nil {
-		return err
-	}
-	configPath, err := app.ResolveConfigPath(explicitConfigPath)
 	if err != nil {
 		return err
 	}
@@ -64,7 +64,7 @@ func runUICommand(ctx context.Context, explicitConfigPath string, args []string,
 		Catalog:     catalog,
 		Snapshot:    controlactions.SnapshotProvider(configPath),
 		Projects:    projects,
-		Resources:   controlactions.ResourceProvider,
+		Resources:   controlactions.NewResourceProvider(configPath),
 	})
 	if err != nil {
 		return err

@@ -37,7 +37,7 @@ func TestSnapshotProviderAggregatesProjectWithoutMutatingRepository_BitsUT(t *te
 		t.Fatalf("resource snapshot = %#v", snapshot)
 	}
 	for _, resource := range []string{"deliveries", "hermes", "evaluations", "traces"} {
-		if _, err := ResourceProvider(context.Background(), root, resource, nil); err != nil {
+		if _, err := NewResourceProvider(filepath.Join(root, "config.yaml"))(context.Background(), root, resource, nil); err != nil {
 			t.Fatalf("resource %s: %v", resource, err)
 		}
 	}
@@ -59,6 +59,13 @@ func TestCatalogExposesStableSystemAction_BitsUT(t *testing.T) {
 	merge, exists := catalog.Get("delivery.merge")
 	if !exists || merge.Risk != controlplane.RiskDanger || merge.ConfirmationText != "MERGE" {
 		t.Fatalf("delivery merge action = %#v exists=%t", merge, exists)
+	}
+	if actions := catalog.List(); len(actions) < 40 {
+		t.Fatalf("catalog only exposes %d actions", len(actions))
+	}
+	root := t.TempDir()
+	if _, err := projectPath(root, "../outside.json"); err == nil {
+		t.Fatal("expected project path escape to be rejected")
 	}
 }
 

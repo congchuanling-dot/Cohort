@@ -596,3 +596,45 @@ func TestBuildSystemPromptRequiresAskUserForBlockingQuestions_BitsUT(t *testing.
 		}
 	}
 }
+
+func TestUpdateActiveProfilePreservesConfigAndRejectsUnknownProfile_BitsUT(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := `language: zh
+llm:
+  active_profile: "first"
+  profiles:
+    first:
+      provider: openai
+      model: model-a
+      api_key: ${FIRST_KEY}
+    second:
+      provider: openai
+      model: model-b
+      api_key: ${SECOND_KEY}
+tools:
+  adaptive_routing: true
+`
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpdateActiveProfile(path, "second"); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(updated), "active_profile: second") || !strings.Contains(string(updated), "adaptive_routing: true") {
+		t.Fatalf("unexpected config:\n%s", updated)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("mode = %o", info.Mode().Perm())
+	}
+	if err := UpdateActiveProfile(path, "missing"); err == nil {
+		t.Fatal("expected unknown profile error")
+	}
+}

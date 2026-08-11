@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ActionSpec, apiGet, apiPost, DashboardSnapshot, initializeSession,
-  DeliveryItem, EvalRun, HermesResource, InputField, Operation, operationEvents,
-  ProjectRecord, SessionInfo, SessionSummary,
+  ActionSpec, apiGet, apiPost, CapabilityResource, DashboardSnapshot, initializeSession,
+  DeliveryItem, EvalRun, HermesResource, InputField, LSPResource, MCPServerSummary,
+  Operation, operationEvents, ProjectRecord, SessionInfo, SessionSummary,
+  SettingsResource, SkillSummary,
 } from "./api";
 
 function StatusDot({ online }: { online: boolean }) {
@@ -58,12 +59,38 @@ export default function App() {
     queryFn: () => apiGet<{ sessions: SessionSummary[] }>("/api/v1/resources/traces"),
     enabled: session.isSuccess,
   });
+  const capabilities = useQuery({
+    queryKey: ["resource", "capabilities"],
+    queryFn: () => apiGet<CapabilityResource>("/api/v1/resources/capabilities"),
+    enabled: session.isSuccess,
+  });
+  const skills = useQuery({
+    queryKey: ["resource", "skills"],
+    queryFn: () => apiGet<{ skills: SkillSummary[] }>("/api/v1/resources/skills"),
+    enabled: session.isSuccess,
+  });
+  const mcp = useQuery({
+    queryKey: ["resource", "mcp"],
+    queryFn: () => apiGet<{ servers: MCPServerSummary[] }>("/api/v1/resources/mcp"),
+    enabled: session.isSuccess,
+  });
+  const lsp = useQuery({
+    queryKey: ["resource", "lsp"],
+    queryFn: () => apiGet<LSPResource>("/api/v1/resources/lsp"),
+    enabled: session.isSuccess,
+  });
+  const settings = useQuery({
+    queryKey: ["resource", "settings"],
+    queryFn: () => apiGet<SettingsResource>("/api/v1/resources/settings"),
+    enabled: session.isSuccess,
+  });
 
   useEffect(() => {
     if (!session.isSuccess) return;
     return operationEvents(() => {
       void queryClient.invalidateQueries({ queryKey: ["operations"] });
       void queryClient.invalidateQueries({ queryKey: ["snapshot"] });
+      void queryClient.invalidateQueries({ queryKey: ["resource"] });
     });
   }, [queryClient, session.isSuccess]);
 
@@ -161,6 +188,14 @@ export default function App() {
           sessions={traces.data?.sessions ?? []}
           runAction={(intent) => { setCommandIntent(intent); setCommandOpen(true); }}
         />
+        <CapabilityCenter
+          capabilities={capabilities.data}
+          skills={skills.data?.skills ?? []}
+          servers={mcp.data?.servers ?? []}
+          lsp={lsp.data}
+          settings={settings.data}
+          runAction={(intent) => { setCommandIntent(intent); setCommandOpen(true); }}
+        />
       </main>
       {commandOpen && <CommandCenter actions={catalog.data?.actions ?? []} initialQuery={commandIntent} onClose={() => setCommandOpen(false)} />}
     </div>
@@ -210,6 +245,60 @@ function DomainPanels({
   </div>;
 }
 
+function CapabilityCenter({
+  capabilities, skills, servers, lsp, settings, runAction,
+}: {
+  capabilities?: CapabilityResource;
+  skills: SkillSummary[];
+  servers: MCPServerSummary[];
+  lsp?: LSPResource;
+  settings?: SettingsResource;
+  runAction: (intent: string) => void;
+}) {
+  const items = capabilities?.registry.capabilities ?? [];
+  return <div className="capability-center" id="capabilities">
+    <section className="panel capability-hero">
+      <div><p className="eyebrow">CAPABILITY CONTROL PLANE</p><h3>能力中心</h3><p>统一管理可复用能力、Skills、MCP、LSP 和模型配置。所有写操作都经过 Action 风险门禁。</p></div>
+      <div className="hero-actions"><button className="primary" type="button" onClick={() => runAction("agent.run")}>运行 Agent</button><button type="button" onClick={() => runAction("capability")}>管理能力</button></div>
+    </section>
+    <div className="capability-grid">
+      <section className="panel">
+        <div className="panel-heading"><h3>Capabilities</h3><span className="risk read">{items.length}</span></div>
+        <div className="compact-list">
+          {items.slice(0, 6).map((item) => <article key={item.id}><span className={`capability-icon ${item.status}`}>{item.type?.slice(0, 1).toUpperCase()}</span><div><strong>{item.id}</strong><small>{item.status} · {item.type}</small></div></article>)}
+          {items.length === 0 && <div className="empty">尚未注册 Capability</div>}
+        </div>
+      </section>
+      <section className="panel">
+        <div className="panel-heading"><h3>Skills</h3><button type="button" onClick={() => runAction("skill")}>管理</button></div>
+        <div className="compact-list">
+          {skills.slice(0, 6).map((item) => <article key={item.id}><span className="capability-icon skill">S</span><div><strong>{item.name}</strong><small>{item.scope} · {item.id}</small></div></article>)}
+          {skills.length === 0 && <div className="empty">没有发现 Skill</div>}
+        </div>
+      </section>
+      <section className="panel">
+        <div className="panel-heading"><h3>MCP Servers</h3><button type="button" onClick={() => runAction("mcp")}>管理</button></div>
+        <div className="compact-list">
+          {servers.slice(0, 6).map((item) => <article key={`${item.scope}/${item.name}`}><span className="capability-icon mcp">M</span><div><strong>{item.name}</strong><small>{item.scope} · {item.type} · {item.arg_count ?? 0} args</small></div></article>)}
+          {servers.length === 0 && <div className="empty">没有配置 MCP Server</div>}
+        </div>
+      </section>
+      <section className="panel">
+        <div className="panel-heading"><h3>LSP Backends</h3><button type="button" onClick={() => runAction("lsp")}>诊断</button></div>
+        <div className="compact-list">
+          {(lsp?.doctor ?? []).map((item) => <article key={item.language}><StatusDot online={item.ok} /><div><strong>{item.language}</strong><small>{item.ok ? item.version : item.error}</small></div></article>)}
+        </div>
+      </section>
+    </div>
+    <section className="panel settings-panel" id="settings">
+      <div className="panel-heading"><div><p className="eyebrow">MODEL PROFILES</p><h3>运行设置</h3></div><button type="button" onClick={() => runAction("settings.model.activate")}>切换模型</button></div>
+      <div className="profile-grid">
+        {(settings?.profiles ?? []).map((profile) => <article key={profile.id} className={settings?.active_profile === profile.id ? "active" : ""}><div><strong>{profile.name || profile.id}</strong><span className={profile.api_key_present ? "risk ok" : "risk warn"}>{profile.api_key_present ? "KEY SET" : "NO KEY"}</span></div><p>{profile.provider} / {profile.model}</p><code>{profile.api_base}</code></article>)}
+      </div>
+    </section>
+  </div>;
+}
+
 function CommandCenter({ actions, initialQuery, onClose }: { actions: ActionSpec[]; initialQuery: string; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [query, setQuery] = useState(initialQuery);
@@ -230,7 +319,12 @@ function CommandCenter({ actions, initialQuery, onClose }: { actions: ActionSpec
   });
 
   useEffect(() => {
-    if (!selected && filtered.length === 1) setSelected(filtered[0]);
+    if (!selected && filtered.length === 1) {
+      setSelected(filtered[0]);
+      const defaults: Record<string, unknown> = {};
+      for (const field of filtered[0].inputs ?? []) if (field.default !== undefined) defaults[field.name] = field.default;
+      setValues(defaults);
+    }
   }, [filtered, selected]);
 
   const choose = (action: ActionSpec) => {
@@ -273,7 +367,7 @@ function DynamicField({ field, value, onChange }: { field: InputField; value: un
   if (field.type === "boolean") return <label className="checkbox-field"><input type="checkbox" checked={Boolean(value)} onChange={(event) => onChange(event.target.checked)} /><span>{field.label}</span></label>;
   if (field.type === "select") return <label><span>{field.label}</span><select value={String(value ?? "")} required={field.required} onChange={(event) => onChange(event.target.value)}><option value="">请选择</option>{field.options?.map((option) => <option key={option}>{option}</option>)}</select><small>{field.description}</small></label>;
   if (field.type === "text") return <label><span>{field.label}</span><textarea value={String(value ?? "")} required={field.required} placeholder={field.placeholder} onChange={(event) => onChange(event.target.value)} /><small>{field.description}</small></label>;
-  return <label><span>{field.label}</span><input type={field.type === "secret" ? "password" : field.type === "integer" ? "number" : "text"} value={String(value ?? "")} required={field.required} placeholder={field.placeholder} onChange={(event) => onChange(field.type === "integer" ? Number(event.target.value) : event.target.value)} /><small>{field.description}</small></label>;
+  return <label><span>{field.label}</span><input type={field.type === "secret" || field.sensitive ? "password" : field.type === "integer" ? "number" : "text"} value={String(value ?? "")} required={field.required} placeholder={field.placeholder} onChange={(event) => onChange(field.type === "integer" ? Number(event.target.value) : event.target.value)} /><small>{field.description}</small></label>;
 }
 
 function OperationList({ operations }: { operations: Operation[] }) {

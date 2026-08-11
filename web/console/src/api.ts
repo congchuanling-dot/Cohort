@@ -111,6 +111,48 @@ export interface SessionSummary {
   updated_at: string;
 }
 
+export interface CapabilityResource {
+  registry: {
+    capabilities: Array<{ id: string; status: string; type: string; risk?: string; entry?: string }>;
+    gaps: Array<{ id: string; status: string; missing_capability: string; task: string }>;
+    proposals: Array<{ id: string; status: string; summary: string; risk: string }>;
+  };
+  suggestions: Array<{ missing_capability: string; count: number; reason: string }>;
+}
+
+export interface SkillSummary {
+  id: string;
+  name: string;
+  description: string;
+  scope: string;
+  requires?: { mcp?: string[]; env?: string[]; commands?: string[] };
+}
+
+export interface MCPServerSummary {
+  name: string;
+  scope: string;
+  type: string;
+  command?: string;
+  arg_count?: number;
+  url?: string;
+  env_keys?: string[];
+  header_keys?: string[];
+}
+
+export interface LSPResource {
+  doctor: Array<{ language: string; command: string; version?: string; ok: boolean; error?: string }>;
+  servers: Array<{ language: string; running: boolean; pid?: number; error?: string }>;
+}
+
+export interface SettingsResource {
+  config_path: string;
+  language: string;
+  workspace: string;
+  max_turns: number;
+  active_profile: string;
+  profiles: Array<{ id: string; name: string; provider: string; model: string; api_base: string; api_key_present: boolean }>;
+}
+
 let csrfToken = "";
 
 async function decode<T>(response: Response): Promise<T> {

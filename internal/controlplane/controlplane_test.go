@@ -65,6 +65,7 @@ func TestOperationManagerPersistsRedactsStreamsAndRecovers_BitsUT(t *testing.T) 
 		Inputs: []InputField{
 			{Name: "task", Label: "任务", Type: FieldText, Required: true},
 			{Name: "api_key", Label: "密钥", Type: FieldSecret, Required: true},
+			{Name: "source", Label: "来源", Type: FieldString, Sensitive: true},
 		},
 		Handler: func(ctx context.Context, request ActionRequest) (ActionResult, error) {
 			select {
@@ -87,13 +88,16 @@ func TestOperationManagerPersistsRedactsStreamsAndRecovers_BitsUT(t *testing.T) 
 	defer unsubscribe()
 	operation, err := manager.Start(context.Background(), "session.run", ActionRequest{
 		ProjectRoot: projectRoot,
-		Input:       map[string]any{"task": "inspect", "api_key": "secret"},
+		Input:       map[string]any{"task": "inspect", "api_key": "secret", "source": "https://token@example.com/repo"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if operation.Input["api_key"] != "[REDACTED]" {
 		t.Fatalf("operation leaked secret: %#v", operation.Input)
+	}
+	if operation.Input["source"] != "[REDACTED]" {
+		t.Fatalf("operation leaked sensitive field: %#v", operation.Input)
 	}
 	waitForOperationStatus(t, manager, operation.ID, OperationRunning)
 	close(release)
