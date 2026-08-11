@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -13,12 +16,99 @@ import (
 )
 
 func runTraceCommand(args []string, out io.Writer) error {
+	if len(args) > 0 && args[0] == "graph" {
+		return runTraceGraphCommand(args[1:], out)
+	}
 	view, err := loadTraceView(args)
 	if err != nil {
 		return err
 	}
 	printTraceView(out, view)
 	return nil
+}
+
+func runTraceGraphCommand(args []string, out io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("usage: cohort trace graph last|show <session_id> [--run id] [--out path] [--open] [--json]")
+	}
+	viewArgs := make([]string, 0, len(args))
+	outputPath := ""
+	openGraph := false
+	jsonOutput := false
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		switch {
+		case arg == "--out":
+			if index+1 >= len(args) {
+				return errors.New("--out requires a path")
+			}
+			outputPath = args[index+1]
+			index++
+		case strings.HasPrefix(arg, "--out="):
+			outputPath = strings.TrimPrefix(arg, "--out=")
+		case arg == "--open":
+			openGraph = true
+		case arg == "--json":
+			jsonOutput = true
+		default:
+			viewArgs = append(viewArgs, arg)
+		}
+	}
+	view, err := loadTraceView(viewArgs)
+	if err != nil {
+		return err
+	}
+	graph := view.CausalGraph()
+	if jsonOutput {
+		data, err := json.MarshalIndent(graph, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(out, string(data))
+		return nil
+	}
+	if strings.TrimSpace(outputPath) == "" {
+		outputPath = filepath.Join(
+			filepath.Dir(view.Path),
+			"causal-graph-"+safeTraceFileID(view.RunID)+".html",
+		)
+	}
+	outputPath = filepath.Clean(outputPath)
+	graph, err = traceview.WriteGraphHTML(view, outputPath)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "causal_graph: %s\n", outputPath)
+	fmt.Fprintf(out, "nodes: %d\n", graph.Summary.NodeCount)
+	fmt.Fprintf(out, "edges: %d\n", graph.Summary.EdgeCount)
+	fmt.Fprintf(out, "critical_path: %s\n", formatDurationMS(graph.CriticalPathMS))
+	fmt.Fprintf(out, "bottlenecks: %d\n", len(graph.Bottlenecks))
+	fmt.Fprintf(out, "anomalies: %d\n", len(graph.Anomalies))
+	fmt.Fprintf(out, "file_changes: %d\n", graph.Summary.FileChanges)
+	if openGraph {
+		if err := exec.Command("open", outputPath).Start(); err != nil {
+			return fmt.Errorf("open causal graph: %w", err)
+		}
+		fmt.Fprintln(out, "opened: true")
+	}
+	return nil
+}
+
+func safeTraceFileID(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "latest"
+	}
+	var b strings.Builder
+	for _, char := range value {
+		switch {
+		case char >= 'a' && char <= 'z', char >= 'A' && char <= 'Z', char >= '0' && char <= '9', char == '-', char == '_':
+			b.WriteRune(char)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }
 
 func runPerfCommand(args []string, out io.Writer) error {

@@ -429,6 +429,12 @@ func eventSummary(event observability.Event) string {
 			parts = append(parts, fmt.Sprintf("duration=%dms", duration))
 		}
 		return strings.Join(parts, " ")
+	case observability.EventFileChanged:
+		return fmt.Sprintf(
+			"tool=%s path=%s",
+			firstStringDefault(event.Data, "tool", "unknown"),
+			firstStringDefault(event.Data, "path", "unknown"),
+		)
 	case observability.EventRunFinished:
 		return fmt.Sprintf("status=%s duration=%dms", firstStringDefault(event.Data, "status", "unknown"), intValue(event.Data, "duration_ms"))
 	default:

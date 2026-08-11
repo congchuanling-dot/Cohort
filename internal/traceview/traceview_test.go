@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -108,6 +109,59 @@ func TestLoadLatestSummarizesRunLog_BitsUT(t *testing.T) {
 	}
 	if len(summary.Gaps) == 0 || summary.Gaps[0].GapMS < 500 {
 		t.Fatalf("gaps = %#v, want largest gap from llm latency", summary.Gaps)
+	}
+}
+
+func TestCausalGraphLinksToolArtifactsAndComputesCriticalPath_BitsUT(t *testing.T) {
+	base := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
+	const (
+		runID     = "run_graph"
+		sessionID = "session_graph"
+	)
+	events := []observability.Event{
+		testEvent(base, runID, sessionID, observability.EventRunStarted, 0, observability.SeverityInfo, nil),
+		testEvent(base.Add(time.Millisecond), runID, sessionID, observability.EventUserPromptSubmitted, 0, observability.SeverityInfo, map[string]any{"chars": 42, "raw": "must-not-leak"}),
+		testEvent(base.Add(2*time.Millisecond), runID, sessionID, observability.EventTurnStarted, 1, observability.SeverityInfo, nil),
+		testEvent(base.Add(3*time.Millisecond), runID, sessionID, observability.EventContextBuilt, 1, observability.SeverityInfo, map[string]any{"final_messages": 3, "final_tokens": 100, "final_chars": 400}),
+		testEvent(base.Add(4*time.Millisecond), runID, sessionID, observability.EventToolRouteSelected, 1, observability.SeverityInfo, map[string]any{"mode": "adaptive", "selected_count": 15, "full_schema_count": 81, "saved_schema_bytes": 55000}),
+		testEvent(base.Add(5*time.Millisecond), runID, sessionID, observability.EventLLMRequestStarted, 1, observability.SeverityInfo, map[string]any{"message_count": 3, "tool_schema_count": 15}),
+		testEvent(base.Add(505*time.Millisecond), runID, sessionID, observability.EventLLMResponseFinished, 1, observability.SeverityInfo, map[string]any{"status": "success", "duration_ms": 500, "tool_call_count": 1, "content_chars": 10}),
+		testEvent(base.Add(506*time.Millisecond), runID, sessionID, observability.EventToolStarted, 1, observability.SeverityInfo, map[string]any{"tool": "apply_patch", "tool_call_id": "call_1"}),
+		testEvent(base.Add(706*time.Millisecond), runID, sessionID, observability.EventToolFinished, 1, observability.SeverityInfo, map[string]any{"tool": "apply_patch", "tool_call_id": "call_1", "status": "success", "duration_ms": 200}),
+		testEvent(base.Add(707*time.Millisecond), runID, sessionID, observability.EventFileChanged, 1, observability.SeverityInfo, map[string]any{"tool": "apply_patch", "tool_call_id": "call_1", "path": "/workspace/main.go"}),
+		testEvent(base.Add(710*time.Millisecond), runID, sessionID, observability.EventRunFinished, 1, observability.SeverityInfo, map[string]any{"status": "completed", "duration_ms": 710}),
+	}
+	view := RunView{SessionID: sessionID, RunID: runID, Events: events}
+	graph := view.CausalGraph()
+	if graph.Summary.LLMNodes != 1 || graph.Summary.ToolNodes != 1 || graph.Summary.FileChanges != 1 {
+		t.Fatalf("graph summary = %#v", graph.Summary)
+	}
+	if graph.CriticalPathMS != 700 {
+		t.Fatalf("critical path = %dms, want 700ms", graph.CriticalPathMS)
+	}
+	hasWriteEdge := false
+	for _, edge := range graph.Edges {
+		if edge.From == "tool-call_1" && strings.HasPrefix(edge.To, "artifact-") && edge.Relation == "writes" {
+			hasWriteEdge = true
+		}
+	}
+	if !hasWriteEdge {
+		t.Fatalf("graph edges = %#v, want tool -> artifact write edge", graph.Edges)
+	}
+
+	output := filepath.Join(t.TempDir(), "causal.html")
+	if _, err := WriteGraphHTML(view, output); err != nil {
+		t.Fatal(err)
+	}
+	html, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(html), "Causal Trace Graph") || !strings.Contains(string(html), "main.go") {
+		t.Fatalf("graph HTML missing expected content")
+	}
+	if strings.Contains(string(html), "must-not-leak") {
+		t.Fatalf("graph HTML leaked raw event data")
 	}
 }
 

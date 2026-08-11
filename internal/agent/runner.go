@@ -555,6 +555,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			if decision, _ := outcome.Audit["permission_decision"].(string); decision != "" {
 				r.emitObservation(ctx, obs, runID, observability.EventPermissionDecision, turn, observability.SeverityInfo, map[string]any{
 					"tool":                call.Function.Name,
+					"tool_call_id":        call.ID,
 					"permission_decision": decision,
 					"risk":                outcome.Audit["risk"],
 					"external":            outcome.Audit["external"],
@@ -574,10 +575,16 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 				"duration_ms":  time.Since(toolStartedAt).Milliseconds(),
 			})
 			if outcomeSucceeded(outcome) && isFileMutationTool(call.Function.Name) {
+				changedPath := strings.TrimSpace(fmt.Sprint(args["path"]))
+				r.emitObservation(ctx, obs, runID, observability.EventFileChanged, turn, observability.SeverityInfo, map[string]any{
+					"tool":         call.Function.Name,
+					"tool_call_id": call.ID,
+					"path":         changedPath,
+				})
 				r.emitHook(ctx, obs, runID, hooks.EventFileChanged, turn, map[string]any{
 					"tool":         call.Function.Name,
 					"tool_call_id": call.ID,
-					"path":         strings.TrimSpace(fmt.Sprint(args["path"])),
+					"path":         changedPath,
 				})
 			}
 			if outcome.ShouldExit {

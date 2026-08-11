@@ -17,7 +17,7 @@
 | MCP 核心链路 | `[部分完成]` | `.mcp.json` scope、stdio/HTTP、旧 SSE 兼容、发现、调用、分页、status/probe、import/export、per-tool policy CLI、REPL `/mcp` 已实现；OAuth 体验深优化待补。 |
 | MCP P1 基础 | `[完成]` | 精确参数授权、R3 拒绝、外部结果裁剪、MCP 审计和零默认 Server 已实现。 |
 | Skill Runtime | `[完成]` | 本地/Git 安装、安装预览、版本锁定、manifest hash、`skill doctor`、`skill_read`、`/skill run`、快捷 alias、内置高频 Skill 包、`SKILL.md permissions` 和 active policy 已实现。 |
-| `run.log` / lifecycle 事件流 | `[部分完成]` | 已记录工具完成事件、脱敏参数摘要、MCP 元数据、Runner/LLM/session/compact/permission/FinishGuard/TextToolUse/ToolRouteSelected JSONL 事件，并在 RunFinished 汇总 usage/cost；`cohort trace last/show` 和 `cohort perf last/show` 已能本地解析运行时间线、路由节省量与性能瓶颈；`cohort tuning report` 已能跨 run 汇总慢请求、失败工具和膨胀指标；`internal/hooks` 已支持可注册内部 Hook 并接入关键生命周期点，外部 Hook 插件化、更完整 policy sink、eval 和 A/B 待补。 |
+| `run.log` / lifecycle 事件流 | `[部分完成]` | 已记录工具完成事件、文件副作用、脱敏参数摘要、MCP 元数据、Runner/LLM/session/compact/permission/FinishGuard/TextToolUse/ToolRouteSelected JSONL 事件，并在 RunFinished 汇总 usage/cost；`trace/perf` 可本地解析时间线、路由节省量与性能瓶颈，`trace graph` 可重建因果 DAG 和关键路径；`cohort tuning report` 已能跨 run 汇总慢请求、失败工具和膨胀指标；外部 Hook 插件化、更完整 policy sink、eval 和 A/B 待补。 |
 
 ### 当前优先级
 
@@ -38,6 +38,7 @@
 | 13 | Agent Eval 与可视化 | `[部分完成]` | 已提供 core/tool-routing/stateful/computer-use-real 内置 suite、多维状态断言、真实 LLM Judge、repeat 稳定率、A/B matrix、CI gate、trace timeline、Action Items；Hermes 已具备持久化 jobs、cron/interval、真实 Eval Runner、重试与 lock、Action 自动升级/重开、Auto Repair 隔离 worktree/安全 diff/测试与 Eval gate/人工审核/事务合并/验证后关闭、stdout/file/webhook 通知和 loopback Local API。Langfuse dataset 接入与 SQLite 化待补。 |
 | 14 | TS/Python Language Server | `[已完成]` | TypeScript/Python 已使用 `typescript-language-server`/`pyright-langserver` 长驻 stdio，支持 initialize、文件同步、definition/references/hover/symbols、查询缓存、状态、重启、自动恢复和显式 fallback reason；安装计划固定 TypeScript 5.x 兼容版本。 |
 | 15 | 自适应工具路由 | `[完成]` | Registry 与 per-request schema visibility 已分离；按代码/浏览器/桌面/外部领域意图渐进暴露工具，能力早停或连续失败时自动扩容；`tools route`、`ToolRouteSelected`、trace/perf/tuning 和 81→15 工具实测已完成。 |
+| 16 | Agent 因果追踪图 | `[完成]` | 从脱敏事件流关联 LLM、tool、permission、route 和 file change，输出机器可读 DAG、最长加权关键路径、异常与瓶颈，并生成无外部依赖的交互式 HTML。 |
 
 ### 延后项
 

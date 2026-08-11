@@ -1532,6 +1532,8 @@ Usage:
   cohort trace last       show latest run timeline from run.log.jsonl
   cohort trace show <session_id> [--run <run_id>]
                           show one session run timeline
+  cohort trace graph last|show <session_id> [--run id] [--out path] [--open] [--json]
+                          build an offline causal DAG and critical-path analysis
   cohort perf last        show latest run latency, usage, and bottlenecks
   cohort perf show <session_id> [--run <run_id>]
                           show one session run performance summary

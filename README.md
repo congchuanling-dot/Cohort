@@ -546,11 +546,16 @@ temp/sessions/<session_id>/
 ```bash
 cohort session list
 cohort session resume <session_id>
+cohort trace graph last --open
 cohort reflect once --task tool-failure-report
 cohort reflect once --task session-archive
 cohort reflect status
 cohort reflect drain
 ```
+
+`trace graph` 会把 LLM、工具、权限、路由和文件副作用重建成因果 DAG，计算端到端
+关键路径并生成不依赖云服务的交互式 HTML；也可用 `--json` 输出机器可读图结构。
+实现与安全边界见 [Agent 因果追踪图](docs/causal_trace_graph.md)。
 
 普通交互任务结束后，`SessionEnd` Hook 默认将轻量 trigger 写入持久反思队列。Hermes
 daemon 会批量生成 session archive、质量报告和 SOP/Skill candidate；该流程不调用 LLM，

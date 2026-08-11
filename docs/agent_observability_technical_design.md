@@ -413,12 +413,14 @@ exit -> RunFinished
 3. 实现 `cohort perf last`。
 4. 实现 `cohort perf show <session_id> [--run <run_id>]`。
 5. 从 `run.log.jsonl` 汇总 LLM、tool、context、usage 和最大事件间隔。
+6. 实现 `cohort trace graph`，关联 LLM、tool、permission 和 file change，生成因果 DAG 与关键路径。
 
 验收：
 
 - 不启动 LLM、不依赖 API Key，也能读取本地 session 观测数据。
 - `trace` 能按时间线展示每个关键生命周期事件。
 - `perf` 能快速判断慢在 LLM、工具、上下文构建还是请求体膨胀。
+- `trace graph` 能离线生成交互式 HTML，并用 JSON 暴露关键路径和异常节点。
 - 日志行很大时仍能读取，不依赖 `bufio.Scanner` 的默认 token 上限。
 
 ### P1：Usage / Cost / Trace `[部分完成]`
@@ -471,7 +473,7 @@ exit -> RunFinished
 
 1. `[完成]` REPL 增加 `/trace`、`/perf`、`/tuning` 和 `/eval`。
 2. `[完成]` 每次普通 REPL 任务后可配置异步刷新 tuning Markdown/HTML Dashboard。
-3. `[部分完成]` 支持按 session 查看 turn、tool、usage 和性能 gap；artifact 深度关联待补。
+3. `[完成]` 支持按 session 查看 turn、tool、usage 和性能 gap；`FileChanged` 事件已按 `tool_call_id` 关联 artifact，并可生成因果 DAG。
 4. `[规划]` 全屏 TUI trace panel。
 
 验收：

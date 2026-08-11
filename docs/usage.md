@@ -326,11 +326,16 @@ export COHORT_COST_CACHE_WRITE_USD_PER_1M=0.20
 ```bash
 cohort trace last
 cohort trace show <session_id> [--run <run_id>]
+cohort trace graph last --open
+cohort trace graph show <session_id> [--run <run_id>] [--out path] [--json]
 cohort perf last
 cohort perf show <session_id> [--run <run_id>]
 ```
 
 `trace` 按时间线展示 `ContextBuilt`、`LLMRequestStarted`、`LLMResponseFinished`、`ToolStarted`、`ToolFinished` 等事件。`perf` 汇总总耗时、LLM 耗时、工具耗时、最近一次请求大小、工具 schema 数量、usage 和最大事件间隔，用于快速判断慢在模型、工具、上下文构建还是外部观测链路。
+
+`trace graph` 从同一份脱敏事件流重建 LLM、工具、权限、路由与文件修改的因果 DAG，
+计算关键路径并生成离线交互式 HTML。该命令不启动 LLM；`--json` 可直接输出图结构供脚本消费。
 
 跨任务调优报告：
 

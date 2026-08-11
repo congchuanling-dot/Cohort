@@ -24,6 +24,7 @@ const (
 	EventTextToolUseParsed     EventType = "TextToolUseParsed"
 	EventToolStarted           EventType = "ToolStarted"
 	EventToolFinished          EventType = "ToolFinished"
+	EventFileChanged           EventType = "FileChanged"
 	EventCompactStarted        EventType = "CompactStarted"
 	EventCompactFinished       EventType = "CompactFinished"
 	EventHookDispatched        EventType = "HookDispatched"
