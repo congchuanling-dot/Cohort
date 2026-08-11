@@ -101,6 +101,18 @@ func runDeliveryCommand(ctx context.Context, explicitConfigPath string, args []s
 		fmt.Fprintf(out, "running: %s\n", args[1])
 		runtime, err := scheduler.Run(ctx, args[1], deliverySubprocessWorker(configPath, store, ownerID))
 		printDeliveryRuntimeSummary(out, runtime)
+		if err != nil {
+			return err
+		}
+		integration, err := (delivery.Integrator{Store: store}).Run(ctx, args[1])
+		printDeliveryIntegrationSummary(out, integration)
+		return err
+	case "integrate":
+		if len(args) != 2 {
+			return errors.New("usage: cohort deliver integrate <delivery_id>")
+		}
+		integration, err := (delivery.Integrator{Store: store}).Run(ctx, args[1])
+		printDeliveryIntegrationSummary(out, integration)
 		return err
 	case "list":
 		if len(args) != 1 {
@@ -142,6 +154,9 @@ func runDeliveryCommand(ctx context.Context, explicitConfigPath string, args []s
 		printDeliveryPlanSummary(out, item, contract, graph)
 		if runtime, runtimeErr := store.LoadRuntime(item.ID); runtimeErr == nil {
 			printDeliveryRuntimeSummary(out, runtime)
+		}
+		if integration, integrationErr := store.LoadIntegration(item.ID); integrationErr == nil {
+			printDeliveryIntegrationSummary(out, integration)
 		}
 		return nil
 	case "show":
@@ -401,6 +416,22 @@ func printDeliveryRuntimeSummary(out io.Writer, runtime delivery.RuntimeState) {
 		if counts[status] > 0 {
 			fmt.Fprintf(out, "nodes_%s: %d\n", status, counts[status])
 		}
+	}
+}
+
+func printDeliveryIntegrationSummary(out io.Writer, state delivery.IntegrationState) {
+	if state.DeliveryID == "" {
+		return
+	}
+	fmt.Fprintf(out, "integration_status: %s\n", state.Status)
+	if state.Commit != "" {
+		fmt.Fprintf(out, "integration_commit: %s\n", state.Commit)
+		fmt.Fprintf(out, "integration_tree: %s\n", state.TreeHash)
+		fmt.Fprintf(out, "integration_gates: %d\n", len(state.GateResults))
+		fmt.Fprintf(out, "integration_evidence: %d\n", len(state.EvidenceIDs))
+	}
+	if state.Error != "" {
+		fmt.Fprintf(out, "integration_error: %s\n", state.Error)
 	}
 }
 

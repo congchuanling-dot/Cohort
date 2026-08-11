@@ -1497,7 +1497,9 @@ Usage:
   cohort deliver plan "requirement"
                           compile a repository-grounded acceptance contract and task DAG
   cohort deliver run <delivery_id>
-                          execute DAG builders in isolated child processes and worktrees
+                          execute isolated builders, integration, and deterministic gates
+  cohort deliver integrate <delivery_id>
+                          resume integration and fresh-evidence generation
   cohort deliver list|status|show|cancel
                           inspect or cancel persistent deliveries
   cohort components [--json]

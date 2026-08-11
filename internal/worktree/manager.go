@@ -144,6 +144,38 @@ func (m Manager) Head(ctx context.Context, spec Spec) (string, error) {
 	return strings.TrimSpace(head), nil
 }
 
+func (m Manager) TreeHash(ctx context.Context, spec Spec) (string, error) {
+	if err := m.validateSpec(spec); err != nil {
+		return "", err
+	}
+	tree, err := m.git(ctx, spec.Path, "rev-parse", "HEAD^{tree}")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(tree), nil
+}
+
+func (m Manager) Status(ctx context.Context, spec Spec) (string, error) {
+	if err := m.validateSpec(spec); err != nil {
+		return "", err
+	}
+	status, err := m.git(ctx, spec.Path, "status", "--porcelain=v1", "--untracked-files=all")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(status), nil
+}
+
+func (m Manager) DiffBetween(ctx context.Context, spec Spec, fromCommit string, toCommit string) ([]byte, error) {
+	if err := m.validateSpec(spec); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(fromCommit) == "" || strings.TrimSpace(toCommit) == "" {
+		return nil, errors.New("diff commits are required")
+	}
+	return m.gitBytes(ctx, spec.Path, "diff", "--binary", "--no-ext-diff", fromCommit, toCommit, "--")
+}
+
 func (m Manager) Commit(ctx context.Context, spec Spec, message string) (string, error) {
 	inspection, err := m.Inspect(ctx, spec)
 	if err != nil {
