@@ -1,6 +1,6 @@
 # Cohort 证据驱动的多 Agent 交付引擎
 
-> 文档状态：`[部分完成]`
+> 文档状态：`[完成]`
 >
 > 调研与设计基线：2026-08-12
 >
@@ -11,8 +11,9 @@
 > 当前进展：Delivery 状态机、原子 Store、Acceptance Contract / Task DAG 本地校验、
 > `deliver plan/list/status/show/cancel`，以及隔离子进程 Builder、Git worktree、DAG
 > Scheduler、lease/heartbeat、内容寻址 Artifact Board、Evidence 新鲜度、Integration
-> Worktree、确定性 Gate、独立 Verifier Council、Finding 去重、确定性候选选择和最多两轮
-> 定向返修已落地；人工 Review、事务合并、合并后复验和可视化仍按本文阶段继续实现。
+> Worktree、确定性 Gate、独立 Verifier Council、Finding 去重、确定性候选选择、最多两轮
+> 定向返修、离线 Review、人工批准、可恢复事务合并、合并后复验与 Delivery Reflection
+> 均已落地。
 
 ## 1. 执行摘要
 
@@ -1185,7 +1186,7 @@ Variant B: 完整 Delivery Engine
 
 - Agent 递归创建 Agent。
 - Worker 自由聊天网络。
-- 自动 merge 到主分支。
+- 未经人工 `approve/accept` 的自动 merge 到主分支。
 - 跨仓库分布式事务。
 - Kubernetes/远程 VM 调度。
 - 仅凭 LLM 分数放行失败测试。

@@ -3,8 +3,10 @@ package evolution
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -203,6 +205,45 @@ func TestReflectionQueueRecoversExpiredClaim_BitsUT(t *testing.T) {
 	}
 	if status.Pending != 1 || status.Running != 0 {
 		t.Fatalf("status=%#v, want recovered pending trigger", status)
+	}
+}
+
+func TestVerifiedDeliveryOutcomeFlowsThroughReflectionQueue_BitsUT(t *testing.T) {
+	projectRoot := t.TempDir()
+	memoryWorkspace := filepath.Join(projectRoot, "memory-workspace")
+	deliveryPath := filepath.Join(projectRoot, ".cohort", "deliveries", "delivery-1")
+	queue := NewReflectionQueue(projectRoot)
+	input := DeliveryOutcomeInput{
+		DeliveryID: "delivery-1", RequirementHash: "sha256:req", ContractHash: "sha256:contract",
+		BaseCommit: "base", MergeCommit: "merge", TreeHash: "tree", Status: "verified",
+		Criteria: 3, Gates: 2, VerifierReports: 2, RevisionRounds: 1,
+		ChangedFiles: 4, Tokens: 1200, AgentDurationMS: 5000,
+		DeliveryDurationMS: 9000, VerifiedAt: time.Now().UTC(),
+	}
+	trigger, created, err := EnqueueDeliveryOutcome(queue, memoryWorkspace, deliveryPath, input)
+	if err != nil || !created || trigger.Kind != "delivery" {
+		t.Fatalf("enqueue trigger=%#v created=%t err=%v", trigger, created, err)
+	}
+	if _, created, err := EnqueueDeliveryOutcome(queue, memoryWorkspace, deliveryPath, input); err != nil || created {
+		t.Fatalf("dedupe created=%t err=%v", created, err)
+	}
+	result, err := NewReflectionWorker(queue, ReflectionWorkerConfig{}).Drain(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Completed != 1 || !slices.Equal(result.Tasks, []string{ReflectTaskDeliveryOutcomeReport}) {
+		t.Fatalf("drain result = %#v", result)
+	}
+	reportPath := filepath.Join(memoryWorkspace, filepath.FromSlash(DeliveryOutcomeReportPath))
+	report, err := os.ReadFile(reportPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(report)
+	for _, want := range []string{"delivery-1", "sha256:contract", "revision_rounds: 1", "privacy_policy"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("delivery outcome report missing %q:\n%s", want, content)
+		}
 	}
 }
 

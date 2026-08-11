@@ -40,9 +40,11 @@ type ReflectionTrigger struct {
 	SchemaVersion   int       `json:"schema_version"`
 	ID              string    `json:"id"`
 	DedupeKey       string    `json:"dedupe_key"`
+	Kind            string    `json:"kind,omitempty"`
 	ProjectRoot     string    `json:"project_root"`
 	MemoryWorkspace string    `json:"memory_workspace"`
 	SessionRoot     string    `json:"session_root"`
+	DeliveryPath    string    `json:"delivery_path,omitempty"`
 	SessionID       string    `json:"session_id"`
 	RunID           string    `json:"run_id,omitempty"`
 	HistoryLen      int       `json:"history_len"`
@@ -209,18 +211,35 @@ func (q ReflectionQueue) normalizeTrigger(trigger *ReflectionTrigger) error {
 	trigger.ProjectRoot = canonicalExistingPath(trigger.ProjectRoot)
 	trigger.MemoryWorkspace = filepath.Clean(strings.TrimSpace(trigger.MemoryWorkspace))
 	trigger.SessionRoot = filepath.Clean(strings.TrimSpace(trigger.SessionRoot))
+	trigger.DeliveryPath = canonicalExistingPath(trigger.DeliveryPath)
 	trigger.SessionID = strings.TrimSpace(trigger.SessionID)
+	trigger.Kind = strings.TrimSpace(trigger.Kind)
+	if trigger.Kind == "" {
+		trigger.Kind = "session"
+	}
+	if trigger.Kind != "session" && trigger.Kind != "delivery" {
+		return fmt.Errorf("unsupported reflection trigger kind %q", trigger.Kind)
+	}
 	if trigger.ProjectRoot == "." || !filepath.IsAbs(trigger.ProjectRoot) {
 		return errors.New("reflection project_root must be absolute")
 	}
 	if trigger.MemoryWorkspace == "." || !filepath.IsAbs(trigger.MemoryWorkspace) {
 		return errors.New("reflection memory_workspace must be absolute")
 	}
-	if trigger.SessionRoot == "." || !filepath.IsAbs(trigger.SessionRoot) {
+	if trigger.Kind == "session" && (trigger.SessionRoot == "." || !filepath.IsAbs(trigger.SessionRoot)) {
 		return errors.New("reflection session_root must be absolute")
+	}
+	if trigger.Kind == "delivery" && (trigger.DeliveryPath == "." || !filepath.IsAbs(trigger.DeliveryPath)) {
+		return errors.New("reflection delivery_path must be absolute")
 	}
 	if trigger.ProjectRoot != q.ProjectRoot {
 		return fmt.Errorf("reflection project_root %q does not match queue root %q", trigger.ProjectRoot, q.ProjectRoot)
+	}
+	if trigger.Kind == "delivery" {
+		relative, err := filepath.Rel(trigger.ProjectRoot, trigger.DeliveryPath)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return errors.New("reflection delivery_path must stay inside project root")
+		}
 	}
 	if trigger.SessionID == "" {
 		return errors.New("reflection session_id is required")
@@ -242,7 +261,7 @@ func (q ReflectionQueue) normalizeTrigger(trigger *ReflectionTrigger) error {
 	if trigger.AvailableAt.IsZero() {
 		trigger.AvailableAt = now
 	}
-	trigger.DedupeKey = reflectionDedupeKey(trigger.ProjectRoot, trigger.SessionID, trigger.HistoryLen)
+	trigger.DedupeKey = reflectionDedupeKey(trigger.ProjectRoot, trigger.Kind+":"+trigger.SessionID, trigger.HistoryLen)
 	trigger.ID = "reflect_" + trigger.DedupeKey[:20]
 	trigger.LastError = truncateReflectionError(trigger.LastError)
 	return nil
@@ -630,13 +649,19 @@ func (q ReflectionQueue) validateStoredTrigger(item ReflectionTrigger, fileID st
 	if canonicalExistingPath(item.ProjectRoot) != q.ProjectRoot {
 		return fmt.Errorf("reflection trigger %q has unexpected project root", item.ID)
 	}
-	if !filepath.IsAbs(item.MemoryWorkspace) || !filepath.IsAbs(item.SessionRoot) {
+	if !filepath.IsAbs(item.MemoryWorkspace) ||
+		(item.Kind != "delivery" && !filepath.IsAbs(item.SessionRoot)) ||
+		(item.Kind == "delivery" && !filepath.IsAbs(item.DeliveryPath)) {
 		return fmt.Errorf("reflection trigger %q contains a non-absolute data path", item.ID)
 	}
 	if item.SessionID == "" || strings.ContainsAny(item.SessionID, `/\`) || item.HistoryLen <= 0 {
 		return fmt.Errorf("reflection trigger %q contains invalid session metadata", item.ID)
 	}
-	dedupeKey := reflectionDedupeKey(item.ProjectRoot, item.SessionID, item.HistoryLen)
+	sessionKey := item.SessionID
+	if item.Kind != "" {
+		sessionKey = item.Kind + ":" + item.SessionID
+	}
+	dedupeKey := reflectionDedupeKey(item.ProjectRoot, sessionKey, item.HistoryLen)
 	if item.DedupeKey != dedupeKey || item.ID != "reflect_"+dedupeKey[:20] {
 		return fmt.Errorf("reflection trigger %q failed integrity validation", item.ID)
 	}

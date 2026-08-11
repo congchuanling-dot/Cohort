@@ -16,6 +16,7 @@ import (
 	"cohort/internal/agent"
 	"cohort/internal/app"
 	"cohort/internal/delivery"
+	"cohort/internal/evolution"
 	"cohort/internal/explorer"
 	"cohort/internal/worktree"
 )
@@ -24,7 +25,7 @@ const deliveryChildEnv = "COHORT_DELIVERY_CHILD"
 
 func runDeliveryCommand(ctx context.Context, explicitConfigPath string, args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New(`usage: cohort deliver plan "requirement" | run <id> | list | status [id] | show <id> | cancel <id>`)
+		return errors.New(`usage: cohort deliver plan "requirement" | run <id> | review <id> | accept <id> | list | status [id]`)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -204,6 +205,56 @@ func runDeliveryCommand(ctx context.Context, explicitConfigPath string, args []s
 			return err
 		}
 		return runDeliveryRevisionLoop(ctx, configPath, store, args[1], out)
+	case "review":
+		return runDeliveryReviewCommand(store, args[1:], out)
+	case "approve":
+		deliveryID, approvedBy, err := parseDeliveryApprovalArgs(args[1:])
+		if err != nil {
+			return err
+		}
+		approval, err := (delivery.MergeService{Store: store}).Approve(deliveryID, approvedBy)
+		if err != nil {
+			return err
+		}
+		printDeliveryApprovalSummary(out, approval)
+		return nil
+	case "merge":
+		if len(args) != 2 {
+			return errors.New("usage: cohort deliver merge <delivery_id>")
+		}
+		state, err := (delivery.MergeService{Store: store}).Merge(ctx, args[1])
+		printDeliveryMergeSummary(out, state)
+		if err != nil {
+			return err
+		}
+		return enqueueDeliveryReflection(store, state, out)
+	case "recover":
+		if len(args) != 2 {
+			return errors.New("usage: cohort deliver recover <delivery_id>")
+		}
+		state, err := (delivery.MergeService{Store: store}).Recover(ctx, args[1])
+		printDeliveryMergeSummary(out, state)
+		if err != nil {
+			return err
+		}
+		return enqueueDeliveryReflection(store, state, out)
+	case "accept":
+		deliveryID, approvedBy, err := parseDeliveryApprovalArgs(args[1:])
+		if err != nil {
+			return err
+		}
+		service := delivery.MergeService{Store: store}
+		approval, err := service.Approve(deliveryID, approvedBy)
+		if err != nil {
+			return err
+		}
+		printDeliveryApprovalSummary(out, approval)
+		state, err := service.Merge(ctx, deliveryID)
+		printDeliveryMergeSummary(out, state)
+		if err != nil {
+			return err
+		}
+		return enqueueDeliveryReflection(store, state, out)
 	case "list":
 		if len(args) != 1 {
 			return errors.New("usage: cohort deliver list")
@@ -254,10 +305,24 @@ func runDeliveryCommand(ctx context.Context, explicitConfigPath string, args []s
 		if revisions, revisionErr := store.LoadRevisions(item.ID); revisionErr == nil && len(revisions.Records) > 0 {
 			printDeliveryRevisionSummary(out, revisions.Records[len(revisions.Records)-1])
 		}
+		if approval, approvalErr := store.LoadApproval(item.ID); approvalErr == nil {
+			printDeliveryApprovalSummary(out, approval)
+		}
+		if merge, mergeErr := store.LoadMerge(item.ID); mergeErr == nil {
+			printDeliveryMergeSummary(out, merge)
+		}
 		return nil
 	case "show":
 		if len(args) != 2 {
 			return errors.New("usage: cohort deliver show <delivery_id>")
+		}
+		if report, reportErr := store.BuildReviewReport(args[1]); reportErr == nil {
+			data, err := json.MarshalIndent(report, "", "  ")
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(out, string(data))
+			return nil
 		}
 		item, err := store.Load(args[1])
 		if err != nil {
@@ -292,6 +357,142 @@ func runDeliveryCommand(ctx context.Context, explicitConfigPath string, args []s
 	default:
 		return fmt.Errorf("unknown deliver command %q", args[0])
 	}
+}
+
+func runDeliveryReviewCommand(store delivery.Store, args []string, out io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("usage: cohort deliver review <delivery_id> [--out path] [--open] [--json]")
+	}
+	deliveryID := args[0]
+	outputPath := ""
+	openReport := false
+	jsonOutput := false
+	for index := 1; index < len(args); index++ {
+		switch {
+		case args[index] == "--out":
+			if index+1 >= len(args) {
+				return errors.New("--out requires a path")
+			}
+			outputPath = args[index+1]
+			index++
+		case strings.HasPrefix(args[index], "--out="):
+			outputPath = strings.TrimPrefix(args[index], "--out=")
+		case args[index] == "--open":
+			openReport = true
+		case args[index] == "--json":
+			jsonOutput = true
+		default:
+			return fmt.Errorf("unknown review option %q", args[index])
+		}
+	}
+	report, err := store.BuildReviewReport(deliveryID)
+	if err != nil {
+		return err
+	}
+	if jsonOutput {
+		data, err := json.MarshalIndent(report, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(out, string(data))
+		return nil
+	}
+	if strings.TrimSpace(outputPath) == "" {
+		outputPath = delivery.DefaultReviewPath(store, deliveryID)
+	}
+	if err := delivery.WriteReviewHTML(report, outputPath); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "delivery_review: %s\n", outputPath)
+	fmt.Fprintf(out, "proof_status: %s\n", report.ProofStatus)
+	fmt.Fprintf(out, "criteria: %d\n", len(report.Coverage))
+	fmt.Fprintf(out, "blocking_findings: %d\n", report.Metrics.BlockingFindings)
+	fmt.Fprintf(out, "changed_files: %d\n", report.Metrics.FilesChanged)
+	if openReport {
+		if err := exec.Command("open", outputPath).Start(); err != nil {
+			return fmt.Errorf("open delivery review: %w", err)
+		}
+		fmt.Fprintln(out, "opened: true")
+	}
+	return nil
+}
+
+func parseDeliveryApprovalArgs(args []string) (string, string, error) {
+	if len(args) == 0 {
+		return "", "", errors.New("usage: cohort deliver approve|accept <delivery_id> [--by identity]")
+	}
+	deliveryID := strings.TrimSpace(args[0])
+	approvedBy := delivery.DefaultApproverIdentity()
+	for index := 1; index < len(args); index++ {
+		switch {
+		case args[index] == "--by":
+			if index+1 >= len(args) {
+				return "", "", errors.New("--by requires an identity")
+			}
+			approvedBy = strings.TrimSpace(args[index+1])
+			index++
+		case strings.HasPrefix(args[index], "--by="):
+			approvedBy = strings.TrimSpace(strings.TrimPrefix(args[index], "--by="))
+		default:
+			return "", "", fmt.Errorf("unknown approval option %q", args[index])
+		}
+	}
+	if deliveryID == "" || approvedBy == "" {
+		return "", "", errors.New("delivery id and approver identity are required")
+	}
+	return deliveryID, approvedBy, nil
+}
+
+func enqueueDeliveryReflection(store delivery.Store, state delivery.MergeState, out io.Writer) error {
+	if state.Status != delivery.StatusVerified {
+		return nil
+	}
+	report, err := store.BuildReviewReport(state.DeliveryID)
+	if err != nil {
+		return err
+	}
+	verifiedAt := report.Delivery.VerifiedAt
+	if verifiedAt.IsZero() {
+		verifiedAt = state.FinishedAt
+	}
+	duration := verifiedAt.Sub(report.Delivery.CreatedAt).Milliseconds()
+	if duration < 0 {
+		duration = 0
+	}
+	queue := evolution.NewReflectionQueue(store.ProjectRoot)
+	trigger, created, err := evolution.EnqueueDeliveryOutcome(
+		queue,
+		store.ProjectRoot,
+		filepath.Join(store.RootDir, state.DeliveryID),
+		evolution.DeliveryOutcomeInput{
+			DeliveryID:         state.DeliveryID,
+			RequirementHash:    report.Delivery.RequirementHash,
+			ContractHash:       report.Delivery.ContractHash,
+			BaseCommit:         state.BaseCommit,
+			MergeCommit:        state.MergeCommit,
+			TreeHash:           state.TreeHash,
+			Status:             string(delivery.StatusVerified),
+			Criteria:           len(report.Coverage),
+			Gates:              len(state.PostMergeGates),
+			VerifierReports:    report.Metrics.VerifierReports,
+			RevisionRounds:     report.Metrics.RevisionRounds,
+			OpenFindings:       report.Metrics.OpenFindings,
+			BlockingFindings:   report.Metrics.BlockingFindings,
+			ChangedFiles:       report.Metrics.FilesChanged,
+			Tokens:             report.Metrics.Tokens,
+			AgentDurationMS:    report.Metrics.DurationMS,
+			DeliveryDurationMS: duration,
+			VerifiedAt:         verifiedAt,
+		},
+	)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "reflection_queued: %t\n", created)
+	if trigger.ID != "" {
+		fmt.Fprintf(out, "reflection_job: %s\n", trigger.ID)
+	}
+	return nil
 }
 
 func deliveryAgentPlanner(cfg app.Config, store delivery.Store) delivery.PlanGenerator {
@@ -731,6 +932,31 @@ func printDeliveryRevisionSummary(out io.Writer, record delivery.RevisionRecord)
 	}
 	if record.Error != "" {
 		fmt.Fprintf(out, "revision_error: %s\n", record.Error)
+	}
+}
+
+func printDeliveryApprovalSummary(out io.Writer, record delivery.ApprovalRecord) {
+	if record.DeliveryID == "" {
+		return
+	}
+	fmt.Fprintf(out, "approved_by: %s\n", record.ApprovedBy)
+	fmt.Fprintf(out, "approved_at: %s\n", record.ApprovedAt.Format(time.RFC3339))
+	fmt.Fprintf(out, "approved_tree: %s\n", record.IntegrationTree)
+}
+
+func printDeliveryMergeSummary(out io.Writer, state delivery.MergeState) {
+	if state.DeliveryID == "" {
+		return
+	}
+	fmt.Fprintf(out, "merge_status: %s\n", state.Status)
+	if state.MergeCommit != "" {
+		fmt.Fprintf(out, "merge_commit: %s\n", state.MergeCommit)
+		fmt.Fprintf(out, "merge_tree: %s\n", state.TreeHash)
+	}
+	fmt.Fprintf(out, "pre_merge_gates: %d\n", len(state.PreMergeGates))
+	fmt.Fprintf(out, "post_merge_gates: %d\n", len(state.PostMergeGates))
+	if state.Error != "" {
+		fmt.Fprintf(out, "merge_error: %s\n", state.Error)
 	}
 }
 

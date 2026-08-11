@@ -214,6 +214,12 @@ func (s Store) Transition(id string, to DeliveryStatus, eventType string, data m
 	}
 	delivery.Status = to
 	delivery.UpdatedAt = s.now()
+	if to == StatusApproved && delivery.ApprovedAt.IsZero() {
+		delivery.ApprovedAt = delivery.UpdatedAt
+	}
+	if to == StatusVerified && delivery.VerifiedAt.IsZero() {
+		delivery.VerifiedAt = delivery.UpdatedAt
+	}
 	if err := s.writeJSON(s.deliveryPath(id), delivery); err != nil {
 		return Delivery{}, err
 	}

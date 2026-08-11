@@ -19,9 +19,6 @@ type GateRunner struct {
 }
 
 func (r GateRunner) Run(ctx context.Context, item Delivery, contract AcceptanceContract, gate GateSpec, manager worktree.Manager, spec worktree.Spec, commit string, treeHash string) (GateResult, error) {
-	if err := ValidateGateCommand(gate); err != nil {
-		return GateResult{}, err
-	}
 	before, err := manager.Status(ctx, spec)
 	if err != nil {
 		return GateResult{}, err
@@ -29,48 +26,19 @@ func (r GateRunner) Run(ctx context.Context, item Delivery, contract AcceptanceC
 	if before != "" {
 		return GateResult{}, fmt.Errorf("integration worktree is dirty before gate %q: %s", gate.ID, before)
 	}
-	timeout := time.Duration(gate.TimeoutSeconds) * time.Second
-	if timeout <= 0 {
-		timeout = 5 * time.Minute
+	execution, err := executeGateCommand(ctx, gate, spec.Path)
+	if err != nil {
+		return GateResult{}, err
 	}
-	if timeout > 30*time.Minute {
-		timeout = 30 * time.Minute
-	}
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	command := exec.CommandContext(runCtx, gate.Command[0], gate.Command[1:]...)
-	command.Dir = spec.Path
-	var output cappedBuffer
-	output.limit = maxGateOutputBytes
-	command.Stdout = &output
-	command.Stderr = &output
-	startedAt := time.Now().UTC()
-	runErr := command.Run()
-	finishedAt := time.Now().UTC()
-	exitCode := 0
-	if runErr != nil {
-		exitCode = -1
-		var exitErr *exec.ExitError
-		if errors.As(runErr, &exitErr) {
-			exitCode = exitErr.ExitCode()
-		}
-	}
-	if runCtx.Err() != nil {
-		runErr = runCtx.Err()
-	}
+	runErr := execution.Err
 	after, statusErr := manager.Status(ctx, spec)
 	if statusErr != nil {
 		return GateResult{}, statusErr
 	}
 	if after != "" {
-		if runErr == nil {
-			runErr = fmt.Errorf("gate mutated tracked or untracked repository state: %s", after)
-		}
+		runErr = errors.Join(runErr, fmt.Errorf("gate mutated tracked or untracked repository state: %s", after))
 	}
-	payload := output.Bytes()
-	if output.truncated {
-		payload = append(payload, []byte("\n...[gate output truncated]...\n")...)
-	}
+	payload := execution.Output
 	artifact, err := r.Store.PublishArtifact(item.ID, ArtifactMeta{
 		Kind:       "gate_output",
 		Producer:   "gate:" + gate.ID,
@@ -108,9 +76,9 @@ func (r GateRunner) Run(ctx context.Context, item Delivery, contract AcceptanceC
 		TreeHash:        treeHash,
 		CommandHash:     commandHash,
 		EnvironmentHash: environmentHash,
-		ExitCode:        exitCode,
-		StartedAt:       startedAt,
-		FinishedAt:      finishedAt,
+		ExitCode:        execution.ExitCode,
+		StartedAt:       execution.StartedAt,
+		FinishedAt:      execution.FinishedAt,
 		ArtifactHash:    artifact.ID,
 		Status:          status,
 		Error:           errorText,
@@ -122,12 +90,66 @@ func (r GateRunner) Run(ctx context.Context, item Delivery, contract AcceptanceC
 		Gate:       gate,
 		Evidence:   evidence,
 		Output:     previewGateOutput(string(payload), 4000),
-		DurationMS: finishedAt.Sub(startedAt).Milliseconds(),
+		DurationMS: execution.FinishedAt.Sub(execution.StartedAt).Milliseconds(),
 	}
 	if runErr != nil {
 		return result, fmt.Errorf("gate %s failed: %w", gate.ID, runErr)
 	}
 	return result, nil
+}
+
+type gateExecution struct {
+	Output     []byte
+	ExitCode   int
+	StartedAt  time.Time
+	FinishedAt time.Time
+	Err        error
+}
+
+func executeGateCommand(ctx context.Context, gate GateSpec, dir string) (gateExecution, error) {
+	if err := ValidateGateCommand(gate); err != nil {
+		return gateExecution{}, err
+	}
+	timeout := time.Duration(gate.TimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
+	if timeout > 30*time.Minute {
+		timeout = 30 * time.Minute
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	command := exec.CommandContext(runCtx, gate.Command[0], gate.Command[1:]...)
+	command.Dir = dir
+	var output cappedBuffer
+	output.limit = maxGateOutputBytes
+	command.Stdout = &output
+	command.Stderr = &output
+	startedAt := time.Now().UTC()
+	runErr := command.Run()
+	finishedAt := time.Now().UTC()
+	exitCode := 0
+	if runErr != nil {
+		exitCode = -1
+		var exitErr *exec.ExitError
+		if errors.As(runErr, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		}
+	}
+	if runCtx.Err() != nil {
+		runErr = runCtx.Err()
+	}
+	payload := output.Bytes()
+	if output.truncated {
+		payload = append(payload, []byte("\n...[gate output truncated]...\n")...)
+	}
+	return gateExecution{
+		Output:     payload,
+		ExitCode:   exitCode,
+		StartedAt:  startedAt,
+		FinishedAt: finishedAt,
+		Err:        runErr,
+	}, nil
 }
 
 func ValidateGateCommand(gate GateSpec) error {

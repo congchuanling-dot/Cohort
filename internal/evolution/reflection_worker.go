@@ -139,11 +139,15 @@ func (w *ReflectionWorker) processGroup(ctx context.Context, items []ReflectionT
 		if err != nil {
 			break
 		}
+		sourcePath := items[0].SessionRoot
+		if items[0].Kind == "delivery" {
+			sourcePath = items[0].DeliveryPath
+		}
 		reflectionResult, executeErr := execute(
 			ctx,
 			task,
 			items[0].MemoryWorkspace,
-			items[0].SessionRoot,
+			sourcePath,
 		)
 		if executeErr != nil {
 			err = fmt.Errorf("reflect %s: %w", task, executeErr)
@@ -158,7 +162,11 @@ func (w *ReflectionWorker) processGroup(ctx context.Context, items []ReflectionT
 		result.Failed = len(items)
 		return result, err
 	}
-	if err := w.Queue.CompleteBatch(items, tasks, reflectionPlannerTasks, startedAt); err != nil {
+	plannedTasks := reflectionPlannerTasks
+	if items[0].Kind == "delivery" {
+		plannedTasks = []string{ReflectTaskDeliveryOutcomeReport}
+	}
+	if err := w.Queue.CompleteBatch(items, tasks, plannedTasks, startedAt); err != nil {
 		if failErr := w.Queue.FailBatch(items, err, startedAt); failErr != nil {
 			err = errors.Join(err, failErr)
 		}
@@ -173,6 +181,9 @@ func (w *ReflectionWorker) processGroup(ctx context.Context, items []ReflectionT
 func PlanReflectionTasks(state ReflectionState, items []ReflectionTrigger, now time.Time) []string {
 	if len(items) == 0 {
 		return nil
+	}
+	if items[0].Kind == "delivery" {
+		return []string{ReflectTaskDeliveryOutcomeReport}
 	}
 	tasks := []string{ReflectTaskSessionArchive}
 	newRuns := len(items)
@@ -209,7 +220,11 @@ func groupReflectionTriggers(items []ReflectionTrigger) [][]ReflectionTrigger {
 	groupsByKey := map[string][]ReflectionTrigger{}
 	var keys []string
 	for _, item := range items {
-		key := item.MemoryWorkspace + "\x00" + item.SessionRoot
+		sourcePath := item.SessionRoot
+		if item.Kind == "delivery" {
+			sourcePath = item.DeliveryPath
+		}
+		key := item.Kind + "\x00" + item.MemoryWorkspace + "\x00" + sourcePath
 		if _, exists := groupsByKey[key]; !exists {
 			keys = append(keys, key)
 		}

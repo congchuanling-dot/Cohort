@@ -1502,6 +1502,12 @@ Usage:
                           resume integration and fresh-evidence generation
   cohort deliver verify|revise <delivery_id>
                           run independent verifier council or bounded targeted revision
+  cohort deliver review <delivery_id> [--open]
+                          generate the offline acceptance/evidence review report
+  cohort deliver approve|accept <delivery_id>
+                          record human approval or approve+transactionally merge+reverify
+  cohort deliver merge|recover <delivery_id>
+                          resume approved merge or recover an interrupted transaction
   cohort deliver list|status|show|cancel
                           inspect or cancel persistent deliveries
   cohort components [--json]

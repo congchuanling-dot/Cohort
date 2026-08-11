@@ -145,6 +145,11 @@ cohort deliver run <delivery_id>
 cohort deliver integrate <delivery_id>
 cohort deliver verify <delivery_id>
 cohort deliver revise <delivery_id>
+cohort deliver review <delivery_id> [--out path] [--open] [--json]
+cohort deliver approve <delivery_id> [--by identity]
+cohort deliver merge <delivery_id>
+cohort deliver accept <delivery_id> [--by identity]
+cohort deliver recover <delivery_id>
 cohort deliver list
 cohort deliver status [delivery_id]
 cohort deliver show <delivery_id>
@@ -169,6 +174,19 @@ Verifier 按契约风险动态加入。Verifier 不接收 Builder 对话历史�
 文件位置和代码证据。High/Critical Finding 会触发最多两轮 `revise -> integrate -> verify`
 闭环；Revision Builder 只能修改 Finding 指向且仍在 contract scope 内的路径。重复失败或
 无法形成安全 write set 时转 `needs_human_decision`，不会无限自动修改。
+
+状态到达 `ready_for_review` 后，`deliver review` 生成离线 HTML，集中展示 Acceptance
+Coverage、DAG、候选、Evidence、新鲜度、Finding、返修轮次、成本与变更文件。`approve`
+只记录绑定 contract/integration/verification 的人工批准；`accept` 等价于
+`approve + merge`。合并严格要求主工作区仍位于计划 base 且完全干净，先执行
+`git merge --no-ff --no-commit`，验证 staged/unstaged/untracked 快照未被 Gate 篡改，
+再生成 merge commit。之后在 merge commit 上重新执行全部 Mandatory Gate，只有复验通过
+才进入 `verified`。合并前失败会精确 abort 并恢复干净工作区；进程中断后使用
+`deliver recover` 恢复 pre-commit 或 post-commit 阶段。
+
+Verified Delivery 会把仅含 hash、计数、耗时和结果的脱敏摘要写入持久 Reflection Queue。
+Hermes/`cohort reflect drain` 消费后生成 `memory/reflection/delivery_outcomes.md`，原始需求
+和代码正文不会进入长期反思数据。
 
 完整并行 Builder、独立 Verifier、Integration Gate 和事务合并设计见
 [证据驱动的多 Agent 交付引擎](evidence_driven_multi_agent_delivery.md)。

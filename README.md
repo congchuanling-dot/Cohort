@@ -101,6 +101,7 @@ cohort
 | 浏览器自动化 | 通过 Chrome Bridge 读 DOM、执行 JS、点击、输入、等待和截图 |
 | 桌面 Computer Use | 基于 macOS Accessibility / AX 做窗口、控件、键盘和受控动作 |
 | 长任务能力 | session、history、compact、memory 分层管理上下文 |
+| 多 Agent 交付 | Acceptance Contract、隔离 Builder、Evidence、独立 Verifier、人工批准后事务合并 |
 | 可验证记忆 | 长期记忆必须引用工具证据，写入后回读确认 |
 | 可观测性 | 本地 `run.log.jsonl`，可选 Langfuse trace 上报 |
 
@@ -603,6 +604,19 @@ observability:
 - `reflect once` 是本地离线报告，不会自动补传到 Langfuse。
 
 ## 真实示例
+
+证据驱动的软件交付可直接使用 CLI 闭环执行：
+
+```bash
+cohort deliver plan "实现限流中间件并补齐并发测试"
+cohort deliver run <delivery_id>
+cohort deliver review <delivery_id> --open
+cohort deliver accept <delivery_id> --by "$USER"
+```
+
+系统会在隔离 worktree 中构建候选，完成 Integration Gate、独立 Verifier 和定向返修后进入
+人工 Review。`accept` 使用 `--no-commit` 事务合并，并在 merge commit 上重新验证；
+Evidence 绑定 contract、Git tree、命令、环境和 Artifact hash。
 
 下面的示例都建议在交互模式里执行。先启动 Cohort：
 

@@ -117,6 +117,14 @@ type legacyRunLogEntry struct {
 // memory/raw_sessions or memory/reflection for later human review.
 func (m Manager) ReflectOnce(task string, sessionRoot string) (ReflectionResult, error) {
 	task = strings.TrimSpace(task)
+	if task == ReflectTaskDeliveryOutcomeReport {
+		paths, err := m.writeDeliveryOutcomeReport(sessionRoot)
+		if err != nil {
+			return ReflectionResult{}, err
+		}
+		sort.Strings(paths)
+		return ReflectionResult{Task: task, OutputPaths: paths}, nil
+	}
 	if sessionRoot == "" {
 		sessionRoot = session.DefaultRootDir
 	}
