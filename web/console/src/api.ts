@@ -75,6 +75,18 @@ export interface ProjectRecord {
   last_opened_at: string;
 }
 
+export interface DataSourceHealth {
+  kind: string;
+  label: string;
+  state: "ready" | "empty" | "unavailable" | "error" | "stale";
+  relative_path: string;
+  count: number;
+  updated_at?: string;
+  scanned_at: string;
+  error_code?: string;
+  error?: string;
+}
+
 export interface DeliveryItem {
   id: string;
   status: string;

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"cohort/internal/controlplane"
+	"cohort/internal/session"
 )
 
 func TestSnapshotProviderAggregatesProjectWithoutMutatingRepository_BitsUT(t *testing.T) {
@@ -74,6 +75,60 @@ func TestCatalogExposesStableSystemAction_BitsUT(t *testing.T) {
 	if _, err := projectPath(root, "escape/secret.json"); err == nil {
 		t.Fatal("expected symlink path escape to be rejected")
 	}
+}
+
+func TestProjectDataHubDiscoversStoresAndIsolatesSourceErrors_BitsUT(t *testing.T) {
+	root := t.TempDir()
+	if _, err := session.NewStore(filepath.Join(root, session.DefaultRootDir)).Create("existing session", root, "test-model"); err != nil {
+		t.Fatal(err)
+	}
+	hub, err := NewProjectDataHub(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sources, err := hub.Sources(context.Background(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionSource := findSource(sources, "sessions")
+	if sessionSource.Count != 1 || sessionSource.State != controlplane.SourceReady {
+		t.Fatalf("session source = %#v", sessionSource)
+	}
+	indexPath := filepath.Join(root, ".cohort", "control", "index-v1.json")
+	info, err := os.Stat(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("index mode = %v, want 0600", info.Mode().Perm())
+	}
+
+	hermesRoot := filepath.Join(root, ".cohort", "hermes")
+	if err := os.MkdirAll(hermesRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hermesRoot, "action_queue.json"), []byte("{not-json"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	sources, err = hub.Sources(context.Background(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if source := findSource(sources, "hermes"); source.State != controlplane.SourceError || source.ErrorCode == "" {
+		t.Fatalf("hermes source = %#v", source)
+	}
+	if source := findSource(sources, "sessions"); source.State != controlplane.SourceReady || source.Count != 1 {
+		t.Fatalf("session source after hermes failure = %#v", source)
+	}
+}
+
+func findSource(sources []controlplane.SourceHealth, kind string) controlplane.SourceHealth {
+	for _, source := range sources {
+		if source.Kind == kind {
+			return source
+		}
+	}
+	return controlplane.SourceHealth{}
 }
 
 func runGit(t *testing.T, root string, args ...string) {

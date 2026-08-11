@@ -33,6 +33,7 @@ type ServerConfig struct {
 	Snapshot    SnapshotProvider
 	Projects    *ProjectRegistry
 	Resources   ResourceProvider
+	DataSources DataSourceProvider
 }
 
 type SnapshotProvider func(context.Context, string) (any, error)
@@ -46,6 +47,7 @@ type Server struct {
 	snapshot      SnapshotProvider
 	projects      *ProjectRegistry
 	resources     ResourceProvider
+	dataSources   DataSourceProvider
 	operations    *OperationManager
 	bootstrap     string
 	session       string
@@ -89,6 +91,7 @@ func NewServer(config ServerConfig) (*Server, error) {
 		snapshot:    config.Snapshot,
 		projects:    config.Projects,
 		resources:   config.Resources,
+		dataSources: config.DataSources,
 		operations:  operations,
 		bootstrap:   randomToken(24),
 		session:     randomToken(32),
@@ -149,6 +152,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/catalog", s.requireSession(http.HandlerFunc(s.handleCatalog)))
 	mux.Handle("/api/v1/snapshot", s.requireSession(http.HandlerFunc(s.handleSnapshot)))
 	mux.Handle("/api/v1/projects", s.requireSession(http.HandlerFunc(s.handleProjects)))
+	mux.Handle("/api/v1/data-sources", s.requireSession(http.HandlerFunc(s.handleDataSources)))
+	mux.Handle("/api/v1/data-sources/refresh", s.requireSession(http.HandlerFunc(s.handleDataSources)))
 	mux.Handle("/api/v1/resources/", s.requireSession(http.HandlerFunc(s.handleResource)))
 	mux.Handle("/api/v1/actions/", s.requireSession(http.HandlerFunc(s.handleAction)))
 	mux.Handle("/api/v1/operations", s.requireSession(http.HandlerFunc(s.handleOperations)))
@@ -252,6 +257,37 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeControlJSON(w, http.StatusOK, map[string]any{"projects": projects})
+}
+
+func (s *Server) handleDataSources(w http.ResponseWriter, r *http.Request) {
+	force := false
+	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/data-sources":
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/data-sources/refresh":
+		if !s.validMutation(r, w) {
+			return
+		}
+		if err := decodeControlJSON(w, r, &struct{}{}); err != nil {
+			return
+		}
+		force = true
+	default:
+		writeControlError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s.dataSources == nil {
+		writeControlError(w, http.StatusNotImplemented, "project data sources are unavailable")
+		return
+	}
+	sources, err := s.dataSources.Sources(r.Context(), force)
+	if err != nil {
+		writeControlError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeControlJSON(w, http.StatusOK, map[string]any{
+		"project_root": s.projectRoot,
+		"sources":      sources,
+	})
 }
 
 func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {

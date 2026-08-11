@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ActionSpec, apiGet, apiPost, CapabilityResource, DashboardSnapshot, initializeSession,
-  DeliveryItem, EvalRun, HermesResource, InputField, LSPResource, MCPServerSummary,
+  DataSourceHealth, DeliveryItem, EvalRun, HermesResource, InputField, LSPResource, MCPServerSummary,
   Operation, operationEvents, ProjectRecord, SessionInfo, SessionSummary,
   SettingsResource, SkillSummary,
 } from "./api";
@@ -155,6 +155,8 @@ export default function App() {
           <Metric label="Eval 通过率" value={`${(data?.evaluation.pass_rate ?? 0).toFixed(1)}%`} hint={`${data?.evaluation.regressions ?? 0} regressions`} />
         </section>
 
+        <DataSourcesPanel />
+
         <div className="overview-grid">
           <section className="panel">
             <div className="panel-heading"><div><p className="eyebrow">PROJECT HEALTH</p><h3>项目状态</h3></div><span className={data?.project.dirty ? "risk warn" : "risk ok"}>{data?.project.dirty ? "DIRTY" : "CLEAN"}</span></div>
@@ -200,6 +202,41 @@ export default function App() {
       {commandOpen && <CommandCenter actions={catalog.data?.actions ?? []} initialQuery={commandIntent} onClose={() => setCommandOpen(false)} />}
     </div>
   );
+}
+
+function DataSourcesPanel() {
+  const queryClient = useQueryClient();
+  const sources = useQuery({
+    queryKey: ["data-sources"],
+    queryFn: () => apiGet<{ project_root: string; sources: DataSourceHealth[] }>("/api/v1/data-sources"),
+    refetchInterval: 15_000,
+  });
+  const refresh = useMutation({
+    mutationFn: () => apiPost<{ sources: DataSourceHealth[] }>("/api/v1/data-sources/refresh", {}),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["data-sources"] });
+      void queryClient.invalidateQueries({ queryKey: ["resource"] });
+      void queryClient.invalidateQueries({ queryKey: ["snapshot"] });
+    },
+  });
+  return <section className="panel source-panel" id="data-sources">
+    <div className="panel-heading">
+      <div><p className="eyebrow">LOCAL DATA HUB</p><h3>本地数据来源</h3></div>
+      <button type="button" disabled={refresh.isPending} onClick={() => refresh.mutate()}>
+        {refresh.isPending ? "扫描中…" : "重新扫描"}
+      </button>
+    </div>
+    {sources.isError && <div className="source-error"><strong>数据索引加载失败</strong><span>{sources.error.message}</span></div>}
+    <div className="source-grid">
+      {(sources.data?.sources ?? []).map((source) => <article key={source.kind} className={`source-card ${source.state}`}>
+        <div><strong>{source.label}</strong><span className={`source-state ${source.state}`}>{source.state}</span></div>
+        <b>{source.count}</b>
+        <code>{source.relative_path}</code>
+        <small>{source.error || `扫描于 ${new Date(source.scanned_at).toLocaleTimeString()}`}</small>
+      </article>)}
+      {sources.isPending && <div className="empty">正在扫描本地 Store…</div>}
+    </div>
+  </section>;
 }
 
 function DomainPanels({

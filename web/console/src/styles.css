@@ -63,6 +63,17 @@ button.primary { border-color: #769cff; background: #6d8dff; color: #07101f; fon
 .metric strong.accent { color: var(--green); }
 .panel { padding: 22px; }
 .overview-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+.source-panel { margin-bottom: 14px; }
+.source-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+.source-card { min-width: 0; padding: 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
+.source-card > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.source-card b { display: block; margin: 10px 0 7px; font-size: 24px; }
+.source-card code { display: block; overflow: hidden; color: var(--blue); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.source-card small { display: block; margin-top: 7px; color: var(--muted); font-size: 9px; overflow-wrap: anywhere; }
+.source-card.error { border-color: #78404a; }.source-card.stale { border-color: #77613d; }
+.source-state { padding: 2px 7px; border-radius: 999px; color: var(--muted); background: #101827; font-size: 8px; font-weight: 800; text-transform: uppercase; }
+.source-state.ready { color: var(--green); }.source-state.error { color: var(--red); }.source-state.stale { color: #ffc766; }
+.source-error { display: flex; gap: 8px; margin-top: 12px; padding: 11px; border: 1px solid #78404a; border-radius: 8px; color: var(--red); font-size: 10px; }
 .panel-heading { display: flex; justify-content: space-between; align-items: center; }
 .panel-heading h3 { margin-bottom: 0; }
 .risk { display: inline-flex; align-items: center; border: 1px solid #33405a; color: var(--muted); border-radius: 999px; padding: 3px 7px; font-size: 9px; font-weight: 800; letter-spacing: .08em; }
@@ -179,6 +190,7 @@ button.primary { border-color: #769cff; background: #6d8dff; color: #07101f; fon
   .metrics { grid-template-columns: repeat(2, 1fr); }
   .foundation-grid { grid-template-columns: 1fr; }
   .overview-grid { grid-template-columns: 1fr; }
+  .source-grid { grid-template-columns: 1fr; }
   .command-body { grid-template-columns: 1fr; }
   .action-list { max-height: 230px; border-right: 0; border-bottom: 1px solid var(--line); }
   .resource-table article { grid-template-columns: 1fr; }

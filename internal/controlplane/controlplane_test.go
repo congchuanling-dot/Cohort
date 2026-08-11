@@ -207,6 +207,7 @@ func TestServerEnforcesBootstrapSessionOriginAndCSRF_BitsUT(t *testing.T) {
 		ProjectRoot: projectRoot,
 		Listen:      "127.0.0.1:0",
 		Catalog:     catalog,
+		DataSources: staticDataSourceProvider{},
 		StaticFS: fstest.MapFS{
 			"index.html": &fstest.MapFile{Data: []byte("<html>control center</html>")},
 		},
@@ -275,6 +276,12 @@ func TestServerEnforcesBootstrapSessionOriginAndCSRF_BitsUT(t *testing.T) {
 	if bootstrap.CSRF == "" {
 		t.Fatal("bootstrap omitted CSRF token")
 	}
+	response = mustControlRequest(t, client, http.MethodGet, running.URL+"/api/v1/data-sources", nil, nil)
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("data sources status=%d body=%s", response.StatusCode, body)
+	}
+	_ = response.Body.Close()
 
 	response = mustControlRequest(t, client, http.MethodPost, running.URL+"/api/v1/actions/system.ping/execute", []byte(`{}`), map[string]string{
 		"Content-Type": "application/json", "Origin": running.URL,
@@ -299,6 +306,12 @@ func TestServerEnforcesBootstrapSessionOriginAndCSRF_BitsUT(t *testing.T) {
 	if completed.Summary != "pong" {
 		t.Fatalf("operation = %#v", completed)
 	}
+}
+
+type staticDataSourceProvider struct{}
+
+func (staticDataSourceProvider) Sources(context.Context, bool) ([]SourceHealth, error) {
+	return []SourceHealth{{Kind: "sessions", Label: "Sessions", State: SourceReady, Count: 2}}, nil
 }
 
 func TestServerRejectsNonLoopbackListen_BitsUT(t *testing.T) {

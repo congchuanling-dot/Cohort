@@ -57,6 +57,10 @@ func runUICommand(ctx context.Context, explicitConfigPath string, args []string,
 	if _, err := projects.Register(projectRoot); err != nil {
 		return err
 	}
+	dataHub, err := controlactions.NewProjectDataHub(projectRoot)
+	if err != nil {
+		return err
+	}
 	server, err := controlplane.NewServer(controlplane.ServerConfig{
 		ProjectRoot: projectRoot,
 		Listen:      options.Listen,
@@ -65,6 +69,7 @@ func runUICommand(ctx context.Context, explicitConfigPath string, args []string,
 		Snapshot:    controlactions.SnapshotProvider(configPath),
 		Projects:    projects,
 		Resources:   controlactions.NewResourceProvider(configPath),
+		DataSources: dataHub,
 	})
 	if err != nil {
 		return err
