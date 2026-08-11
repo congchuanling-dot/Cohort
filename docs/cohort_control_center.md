@@ -3,6 +3,8 @@
 > 状态：`[完成]`
 >
 > 分支：`feature/cohort-control-center`
+>
+> V2 方案：[本地数据、零 ID 操作与评测可视化](control_center_v2_data_and_visualization.md)
 
 ## 1. 目标
 
