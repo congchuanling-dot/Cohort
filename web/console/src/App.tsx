@@ -8,6 +8,7 @@ import {
   SettingsResource, SkillSummary,
 } from "./api";
 import { EntityDetailPage, EntityListPage } from "./EntityPages";
+import { EvalRunPage, QualityOverviewPage, StabilityPage } from "./QualityPages";
 
 function StatusDot({ online }: { online: boolean }) {
   return <span className={online ? "status-dot online" : "status-dot"} aria-hidden="true" />;
@@ -200,7 +201,10 @@ export default function App() {
         <Route path="/sessions" element={<EntityListPage kind="session" title="Agent Sessions" description="本地保存的 Agent 会话与可恢复上下文。" basePath="/sessions" onAction={openAction} />} />
         <Route path="/sessions/:id" element={<EntityDetailPage kind="session" title="Session" basePath="/sessions" onAction={openAction} />} />
         <Route path="/operations" element={<section className="panel operation-panel"><div className="panel-heading"><div><p className="eyebrow">AUDIT TRAIL</p><h3>Operations</h3></div><span className="safe-pill"><StatusDot online /> SSE 实时同步</span></div><OperationList operations={operations.data?.operations ?? []} /></section>} />
-        <Route path="/quality" element={<DomainPanels
+        <Route path="/quality" element={<QualityOverviewPage />} />
+        <Route path="/quality/evals/:runId" element={<EvalRunPage />} />
+        <Route path="/quality/stability" element={<StabilityPage />} />
+        <Route path="/quality/resources" element={<DomainPanels
           deliveries={deliveries.data?.deliveries ?? []}
           hermes={hermes.data}
           evaluations={evaluations.data?.runs ?? []}

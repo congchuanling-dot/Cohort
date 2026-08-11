@@ -146,6 +146,64 @@ export interface EvalRun {
   finished_at: string;
 }
 
+export interface StabilityRun {
+  run_id: string;
+  suite_id: string;
+  suite_name: string;
+  profile?: string;
+  model?: string;
+  started_at: string;
+  pass_rate: number;
+  score: number;
+  stability_rate: number;
+  failed_cases: number;
+  total_cases: number;
+  duration_ms: number;
+  total_tokens?: number;
+}
+
+export interface QualitySummary {
+  summary: {
+    runs: number; suites: number; cases: number;
+    average_pass_rate: number; average_score: number; average_stability: number;
+    flaky_cases: number; regressions: number; failure_signatures: number; action_items: number;
+  };
+  runs: StabilityRun[];
+  suites: Array<{ suite_id: string; suite_name: string; runs: number; average_pass_rate: number; average_score: number; average_stability: number; regressions: number; flaky_cases: number }>;
+}
+
+export interface EvalCaseResult {
+  case_id: string; name: string; tags?: string[]; passed: boolean; skipped?: boolean;
+  score: number; status: string; error?: string; session_id?: string; trace_run_id?: string; trace_path?: string;
+  duration_ms: number; turns: number; tools?: string[]; tool_failures: number; total_tokens?: number;
+  attempts: number; passed_attempts: number; stability_rate: number;
+  assertion_results: Array<{ kind: string; passed: boolean; expected?: string; actual?: string; detail?: string }>;
+  action_items?: Array<{ id: string; severity: string; category: string; title: string; detail?: string; evidence?: string }>;
+}
+
+export interface EvalDashboard {
+  result: EvalRun & {
+    suite_name: string; profile?: string; duration_ms: number; passed_cases: number; skipped_cases?: number;
+    input_tokens?: number; output_tokens?: number; cases: EvalCaseResult[];
+    gate?: { passed: boolean; violations?: string[] };
+  };
+  history: EvalRun[];
+  tags: Array<{ tag: string; total: number; passed: number; pass_rate: number }>;
+  average_stability: number;
+  generated_at: string;
+}
+
+export interface StabilityIndex {
+  generated_at: string; window: number;
+  summary: QualitySummary["summary"];
+  runs: StabilityRun[];
+  suites: QualitySummary["suites"];
+  cases: Array<{ suite_id: string; case_id: string; name: string; model?: string; pass_rate: number; average_score: number; average_stability: number; flaky: boolean; regressions: number; latest_run_id: string; latest_passed: boolean; latest_trace_run_id?: string }>;
+  failure_signatures: Array<{ signature: string; kind: string; count: number; case_ids?: string[]; example?: string }>;
+  regressions: Array<{ suite_id: string; case_id: string; from_run_id: string; to_run_id: string; to_started_at: string }>;
+  action_items?: Array<{ id: string; severity: string; category: string; title: string; detail?: string; evidence?: string; trace_run_id?: string }>;
+}
+
 export interface SessionSummary {
   id: string;
   title: string;

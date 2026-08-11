@@ -13,20 +13,29 @@ import (
 )
 
 type TagMetric struct {
-	Tag      string
-	Total    int
-	Passed   int
-	PassRate float64
+	Tag      string  `json:"tag"`
+	Total    int     `json:"total"`
+	Passed   int     `json:"passed"`
+	PassRate float64 `json:"pass_rate"`
 }
 
 type DashboardData struct {
-	Result           RunResult
-	History          []RunResult
-	Tags             []TagMetric
-	AverageStability float64
-	GeneratedAt      string
-	ResultJSON       template.JS
-	HistoryJSON      template.JS
+	Result           RunResult   `json:"result"`
+	History          []RunResult `json:"history"`
+	Tags             []TagMetric `json:"tags"`
+	AverageStability float64     `json:"average_stability"`
+	GeneratedAt      string      `json:"generated_at"`
+	ResultJSON       template.JS `json:"-"`
+	HistoryJSON      template.JS `json:"-"`
+}
+
+func BuildDashboardData(store Store, result RunResult) (DashboardData, error) {
+	result = EnrichDiagnostics(result)
+	history, err := store.ListResults()
+	if err != nil {
+		return DashboardData{}, err
+	}
+	return buildDashboardData(result, history), nil
 }
 
 func WriteReports(store Store, result RunResult) (markdownPath, htmlPath string, err error) {
@@ -128,9 +137,25 @@ func renderMarkdown(result RunResult) string {
 }
 
 func renderHTML(path string, result RunResult, history []RunResult) error {
+	output, err := renderDashboardHTML(buildDashboardData(result, history))
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, output, 0644)
+}
+
+func DashboardHTML(store Store, result RunResult) ([]byte, error) {
+	data, err := BuildDashboardData(store, result)
+	if err != nil {
+		return nil, err
+	}
+	return renderDashboardHTML(data)
+}
+
+func buildDashboardData(result RunResult, history []RunResult) DashboardData {
 	resultJSON, _ := json.Marshal(result)
 	historyJSON, _ := json.Marshal(history)
-	data := DashboardData{
+	return DashboardData{
 		Result:           result,
 		History:          history,
 		Tags:             aggregateTags(result.Cases),
@@ -139,6 +164,9 @@ func renderHTML(path string, result RunResult, history []RunResult) error {
 		ResultJSON:       template.JS(resultJSON),
 		HistoryJSON:      template.JS(historyJSON),
 	}
+}
+
+func renderDashboardHTML(data DashboardData) ([]byte, error) {
 	tmpl, err := template.New("dashboard").Funcs(template.FuncMap{
 		"duration": formatDuration,
 		"join":     strings.Join,
@@ -152,13 +180,13 @@ func renderHTML(path string, result RunResult, history []RunResult) error {
 		"delta": func(value float64) string { return fmt.Sprintf("%+.1f", value) },
 	}).Parse(dashboardHTML)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var output bytes.Buffer
 	if err := tmpl.Execute(&output, data); err != nil {
-		return err
+		return nil, err
 	}
-	return os.WriteFile(path, output.Bytes(), 0644)
+	return output.Bytes(), nil
 }
 
 func aggregateTags(cases []CaseResult) []TagMetric {

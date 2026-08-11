@@ -1,0 +1,125 @@
+package controlactions
+
+import (
+	"context"
+	"net/url"
+	"os"
+	"strconv"
+	"strings"
+
+	"cohort/internal/controlplane"
+	"cohort/internal/evaluation"
+)
+
+func NewQualityProvider() controlplane.QualityProvider {
+	return func(ctx context.Context, projectRoot string, segments []string, query url.Values) (any, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		store := evaluation.NewStore(projectRoot)
+		switch {
+		case len(segments) == 1 && segments[0] == "summary":
+			results, err := store.ListResults()
+			if err != nil {
+				return nil, err
+			}
+			index := evaluation.BuildStabilityIndex(results, evaluation.StabilityOptions{Window: 20})
+			if len(index.Runs) > 20 {
+				index.Runs = index.Runs[len(index.Runs)-20:]
+			}
+			return map[string]any{
+				"summary": index.Summary,
+				"runs":    index.Runs,
+				"suites":  index.Suites,
+			}, nil
+		case len(segments) == 2 && segments[0] == "evals":
+			result, err := store.LoadResult(segments[1])
+			if err != nil {
+				return nil, err
+			}
+			return evaluation.BuildDashboardData(store, result)
+		case len(segments) == 1 && segments[0] == "stability":
+			results, err := store.ListResults()
+			if err != nil {
+				return nil, err
+			}
+			return evaluation.BuildStabilityIndex(results, stabilityOptions(query)), nil
+		default:
+			return nil, os.ErrNotExist
+		}
+	}
+}
+
+func NewExportProvider() controlplane.ExportProvider {
+	return func(ctx context.Context, projectRoot string, segments []string, query url.Values) (controlplane.ExportResult, error) {
+		if err := ctx.Err(); err != nil {
+			return controlplane.ExportResult{}, err
+		}
+		store := evaluation.NewStore(projectRoot)
+		switch {
+		case len(segments) == 2 && segments[0] == "evals":
+			runID, ok := trimHTMLSuffix(segments[1])
+			if !ok {
+				return controlplane.ExportResult{}, os.ErrNotExist
+			}
+			result, err := store.LoadResult(runID)
+			if err != nil {
+				return controlplane.ExportResult{}, err
+			}
+			data, err := evaluation.DashboardHTML(store, result)
+			if err != nil {
+				return controlplane.ExportResult{}, err
+			}
+			return htmlExport("cohort-eval-"+safeExportName(runID)+".html", data), nil
+		case len(segments) == 1 && segments[0] == "stability.html":
+			results, err := store.ListResults()
+			if err != nil {
+				return controlplane.ExportResult{}, err
+			}
+			data, err := evaluation.StabilityHTML(evaluation.BuildStabilityIndex(results, stabilityOptions(query)))
+			if err != nil {
+				return controlplane.ExportResult{}, err
+			}
+			return htmlExport("cohort-eval-stability.html", data), nil
+		default:
+			return controlplane.ExportResult{}, os.ErrNotExist
+		}
+	}
+}
+
+func stabilityOptions(query url.Values) evaluation.StabilityOptions {
+	window := 20
+	if value, err := strconv.Atoi(query.Get("window")); err == nil && value >= 0 && value <= 1000 {
+		window = value
+	}
+	return evaluation.StabilityOptions{
+		Window: window, SuiteID: strings.TrimSpace(query.Get("suite")),
+		Profile: strings.TrimSpace(query.Get("profile")), Model: strings.TrimSpace(query.Get("model")),
+		OnlyFlaky: query.Get("flaky") == "true",
+	}
+}
+
+func trimHTMLSuffix(value string) (string, bool) {
+	if !strings.HasSuffix(value, ".html") {
+		return "", false
+	}
+	value = strings.TrimSuffix(value, ".html")
+	return value, value != ""
+}
+
+func safeExportName(value string) string {
+	return strings.Map(func(char rune) rune {
+		switch {
+		case char >= 'a' && char <= 'z', char >= 'A' && char <= 'Z', char >= '0' && char <= '9', char == '-', char == '_':
+			return char
+		default:
+			return '-'
+		}
+	}, value)
+}
+
+func htmlExport(filename string, data []byte) controlplane.ExportResult {
+	return controlplane.ExportResult{
+		Filename: filename, ContentType: "text/html; charset=utf-8", Data: data,
+	}
+}

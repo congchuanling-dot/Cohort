@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"cohort/internal/controlplane"
+	"cohort/internal/evaluation"
 	"cohort/internal/session"
 )
 
@@ -126,6 +128,45 @@ func TestProjectDataHubDiscoversStoresAndIsolatesSourceErrors_BitsUT(t *testing.
 	}
 	if source := findSource(sources, "sessions"); source.State != controlplane.SourceReady || source.Count != 1 {
 		t.Fatalf("session source after hermes failure = %#v", source)
+	}
+}
+
+func TestQualityProviderAndHTMLExportShareEvalModel_BitsUT(t *testing.T) {
+	root := t.TempDir()
+	store := evaluation.NewStore(root)
+	result := evaluation.RunResult{
+		SchemaVersion: 1, RunID: "run-quality-1", SuiteID: "core", SuiteName: "Core",
+		Model: "test-model", StartedAt: time.Now().UTC().Add(-time.Minute), FinishedAt: time.Now().UTC(),
+		TotalCases: 1, PassedCases: 1, PassRate: 100, Score: 96,
+		Cases: []evaluation.CaseResult{{
+			CaseID: "case-1", Name: "passes", Passed: true, Score: 96,
+			Attempts: 1, PassedAttempts: 1, StabilityRate: 100,
+		}},
+	}
+	if _, err := store.SaveResult(result); err != nil {
+		t.Fatal(err)
+	}
+	value, err := NewQualityProvider()(context.Background(), root, []string{"evals", result.RunID}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dashboard, ok := value.(evaluation.DashboardData)
+	if !ok || dashboard.Result.RunID != result.RunID || dashboard.Result.PassRate != 100 {
+		t.Fatalf("dashboard = %#v", value)
+	}
+	exported, err := NewExportProvider()(context.Background(), root, []string{"evals", result.RunID + ".html"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exported.ContentType != "text/html; charset=utf-8" || !strings.Contains(string(exported.Data), "Core") || !strings.Contains(string(exported.Data), result.RunID) {
+		t.Fatalf("export = %#v", exported)
+	}
+	stability, err := NewQualityProvider()(context.Background(), root, []string{"stability"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if index := stability.(evaluation.StabilityIndex); index.Summary.Runs != 1 || index.Summary.AveragePassRate != 100 {
+		t.Fatalf("stability = %#v", index)
 	}
 }
 

@@ -71,6 +71,8 @@ func runUICommand(ctx context.Context, explicitConfigPath string, args []string,
 		Resources:   controlactions.NewResourceProvider(configPath),
 		DataSources: dataHub,
 		Entities:    dataHub,
+		Quality:     controlactions.NewQualityProvider(),
+		Exports:     controlactions.NewExportProvider(),
 	})
 	if err != nil {
 		return err

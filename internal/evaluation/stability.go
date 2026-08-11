@@ -1,6 +1,7 @@
 package evaluation
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -513,6 +514,14 @@ func renderStabilityMarkdown(index StabilityIndex) string {
 }
 
 func renderStabilityHTML(path string, index StabilityIndex) error {
+	data, err := StabilityHTML(index)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+func StabilityHTML(index StabilityIndex) ([]byte, error) {
 	data, _ := json.Marshal(index)
 	tmpl, err := template.New("stability").Funcs(template.FuncMap{
 		"pct":  func(v float64) string { return fmt.Sprintf("%.1f%%", v) },
@@ -525,16 +534,16 @@ func renderStabilityHTML(path string, index StabilityIndex) error {
 		},
 	}).Parse(stabilityHTML)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	var b strings.Builder
+	var b bytes.Buffer
 	if err := tmpl.Execute(&b, struct {
 		Index     StabilityIndex
 		IndexJSON template.JS
 	}{Index: index, IndexJSON: template.JS(data)}); err != nil {
-		return err
+		return nil, err
 	}
-	return os.WriteFile(path, []byte(b.String()), 0644)
+	return b.Bytes(), nil
 }
 
 const stabilityHTML = `<!doctype html>

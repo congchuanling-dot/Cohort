@@ -35,10 +35,20 @@ type ServerConfig struct {
 	Resources   ResourceProvider
 	DataSources DataSourceProvider
 	Entities    EntityProvider
+	Quality     QualityProvider
+	Exports     ExportProvider
 }
 
 type SnapshotProvider func(context.Context, string) (any, error)
 type ResourceProvider func(context.Context, string, string, url.Values) (any, error)
+type QualityProvider func(context.Context, string, []string, url.Values) (any, error)
+type ExportProvider func(context.Context, string, []string, url.Values) (ExportResult, error)
+
+type ExportResult struct {
+	Filename    string
+	ContentType string
+	Data        []byte
+}
 
 type Server struct {
 	projectRoot   string
@@ -50,6 +60,8 @@ type Server struct {
 	resources     ResourceProvider
 	dataSources   DataSourceProvider
 	entities      EntityProvider
+	quality       QualityProvider
+	exports       ExportProvider
 	operations    *OperationManager
 	preparations  *PreparationManager
 	bootstrap     string
@@ -96,6 +108,8 @@ func NewServer(config ServerConfig) (*Server, error) {
 		resources:    config.Resources,
 		dataSources:  config.DataSources,
 		entities:     config.Entities,
+		quality:      config.Quality,
+		exports:      config.Exports,
 		operations:   operations,
 		preparations: NewPreparationManager(config.Catalog, config.Entities),
 		bootstrap:    randomToken(24),
@@ -160,6 +174,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/data-sources", s.requireSession(http.HandlerFunc(s.handleDataSources)))
 	mux.Handle("/api/v1/data-sources/refresh", s.requireSession(http.HandlerFunc(s.handleDataSources)))
 	mux.Handle("/api/v1/entities/", s.requireSession(http.HandlerFunc(s.handleEntities)))
+	mux.Handle("/api/v1/quality/", s.requireSession(http.HandlerFunc(s.handleQuality)))
+	mux.Handle("/api/v1/exports/", s.requireSession(http.HandlerFunc(s.handleExport)))
 	mux.Handle("/api/v1/resources/", s.requireSession(http.HandlerFunc(s.handleResource)))
 	mux.Handle("/api/v1/actions/", s.requireSession(http.HandlerFunc(s.handleAction)))
 	mux.Handle("/api/v1/operations", s.requireSession(http.HandlerFunc(s.handleOperations)))
@@ -336,6 +352,91 @@ func (s *Server) handleEntities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeControlJSON(w, http.StatusOK, map[string]any{"entity": entity})
+}
+
+func (s *Server) handleQuality(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeControlError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s.quality == nil {
+		writeControlError(w, http.StatusNotImplemented, "quality provider is unavailable")
+		return
+	}
+	segments, ok := safePathSegments(r.URL.Path, "/api/v1/quality/")
+	if !ok {
+		writeControlError(w, http.StatusBadRequest, "invalid quality path")
+		return
+	}
+	value, err := s.quality(r.Context(), s.projectRoot, segments, r.URL.Query())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			writeControlError(w, http.StatusNotFound, err.Error())
+		} else {
+			writeControlError(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+	writeControlJSON(w, http.StatusOK, value)
+}
+
+func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeControlError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s.exports == nil {
+		writeControlError(w, http.StatusNotImplemented, "export provider is unavailable")
+		return
+	}
+	segments, ok := safePathSegments(r.URL.Path, "/api/v1/exports/")
+	if !ok {
+		writeControlError(w, http.StatusBadRequest, "invalid export path")
+		return
+	}
+	result, err := s.exports(r.Context(), s.projectRoot, segments, r.URL.Query())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			writeControlError(w, http.StatusNotFound, err.Error())
+		} else {
+			writeControlError(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+	filename := strings.Map(func(value rune) rune {
+		if value == '\r' || value == '\n' || value == '"' || value == '/' || value == '\\' {
+			return -1
+		}
+		return value
+	}, result.Filename)
+	if filename == "" {
+		filename = "cohort-report.html"
+	}
+	contentType := strings.TrimSpace(result.ContentType)
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(result.Data)
+}
+
+func safePathSegments(requestPath, prefix string) ([]string, bool) {
+	suffix := strings.Trim(strings.TrimPrefix(requestPath, prefix), "/")
+	if suffix == "" || strings.Contains(suffix, "..") {
+		return nil, false
+	}
+	raw := strings.Split(suffix, "/")
+	segments := make([]string, 0, len(raw))
+	for _, part := range raw {
+		decoded, err := url.PathUnescape(part)
+		if err != nil || decoded == "" || strings.ContainsAny(decoded, `/\`) || decoded == "." || decoded == ".." {
+			return nil, false
+		}
+		segments = append(segments, decoded)
+	}
+	return segments, true
 }
 
 func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
