@@ -8,8 +8,8 @@ import (
 )
 
 func NewCatalog() (*controlplane.Catalog, error) {
-	return controlplane.NewCatalog(
-		controlplane.ActionSpec{
+	specs := []controlplane.ActionSpec{
+		{
 			ID:          "system.ping",
 			Category:    "system",
 			Label:       "测试控制面连接",
@@ -27,5 +27,8 @@ func NewCatalog() (*controlplane.Catalog, error) {
 				}, nil
 			},
 		},
-	)
+	}
+	specs = append(specs, deliveryActions()...)
+	specs = append(specs, hermesActions()...)
+	return controlplane.NewCatalog(specs...)
 }

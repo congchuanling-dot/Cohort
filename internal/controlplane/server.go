@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 	"sync"
@@ -31,9 +32,11 @@ type ServerConfig struct {
 	Catalog     *Catalog
 	Snapshot    SnapshotProvider
 	Projects    *ProjectRegistry
+	Resources   ResourceProvider
 }
 
 type SnapshotProvider func(context.Context, string) (any, error)
+type ResourceProvider func(context.Context, string, string, url.Values) (any, error)
 
 type Server struct {
 	projectRoot   string
@@ -42,6 +45,7 @@ type Server struct {
 	catalog       *Catalog
 	snapshot      SnapshotProvider
 	projects      *ProjectRegistry
+	resources     ResourceProvider
 	operations    *OperationManager
 	bootstrap     string
 	session       string
@@ -84,6 +88,7 @@ func NewServer(config ServerConfig) (*Server, error) {
 		catalog:     config.Catalog,
 		snapshot:    config.Snapshot,
 		projects:    config.Projects,
+		resources:   config.Resources,
 		operations:  operations,
 		bootstrap:   randomToken(24),
 		session:     randomToken(32),
@@ -144,6 +149,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/catalog", s.requireSession(http.HandlerFunc(s.handleCatalog)))
 	mux.Handle("/api/v1/snapshot", s.requireSession(http.HandlerFunc(s.handleSnapshot)))
 	mux.Handle("/api/v1/projects", s.requireSession(http.HandlerFunc(s.handleProjects)))
+	mux.Handle("/api/v1/resources/", s.requireSession(http.HandlerFunc(s.handleResource)))
 	mux.Handle("/api/v1/actions/", s.requireSession(http.HandlerFunc(s.handleAction)))
 	mux.Handle("/api/v1/operations", s.requireSession(http.HandlerFunc(s.handleOperations)))
 	mux.Handle("/api/v1/operations/", s.requireSession(http.HandlerFunc(s.handleOperation)))
@@ -248,6 +254,32 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeControlJSON(w, http.StatusOK, map[string]any{"projects": projects})
+}
+
+func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeControlError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	name := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/api/v1/resources/"))
+	if name == "" || strings.Contains(name, "/") || strings.Contains(name, "..") {
+		writeControlError(w, http.StatusBadRequest, "invalid resource name")
+		return
+	}
+	if s.resources == nil {
+		writeControlError(w, http.StatusNotImplemented, "resource provider is unavailable")
+		return
+	}
+	value, err := s.resources(r.Context(), s.projectRoot, name, r.URL.Query())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			writeControlError(w, http.StatusNotFound, err.Error())
+		} else {
+			writeControlError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	writeControlJSON(w, http.StatusOK, value)
 }
 
 func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {

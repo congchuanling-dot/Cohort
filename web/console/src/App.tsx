@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ActionSpec, apiGet, apiPost, DashboardSnapshot, initializeSession,
-  InputField, Operation, operationEvents, ProjectRecord, SessionInfo,
+  DeliveryItem, EvalRun, HermesResource, InputField, Operation, operationEvents,
+  ProjectRecord, SessionInfo, SessionSummary,
 } from "./api";
 
 function StatusDot({ online }: { online: boolean }) {
@@ -12,6 +13,7 @@ function StatusDot({ online }: { online: boolean }) {
 export default function App() {
   const queryClient = useQueryClient();
   const [commandOpen, setCommandOpen] = useState(false);
+  const [commandIntent, setCommandIntent] = useState("");
   const session = useQuery({ queryKey: ["session"], queryFn: initializeSession, retry: false });
   const catalog = useQuery({
     queryKey: ["catalog"],
@@ -34,6 +36,28 @@ export default function App() {
     queryFn: () => apiGet<{ projects: ProjectRecord[] }>("/api/v1/projects"),
     enabled: session.isSuccess,
   });
+  const deliveries = useQuery({
+    queryKey: ["resource", "deliveries"],
+    queryFn: () => apiGet<{ deliveries: DeliveryItem[] }>("/api/v1/resources/deliveries"),
+    enabled: session.isSuccess,
+    refetchInterval: 10_000,
+  });
+  const hermes = useQuery({
+    queryKey: ["resource", "hermes"],
+    queryFn: () => apiGet<HermesResource>("/api/v1/resources/hermes"),
+    enabled: session.isSuccess,
+    refetchInterval: 10_000,
+  });
+  const evaluations = useQuery({
+    queryKey: ["resource", "evaluations"],
+    queryFn: () => apiGet<{ runs: EvalRun[] }>("/api/v1/resources/evaluations"),
+    enabled: session.isSuccess,
+  });
+  const traces = useQuery({
+    queryKey: ["resource", "traces"],
+    queryFn: () => apiGet<{ sessions: SessionSummary[] }>("/api/v1/resources/traces"),
+    enabled: session.isSuccess,
+  });
 
   useEffect(() => {
     if (!session.isSuccess) return;
@@ -47,6 +71,7 @@ export default function App() {
     const listener = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
+        setCommandIntent("");
         setCommandOpen((open) => !open);
       }
       if (event.key === "Escape") setCommandOpen(false);
@@ -81,7 +106,7 @@ export default function App() {
       <main>
         <header>
           <div><p className="eyebrow">LOCAL-FIRST AGENT RUNTIME</p><h1>控制中心</h1></div>
-          <button className="command-button" type="button" onClick={() => setCommandOpen(true)}><kbd>⌘</kbd><kbd>K</kbd> 搜索动作</button>
+          <button className="command-button" type="button" onClick={() => { setCommandIntent(""); setCommandOpen(true); }}><kbd>⌘</kbd><kbd>K</kbd> 搜索动作</button>
         </header>
 
         <section className="hero">
@@ -91,7 +116,7 @@ export default function App() {
             <p>{sessionInfo.project_root}</p>
           </div>
           <div className="hero-actions">
-            <button className="primary" type="button" onClick={() => setCommandOpen(true)}>发起动作</button>
+            <button className="primary" type="button" onClick={() => { setCommandIntent(""); setCommandOpen(true); }}>发起动作</button>
             <a className="button-link" href="#operations">查看运行记录</a>
           </div>
         </section>
@@ -129,15 +154,65 @@ export default function App() {
           <div className="panel-heading"><div><p className="eyebrow">AUDIT TRAIL</p><h3>最近操作</h3></div><span className="safe-pill"><StatusDot online /> SSE 实时同步</span></div>
           <OperationList operations={operations.data?.operations ?? []} />
         </section>
+        <DomainPanels
+          deliveries={deliveries.data?.deliveries ?? []}
+          hermes={hermes.data}
+          evaluations={evaluations.data?.runs ?? []}
+          sessions={traces.data?.sessions ?? []}
+          runAction={(intent) => { setCommandIntent(intent); setCommandOpen(true); }}
+        />
       </main>
-      {commandOpen && <CommandCenter actions={catalog.data?.actions ?? []} onClose={() => setCommandOpen(false)} />}
+      {commandOpen && <CommandCenter actions={catalog.data?.actions ?? []} initialQuery={commandIntent} onClose={() => setCommandOpen(false)} />}
     </div>
   );
 }
 
-function CommandCenter({ actions, onClose }: { actions: ActionSpec[]; onClose: () => void }) {
+function DomainPanels({
+  deliveries, hermes, evaluations, sessions, runAction,
+}: {
+  deliveries: DeliveryItem[];
+  hermes?: HermesResource;
+  evaluations: EvalRun[];
+  sessions: SessionSummary[];
+  runAction: (intent: string) => void;
+}) {
+  return <div className="domain-stack">
+    <section className="panel" id="deliveries">
+      <div className="panel-heading"><div><p className="eyebrow">EVIDENCE-DRIVEN DELIVERY</p><h3>Deliveries</h3></div><button type="button" onClick={() => runAction("delivery")}>Delivery 动作</button></div>
+      <div className="resource-table">
+        {deliveries.slice(0, 8).map((item) => <article key={item.id}><div><strong>{item.requirement}</strong><small>{item.id} · base {item.base_commit.slice(0, 10)}</small></div><span className={`delivery-state ${item.status}`}>{item.status}</span><time>{new Date(item.updated_at).toLocaleString()}</time></article>)}
+        {deliveries.length === 0 && <div className="empty">暂无 Delivery。使用命令面板创建计划。</div>}
+      </div>
+    </section>
+    <div className="overview-grid">
+      <section className="panel" id="hermes">
+        <div className="panel-heading"><div><p className="eyebrow">ACTION QUEUE</p><h3>Hermes</h3></div><button type="button" onClick={() => runAction("hermes")}>管理动作</button></div>
+        <div className="compact-list">
+          {(hermes?.actions ?? []).slice(0, 6).map((item) => <article key={item.id}><span className={`severity ${item.severity}`} /><div><strong>{item.title}</strong><small>{item.category} · {item.status}</small></div></article>)}
+          {(hermes?.actions.length ?? 0) === 0 && <div className="empty">Action Queue 为空</div>}
+        </div>
+      </section>
+      <section className="panel" id="quality">
+        <div className="panel-heading"><div><p className="eyebrow">QUALITY GATES</p><h3>Eval Runs</h3></div><span className="risk read">{evaluations.length} RUNS</span></div>
+        <div className="compact-list">
+          {evaluations.slice(0, 6).map((run) => <article key={run.run_id}><span className={`score-ring ${run.pass_rate >= 90 ? "good" : run.pass_rate >= 70 ? "warn" : "bad"}`}>{run.pass_rate.toFixed(0)}</span><div><strong>{run.suite_id}</strong><small>{run.model || "default"} · {run.total_tokens ?? 0} tokens</small></div></article>)}
+          {evaluations.length === 0 && <div className="empty">暂无 Eval 结果</div>}
+        </div>
+      </section>
+    </div>
+    <section className="panel" id="traces">
+      <div className="panel-heading"><div><p className="eyebrow">SESSIONS & TRACE</p><h3>最近 Agent Sessions</h3></div><span className="safe-pill">{sessions.length} sessions</span></div>
+      <div className="session-grid">
+        {sessions.slice(0, 8).map((item) => <article key={item.id}><strong>{item.title}</strong><small>{item.model || "unknown model"}</small><time>{new Date(item.updated_at).toLocaleString()}</time><code>{item.id}</code></article>)}
+        {sessions.length === 0 && <div className="empty">暂无可追踪 Session</div>}
+      </div>
+    </section>
+  </div>;
+}
+
+function CommandCenter({ actions, initialQuery, onClose }: { actions: ActionSpec[]; initialQuery: string; onClose: () => void }) {
   const queryClient = useQueryClient();
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [selected, setSelected] = useState<ActionSpec | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [confirmation, setConfirmation] = useState("");

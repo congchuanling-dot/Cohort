@@ -64,6 +64,7 @@ func runUICommand(ctx context.Context, explicitConfigPath string, args []string,
 		Catalog:     catalog,
 		Snapshot:    controlactions.SnapshotProvider(configPath),
 		Projects:    projects,
+		Resources:   controlactions.ResourceProvider,
 	})
 	if err != nil {
 		return err

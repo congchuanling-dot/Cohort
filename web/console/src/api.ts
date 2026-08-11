@@ -75,6 +75,42 @@ export interface ProjectRecord {
   last_opened_at: string;
 }
 
+export interface DeliveryItem {
+  id: string;
+  status: string;
+  requirement: string;
+  base_commit: string;
+  updated_at: string;
+  error?: string;
+}
+
+export interface HermesResource {
+  status?: { running: boolean; open_actions: number; critical_actions: number };
+  actions: Array<{ id: string; status: string; severity: string; category: string; title: string; detail?: string }>;
+  repairs: Array<{ id: string; status: string; summary?: string; last_error?: string }>;
+  jobs: Array<{ id: string; enabled: boolean; suite: string; last_status?: string; next_run_at?: string }>;
+  events: Array<{ id: string; time: string; type: string; severity?: string }>;
+}
+
+export interface EvalRun {
+  run_id: string;
+  suite_id: string;
+  model?: string;
+  pass_rate: number;
+  score: number;
+  total_cases: number;
+  failed_cases: number;
+  total_tokens?: number;
+  finished_at: string;
+}
+
+export interface SessionSummary {
+  id: string;
+  title: string;
+  model: string;
+  updated_at: string;
+}
+
 let csrfToken = "";
 
 async function decode<T>(response: Response): Promise<T> {

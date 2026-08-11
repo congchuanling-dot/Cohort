@@ -36,6 +36,11 @@ func TestSnapshotProviderAggregatesProjectWithoutMutatingRepository_BitsUT(t *te
 	if snapshot.Counts.Deliveries != 0 || snapshot.Delivery.ByStatus == nil {
 		t.Fatalf("resource snapshot = %#v", snapshot)
 	}
+	for _, resource := range []string{"deliveries", "hermes", "evaluations", "traces"} {
+		if _, err := ResourceProvider(context.Background(), root, resource, nil); err != nil {
+			t.Fatalf("resource %s: %v", resource, err)
+		}
+	}
 	command := exec.Command("git", "-C", root, "status", "--porcelain=v1", "--untracked-files=all")
 	if output, err := command.CombinedOutput(); err != nil || strings.TrimSpace(string(output)) != "" {
 		t.Fatalf("snapshot mutated repository: %q err=%v", output, err)
@@ -50,6 +55,10 @@ func TestCatalogExposesStableSystemAction_BitsUT(t *testing.T) {
 	spec, exists := catalog.Get("system.ping")
 	if !exists || spec.Risk != controlplane.RiskRead {
 		t.Fatalf("system action = %#v exists=%t", spec, exists)
+	}
+	merge, exists := catalog.Get("delivery.merge")
+	if !exists || merge.Risk != controlplane.RiskDanger || merge.ConfirmationText != "MERGE" {
+		t.Fatalf("delivery merge action = %#v exists=%t", merge, exists)
 	}
 }
 
