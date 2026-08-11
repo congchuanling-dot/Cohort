@@ -275,6 +275,36 @@ func TestServerRejectsNonLoopbackListen_BitsUT(t *testing.T) {
 	}
 }
 
+func TestProjectRegistryPersistsAndDeduplicates_BitsUT(t *testing.T) {
+	registry, err := NewProjectRegistry(filepath.Join(t.TempDir(), "projects.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstRoot := t.TempDir()
+	secondRoot := t.TempDir()
+	first, err := registry.Register(firstRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Register(secondRoot); err != nil {
+		t.Fatal(err)
+	}
+	again, err := registry.Register(firstRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ID != first.ID {
+		t.Fatalf("project id changed: %s != %s", again.ID, first.ID)
+	}
+	projects, err := registry.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 2 || projects[0].Root != firstRoot {
+		t.Fatalf("projects = %#v", projects)
+	}
+}
+
 func mustControlRequest(t *testing.T, client *http.Client, method string, target string, body []byte, headers map[string]string) *http.Response {
 	t.Helper()
 	request, err := http.NewRequest(method, target, bytes.NewReader(body))

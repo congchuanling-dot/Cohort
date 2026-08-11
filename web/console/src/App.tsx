@@ -1,6 +1,9 @@
-import { useEffect } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ActionSpec, apiGet, initializeSession, Operation, operationEvents, SessionInfo } from "./api";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ActionSpec, apiGet, apiPost, DashboardSnapshot, initializeSession,
+  InputField, Operation, operationEvents, ProjectRecord, SessionInfo,
+} from "./api";
 
 function StatusDot({ online }: { online: boolean }) {
   return <span className={online ? "status-dot online" : "status-dot"} aria-hidden="true" />;
@@ -8,11 +11,8 @@ function StatusDot({ online }: { online: boolean }) {
 
 export default function App() {
   const queryClient = useQueryClient();
-  const session = useQuery({
-    queryKey: ["session"],
-    queryFn: initializeSession,
-    retry: false,
-  });
+  const [commandOpen, setCommandOpen] = useState(false);
+  const session = useQuery({ queryKey: ["session"], queryFn: initializeSession, retry: false });
   const catalog = useQuery({
     queryKey: ["catalog"],
     queryFn: () => apiGet<{ actions: ActionSpec[] }>("/api/v1/catalog"),
@@ -23,99 +23,190 @@ export default function App() {
     queryFn: () => apiGet<{ operations: Operation[] }>("/api/v1/operations"),
     enabled: session.isSuccess,
   });
+  const snapshot = useQuery({
+    queryKey: ["snapshot"],
+    queryFn: () => apiGet<DashboardSnapshot>("/api/v1/snapshot"),
+    enabled: session.isSuccess,
+    refetchInterval: 10_000,
+  });
+  const projects = useQuery({
+    queryKey: ["projects"],
+    queryFn: () => apiGet<{ projects: ProjectRecord[] }>("/api/v1/projects"),
+    enabled: session.isSuccess,
+  });
 
   useEffect(() => {
     if (!session.isSuccess) return;
     return operationEvents(() => {
       void queryClient.invalidateQueries({ queryKey: ["operations"] });
+      void queryClient.invalidateQueries({ queryKey: ["snapshot"] });
     });
   }, [queryClient, session.isSuccess]);
 
-  if (session.isPending) {
-    return <CenteredState title="正在建立安全会话" detail="连接本地 Cohort Control Plane…" />;
-  }
-  if (session.isError) {
-    return <CenteredState title="无法进入控制台" detail={session.error.message} failed />;
-  }
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandOpen((open) => !open);
+      }
+      if (event.key === "Escape") setCommandOpen(false);
+    };
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
+  }, []);
+
+  if (session.isPending) return <CenteredState title="正在建立安全会话" detail="连接本地 Cohort Control Plane…" />;
+  if (session.isError) return <CenteredState title="无法进入控制台" detail={session.error.message} failed />;
 
   const sessionInfo = session.data as SessionInfo;
-  const running = operations.data?.operations.filter((operation) =>
-    operation.status === "pending" || operation.status === "running",
-  ).length ?? 0;
+  const running = operations.data?.operations.filter((item) => item.status === "pending" || item.status === "running").length ?? 0;
+  const data = snapshot.data;
 
   return (
     <div className="shell">
       <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark">C</div>
-          <div><strong>Cohort</strong><span>Control Center</span></div>
-        </div>
+        <div className="brand"><div className="brand-mark">C</div><div><strong>Cohort</strong><span>Control Center</span></div></div>
         <nav aria-label="主导航">
-          <a className="active" href="#overview">概览</a>
-          <a href="#sessions">Agent Sessions</a>
-          <a href="#deliveries">Deliveries</a>
-          <a href="#operations">Operations</a>
-          <a href="#quality">质量与追踪</a>
-          <a href="#capabilities">能力中心</a>
-          <a href="#settings">设置</a>
+          <a className="active" href="#overview">概览</a><a href="#sessions">Agent Sessions</a>
+          <a href="#deliveries">Deliveries</a><a href="#operations">Operations</a>
+          <a href="#quality">质量与追踪</a><a href="#capabilities">能力中心</a><a href="#settings">设置</a>
         </nav>
-        <div className="sidebar-foot">
-          <StatusDot online />
-          <span>本地控制面已连接</span>
+        <div className="project-switcher">
+          <span>当前项目</span>
+          <strong>{data?.project.name ?? "Cohort"}</strong>
+          <small>{projects.data?.projects.length ?? 1} 个已登记项目</small>
         </div>
+        <div className="sidebar-foot"><StatusDot online /><span>本地控制面已连接</span></div>
       </aside>
       <main>
         <header>
-          <div>
-            <p className="eyebrow">LOCAL-FIRST AGENT RUNTIME</p>
-            <h1>控制中心</h1>
-          </div>
-          <button className="command-button" type="button"><kbd>⌘</kbd><kbd>K</kbd> 搜索动作</button>
+          <div><p className="eyebrow">LOCAL-FIRST AGENT RUNTIME</p><h1>控制中心</h1></div>
+          <button className="command-button" type="button" onClick={() => setCommandOpen(true)}><kbd>⌘</kbd><kbd>K</kbd> 搜索动作</button>
         </header>
 
         <section className="hero">
           <div>
-            <span className="safe-pill"><StatusDot online /> 仅本机可访问</span>
+            <span className="safe-pill"><StatusDot online /> {data?.project.branch ?? "本地项目"} · {data?.project.head ?? "loading"}</span>
             <h2>从一个工作面管理 Agent 的执行、证据与审批。</h2>
             <p>{sessionInfo.project_root}</p>
           </div>
           <div className="hero-actions">
-            <button className="primary" type="button">发起 Agent 任务</button>
-            <button type="button">查看运行记录</button>
+            <button className="primary" type="button" onClick={() => setCommandOpen(true)}>发起动作</button>
+            <a className="button-link" href="#operations">查看运行记录</a>
           </div>
         </section>
 
         <section className="metrics" aria-label="运行指标">
           <Metric label="可用动作" value={catalog.data?.actions.length ?? 0} hint="统一 Action Catalog" />
           <Metric label="运行中" value={running} hint="实时 Operation" accent={running > 0} />
-          <Metric label="最近操作" value={operations.data?.operations.length ?? 0} hint="持久审计记录" />
-          <Metric label="安全边界" value="Loopback" hint="Session + CSRF" />
+          <Metric label="Deliveries" value={data?.counts.deliveries ?? 0} hint={`${data?.delivery.verified ?? 0} verified`} />
+          <Metric label="Eval 通过率" value={`${(data?.evaluation.pass_rate ?? 0).toFixed(1)}%`} hint={`${data?.evaluation.regressions ?? 0} regressions`} />
         </section>
 
-        <section className="panel">
-          <div className="panel-heading">
-            <div><p className="eyebrow">FOUNDATION READY</p><h3>控制面连接正常</h3></div>
-            <span className="safe-pill"><StatusDot online /> SSE 已就绪</span>
-          </div>
-          <div className="foundation-grid">
-            <Foundation title="Action Catalog" detail="强类型参数、风险分级、搜索元数据" />
-            <Foundation title="Operation Manager" detail="持久化、取消、失败和重启恢复" />
-            <Foundation title="Security Boundary" detail="一次性启动令牌、HttpOnly Cookie、CSRF" />
-          </div>
+        <div className="overview-grid">
+          <section className="panel">
+            <div className="panel-heading"><div><p className="eyebrow">PROJECT HEALTH</p><h3>项目状态</h3></div><span className={data?.project.dirty ? "risk warn" : "risk ok"}>{data?.project.dirty ? "DIRTY" : "CLEAN"}</span></div>
+            <dl className="detail-list">
+              <Detail label="模型" value={data?.model.model || "未配置"} />
+              <Detail label="Provider" value={data?.model.provider || "未配置"} />
+              <Detail label="Sessions" value={String(data?.counts.sessions ?? 0)} />
+              <Detail label="Explorers" value={String(data?.counts.explorers ?? 0)} />
+              <Detail label="Reflection Queue" value={String(data?.reflection?.pending ?? 0)} />
+            </dl>
+          </section>
+          <section className="panel">
+            <div className="panel-heading"><div><p className="eyebrow">AUTONOMOUS OPS</p><h3>Hermes</h3></div><span className={data?.hermes.running ? "risk ok" : "risk"}>{data?.hermes.running ? "RUNNING" : "STOPPED"}</span></div>
+            <dl className="detail-list">
+              <Detail label="Open Actions" value={String(data?.hermes.open_actions ?? 0)} />
+              <Detail label="Critical" value={String(data?.hermes.critical_actions ?? 0)} danger={(data?.hermes.critical_actions ?? 0) > 0} />
+              <Detail label="Jobs / Repairs" value={`${data?.hermes.running_jobs ?? 0} / ${data?.hermes.running_repairs ?? 0}`} />
+              <Detail label="Eval Runs" value={String(data?.counts.eval_runs ?? 0)} />
+            </dl>
+          </section>
+        </div>
+
+        <section className="panel operation-panel" id="operations">
+          <div className="panel-heading"><div><p className="eyebrow">AUDIT TRAIL</p><h3>最近操作</h3></div><span className="safe-pill"><StatusDot online /> SSE 实时同步</span></div>
+          <OperationList operations={operations.data?.operations ?? []} />
         </section>
       </main>
+      {commandOpen && <CommandCenter actions={catalog.data?.actions ?? []} onClose={() => setCommandOpen(false)} />}
     </div>
   );
 }
 
-function Metric({ label, value, hint, accent = false }: { label: string; value: string | number; hint: string; accent?: boolean }) {
-  return <article className="metric"><span>{label}</span><strong className={accent ? "accent" : ""}>{value}</strong><small>{hint}</small></article>;
+function CommandCenter({ actions, onClose }: { actions: ActionSpec[]; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<ActionSpec | null>(null);
+  const [values, setValues] = useState<Record<string, unknown>>({});
+  const [confirmation, setConfirmation] = useState("");
+  const filtered = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
+    if (!keyword) return actions;
+    return actions.filter((action) => [action.id, action.label, action.description, ...(action.keywords ?? [])].join(" ").toLowerCase().includes(keyword));
+  }, [actions, query]);
+  const execute = useMutation({
+    mutationFn: (action: ActionSpec) => apiPost<Operation>(`/api/v1/actions/${action.id}/execute`, { input: values, confirmation }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["operations"] });
+      onClose();
+    },
+  });
+
+  useEffect(() => {
+    if (!selected && filtered.length === 1) setSelected(filtered[0]);
+  }, [filtered, selected]);
+
+  const choose = (action: ActionSpec) => {
+    setSelected(action);
+    const defaults: Record<string, unknown> = {};
+    for (const field of action.inputs ?? []) if (field.default !== undefined) defaults[field.name] = field.default;
+    setValues(defaults);
+    setConfirmation("");
+  };
+  const submit = (event: { preventDefault: () => void }) => {
+    event.preventDefault();
+    if (selected) execute.mutate(selected);
+  };
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="command-modal" role="dialog" aria-modal="true" aria-label="动作中心">
+        <div className="command-search"><span>⌕</span><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索：运行任务、合并、重试、安装 MCP…" /><kbd>ESC</kbd></div>
+        <div className="command-body">
+          <div className="action-list">
+            {filtered.map((action) => <button key={action.id} type="button" className={selected?.id === action.id ? "selected" : ""} onClick={() => choose(action)}><span><strong>{action.label}</strong><small>{action.category} · {action.id}</small></span><Risk risk={action.risk} /></button>)}
+            {filtered.length === 0 && <p className="empty">没有匹配的动作</p>}
+          </div>
+          <form className="action-form" onSubmit={submit}>
+            {selected ? <>
+              <div><Risk risk={selected.risk} /><h3>{selected.label}</h3><p>{selected.description}</p></div>
+              {(selected.inputs ?? []).map((field) => <DynamicField key={field.name} field={field} value={values[field.name]} onChange={(value) => setValues((current) => ({ ...current, [field.name]: value }))} />)}
+              {selected.confirmation_text && <label><span>输入 <code>{selected.confirmation_text}</code> 确认</span><input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required /></label>}
+              {execute.error && <p className="form-error">{execute.error.message}</p>}
+              <button className="primary execute-button" disabled={execute.isPending} type="submit">{execute.isPending ? "正在创建 Operation…" : "执行动作"}</button>
+            </> : <div className="action-placeholder"><strong>选择一个动作</strong><p>参数表单会根据 Action Schema 自动生成。</p></div>}
+          </form>
+        </div>
+      </section>
+    </div>
+  );
 }
 
-function Foundation({ title, detail }: { title: string; detail: string }) {
-  return <article><span className="check">✓</span><div><strong>{title}</strong><p>{detail}</p></div></article>;
+function DynamicField({ field, value, onChange }: { field: InputField; value: unknown; onChange: (value: unknown) => void }) {
+  if (field.type === "boolean") return <label className="checkbox-field"><input type="checkbox" checked={Boolean(value)} onChange={(event) => onChange(event.target.checked)} /><span>{field.label}</span></label>;
+  if (field.type === "select") return <label><span>{field.label}</span><select value={String(value ?? "")} required={field.required} onChange={(event) => onChange(event.target.value)}><option value="">请选择</option>{field.options?.map((option) => <option key={option}>{option}</option>)}</select><small>{field.description}</small></label>;
+  if (field.type === "text") return <label><span>{field.label}</span><textarea value={String(value ?? "")} required={field.required} placeholder={field.placeholder} onChange={(event) => onChange(event.target.value)} /><small>{field.description}</small></label>;
+  return <label><span>{field.label}</span><input type={field.type === "secret" ? "password" : field.type === "integer" ? "number" : "text"} value={String(value ?? "")} required={field.required} placeholder={field.placeholder} onChange={(event) => onChange(field.type === "integer" ? Number(event.target.value) : event.target.value)} /><small>{field.description}</small></label>;
 }
 
-function CenteredState({ title, detail, failed = false }: { title: string; detail: string; failed?: boolean }) {
-  return <div className="centered-state"><div className={failed ? "loader failed" : "loader"} /><h1>{title}</h1><p>{detail}</p></div>;
+function OperationList({ operations }: { operations: Operation[] }) {
+  if (operations.length === 0) return <div className="empty">还没有操作记录。按 <kbd>⌘</kbd><kbd>K</kbd> 发起第一个动作。</div>;
+  return <div className="operation-list">{operations.slice(0, 8).map((operation) => <article key={operation.id}><span className={`operation-status ${operation.status}`} /><div><strong>{operation.action_id}</strong><small>{operation.summary || operation.error || operation.id}</small></div><time>{new Date(operation.updated_at).toLocaleTimeString()}</time><span className="status-text">{operation.status}</span></article>)}</div>;
 }
+
+function Risk({ risk }: { risk: ActionSpec["risk"] }) { return <span className={`risk ${risk}`}>{risk.toUpperCase()}</span>; }
+function Metric({ label, value, hint, accent = false }: { label: string; value: string | number; hint: string; accent?: boolean }) { return <article className="metric"><span>{label}</span><strong className={accent ? "accent" : ""}>{value}</strong><small>{hint}</small></article>; }
+function Detail({ label, value, danger = false }: { label: string; value: string; danger?: boolean }) { return <div><dt>{label}</dt><dd className={danger ? "danger-text" : ""}>{value}</dd></div>; }
+function CenteredState({ title, detail, failed = false }: { title: string; detail: string; failed?: boolean }) { return <div className="centered-state"><div className={failed ? "loader failed" : "loader"} /><h1>{title}</h1><p>{detail}</p></div>; }

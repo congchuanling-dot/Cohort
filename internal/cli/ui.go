@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"cohort/internal/app"
 	"cohort/internal/consoleui"
 	"cohort/internal/controlactions"
 	"cohort/internal/controlplane"
@@ -24,7 +25,7 @@ type uiOptions struct {
 	Open   bool
 }
 
-func runUICommand(ctx context.Context, args []string, out io.Writer) error {
+func runUICommand(ctx context.Context, explicitConfigPath string, args []string, out io.Writer) error {
 	options, err := parseUIOptions(args)
 	if err != nil {
 		return err
@@ -45,11 +46,24 @@ func runUICommand(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	configPath, err := app.ResolveConfigPath(explicitConfigPath)
+	if err != nil {
+		return err
+	}
+	projects, err := controlplane.NewDefaultProjectRegistry()
+	if err != nil {
+		return err
+	}
+	if _, err := projects.Register(projectRoot); err != nil {
+		return err
+	}
 	server, err := controlplane.NewServer(controlplane.ServerConfig{
 		ProjectRoot: projectRoot,
 		Listen:      options.Listen,
 		StaticFS:    assets,
 		Catalog:     catalog,
+		Snapshot:    controlactions.SnapshotProvider(configPath),
+		Projects:    projects,
 	})
 	if err != nil {
 		return err

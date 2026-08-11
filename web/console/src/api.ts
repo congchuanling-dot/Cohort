@@ -44,6 +44,37 @@ export interface SessionInfo {
   project_root: string;
 }
 
+export interface DashboardSnapshot {
+  generated_at: string;
+  project: { root: string; name: string; branch: string; head: string; dirty: boolean };
+  model: { profile: string; provider: string; model: string; api_key_present: boolean };
+  counts: { sessions: number; deliveries: number; explorers: number; eval_runs: number };
+  delivery: {
+    active: number;
+    verified: number;
+    failed: number;
+    latest?: { id: string; status: string; requirement: string; updated_at: string };
+    by_status: Record<string, number>;
+  };
+  hermes: {
+    running: boolean;
+    open_actions: number;
+    critical_actions: number;
+    running_jobs: number;
+    running_repairs: number;
+    last_error?: string;
+  };
+  evaluation: { latest_run_id?: string; pass_rate: number; score: number; regressions: number };
+  reflection?: { pending: number; running: number; dead: number };
+}
+
+export interface ProjectRecord {
+  id: string;
+  name: string;
+  root: string;
+  last_opened_at: string;
+}
+
 let csrfToken = "";
 
 async function decode<T>(response: Response): Promise<T> {

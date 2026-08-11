@@ -73,7 +73,7 @@ func Run(args []string) error {
 		return runTUICommand(args[1:], os.Stdout)
 	}
 	if args[0] == "ui" {
-		return runUICommand(context.Background(), args[1:], os.Stdout)
+		return runUICommand(context.Background(), opts.ConfigPath, args[1:], os.Stdout)
 	}
 	if args[0] == "init" {
 		return runInitCommand(opts, args[1:], os.Stdout)

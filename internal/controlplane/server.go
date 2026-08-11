@@ -29,13 +29,19 @@ type ServerConfig struct {
 	Listen      string
 	StaticFS    fs.FS
 	Catalog     *Catalog
+	Snapshot    SnapshotProvider
+	Projects    *ProjectRegistry
 }
+
+type SnapshotProvider func(context.Context, string) (any, error)
 
 type Server struct {
 	projectRoot   string
 	listen        string
 	staticFS      fs.FS
 	catalog       *Catalog
+	snapshot      SnapshotProvider
+	projects      *ProjectRegistry
 	operations    *OperationManager
 	bootstrap     string
 	session       string
@@ -76,6 +82,8 @@ func NewServer(config ServerConfig) (*Server, error) {
 		listen:      listen,
 		staticFS:    config.StaticFS,
 		catalog:     config.Catalog,
+		snapshot:    config.Snapshot,
+		projects:    config.Projects,
 		operations:  operations,
 		bootstrap:   randomToken(24),
 		session:     randomToken(32),
@@ -134,6 +142,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/auth/bootstrap", s.handleBootstrap)
 	mux.Handle("/api/v1/auth/session", s.requireSession(http.HandlerFunc(s.handleSession)))
 	mux.Handle("/api/v1/catalog", s.requireSession(http.HandlerFunc(s.handleCatalog)))
+	mux.Handle("/api/v1/snapshot", s.requireSession(http.HandlerFunc(s.handleSnapshot)))
+	mux.Handle("/api/v1/projects", s.requireSession(http.HandlerFunc(s.handleProjects)))
 	mux.Handle("/api/v1/actions/", s.requireSession(http.HandlerFunc(s.handleAction)))
 	mux.Handle("/api/v1/operations", s.requireSession(http.HandlerFunc(s.handleOperations)))
 	mux.Handle("/api/v1/operations/", s.requireSession(http.HandlerFunc(s.handleOperation)))
@@ -204,6 +214,40 @@ func (s *Server) handleCatalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeControlJSON(w, http.StatusOK, map[string]any{"actions": s.catalog.List()})
+}
+
+func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeControlError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s.snapshot == nil {
+		writeControlError(w, http.StatusNotImplemented, "dashboard snapshot is unavailable")
+		return
+	}
+	snapshot, err := s.snapshot(r.Context(), s.projectRoot)
+	if err != nil {
+		writeControlError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeControlJSON(w, http.StatusOK, snapshot)
+}
+
+func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeControlError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s.projects == nil {
+		writeControlJSON(w, http.StatusOK, map[string]any{"projects": []ProjectRecord{}})
+		return
+	}
+	projects, err := s.projects.List()
+	if err != nil {
+		writeControlError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeControlJSON(w, http.StatusOK, map[string]any{"projects": projects})
 }
 
 func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
