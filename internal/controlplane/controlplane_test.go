@@ -300,6 +300,15 @@ func TestServerEnforcesBootstrapSessionOriginAndCSRF_BitsUT(t *testing.T) {
 		t.Fatalf("static response status=%d headers=%v", response.StatusCode, response.Header)
 	}
 	_ = response.Body.Close()
+	response = mustControlRequest(t, client, http.MethodGet, running.URL+"/deliveries/delivery-1", nil, nil)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("SPA deep link status = %d", response.StatusCode)
+	}
+	body, _ := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if !strings.Contains(string(body), "control center") {
+		t.Fatalf("SPA deep link body = %q", body)
+	}
 	response = mustControlRequest(t, client, http.MethodGet, running.URL+"/api/v1/catalog", nil, nil)
 	if response.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated catalog status = %d", response.StatusCode)

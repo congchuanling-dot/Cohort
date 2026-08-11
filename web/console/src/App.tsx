@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import {
   ActionPreparation, ActionSpec, apiGet, apiPost, CapabilityResource, DashboardSnapshot, initializeSession,
   DataSourceHealth, DeliveryItem, EntityDescriptor, EvalRun, HermesResource, InputField, LSPResource, MCPServerSummary,
   Operation, operationEvents, ProjectRecord, SessionInfo, SessionSummary,
   SettingsResource, SkillSummary,
 } from "./api";
+import { EntityDetailPage, EntityListPage } from "./EntityPages";
 
 function StatusDot({ online }: { online: boolean }) {
   return <span className={online ? "status-dot online" : "status-dot"} aria-hidden="true" />;
@@ -15,6 +17,7 @@ export default function App() {
   const queryClient = useQueryClient();
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandIntent, setCommandIntent] = useState("");
+  const [commandValues, setCommandValues] = useState<Record<string, unknown>>({});
   const session = useQuery({ queryKey: ["session"], queryFn: initializeSession, retry: false });
   const catalog = useQuery({
     queryKey: ["catalog"],
@@ -99,6 +102,7 @@ export default function App() {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setCommandIntent("");
+        setCommandValues({});
         setCommandOpen((open) => !open);
       }
       if (event.key === "Escape") setCommandOpen(false);
@@ -113,15 +117,20 @@ export default function App() {
   const sessionInfo = session.data as SessionInfo;
   const running = operations.data?.operations.filter((item) => item.status === "pending" || item.status === "running").length ?? 0;
   const data = snapshot.data;
+  const openAction = (intent = "", values: Record<string, unknown> = {}) => {
+    setCommandIntent(intent);
+    setCommandValues(values);
+    setCommandOpen(true);
+  };
 
   return (
     <div className="shell">
       <aside className="sidebar">
         <div className="brand"><div className="brand-mark">C</div><div><strong>Cohort</strong><span>Control Center</span></div></div>
         <nav aria-label="主导航">
-          <a className="active" href="#overview">概览</a><a href="#sessions">Agent Sessions</a>
-          <a href="#deliveries">Deliveries</a><a href="#operations">Operations</a>
-          <a href="#quality">质量与追踪</a><a href="#capabilities">能力中心</a><a href="#settings">设置</a>
+          <NavLink end to="/">概览</NavLink><NavLink to="/sessions">Agent Sessions</NavLink>
+          <NavLink to="/deliveries">Deliveries</NavLink><NavLink to="/operations">Operations</NavLink>
+          <NavLink to="/quality">质量与追踪</NavLink><NavLink to="/capabilities">能力中心</NavLink><NavLink to="/settings">设置</NavLink>
         </nav>
         <div className="project-switcher">
           <span>当前项目</span>
@@ -133,9 +142,11 @@ export default function App() {
       <main>
         <header>
           <div><p className="eyebrow">LOCAL-FIRST AGENT RUNTIME</p><h1>控制中心</h1></div>
-          <button className="command-button" type="button" onClick={() => { setCommandIntent(""); setCommandOpen(true); }}><kbd>⌘</kbd><kbd>K</kbd> 搜索动作</button>
+          <button className="command-button" type="button" onClick={() => openAction()}><kbd>⌘</kbd><kbd>K</kbd> 搜索动作</button>
         </header>
 
+        <Routes>
+        <Route path="/" element={<>
         <section className="hero">
           <div>
             <span className="safe-pill"><StatusDot online /> {data?.project.branch ?? "本地项目"} · {data?.project.head ?? "loading"}</span>
@@ -143,8 +154,8 @@ export default function App() {
             <p>{sessionInfo.project_root}</p>
           </div>
           <div className="hero-actions">
-            <button className="primary" type="button" onClick={() => { setCommandIntent(""); setCommandOpen(true); }}>发起动作</button>
-            <a className="button-link" href="#operations">查看运行记录</a>
+            <button className="primary" type="button" onClick={() => openAction()}>发起动作</button>
+            <NavLink className="button-link" to="/operations">查看运行记录</NavLink>
           </div>
         </section>
 
@@ -183,23 +194,32 @@ export default function App() {
           <div className="panel-heading"><div><p className="eyebrow">AUDIT TRAIL</p><h3>最近操作</h3></div><span className="safe-pill"><StatusDot online /> SSE 实时同步</span></div>
           <OperationList operations={operations.data?.operations ?? []} />
         </section>
-        <DomainPanels
+        </>} />
+        <Route path="/deliveries" element={<EntityListPage kind="delivery" title="Deliveries" description="证据驱动交付、审批、合并与复验。" basePath="/deliveries" onAction={openAction} />} />
+        <Route path="/deliveries/:id" element={<EntityDetailPage kind="delivery" title="Delivery" basePath="/deliveries" onAction={openAction} />} />
+        <Route path="/sessions" element={<EntityListPage kind="session" title="Agent Sessions" description="本地保存的 Agent 会话与可恢复上下文。" basePath="/sessions" onAction={openAction} />} />
+        <Route path="/sessions/:id" element={<EntityDetailPage kind="session" title="Session" basePath="/sessions" onAction={openAction} />} />
+        <Route path="/operations" element={<section className="panel operation-panel"><div className="panel-heading"><div><p className="eyebrow">AUDIT TRAIL</p><h3>Operations</h3></div><span className="safe-pill"><StatusDot online /> SSE 实时同步</span></div><OperationList operations={operations.data?.operations ?? []} /></section>} />
+        <Route path="/quality" element={<DomainPanels
           deliveries={deliveries.data?.deliveries ?? []}
           hermes={hermes.data}
           evaluations={evaluations.data?.runs ?? []}
           sessions={traces.data?.sessions ?? []}
-          runAction={(intent) => { setCommandIntent(intent); setCommandOpen(true); }}
-        />
-        <CapabilityCenter
+          runAction={(intent) => openAction(intent)}
+        />} />
+        <Route path="/capabilities" element={<CapabilityCenter
           capabilities={capabilities.data}
           skills={skills.data?.skills ?? []}
           servers={mcp.data?.servers ?? []}
           lsp={lsp.data}
           settings={settings.data}
-          runAction={(intent) => { setCommandIntent(intent); setCommandOpen(true); }}
-        />
+          runAction={(intent) => openAction(intent)}
+        />} />
+        <Route path="/settings" element={<CapabilityCenter capabilities={capabilities.data} skills={skills.data?.skills ?? []} servers={mcp.data?.servers ?? []} lsp={lsp.data} settings={settings.data} runAction={(intent) => openAction(intent)} />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </main>
-      {commandOpen && <CommandCenter actions={catalog.data?.actions ?? []} initialQuery={commandIntent} onClose={() => setCommandOpen(false)} />}
+      {commandOpen && <CommandCenter actions={catalog.data?.actions ?? []} initialQuery={commandIntent} initialValues={commandValues} onClose={() => setCommandOpen(false)} />}
     </div>
   );
 }
@@ -336,7 +356,7 @@ function CapabilityCenter({
   </div>;
 }
 
-function CommandCenter({ actions, initialQuery, onClose }: { actions: ActionSpec[]; initialQuery: string; onClose: () => void }) {
+function CommandCenter({ actions, initialQuery, initialValues, onClose }: { actions: ActionSpec[]; initialQuery: string; initialValues: Record<string, unknown>; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [query, setQuery] = useState(initialQuery);
   const [selected, setSelected] = useState<ActionSpec | null>(null);
@@ -370,15 +390,15 @@ function CommandCenter({ actions, initialQuery, onClose }: { actions: ActionSpec
       setSelected(filtered[0]);
       const defaults: Record<string, unknown> = {};
       for (const field of filtered[0].inputs ?? []) if (field.default !== undefined) defaults[field.name] = field.default;
-      setValues(defaults);
+      setValues({ ...defaults, ...initialValues });
     }
-  }, [filtered, selected]);
+  }, [filtered, initialValues, selected]);
 
   const choose = (action: ActionSpec) => {
     setSelected(action);
     const defaults: Record<string, unknown> = {};
     for (const field of action.inputs ?? []) if (field.default !== undefined) defaults[field.name] = field.default;
-    setValues(defaults);
+    setValues({ ...defaults, ...(action.id === initialQuery ? initialValues : {}) });
     setConfirmation("");
     setPrepared(null);
   };
