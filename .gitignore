@@ -20,6 +20,7 @@
 /.cohort/reflection/
 /.cohort/deliveries/
 /.cohort/delivery-worktrees/
+/.cohort/control/
 /packages/npm/vendor/cohort
 /packages/npm/vendor/*.download
 /packages/npm/*.tgz

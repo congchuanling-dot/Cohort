@@ -371,8 +371,31 @@ function DynamicField({ field, value, onChange }: { field: InputField; value: un
 }
 
 function OperationList({ operations }: { operations: Operation[] }) {
+  const queryClient = useQueryClient();
+  const [selected, setSelected] = useState<Operation | null>(null);
+  const cancel = useMutation({
+    mutationFn: (operation: Operation) => apiPost<Operation>(`/api/v1/operations/${operation.id}/cancel`, {}),
+    onSuccess: (operation) => {
+      setSelected(operation);
+      void queryClient.invalidateQueries({ queryKey: ["operations"] });
+    },
+  });
+  useEffect(() => {
+    if (!selected) return;
+    const latest = operations.find((operation) => operation.id === selected.id);
+    if (latest) setSelected(latest);
+  }, [operations, selected?.id]);
   if (operations.length === 0) return <div className="empty">还没有操作记录。按 <kbd>⌘</kbd><kbd>K</kbd> 发起第一个动作。</div>;
-  return <div className="operation-list">{operations.slice(0, 8).map((operation) => <article key={operation.id}><span className={`operation-status ${operation.status}`} /><div><strong>{operation.action_id}</strong><small>{operation.summary || operation.error || operation.id}</small></div><time>{new Date(operation.updated_at).toLocaleTimeString()}</time><span className="status-text">{operation.status}</span></article>)}</div>;
+  return <>
+    <div className="operation-list">{operations.slice(0, 8).map((operation) => <button type="button" key={operation.id} onClick={() => setSelected(operation)}><span className={`operation-status ${operation.status}`} /><span><strong>{operation.action_id}</strong><small>{operation.summary || operation.error || operation.id}</small></span><time>{new Date(operation.updated_at).toLocaleTimeString()}</time><span className="status-text">{operation.status}</span></button>)}</div>
+    {selected && <aside className="operation-drawer">
+      <div className="drawer-heading"><div><p className="eyebrow">OPERATION DETAIL</p><h3>{selected.action_id}</h3></div><button type="button" onClick={() => setSelected(null)}>关闭</button></div>
+      <dl className="detail-list"><Detail label="ID" value={selected.id} /><Detail label="Status" value={selected.status} /><Detail label="Actor" value={selected.actor} /><Detail label="Updated" value={new Date(selected.updated_at).toLocaleString()} /></dl>
+      {selected.error && <p className="drawer-error">{selected.error}</p>}
+      {selected.result !== undefined && <pre>{JSON.stringify(selected.result, null, 2)}</pre>}
+      {(selected.status === "pending" || selected.status === "running") && <button className="danger-button" type="button" disabled={cancel.isPending} onClick={() => cancel.mutate(selected)}>取消 Operation</button>}
+    </aside>}
+  </>;
 }
 
 function Risk({ risk }: { risk: ActionSpec["risk"] }) { return <span className={`risk ${risk}`}>{risk.toUpperCase()}</span>; }

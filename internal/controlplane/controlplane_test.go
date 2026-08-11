@@ -68,6 +68,11 @@ func TestOperationManagerPersistsRedactsStreamsAndRecovers_BitsUT(t *testing.T) 
 			{Name: "source", Label: "来源", Type: FieldString, Sensitive: true},
 		},
 		Handler: func(ctx context.Context, request ActionRequest) (ActionResult, error) {
+			ReportProgress(ctx, "working", map[string]any{"step": 1})
+			if request.Input["task"] == "cancel" {
+				<-ctx.Done()
+				return ActionResult{}, ctx.Err()
+			}
 			select {
 			case <-ctx.Done():
 				return ActionResult{}, ctx.Err()
@@ -106,14 +111,34 @@ func TestOperationManagerPersistsRedactsStreamsAndRecovers_BitsUT(t *testing.T) 
 		t.Fatalf("completed = %#v", completed)
 	}
 	seenRunning := false
+	seenProgress := false
 	for len(events) > 0 {
-		if event := <-events; event.Operation.Status == OperationRunning {
+		event := <-events
+		if event.Operation.Status == OperationRunning {
 			seenRunning = true
+		}
+		if event.Type == "operation.progress" && event.Operation.Summary == "working" {
+			seenProgress = true
 		}
 	}
 	if !seenRunning {
 		t.Fatal("operation stream omitted running state")
 	}
+	if !seenProgress {
+		t.Fatal("operation stream omitted progress state")
+	}
+	cancellable, err := manager.Start(context.Background(), "session.run", ActionRequest{
+		ProjectRoot: projectRoot,
+		Input:       map[string]any{"task": "cancel", "api_key": "secret"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForOperationStatus(t, manager, cancellable.ID, OperationRunning)
+	if _, err := manager.Cancel(cancellable.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitForOperationStatus(t, manager, cancellable.ID, OperationCancelled)
 
 	interrupted := completed
 	interrupted.ID = "op_interrupted"
@@ -141,6 +166,13 @@ func TestOperationManagerPersistsRedactsStreamsAndRecovers_BitsUT(t *testing.T) 
 	}
 	if info.Mode().Perm() != 0600 {
 		t.Fatalf("operation file mode=%v, want 0600", info.Mode().Perm())
+	}
+	rootInfo, err := os.Stat(filepath.Join(projectRoot, ".cohort", "control", "operations"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rootInfo.Mode().Perm() != 0700 {
+		t.Fatalf("operation directory mode=%v, want 0700", rootInfo.Mode().Perm())
 	}
 }
 
@@ -276,6 +308,20 @@ func TestServerRejectsNonLoopbackListen_BitsUT(t *testing.T) {
 	}
 	if _, err := NewServer(ServerConfig{ProjectRoot: t.TempDir(), Listen: "0.0.0.0:18779", Catalog: catalog}); err == nil {
 		t.Fatal("non-loopback listen unexpectedly accepted")
+	}
+}
+
+func TestOperationManagerRejectsSymlinkStorageRoot_BitsUT(t *testing.T) {
+	projectRoot := t.TempDir()
+	if err := os.Symlink(t.TempDir(), filepath.Join(projectRoot, ".cohort")); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := NewCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewOperationManager(projectRoot, catalog); err == nil || !strings.Contains(err.Error(), "real directory") {
+		t.Fatalf("symlink storage err = %v", err)
 	}
 }
 

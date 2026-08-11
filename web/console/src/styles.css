@@ -83,8 +83,9 @@ button.primary { border-color: #769cff; background: #6d8dff; color: #07101f; fon
 .check { width: 23px; height: 23px; display: grid; place-items: center; border-radius: 50%; background: #4ee5a417; color: var(--green); flex: 0 0 auto; }
 .operation-panel { margin-top: 14px; }
 .operation-list { margin-top: 14px; }
-.operation-list article { display: grid; grid-template-columns: 10px 1fr auto 90px; align-items: center; gap: 12px; padding: 11px 4px; border-bottom: 1px solid var(--line); }
-.operation-list article:last-child { border-bottom: 0; }
+.operation-list > button { width: 100%; display: grid; grid-template-columns: 10px 1fr auto 90px; align-items: center; gap: 12px; padding: 11px 4px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; text-align: left; }
+.operation-list > button:hover { background: #151e31; }
+.operation-list > button:last-child { border-bottom: 0; }
 .operation-list strong, .operation-list small { display: block; }
 .operation-list strong { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .operation-list small, .operation-list time, .status-text { color: var(--muted); font-size: 10px; }
@@ -93,6 +94,11 @@ button.primary { border-color: #769cff; background: #6d8dff; color: #07101f; fon
 .operation-status.running, .operation-status.pending { background: var(--blue); box-shadow: 0 0 0 4px #79a8ff1c; }
 .operation-status.succeeded { background: var(--green); }
 .operation-status.failed { background: var(--red); }
+.operation-drawer { position: fixed; z-index: 15; top: 0; right: 0; width: min(520px, 100vw); height: 100vh; overflow: auto; padding: 24px; border-left: 1px solid #384762; background: #0b111e; box-shadow: -20px 0 80px #0009; }
+.drawer-heading { display: flex; align-items: flex-start; justify-content: space-between; }
+.operation-drawer pre { max-height: 50vh; overflow: auto; padding: 13px; color: #b9c7df; background: #070b13; border: 1px solid var(--line); border-radius: 8px; font: 10px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.drawer-error { color: var(--red); padding: 11px; background: #ff657718; border: 1px solid #78404a; border-radius: 8px; font-size: 11px; }
+.danger-button { width: 100%; margin-top: 14px; color: var(--red); border-color: #78404a; background: #ff657711; }
 .empty { color: var(--muted); text-align: center; padding: 32px; font-size: 12px; }
 
 .modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: start center; padding-top: 8vh; background: #02050bbd; backdrop-filter: blur(9px); }

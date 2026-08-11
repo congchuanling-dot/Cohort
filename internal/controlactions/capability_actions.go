@@ -3,9 +3,11 @@ package controlactions
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"cohort/internal/agent"
 	"cohort/internal/app"
@@ -587,7 +589,7 @@ func agentRunHandler(configPath string, resume bool) controlplane.ActionHandler 
 			}
 			runner.ResumeSession(meta.ID, history)
 		}
-		sink := &operationSink{}
+		sink := &operationSink{ctx: ctx}
 		result, err := runner.Run(ctx, textInput(request, "task"), sink)
 		return controlplane.ActionResult{
 			Summary: "agent run " + result.Status,
@@ -597,45 +599,86 @@ func agentRunHandler(configPath string, resume bool) controlplane.ActionHandler 
 }
 
 type operationSink struct {
-	mu     sync.Mutex
-	output strings.Builder
-	events []map[string]string
+	ctx           context.Context
+	mu            sync.Mutex
+	output        strings.Builder
+	events        []map[string]string
+	lastPublished time.Time
+	lastSize      int
 }
+
+const maxOperationOutputBytes = 200_000
 
 func (s *operationSink) WriteText(text string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.output.WriteString(text)
+	s.publishLocked(false)
+	s.mu.Unlock()
 }
 
 func (s *operationSink) WriteToolCall(call llm.ToolCall) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.events = append(s.events, map[string]string{"type": "tool_call", "name": call.Function.Name})
+	s.publishLocked(true)
+	s.mu.Unlock()
 }
 
 func (s *operationSink) WriteToolResult(name string, result string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.events = append(s.events, map[string]string{"type": "tool_result", "name": name, "bytes": fmt.Sprintf("%d", len(result))})
+	s.publishLocked(true)
+	s.mu.Unlock()
 }
 
-func (s *operationSink) WriteError(err error) {
+func (s *operationSink) WriteError(error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.events = append(s.events, map[string]string{"type": "error", "error": err.Error()})
+	s.events = append(s.events, map[string]string{"type": "error"})
+	s.publishLocked(true)
+	s.mu.Unlock()
+}
+
+func (s *operationSink) publishLocked(force bool) {
+	now := time.Now()
+	size := s.output.Len()
+	if !force && size-s.lastSize < 1024 && !s.lastPublished.IsZero() && now.Sub(s.lastPublished) < 500*time.Millisecond {
+		return
+	}
+	data := map[string]any{
+		"status": "streaming", "output": s.outputSnapshotLocked(),
+		"events": append([]map[string]string(nil), recentOperationEvents(s.events)...),
+	}
+	s.lastPublished = now
+	s.lastSize = size
+	controlplane.ReportProgress(s.ctx, "agent streaming", data)
 }
 
 func (s *operationSink) String() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.output.String()
+	return s.outputSnapshotLocked()
 }
 
 func (s *operationSink) Events() []map[string]string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]map[string]string(nil), s.events...)
+	return append([]map[string]string(nil), recentOperationEvents(s.events)...)
+}
+
+func (s *operationSink) outputSnapshotLocked() string {
+	value := s.output.String()
+	if len(value) <= maxOperationOutputBytes {
+		return value
+	}
+	head := maxOperationOutputBytes * 3 / 4
+	tail := maxOperationOutputBytes - head
+	return value[:head] + "\n...[operation output truncated]...\n" + value[len(value)-tail:]
+}
+
+func recentOperationEvents(events []map[string]string) []map[string]string {
+	if len(events) > 500 {
+		return events[len(events)-500:]
+	}
+	return events
 }
 
 func boolInput(request controlplane.ActionRequest, name string) bool {
@@ -658,11 +701,19 @@ func projectPath(projectRoot string, value string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", err
+	}
 	path := strings.TrimSpace(value)
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(root, path)
 	}
 	path, err = filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	path, err = resolvePathSymlinks(path)
 	if err != nil {
 		return "", err
 	}
@@ -674,6 +725,29 @@ func projectPath(projectRoot string, value string) (string, error) {
 		return "", fmt.Errorf("path must remain inside project root")
 	}
 	return path, nil
+}
+
+func resolvePathSymlinks(path string) (string, error) {
+	cursor := path
+	var suffix []string
+	for {
+		resolved, err := filepath.EvalSymlinks(cursor)
+		if err == nil {
+			for index := len(suffix) - 1; index >= 0; index-- {
+				resolved = filepath.Join(resolved, suffix[index])
+			}
+			return resolved, nil
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		parent := filepath.Dir(cursor)
+		if parent == cursor {
+			return "", err
+		}
+		suffix = append(suffix, filepath.Base(cursor))
+		cursor = parent
+	}
 }
 
 func projectPosition(projectRoot string, value string) (string, error) {

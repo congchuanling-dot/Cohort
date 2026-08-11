@@ -48,6 +48,21 @@ type OperationEvent struct {
 	Time      time.Time `json:"time"`
 }
 
+type operationProgressReporter func(string, any)
+type operationProgressContextKey struct{}
+
+// ReportProgress updates the current persisted Operation when the caller is
+// running inside an OperationManager handler. Calls outside that context are no-ops.
+func ReportProgress(ctx context.Context, summary string, result any) {
+	if ctx == nil {
+		return
+	}
+	reporter, _ := ctx.Value(operationProgressContextKey{}).(operationProgressReporter)
+	if reporter != nil {
+		reporter(summary, result)
+	}
+}
+
 type OperationManager struct {
 	root        string
 	catalog     *Catalog
@@ -74,13 +89,48 @@ func NewOperationManager(projectRoot string, catalog *Catalog) (*OperationManage
 		subscribers: map[int]chan OperationEvent{},
 		now:         func() time.Time { return time.Now().UTC() },
 	}
-	if err := os.MkdirAll(manager.root, 0755); err != nil {
+	if err := ensurePrivateOperationDir(filepath.Clean(absolute)); err != nil {
 		return nil, err
 	}
 	if err := manager.recoverInterrupted(); err != nil {
 		return nil, err
 	}
 	return manager, nil
+}
+
+func ensurePrivateOperationDir(projectRoot string) error {
+	paths := []struct {
+		path string
+		mode os.FileMode
+	}{
+		{path: filepath.Join(projectRoot, ".cohort"), mode: 0755},
+		{path: filepath.Join(projectRoot, ".cohort", "control"), mode: 0700},
+		{path: filepath.Join(projectRoot, ".cohort", "control", "operations"), mode: 0700},
+	}
+	for index, item := range paths {
+		info, err := os.Lstat(item.path)
+		if errors.Is(err, os.ErrNotExist) {
+			if mkdirErr := os.Mkdir(item.path, item.mode); mkdirErr != nil && !errors.Is(mkdirErr, os.ErrExist) {
+				return mkdirErr
+			}
+			info, err = os.Lstat(item.path)
+			if err != nil {
+				return err
+			}
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("operation storage path %q must be a real directory", item.path)
+		}
+		if index > 0 && info.Mode().Perm() != item.mode {
+			if err := os.Chmod(item.path, item.mode); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (m *OperationManager) Start(ctx context.Context, actionID string, request ActionRequest) (Operation, error) {
@@ -141,7 +191,22 @@ func (m *OperationManager) run(ctx context.Context, operation Operation, request
 	_ = m.save(operation)
 	m.publish("operation.running", operation)
 
+	var operationMu sync.Mutex
+	ctx = context.WithValue(ctx, operationProgressContextKey{}, operationProgressReporter(func(summary string, result any) {
+		operationMu.Lock()
+		defer operationMu.Unlock()
+		if operation.Status != OperationRunning {
+			return
+		}
+		operation.Summary = strings.TrimSpace(summary)
+		operation.Result = result
+		operation.UpdatedAt = m.now()
+		_ = m.save(operation)
+		m.publish("operation.progress", operation)
+	}))
 	result, runErr := m.catalog.Execute(ctx, operation.ActionID, request)
+	operationMu.Lock()
+	defer operationMu.Unlock()
 	finishedAt := m.now()
 	operation.FinishedAt = finishedAt
 	operation.UpdatedAt = finishedAt

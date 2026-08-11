@@ -109,6 +109,36 @@ cohort doctor computer
 
 `doctor computer` 检查 macOS Computer Use 环境，包括 Accessibility、Screen Recording、desktop helper、OCR helper、Chrome bridge 和截图/OCR artifact 目录。它只做只读诊断，不会默认点击、输入或修改系统设置。
 
+## 0.1 Control Center
+
+在 Git 项目根目录启动本地可视化控制台：
+
+```bash
+cohort ui
+```
+
+默认绑定随机 loopback 端口并打开浏览器。服务器环境或只想打印入口时：
+
+```bash
+cohort ui --no-open
+cohort ui --listen 127.0.0.1:18779
+```
+
+启动 URL 携带一次性 bootstrap token。前端兑换为 HttpOnly Session Cookie 后会立即清除
+URL fragment；旧 token 不能再次兑换。控制台提供：
+
+- 项目、Delivery、Hermes、Eval、Trace、Session 和 Reflection 的真实状态。
+- `⌘K` 搜索 44 个类型化 Action，并按 Schema 生成表单。
+- Capability、MCP、Skill、LSP 和模型 Profile 管理。
+- Operation 实时状态、结果详情、取消和重启中断恢复。
+- Confirm/Danger 动作的精确确认文本与 Secret 审计脱敏。
+
+控制台只允许监听 loopback。它不提供任意 Shell 或任意文件 API；MCP import/export 和
+LSP 路径均限制在当前项目根目录内。持久 Operation 位于
+`.cohort/control/operations/`，目录权限为 `0700`，文件权限为 `0600`，并已从 Git 忽略。
+
+完整接口和安全模型见 [Cohort Control Center](cohort_control_center.md)。
+
 ## 0.2 Project / Plan Mode
 
 Project Mode 使用显式项目文件，不依赖隐藏默认状态：

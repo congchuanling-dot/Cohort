@@ -166,9 +166,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		writeControlError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	writeControlJSON(w, http.StatusOK, map[string]any{
-		"status": "ok", "project_root": s.projectRoot,
-	})
+	writeControlJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
 func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {

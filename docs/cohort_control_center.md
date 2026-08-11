@@ -1,6 +1,6 @@
 # Cohort Control Center
 
-> 状态：`[开发中]`
+> 状态：`[完成]`
 >
 > 分支：`feature/cohort-control-center`
 
@@ -23,7 +23,7 @@ cohort ui --listen 127.0.0.1:0
 
 1. 不把两百个命令平铺成两百个按钮。
 2. 高频闭环使用专用页面，长尾能力使用可搜索 Action Catalog 自动生成表单。
-3. CLI 与 UI 调用同一 Action Handler，不在 HTTP 后端拼接 Shell 命令。
+3. CLI 与 UI 复用同一领域 Store/Service/状态机，不在 HTTP 后端拼接 Shell 命令。
 4. 所有长任务持久化为 Operation，支持进度、取消、失败、重启恢复和审计。
 5. 高风险动作继续执行现有状态机、Evidence 和人工审批门禁。
 6. API Key 等 Secret 永远不通过查询 API 回传前端。
@@ -33,12 +33,12 @@ cohort ui --listen 127.0.0.1:0
 | 页面 | 核心能力 |
 | --- | --- |
 | Overview | 项目健康、Agent/Delivery/Hermes 运行状态、风险和快捷动作 |
-| Sessions | 创建任务、模型/模式/预算、实时日志、停止、恢复、Steering |
-| Deliveries | DAG、候选、Evidence、Finding、返修、Review、Approve、Merge、Recover |
-| Operations | Hermes Action/Repair/Job、Reflection Queue、Operation 历史 |
-| Quality | Eval、Stability、Trace、Causal Graph、Token 和延迟 |
-| Capabilities | MCP、Skill、Capability、Plugin、LSP 的安装、诊断和启停 |
-| Settings | 首次配置向导、模型、权限、预算、通知和安全状态 |
+| Sessions | 创建任务、恢复历史、实时输出、停止和 Operation 审计 |
+| Deliveries | 状态列表、详情资源、Integrate、Review、Approve、Merge、Recover、Cancel |
+| Operations | Operation 历史/详情/取消、Hermes Action、Reflection Queue 动作 |
+| Quality | Eval 历史、通过率、Trace Session、Token 和回归状态 |
+| Capabilities | MCP、Skill、Capability、LSP 管理及 Plugin 诊断资源 |
+| Settings | 模型 Profile 状态、API Key 配置状态和原子 Profile 切换 |
 | Command Center | `⌘K` 搜索所有 Action，按 Schema 自动生成参数表单 |
 
 ## 4. 架构
@@ -58,8 +58,9 @@ internal/controlplane
 现有 Store / Service / Runner / EventBus / Worktree
 ```
 
-前端构建产物由 `go:embed` 打入单二进制。REST 负责查询和发起动作，SSE 负责 Operation、
-Delivery、Hermes 和 Agent 事件；交互式 Agent Steering 后续使用 WebSocket。
+前端构建产物由 `go:embed` 打入单二进制。REST 负责查询和发起动作，SSE 负责 Operation
+状态和进度事件。Agent 任务和续跑通过异步 Operation 管理，增量输出、Tool 名称和终态进入本地审计；
+工具参数不写入 Operation。
 
 ## 5. Action 合同
 
@@ -94,3 +95,43 @@ Delivery、Hermes 和 Agent 事件；交互式 Agent Steering 后续使用 WebSo
 3. 浏览器真实交互验收。
 4. 独立 commit 并 push。
 
+## 8. 已实现范围
+
+- 真实 Dashboard：Git、模型、Session、Delivery、Hermes、Eval、Explorer、Reflection。
+- 44 个类型化 Action：Delivery、Hermes、Agent、Capability、MCP、Skill、LSP、
+  Reflection 和 Settings。
+- `⌘K` Action 搜索、Schema 自动表单、风险标签、精确确认文本。
+- 持久 Operation：异步执行、SSE、详情、取消、Secret 脱敏、重启中断恢复。
+- Delivery/Eval/Trace/Hermes 状态面板和 Capability/MCP/Skill/LSP/Settings 能力中心。
+- 项目登记、嵌入式 React 生产构建和单二进制启动。
+
+查询 API：
+
+```text
+GET /api/v1/catalog
+GET /api/v1/snapshot
+GET /api/v1/projects
+GET /api/v1/resources/{deliveries|hermes|evaluations|traces|sessions}
+GET /api/v1/resources/{capabilities|skills|mcp|lsp|plugins|settings}
+GET /api/v1/operations
+GET /api/v1/operations/<id>
+GET /api/v1/events
+```
+
+写 API 只接受同源、有效 Session Cookie、CSRF Token 和 JSON：
+
+```text
+POST /api/v1/actions/<action_id>/execute
+POST /api/v1/operations/<id>/cancel
+```
+
+## 9. 验收记录
+
+2026-08-12 已完成：
+
+- Go 单元测试、Race Test、`go vet ./...`。
+- TypeScript typecheck、Vite production build、npm audit。
+- 真实浏览器一次性 token 登录，URL fragment 成功清除。
+- Catalog 展示 44 个 Action；`system.ping` 从表单提交后经 SSE 到 `succeeded`。
+- Operation 详情抽屉展示结果；Danger Action 展示精确确认输入。
+- 浏览器 Console 无错误。

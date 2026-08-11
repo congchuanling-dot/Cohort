@@ -166,6 +166,13 @@ async function decode<T>(response: Response): Promise<T> {
 export async function initializeSession(): Promise<SessionInfo> {
   const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
   const bootstrapToken = hash.get("token");
+  const existing = await fetch("/api/v1/auth/session", { credentials: "same-origin" });
+  if (existing.ok) {
+    const session = await decode<SessionInfo>(existing);
+    csrfToken = session.csrf_token;
+    if (bootstrapToken) history.replaceState(null, "", window.location.pathname + window.location.search);
+    return session;
+  }
   if (bootstrapToken) {
     const response = await fetch("/api/v1/auth/bootstrap", {
       method: "POST",
@@ -210,7 +217,7 @@ export function operationEvents(onEvent: (operation: Operation) => void): () => 
     const payload = JSON.parse(event.data) as { operation: Operation };
     onEvent(payload.operation);
   };
-  for (const status of ["created", "running", "succeeded", "failed", "cancelled"]) {
+  for (const status of ["created", "running", "progress", "succeeded", "failed", "cancelled"]) {
     source.addEventListener(`operation.${status}`, listener as EventListener);
   }
   return () => source.close();

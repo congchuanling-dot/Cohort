@@ -130,6 +130,34 @@ api_key: missing
 api_key: set
 ```
 
+### 2.8 Control Center
+
+先构建前端，再运行控制面测试：
+
+```bash
+cd web/console
+npm ci
+npm run typecheck
+npm run build
+cd ../..
+
+go test -race ./internal/controlplane ./internal/controlactions ./internal/cli
+go run . ui --no-open
+```
+
+浏览器验收：
+
+1. 打开终端输出的 `control_center` URL。
+2. 确认 URL 中的 token 被清除，页面显示当前分支、模型和运行数据。
+3. 按 `⌘K` 搜索 `system.ping`，点击“执行动作”。
+4. 确认 Operation 经 SSE 进入 `succeeded`，点击记录可查看结果。
+5. 搜索 `delivery.cancel`，确认页面要求 Delivery ID 和精确文本 `CANCEL`；不要对真实
+   Delivery 提交破坏性验收。
+
+安全回归由 `internal/controlplane` 测试覆盖：非 loopback 拒绝、一次性 bootstrap、
+HttpOnly/SameSite Cookie、Origin、CSRF、请求体限制、Secret 脱敏、Operation 中断恢复及
+`0600/0700` 权限。
+
 ## 3. API Key 测试
 
 当前默认使用 DeepSeek。

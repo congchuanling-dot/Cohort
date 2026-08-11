@@ -67,6 +67,13 @@ func TestCatalogExposesStableSystemAction_BitsUT(t *testing.T) {
 	if _, err := projectPath(root, "../outside.json"); err == nil {
 		t.Fatal("expected project path escape to be rejected")
 	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projectPath(root, "escape/secret.json"); err == nil {
+		t.Fatal("expected symlink path escape to be rejected")
+	}
 }
 
 func runGit(t *testing.T, root string, args ...string) {
