@@ -154,6 +154,8 @@ type Runner struct {
 	ObservationSinks []observability.Sink
 	// Hooks 是内部生命周期 Hook 注册表。Hook 是旁路能力：执行失败只进入观测事件，不中断 Runner。
 	Hooks *hooks.Registry
+	// AdaptiveToolRouting 按任务意图缩小每轮模型可见的工具 schema，并在失败时渐进扩容。
+	AdaptiveToolRouting AdaptiveToolRoutingConfig
 	// RunMode 标识普通交互、评测、修复或只读探索运行。为空时按 interactive 处理。
 	RunMode RunMode
 	// ReflectionMemoryWorkspace 是反思产物使用的 workspace 绝对路径，只进入 Hook 元数据。
@@ -327,6 +329,11 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 	r.emitObservation(ctx, obs, runID, observability.EventContextBuilt, 0, observability.SeverityInfo, contextStatsData(stats))
 	finishGuardRetries := 0
 	textToolUseRetries := 0
+	routeConfig := r.AdaptiveToolRouting
+	if r.effectiveRunMode() != RunModeInteractive {
+		routeConfig.Enabled = false
+	}
+	toolRouter := newAdaptiveToolRouter(routeConfig, input)
 
 	for turn := 1; turn <= r.MaxTurns; turn++ {
 		lastTurn = turn
@@ -339,20 +346,27 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 		})
 		// 把系统提示词、历史消息、工具 schema 一起发给模型。
 		schemaStart := time.Now()
-		tools := r.Tools.Schemas()
+		fullTools := r.Tools.Schemas()
+		tools, routeDecision := toolRouter.Route(fullTools)
+		requestSystemPrompt := r.SystemPrompt + toolRouteSystemPrompt(routeDecision, routeConfig.Language)
 		// #region debug-point B:schema-built
 		debugperf.Event("pre-fix", "B", "internal/agent/runner.go:Run", "Tool schemas prepared", map[string]any{
 			"elapsed_ms":          debugperf.Since(schemaStart),
 			"schema_count":        len(tools),
-			"system_prompt_chars": len([]rune(r.SystemPrompt)),
+			"full_schema_count":   len(fullTools),
+			"schema_bytes_saved":  routeDecision.SavedSchemaBytes,
+			"route_mode":          routeDecision.Mode,
+			"route_reason":        routeDecision.Reason,
+			"system_prompt_chars": len([]rune(requestSystemPrompt)),
 			"request_messages":    len(messages),
 			"request_chars":       messagesChars(messages),
 		})
 		// #endregion
-		r.emitObservation(ctx, obs, runID, observability.EventLLMRequestStarted, turn, observability.SeverityInfo, llmRequestData(messages, tools, r.SystemPrompt))
+		r.emitObservation(ctx, obs, runID, observability.EventToolRouteSelected, turn, observability.SeverityInfo, toolRouteDecisionData(routeDecision))
+		r.emitObservation(ctx, obs, runID, observability.EventLLMRequestStarted, turn, observability.SeverityInfo, llmRequestData(messages, tools, requestSystemPrompt))
 		llmStartedAt := time.Now()
 		stream, err := r.Client.Chat(ctx, llm.ChatRequest{
-			System:   r.SystemPrompt,
+			System:   requestSystemPrompt,
 			Messages: messages,
 			Tools:    tools,
 		})
@@ -382,7 +396,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			})
 			return finishRun(RunResult{}, err)
 		}
-		r.emitObservation(ctx, obs, runID, observability.EventLLMResponseFinished, turn, observability.SeverityInfo, llmResponseData(resp, time.Since(llmStartedAt), messages, tools, r.SystemPrompt))
+		r.emitObservation(ctx, obs, runID, observability.EventLLMResponseFinished, turn, observability.SeverityInfo, llmResponseData(resp, time.Since(llmStartedAt), messages, tools, requestSystemPrompt))
 		// 记录模型原始响应用于排查问题，不影响主流程。
 		r.logResponse(turn, resp)
 		mergeUsageTotals(&totalUsage, resp.Usage)
@@ -426,6 +440,19 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 		if len(resp.ToolCalls) == 0 {
 			if err := r.appendMessage(llm.Message{Role: llm.RoleAssistant, Content: resp.Content}, ""); err != nil {
 				return finishRun(RunResult{}, err)
+			}
+			if toolRouter.ShouldEscalateNoTool(resp.Content, len(tools), len(fullTools)) {
+				toolRouter.Escalate("capability_limitation")
+				r.emitObservation(ctx, obs, runID, observability.EventToolRouteSelected, turn, observability.SeverityWarn, map[string]any{
+					"mode":              "escalating",
+					"reason":            "capability_limitation",
+					"selected_count":    len(tools),
+					"full_schema_count": len(fullTools),
+				})
+				r.addPendingHint("[TOOL ROUTER ESCALATION] 上一轮因当前可见工具不足而准备提前结束。下一轮将暴露完整工具面；请重新检查可用工具后继续任务，不要重复声称缺少工具。")
+				messages, stats = r.buildRequestMessagesMaybeAutoCompact(ctx, obs, runID, turn)
+				r.emitObservation(ctx, obs, runID, observability.EventContextBuilt, turn, observability.SeverityInfo, contextStatsData(stats))
+				continue
 			}
 			if decision := evaluateFinishGuard(input, resp); !decision.Allow && finishGuardRetries < maxFinishGuardRetries {
 				finishGuardRetries++
@@ -522,6 +549,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 				r.rememberSkillRead(args)
 			}
 			r.recordLongTermMemorySignal(&memorySignals, call.Function.Name, args, outcome)
+			toolRouter.ObserveToolResult(outcomeSucceeded(outcome) || expectedControlOutcome(outcome))
 			evidenceLedger = append(evidenceLedger, newToolEvidence(call, turn, i, outcome))
 			r.logToolRun(call, args, turn, i, outcome, time.Since(toolStartedAt))
 			if decision, _ := outcome.Audit["permission_decision"].(string); decision != "" {

@@ -123,6 +123,10 @@ func Run(args []string) error {
 		fmt.Printf("context.enable_micro_compact: %t\n", cfg.Context.EnableMicroCompact)
 		fmt.Printf("observability.auto_refresh: %t\n", cfg.Observability.AutoRefresh)
 		fmt.Printf("observability.auto_refresh_limit: %d\n", cfg.Observability.AutoRefreshLimit)
+		fmt.Printf("tools.adaptive_routing: %t\n", cfg.Tools.AdaptiveRouting)
+		fmt.Printf("tools.adaptive_max_external_tools: %d\n", cfg.Tools.AdaptiveMaxExternalTools)
+		fmt.Printf("tools.adaptive_failure_threshold: %d\n", cfg.Tools.AdaptiveFailureThreshold)
+		fmt.Printf("tools.adaptive_min_schema_count: %d\n", cfg.Tools.AdaptiveMinSchemaCount)
 		fmt.Printf("reflection.auto_enqueue: %t\n", cfg.Reflection.AutoEnqueue)
 		fmt.Printf("reflection.debounce_seconds: %d\n", cfg.Reflection.DebounceSeconds)
 		fmt.Printf("reflection.max_attempts: %d\n", cfg.Reflection.MaxAttempts)
@@ -150,6 +154,31 @@ func Run(args []string) error {
 		schemas, schemasErr := app.ToolSchemas(cfg)
 		if schemasErr != nil {
 			return schemasErr
+		}
+		if len(args) > 1 {
+			if args[1] != "route" || len(args) < 3 {
+				return errors.New(`usage: cohort tools route "task"`)
+			}
+			selected, decision := agent.PlanAdaptiveToolRoute(
+				agent.AdaptiveToolRoutingConfig{
+					Enabled:          cfg.Tools.AdaptiveRouting,
+					MaxExternalTools: cfg.Tools.AdaptiveMaxExternalTools,
+					FailureThreshold: cfg.Tools.AdaptiveFailureThreshold,
+					MinSchemaCount:   cfg.Tools.AdaptiveMinSchemaCount,
+				},
+				strings.Join(args[2:], " "),
+				schemas,
+			)
+			data, marshalErr := json.MarshalIndent(decision, "", "  ")
+			if marshalErr != nil {
+				return marshalErr
+			}
+			fmt.Println(string(data))
+			fmt.Println("selected_tools:")
+			for _, schema := range selected {
+				fmt.Printf("- %s\n", schema.Function.Name)
+			}
+			return nil
 		}
 		for _, schema := range schemas {
 			fmt.Println(schema.Function.Name)
@@ -1460,6 +1489,8 @@ Usage:
   cohort capability disable <capability_id>
                           disable a registered capability
   cohort config           show effective config and config path
+  cohort tools route "task"
+                          preview adaptive tool routing without calling an LLM
   cohort components [--json]
                           show system component map and visibility status
   cohort project init [title]

@@ -155,6 +155,13 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 		RunMode:                   agent.RunModeInteractive,
 		ReflectionMemoryWorkspace: workspace,
 		ReflectionSessionRoot:     sessionRoot,
+		AdaptiveToolRouting: agent.AdaptiveToolRoutingConfig{
+			Enabled:          cfg.Tools.AdaptiveRouting,
+			MaxExternalTools: cfg.Tools.AdaptiveMaxExternalTools,
+			FailureThreshold: cfg.Tools.AdaptiveFailureThreshold,
+			MinSchemaCount:   cfg.Tools.AdaptiveMinSchemaCount,
+			Language:         cfg.Language,
+		},
 		CloseFunc: func() error {
 			lsp.CloseRoot(workspace)
 			return mcpManager.Close()

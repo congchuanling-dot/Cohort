@@ -508,6 +508,26 @@ cohort doctor computer
 
 看到 `browser.bridge.connection: connected` 表示浏览器扩展已连上。若仍然显示未连接，先打开任意普通网页，例如 `https://example.com`；Chrome 扩展无法注入 `chrome://`、扩展商店、部分浏览器内部页和受浏览器策略限制的页面。
 
+## 自适应工具路由
+
+Cohort 可以注册完整工具面，但不会把全部 schema 塞进每轮模型请求。Router 会按任务意图
+渐进暴露工具；模型因能力不可见准备早停，或工具连续失败时，再自动升级完整工具面。
+
+当前真实工具面测试：
+
+- 代码任务：81 → 15 个工具，schema payload 减少 82.6%。
+- 浏览器任务：81 → 33 个工具，schema payload 减少 63.5%。
+
+不调用 LLM 即可预览路由：
+
+```bash
+cohort tools route "分析 internal/agent/runner.go 并修复测试"
+cohort tools route "打开 https://example.com 检查登录按钮"
+```
+
+Router 只控制模型可见性，不替代 Skill、MCP 和 Computer Use 的执行权限门禁。完整设计见
+[自适应工具路由](docs/adaptive_tool_routing.md)。
+
 ## 可观测性接入
 
 Cohort 默认提供本地可观测性，不依赖任何云平台。每次运行都会在 session 目录里保留可追踪证据：

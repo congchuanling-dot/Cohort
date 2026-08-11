@@ -29,6 +29,14 @@ func TestGenerateWritesTuningReport_BitsUT(t *testing.T) {
 			"final_chars":    90000,
 			"final_messages": 12,
 		}),
+		tuningEvent(base.Add(15*time.Millisecond), "run_1", sess.ID, observability.EventToolRouteSelected, 1, observability.SeverityInfo, map[string]any{
+			"mode":                  "adaptive",
+			"reason":                "baseline",
+			"selected_count":        15,
+			"full_schema_count":     81,
+			"selected_schema_bytes": 22000,
+			"saved_schema_bytes":    55000,
+		}),
 		tuningEvent(base.Add(20*time.Millisecond), "run_1", sess.ID, observability.EventLLMRequestStarted, 1, observability.SeverityInfo, map[string]any{
 			"message_count":     12,
 			"tool_schema_count": 81,
@@ -80,6 +88,9 @@ func TestGenerateWritesTuningReport_BitsUT(t *testing.T) {
 	if report.SchemaBloatRuns != 1 || report.RequestBloatRuns != 1 || report.ContextBloatRuns != 1 {
 		t.Fatalf("bloat summary = %#v", report)
 	}
+	if report.AdaptiveRoutedRuns != 1 || report.SchemaBytesSaved != 55000 {
+		t.Fatalf("adaptive routing summary = %#v", report)
+	}
 	if len(report.FailedTools) != 1 || report.FailedTools[0].Tool != "desktop_windows" {
 		t.Fatalf("failed tools = %#v", report.FailedTools)
 	}
@@ -91,6 +102,8 @@ func TestGenerateWritesTuningReport_BitsUT(t *testing.T) {
 	for _, want := range []string{
 		"# Cohort Agent 调优报告",
 		"schema_bloat_runs: 1",
+		"adaptive_routed_runs: 1",
+		"schema_bytes_saved: 55000",
 		"`desktop_windows`",
 		"主要瓶颈在 LLM 请求",
 	} {

@@ -15,6 +15,7 @@ const (
 	EventUserPromptSubmitted   EventType = "UserPromptSubmitted"
 	EventTurnStarted           EventType = "TurnStarted"
 	EventContextBuilt          EventType = "ContextBuilt"
+	EventToolRouteSelected     EventType = "ToolRouteSelected"
 	EventSessionStarted        EventType = "SessionStarted"
 	EventSessionFinished       EventType = "SessionFinished"
 	EventLLMRequestStarted     EventType = "LLMRequestStarted"

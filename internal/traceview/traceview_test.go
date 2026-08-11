@@ -28,6 +28,14 @@ func TestLoadLatestSummarizesRunLog_BitsUT(t *testing.T) {
 			"final_chars":    4800,
 			"final_messages": 6,
 		}),
+		testEvent(base.Add(1150*time.Millisecond), "run_new", sess.ID, observability.EventToolRouteSelected, 1, observability.SeverityInfo, map[string]any{
+			"mode":                  "adaptive",
+			"reason":                "intent_match",
+			"selected_count":        15,
+			"full_schema_count":     81,
+			"selected_schema_bytes": 22000,
+			"saved_schema_bytes":    55000,
+		}),
 		testEvent(base.Add(1200*time.Millisecond), "run_new", sess.ID, observability.EventLLMRequestStarted, 1, observability.SeverityInfo, map[string]any{
 			"message_count":     6,
 			"tool_schema_count": 81,
@@ -90,6 +98,10 @@ func TestLoadLatestSummarizesRunLog_BitsUT(t *testing.T) {
 	}
 	if summary.LastToolSchemaCount != 81 || summary.LastRequestChars != 77000 {
 		t.Fatalf("request summary = %#v", summary)
+	}
+	if summary.LastToolRouteMode != "adaptive" || summary.LastFullSchemaCount != 81 ||
+		summary.LastSchemaBytes != 22000 || summary.LastSavedSchemaBytes != 55000 {
+		t.Fatalf("route summary = %#v", summary)
 	}
 	if summary.TotalTokens != 120 || summary.InputTokens != 100 || summary.OutputTokens != 20 {
 		t.Fatalf("usage summary = %#v", summary)

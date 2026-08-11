@@ -107,6 +107,13 @@ func TestDefaultConfigUsesFullToolSurface_BitsUT(t *testing.T) {
 	if !strings.Contains(content, "enabled_groups: [*]") {
 		t.Fatalf("generated config does not preserve full tool surface:\n%s", content)
 	}
+	if !cfg.Tools.AdaptiveRouting || cfg.Tools.AdaptiveMaxExternalTools != 8 ||
+		cfg.Tools.AdaptiveFailureThreshold != 2 || cfg.Tools.AdaptiveMinSchemaCount != 20 {
+		t.Fatalf("default adaptive tool routing = %#v", cfg.Tools)
+	}
+	if !strings.Contains(content, "adaptive_routing: true") {
+		t.Fatalf("generated config does not enable adaptive routing:\n%s", content)
+	}
 	empty := ToolConfig{}
 	if !empty.groupEnabled("core") || !empty.groupEnabled("browser") || !empty.groupEnabled("mcp") || !empty.groupEnabled("desktop") {
 		t.Fatalf("empty tool config did not preserve full defaults: %#v", empty.normalizedGroups())
@@ -236,6 +243,10 @@ max_turns: 7
 
 tools:
   enabled_groups: [core, lsp, memory, ask]
+  adaptive_routing: false
+  adaptive_max_external_tools: 3
+  adaptive_failure_threshold: 4
+  adaptive_min_schema_count: 10
 
 llm:
   provider: openai
@@ -259,6 +270,10 @@ llm:
 	}
 	if cfg.Tools.groupEnabled("mcp") || cfg.Tools.groupEnabled("browser") || cfg.Tools.groupEnabled("desktop") || cfg.Tools.groupEnabled("computer") {
 		t.Fatalf("unexpected heavy tool group enabled: %#v", cfg.Tools.EnabledGroups)
+	}
+	if cfg.Tools.AdaptiveRouting || cfg.Tools.AdaptiveMaxExternalTools != 3 ||
+		cfg.Tools.AdaptiveFailureThreshold != 4 || cfg.Tools.AdaptiveMinSchemaCount != 10 {
+		t.Fatalf("adaptive tool routing config = %#v", cfg.Tools)
 	}
 }
 

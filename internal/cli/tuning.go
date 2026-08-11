@@ -46,6 +46,9 @@ func runTuningCommand(cfg app.Config, args []string, out io.Writer) error {
 	fmt.Fprintf(out, "tool_time: %s\n", formatDurationMS(report.ToolDurationMS))
 	fmt.Fprintf(out, "tool_failures: %d\n", report.ToolFailures)
 	fmt.Fprintf(out, "schema_bloat_runs: %d\n", report.SchemaBloatRuns)
+	fmt.Fprintf(out, "adaptive_routed_runs: %d\n", report.AdaptiveRoutedRuns)
+	fmt.Fprintf(out, "tool_route_escalations: %d\n", report.ToolRouteEscalations)
+	fmt.Fprintf(out, "schema_bytes_saved: %d\n", report.SchemaBytesSaved)
 	fmt.Fprintf(out, "request_bloat_runs: %d\n", report.RequestBloatRuns)
 	if open {
 		if err := exec.Command("open", report.DashboardPath).Start(); err != nil {

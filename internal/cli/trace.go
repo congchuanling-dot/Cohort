@@ -125,6 +125,15 @@ func printPerfView(out io.Writer, view traceview.RunView) {
 	fmt.Fprintf(out, "last_context_chars: %d\n", summary.LastFinalChars)
 	fmt.Fprintf(out, "last_request_chars: %d\n", summary.LastRequestChars)
 	fmt.Fprintf(out, "last_tool_schema_count: %d\n", summary.LastToolSchemaCount)
+	if summary.LastToolRouteMode != "" {
+		fmt.Fprintf(out, "last_tool_route_mode: %s\n", summary.LastToolRouteMode)
+		fmt.Fprintf(out, "last_full_tool_schema_count: %d\n", summary.LastFullSchemaCount)
+		fmt.Fprintf(out, "last_tool_schema_bytes: %d\n", summary.LastSchemaBytes)
+		fmt.Fprintf(out, "last_saved_schema_bytes: %d\n", summary.LastSavedSchemaBytes)
+		fmt.Fprintf(out, "total_saved_schema_bytes: %d\n", summary.TotalSavedSchemaBytes)
+		fmt.Fprintf(out, "adaptive_route_turns: %d\n", summary.AdaptiveRouteTurns)
+		fmt.Fprintf(out, "tool_route_escalations: %d\n", summary.ToolRouteEscalations)
+	}
 	if summary.TotalTokens > 0 {
 		fmt.Fprintf(out, "usage_total_tokens: %d\n", summary.TotalTokens)
 		fmt.Fprintf(out, "usage_input_tokens: %d\n", summary.InputTokens)

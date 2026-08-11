@@ -65,6 +65,11 @@ max_turns: 300
 tools:
   # Register the full tool surface; Component Map still reports runtime readiness separately.
   enabled_groups: [*]
+  # Route a compact schema set by intent, then expose the full set after capability/failure escalation.
+  adaptive_routing: true
+  adaptive_max_external_tools: 8
+  adaptive_failure_threshold: 2
+  adaptive_min_schema_count: 20
 
 reflection:
   # SessionEnd only enqueues lightweight metadata; reflection runs in the local daemon.

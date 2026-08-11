@@ -113,7 +113,11 @@ type LangfuseConfig struct {
 // ToolConfig 控制工具注册面。EnabledGroups 为空或包含 "*" 时启用全部工具；
 // 其他情况只注册显式列出的工具组。
 type ToolConfig struct {
-	EnabledGroups []string
+	EnabledGroups            []string
+	AdaptiveRouting          bool
+	AdaptiveMaxExternalTools int
+	AdaptiveFailureThreshold int
+	AdaptiveMinSchemaCount   int
 }
 
 // ReflectionConfig 控制自动反思触发。它不允许跳过候选审核或自动 promote。
@@ -248,7 +252,11 @@ func defaultConfig() Config {
 		Context:       contextmgr.DefaultConfig(),
 		Observability: defaultObservabilityConfig(),
 		Tools: ToolConfig{
-			EnabledGroups: []string{"*"},
+			EnabledGroups:            []string{"*"},
+			AdaptiveRouting:          true,
+			AdaptiveMaxExternalTools: 8,
+			AdaptiveFailureThreshold: 2,
+			AdaptiveMinSchemaCount:   20,
 		},
 		Reflection: ReflectionConfig{
 			AutoEnqueue:     true,
@@ -557,6 +565,14 @@ func applyToolValue(cfg *ToolConfig, key, val string) {
 	switch key {
 	case "enabled_groups":
 		cfg.EnabledGroups = parseStringList(val)
+	case "adaptive_routing":
+		cfg.AdaptiveRouting = parseBoolDefault(val, cfg.AdaptiveRouting)
+	case "adaptive_max_external_tools":
+		cfg.AdaptiveMaxExternalTools = atoiDefault(val, cfg.AdaptiveMaxExternalTools)
+	case "adaptive_failure_threshold":
+		cfg.AdaptiveFailureThreshold = atoiDefault(val, cfg.AdaptiveFailureThreshold)
+	case "adaptive_min_schema_count":
+		cfg.AdaptiveMinSchemaCount = atoiDefault(val, cfg.AdaptiveMinSchemaCount)
 	}
 }
 

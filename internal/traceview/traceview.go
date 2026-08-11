@@ -32,34 +32,41 @@ type RunIndex struct {
 }
 
 type Summary struct {
-	SessionID           string
-	RunID               string
-	Status              string
-	StartedAt           time.Time
-	FinishedAt          time.Time
-	DurationMS          int64
-	EventCount          int
-	TurnCount           int
-	WarningCount        int
-	ErrorCount          int
-	ContextBuilds       int
-	LastFinalTokens     int64
-	LastFinalChars      int64
-	LastRequestChars    int64
-	LastToolSchemaCount int64
-	LLMCalls            int
-	LLMDurationMS       int64
-	ToolCalls           int
-	ToolFailures        int
-	ToolDurationMS      int64
-	TotalTokens         int64
-	InputTokens         int64
-	OutputTokens        int64
-	CacheReadTokens     int64
-	Timeline            []TimelineItem
-	LLMs                []LLMItem
-	Tools               []ToolItem
-	Gaps                []GapItem
+	SessionID             string
+	RunID                 string
+	Status                string
+	StartedAt             time.Time
+	FinishedAt            time.Time
+	DurationMS            int64
+	EventCount            int
+	TurnCount             int
+	WarningCount          int
+	ErrorCount            int
+	ContextBuilds         int
+	LastFinalTokens       int64
+	LastFinalChars        int64
+	LastRequestChars      int64
+	LastToolSchemaCount   int64
+	LastFullSchemaCount   int64
+	LastToolRouteMode     string
+	LastSchemaBytes       int64
+	LastSavedSchemaBytes  int64
+	TotalSavedSchemaBytes int64
+	AdaptiveRouteTurns    int
+	ToolRouteEscalations  int
+	LLMCalls              int
+	LLMDurationMS         int64
+	ToolCalls             int
+	ToolFailures          int
+	ToolDurationMS        int64
+	TotalTokens           int64
+	InputTokens           int64
+	OutputTokens          int64
+	CacheReadTokens       int64
+	Timeline              []TimelineItem
+	LLMs                  []LLMItem
+	Tools                 []ToolItem
+	Gaps                  []GapItem
 }
 
 type TimelineItem struct {
@@ -305,6 +312,18 @@ func (s *Summary) applyEvent(event observability.Event) {
 		s.ContextBuilds++
 		s.LastFinalTokens = intValue(event.Data, "final_tokens")
 		s.LastFinalChars = intValue(event.Data, "final_chars")
+	case observability.EventToolRouteSelected:
+		s.LastToolRouteMode = firstString(event.Data, "mode")
+		s.LastFullSchemaCount = intValue(event.Data, "full_schema_count")
+		s.LastSchemaBytes = intValue(event.Data, "selected_schema_bytes")
+		s.LastSavedSchemaBytes = intValue(event.Data, "saved_schema_bytes")
+		s.TotalSavedSchemaBytes += s.LastSavedSchemaBytes
+		if s.LastToolRouteMode == "adaptive" {
+			s.AdaptiveRouteTurns++
+		}
+		if s.LastToolRouteMode == "escalating" || boolValue(event.Data, "escalated") {
+			s.ToolRouteEscalations++
+		}
 	case observability.EventLLMRequestStarted:
 		s.LastRequestChars = intValue(event.Data, "request_chars")
 		s.LastToolSchemaCount = intValue(event.Data, "tool_schema_count")
@@ -382,6 +401,15 @@ func eventSummary(event observability.Event) string {
 	switch event.EventType {
 	case observability.EventContextBuilt:
 		return fmt.Sprintf("messages=%d tokens=%d chars=%d", intValue(event.Data, "final_messages"), intValue(event.Data, "final_tokens"), intValue(event.Data, "final_chars"))
+	case observability.EventToolRouteSelected:
+		return fmt.Sprintf(
+			"mode=%s reason=%s tools=%d/%d saved=%dB",
+			firstStringDefault(event.Data, "mode", "unknown"),
+			firstStringDefault(event.Data, "reason", "unknown"),
+			intValue(event.Data, "selected_count"),
+			intValue(event.Data, "full_schema_count"),
+			intValue(event.Data, "saved_schema_bytes"),
+		)
 	case observability.EventLLMRequestStarted:
 		return fmt.Sprintf("messages=%d tools=%d chars=%d", intValue(event.Data, "message_count"), intValue(event.Data, "tool_schema_count"), intValue(event.Data, "request_chars"))
 	case observability.EventLLMResponseFinished:
@@ -490,6 +518,14 @@ func stringValue(data map[string]any, key string) (string, bool) {
 	}
 	value, ok := data[key].(string)
 	return value, ok
+}
+
+func boolValue(data map[string]any, key string) bool {
+	if data == nil {
+		return false
+	}
+	value, _ := data[key].(bool)
+	return value
 }
 
 func firstString(data map[string]any, keys ...string) string {

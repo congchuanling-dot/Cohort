@@ -23,22 +23,25 @@ type Options struct {
 }
 
 type Report struct {
-	OutputPath       string
-	DashboardPath    string
-	RunsScanned      int
-	SessionsScanned  int
-	TotalDurationMS  int64
-	LLMDurationMS    int64
-	ToolDurationMS   int64
-	ToolFailures     int
-	AskUserCalls     int
-	PermissionEvents int
-	SchemaBloatRuns  int
-	RequestBloatRuns int
-	ContextBloatRuns int
-	SlowLLMs         []SlowLLM
-	FailedTools      []FailedTool
-	Recommendations  []string
+	OutputPath           string
+	DashboardPath        string
+	RunsScanned          int
+	SessionsScanned      int
+	TotalDurationMS      int64
+	LLMDurationMS        int64
+	ToolDurationMS       int64
+	ToolFailures         int
+	AskUserCalls         int
+	PermissionEvents     int
+	SchemaBloatRuns      int
+	AdaptiveRoutedRuns   int
+	ToolRouteEscalations int
+	SchemaBytesSaved     int64
+	RequestBloatRuns     int
+	ContextBloatRuns     int
+	SlowLLMs             []SlowLLM
+	FailedTools          []FailedTool
+	Recommendations      []string
 }
 
 type SlowLLM struct {
@@ -108,6 +111,11 @@ func buildReport(views []traceview.RunView) Report {
 		report.LLMDurationMS += summary.LLMDurationMS
 		report.ToolDurationMS += summary.ToolDurationMS
 		report.ToolFailures += summary.ToolFailures
+		if summary.AdaptiveRouteTurns > 0 {
+			report.AdaptiveRoutedRuns++
+		}
+		report.ToolRouteEscalations += summary.ToolRouteEscalations
+		report.SchemaBytesSaved += summary.TotalSavedSchemaBytes
 		if summary.LastToolSchemaCount >= 60 {
 			report.SchemaBloatRuns++
 		}
@@ -199,7 +207,10 @@ func recommendations(report Report) []string {
 		recs = append(recs, "主要瓶颈在 LLM 请求：优先检查模型延迟、工具 schema 数量、请求体大小和 provider cache 命中。")
 	}
 	if report.SchemaBloatRuns > 0 {
-		recs = append(recs, "存在工具 schema 膨胀：对明确任务可考虑启用 tools.enabled_groups 轻量模式，或做基于 SOP/意图的动态工具路由。")
+		recs = append(recs, "仍存在工具 schema 膨胀：检查 tools.adaptive_routing 是否启用，以及任务是否频繁触发完整工具面升级。")
+	}
+	if report.AdaptiveRoutedRuns > 0 && report.SchemaBytesSaved > 0 {
+		recs = append(recs, fmt.Sprintf("自适应工具路由已在 %d 个 run 生效，累计减少约 %dKB schema payload；结合 escalation 次数检查召回与性能平衡。", report.AdaptiveRoutedRuns, report.SchemaBytesSaved/1024))
 	}
 	if report.RequestBloatRuns > 0 || report.ContextBloatRuns > 0 {
 		recs = append(recs, "存在上下文/请求体膨胀：检查长历史、工具结果裁剪、session memory 和 compact 触发阈值。")
@@ -234,6 +245,9 @@ func renderReport(report Report, views []traceview.RunView) string {
 	fmt.Fprintf(&b, "- ask_user_calls: %d\n", report.AskUserCalls)
 	fmt.Fprintf(&b, "- permission_events: %d\n", report.PermissionEvents)
 	fmt.Fprintf(&b, "- schema_bloat_runs: %d\n", report.SchemaBloatRuns)
+	fmt.Fprintf(&b, "- adaptive_routed_runs: %d\n", report.AdaptiveRoutedRuns)
+	fmt.Fprintf(&b, "- tool_route_escalations: %d\n", report.ToolRouteEscalations)
+	fmt.Fprintf(&b, "- schema_bytes_saved: %d\n", report.SchemaBytesSaved)
 	fmt.Fprintf(&b, "- request_bloat_runs: %d\n", report.RequestBloatRuns)
 	fmt.Fprintf(&b, "- context_bloat_runs: %d\n\n", report.ContextBloatRuns)
 	fmt.Fprintf(&b, "## 建议\n\n")
@@ -311,6 +325,6 @@ const tuningDashboardHTML = `<!doctype html><html lang="zh-CN"><head><meta chars
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 80% 0,#17264a,transparent 38%),var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,sans-serif}.wrap{max-width:1320px;margin:auto;padding:28px}h1{margin:4px 0 3px;font-size:30px}.sub{color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:22px 0}.card,.panel{background:linear-gradient(145deg,var(--panel),#10182a);border:1px solid var(--line);border-radius:14px;padding:17px}.label{font-size:11px;color:var(--muted);letter-spacing:.09em;text-transform:uppercase}.value{font-size:25px;font-weight:750;margin-top:5px}.layout{display:grid;grid-template-columns:1fr 1fr;gap:14px}.panel h2{font-size:15px;margin:0 0 12px}.rec{border-left:3px solid var(--blue);padding:8px 12px;margin:8px 0;background:#182239}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px;border-bottom:1px solid var(--line)}th{color:var(--muted);font-size:11px;text-transform:uppercase}.bad{color:var(--red)}.good{color:var(--green)}@media(max-width:850px){.grid{grid-template-columns:repeat(2,1fr)}.layout{grid-template-columns:1fr}}
 </style></head><body><main class="wrap"><div class="sub">COHORT RUNTIME OBSERVABILITY</div><h1>日常 Agent 调优面板</h1><div class="sub">从最近 {{.RunsScanned}} 次 run.log.jsonl 异步生成，不调用额外模型</div>
 <section class="grid"><div class="card"><div class="label">Runs</div><div class="value">{{.RunsScanned}}</div></div><div class="card"><div class="label">Total Time</div><div class="value">{{duration .TotalDurationMS}}</div></div><div class="card"><div class="label">LLM Time</div><div class="value">{{duration .LLMDurationMS}}</div></div><div class="card"><div class="label">Tool Time</div><div class="value">{{duration .ToolDurationMS}}</div></div><div class="card"><div class="label">Tool Failures</div><div class="value {{if gt .ToolFailures 0}}bad{{else}}good{{end}}">{{.ToolFailures}}</div></div></section>
-<section class="layout"><div class="panel"><h2>调优建议</h2>{{range .Recommendations}}<div class="rec">{{.}}</div>{{end}}</div><div class="panel"><h2>膨胀信号</h2><table><tr><td>Schema bloat</td><td>{{.SchemaBloatRuns}} runs</td></tr><tr><td>Request bloat</td><td>{{.RequestBloatRuns}} runs</td></tr><tr><td>Context bloat</td><td>{{.ContextBloatRuns}} runs</td></tr><tr><td>ask_user</td><td>{{.AskUserCalls}} calls</td></tr><tr><td>Permissions</td><td>{{.PermissionEvents}} events</td></tr></table></div></section>
+<section class="layout"><div class="panel"><h2>调优建议</h2>{{range .Recommendations}}<div class="rec">{{.}}</div>{{end}}</div><div class="panel"><h2>工具路由与膨胀</h2><table><tr><td>Adaptive routed</td><td>{{.AdaptiveRoutedRuns}} runs</td></tr><tr><td>Schema saved</td><td>{{.SchemaBytesSaved}} bytes</td></tr><tr><td>Escalations</td><td>{{.ToolRouteEscalations}}</td></tr><tr><td>Schema bloat</td><td>{{.SchemaBloatRuns}} runs</td></tr><tr><td>Request bloat</td><td>{{.RequestBloatRuns}} runs</td></tr><tr><td>Context bloat</td><td>{{.ContextBloatRuns}} runs</td></tr><tr><td>ask_user</td><td>{{.AskUserCalls}} calls</td></tr><tr><td>Permissions</td><td>{{.PermissionEvents}} events</td></tr></table></div></section>
 <section class="layout" style="margin-top:14px"><div class="panel"><h2>最慢 LLM 调用</h2><table><tr><th>耗时</th><th>Session</th><th>Turn</th><th>Tools</th></tr>{{range .SlowLLMs}}<tr><td>{{duration .DurationMS}}</td><td>{{.SessionID}}</td><td>{{.Turn}}</td><td>{{.ToolSchemaCount}}</td></tr>{{end}}</table></div><div class="panel"><h2>失败工具 Top</h2><table><tr><th>Tool</th><th>Error</th><th>Count</th></tr>{{range .FailedTools}}<tr><td>{{.Tool}}</td><td>{{.ErrorCode}}</td><td>{{.Count}}</td></tr>{{end}}</table></div></section>
 </main></body></html>`

@@ -77,6 +77,7 @@ func BuildComponentInventory(cfg Config, projectRoot string, skillStore *skill.S
 	}
 
 	addToolGroups(&inventory, cfg)
+	addAdaptiveToolRoutingComponent(add, cfg)
 	addProjectPlanComponents(add, projectRoot)
 	addSkillComponent(add, cfg, projectRoot, skillStore)
 	addCapabilityComponents(add, projectRoot)
@@ -91,6 +92,22 @@ func BuildComponentInventory(cfg Config, projectRoot string, skillStore *skill.S
 		return inventory.Components[i].ID < inventory.Components[j].ID
 	})
 	return inventory
+}
+
+func addAdaptiveToolRoutingComponent(add func(ComponentStatus), cfg Config) {
+	status := "disabled"
+	if cfg.Tools.AdaptiveRouting {
+		status = "ready"
+	}
+	add(ComponentStatus{
+		ID:          "runtime.adaptive_tool_routing",
+		Name:        "Adaptive Tool Router",
+		Kind:        "runtime",
+		Status:      status,
+		Detail:      fmt.Sprintf("max_external=%d failure_threshold=%d min_schemas=%d", cfg.Tools.AdaptiveMaxExternalTools, cfg.Tools.AdaptiveFailureThreshold, cfg.Tools.AdaptiveMinSchemaCount),
+		AgentRoute:  routeIf(cfg.Tools.AdaptiveRouting, "per-request schema routing with automatic full-surface escalation"),
+		UserCommand: `cohort tools route "task"`,
+	})
 }
 
 // ComponentPrompt 生成给模型看的紧凑组件地图。

@@ -34,7 +34,7 @@ func TestBuildComponentInventorySummarizesCoreSubsystems_BitsUT(t *testing.T) {
 	for _, component := range inventory.Components {
 		byID[component.ID] = component
 	}
-	for _, id := range []string{"tools.core", "tools.lsp", "tools.browser", "project.mode", "skill.index", "eval.suites", "explorer.lanes", "hermes.daemon"} {
+	for _, id := range []string{"tools.core", "tools.lsp", "tools.browser", "runtime.adaptive_tool_routing", "project.mode", "skill.index", "eval.suites", "explorer.lanes", "hermes.daemon"} {
 		if _, ok := byID[id]; !ok {
 			t.Fatalf("component %s missing from inventory: %#v", id, inventory.Components)
 		}

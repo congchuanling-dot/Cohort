@@ -104,6 +104,32 @@ tools:
 - 外部观测失败或变慢不能影响 LLM 请求与流式输出。
 - `Close` 有短超时预算，避免退出时长时间等待外部网络。
 
+### 5. 自适应工具路由
+
+在保留 `enabled_groups: [*]` 完整注册能力的前提下，Runner 现在会按任务意图为每轮请求
+选择最小 schema：
+
+```text
+代码任务：81 -> 15 tools，66,354 -> 11,564 bytes，减少 82.6%
+浏览器任务：81 -> 33 tools，66,354 -> 24,248 bytes，减少 63.5%
+```
+
+能力不足时不会永久隐藏工具：
+
+- 模型明确声称缺少工具或无法操作时，下一轮自动升级完整工具面。
+- 工具连续失败两次时，下一轮自动升级完整工具面。
+- Eval、Hermes Repair、Explorer 保持固定工具面，避免影响可复现性。
+
+离线预览：
+
+```bash
+cohort tools route "分析当前 Go 项目并修复测试"
+cohort tools route "打开 https://example.com 检查登录按钮"
+```
+
+每轮决策写入 `ToolRouteSelected`，可通过 `cohort trace last`、`cohort perf last` 和
+`cohort tuning report` 查看 schema 数量、字节节省量和 escalation 次数。
+
 ## 注意事项
 
 浏览器工具恢复后，如果仍返回不可用，优先检查 Chrome bridge/扩展是否连接，而不是工具注册配置：

@@ -107,6 +107,22 @@ func llmRequestData(messages []llm.Message, tools []llm.ToolSchema, system strin
 	}
 }
 
+func toolRouteDecisionData(decision ToolRouteDecision) map[string]any {
+	return map[string]any{
+		"mode":                  decision.Mode,
+		"reason":                decision.Reason,
+		"full_schema_count":     decision.FullSchemaCount,
+		"selected_count":        decision.SelectedCount,
+		"selected_groups":       decision.SelectedGroups,
+		"selected_external":     decision.SelectedExternal,
+		"full_schema_bytes":     decision.FullSchemaBytes,
+		"selected_schema_bytes": decision.SelectedBytes,
+		"saved_schema_bytes":    decision.SavedSchemaBytes,
+		"escalated":             decision.Escalated,
+		"failure_count":         decision.FailureCount,
+	}
+}
+
 func llmResponseData(resp *llm.Response, duration time.Duration, messages []llm.Message, tools []llm.ToolSchema, system string) map[string]any {
 	data := map[string]any{
 		"duration_ms": duration.Milliseconds(),
