@@ -25,5 +25,7 @@
 /packages/npm/*.tgz
 /packages/npm/extension/
 /packages/npm/runtime-scripts/
+/web/console/node_modules/
+/web/console/*.tsbuildinfo
 
 *.log

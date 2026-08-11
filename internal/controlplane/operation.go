@@ -87,13 +87,9 @@ func (m *OperationManager) Start(ctx context.Context, actionID string, request A
 	if m == nil || m.catalog == nil {
 		return Operation{}, errors.New("operation manager has no action catalog")
 	}
-	spec, exists := m.catalog.Get(actionID)
-	if !exists {
-		return Operation{}, fmt.Errorf("unknown action %q", actionID)
-	}
-	request.ProjectRoot = strings.TrimSpace(request.ProjectRoot)
-	if request.ProjectRoot == "" {
-		return Operation{}, errors.New("project_root is required")
+	spec, request, err := m.catalog.ValidateRequest(actionID, request)
+	if err != nil {
+		return Operation{}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return Operation{}, err

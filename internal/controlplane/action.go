@@ -126,32 +126,40 @@ func (c *Catalog) Get(id string) (ActionSpec, bool) {
 }
 
 func (c *Catalog) Execute(ctx context.Context, id string, request ActionRequest) (ActionResult, error) {
+	spec, request, err := c.ValidateRequest(id, request)
+	if err != nil {
+		return ActionResult{}, err
+	}
+	return spec.Handler(ctx, request)
+}
+
+func (c *Catalog) ValidateRequest(id string, request ActionRequest) (ActionSpec, ActionRequest, error) {
 	spec, exists := c.Get(id)
 	if !exists {
-		return ActionResult{}, fmt.Errorf("unknown action %q", id)
+		return ActionSpec{}, ActionRequest{}, fmt.Errorf("unknown action %q", id)
 	}
 	if spec.Handler == nil {
-		return ActionResult{}, fmt.Errorf("action %q is unavailable", id)
+		return ActionSpec{}, ActionRequest{}, fmt.Errorf("action %q is unavailable", id)
 	}
 	request.ProjectRoot = strings.TrimSpace(request.ProjectRoot)
 	request.Actor = strings.TrimSpace(request.Actor)
 	if request.ProjectRoot == "" {
-		return ActionResult{}, errors.New("project_root is required")
+		return ActionSpec{}, ActionRequest{}, errors.New("project_root is required")
 	}
 	if request.Actor == "" {
 		request.Actor = "local-user"
 	}
 	normalized, err := validateActionInput(spec.Inputs, request.Input)
 	if err != nil {
-		return ActionResult{}, err
+		return ActionSpec{}, ActionRequest{}, err
 	}
 	request.Input = normalized
 	if spec.Risk == RiskConfirm || spec.Risk == RiskDanger {
 		if request.Confirmation != spec.ConfirmationText {
-			return ActionResult{}, fmt.Errorf("action %q requires exact confirmation %q", id, spec.ConfirmationText)
+			return ActionSpec{}, ActionRequest{}, fmt.Errorf("action %q requires exact confirmation %q", id, spec.ConfirmationText)
 		}
 	}
-	return spec.Handler(ctx, request)
+	return spec, request, nil
 }
 
 func normalizeActionSpec(spec ActionSpec) ActionSpec {

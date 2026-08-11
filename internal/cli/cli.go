@@ -72,6 +72,9 @@ func Run(args []string) error {
 	if args[0] == "tui" {
 		return runTUICommand(args[1:], os.Stdout)
 	}
+	if args[0] == "ui" {
+		return runUICommand(context.Background(), args[1:], os.Stdout)
+	}
 	if args[0] == "init" {
 		return runInitCommand(opts, args[1:], os.Stdout)
 	}
@@ -1440,6 +1443,7 @@ Usage:
   cohort doctor [--connect]      diagnose configuration and connectivity
   cohort doctor computer         diagnose browser and desktop runtime
   cohort extension open          install/open the Chrome Bridge
+  cohort ui                      open the local visual control center
   cohort session list            list saved sessions
   cohort session resume <id>     resume a session
   cohort components              show component readiness
@@ -1458,6 +1462,8 @@ Usage:
   cohort [--config file]  start interactive CLI
   cohort [--config file] ask "task"
                           run one task without entering REPL
+  cohort ui [--no-open] [--listen 127.0.0.1:0]
+                          start the local visual control center
   cohort --version        show version, commit, and build time
   cohort extension path   print local Chrome extension directory
   cohort extension open   open Chrome extensions page and print loading steps

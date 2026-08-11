@@ -1,11 +1,18 @@
 package controlplane
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/cookiejar"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 )
 
@@ -146,4 +153,140 @@ func waitForOperationStatus(t *testing.T, manager *OperationManager, id string, 
 	operation, err := manager.Load(id)
 	t.Fatalf("operation status = %#v err=%v, want %s", operation, err, status)
 	return Operation{}
+}
+
+func TestServerEnforcesBootstrapSessionOriginAndCSRF_BitsUT(t *testing.T) {
+	projectRoot := t.TempDir()
+	catalog, err := NewCatalog(ActionSpec{
+		ID: "system.ping", Category: "system", Label: "连通测试",
+		Description: "验证控制面执行链路。", Risk: RiskExecute,
+		Handler: func(context.Context, ActionRequest) (ActionResult, error) {
+			return ActionResult{Summary: "pong", Data: map[string]any{"ok": true}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewServer(ServerConfig{
+		ProjectRoot: projectRoot,
+		Listen:      "127.0.0.1:0",
+		Catalog:     catalog,
+		StaticFS: fstest.MapFS{
+			"index.html": &fstest.MapFile{Data: []byte("<html>control center</html>")},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	running, err := server.Start(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer running.Close(context.Background())
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar, Timeout: 3 * time.Second}
+
+	response := mustControlRequest(t, client, http.MethodGet, running.URL+"/", nil, nil)
+	if response.StatusCode != http.StatusOK || response.Header.Get("X-Frame-Options") != "DENY" {
+		t.Fatalf("static response status=%d headers=%v", response.StatusCode, response.Header)
+	}
+	_ = response.Body.Close()
+	response = mustControlRequest(t, client, http.MethodGet, running.URL+"/api/v1/catalog", nil, nil)
+	if response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated catalog status = %d", response.StatusCode)
+	}
+	_ = response.Body.Close()
+
+	bootstrapURL, err := url.Parse(running.BootstrapURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := strings.TrimPrefix(bootstrapURL.Fragment, "token=")
+	token, err = url.QueryUnescape(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response = mustControlRequest(t, client, http.MethodPost, running.URL+"/api/v1/auth/bootstrap", []byte("{}"), map[string]string{
+		"Content-Type":       "application/json",
+		"Origin":             "https://evil.invalid",
+		"X-Cohort-Bootstrap": token,
+	})
+	if response.StatusCode != http.StatusForbidden {
+		t.Fatalf("cross-origin bootstrap status = %d", response.StatusCode)
+	}
+	_ = response.Body.Close()
+	response = mustControlRequest(t, client, http.MethodPost, running.URL+"/api/v1/auth/bootstrap", []byte("{}"), map[string]string{
+		"Content-Type":       "application/json",
+		"Origin":             running.URL,
+		"X-Cohort-Bootstrap": token,
+	})
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("bootstrap status=%d body=%s", response.StatusCode, body)
+	}
+	var bootstrap struct {
+		CSRF string `json:"csrf_token"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if bootstrap.CSRF == "" {
+		t.Fatal("bootstrap omitted CSRF token")
+	}
+
+	response = mustControlRequest(t, client, http.MethodPost, running.URL+"/api/v1/actions/system.ping/execute", []byte(`{}`), map[string]string{
+		"Content-Type": "application/json", "Origin": running.URL,
+	})
+	if response.StatusCode != http.StatusForbidden {
+		t.Fatalf("missing CSRF status = %d", response.StatusCode)
+	}
+	_ = response.Body.Close()
+	response = mustControlRequest(t, client, http.MethodPost, running.URL+"/api/v1/actions/system.ping/execute", []byte(`{"input":{}}`), map[string]string{
+		"Content-Type": "application/json", "Origin": running.URL, "X-CSRF-Token": bootstrap.CSRF,
+	})
+	if response.StatusCode != http.StatusAccepted {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("execute status=%d body=%s", response.StatusCode, body)
+	}
+	var operation Operation
+	if err := json.NewDecoder(response.Body).Decode(&operation); err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	completed := waitForOperationStatus(t, server.operations, operation.ID, OperationSucceeded)
+	if completed.Summary != "pong" {
+		t.Fatalf("operation = %#v", completed)
+	}
+}
+
+func TestServerRejectsNonLoopbackListen_BitsUT(t *testing.T) {
+	catalog, err := NewCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewServer(ServerConfig{ProjectRoot: t.TempDir(), Listen: "0.0.0.0:18779", Catalog: catalog}); err == nil {
+		t.Fatal("non-loopback listen unexpectedly accepted")
+	}
+}
+
+func mustControlRequest(t *testing.T, client *http.Client, method string, target string, body []byte, headers map[string]string) *http.Response {
+	t.Helper()
+	request, err := http.NewRequest(method, target, bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range headers {
+		request.Header.Set(key, value)
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response
 }
