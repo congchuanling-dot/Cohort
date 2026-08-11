@@ -29,18 +29,28 @@ const (
 	FieldPath     FieldType = "path"
 	FieldSecret   FieldType = "secret"
 	FieldDuration FieldType = "duration"
+	FieldEntity   FieldType = "entity"
 )
 
+type EntitySelector struct {
+	Kind         EntityKind        `json:"kind"`
+	Status       []string          `json:"status,omitempty"`
+	DependsOn    map[string]string `json:"depends_on,omitempty"`
+	RecentFirst  bool              `json:"recent_first,omitempty"`
+	AllowMissing bool              `json:"allow_missing,omitempty"`
+}
+
 type InputField struct {
-	Name        string    `json:"name"`
-	Label       string    `json:"label"`
-	Description string    `json:"description,omitempty"`
-	Type        FieldType `json:"type"`
-	Required    bool      `json:"required,omitempty"`
-	Default     any       `json:"default,omitempty"`
-	Options     []string  `json:"options,omitempty"`
-	Placeholder string    `json:"placeholder,omitempty"`
-	Sensitive   bool      `json:"sensitive,omitempty"`
+	Name        string          `json:"name"`
+	Label       string          `json:"label"`
+	Description string          `json:"description,omitempty"`
+	Type        FieldType       `json:"type"`
+	Required    bool            `json:"required,omitempty"`
+	Default     any             `json:"default,omitempty"`
+	Options     []string        `json:"options,omitempty"`
+	Placeholder string          `json:"placeholder,omitempty"`
+	Sensitive   bool            `json:"sensitive,omitempty"`
+	Entity      *EntitySelector `json:"entity,omitempty"`
 }
 
 type ActionSpec struct {
@@ -134,6 +144,14 @@ func (c *Catalog) Execute(ctx context.Context, id string, request ActionRequest)
 }
 
 func (c *Catalog) ValidateRequest(id string, request ActionRequest) (ActionSpec, ActionRequest, error) {
+	return c.validateRequest(id, request, true)
+}
+
+func (c *Catalog) PrepareRequest(id string, request ActionRequest) (ActionSpec, ActionRequest, error) {
+	return c.validateRequest(id, request, false)
+}
+
+func (c *Catalog) validateRequest(id string, request ActionRequest, requireConfirmation bool) (ActionSpec, ActionRequest, error) {
 	spec, exists := c.Get(id)
 	if !exists {
 		return ActionSpec{}, ActionRequest{}, fmt.Errorf("unknown action %q", id)
@@ -154,7 +172,7 @@ func (c *Catalog) ValidateRequest(id string, request ActionRequest) (ActionSpec,
 		return ActionSpec{}, ActionRequest{}, err
 	}
 	request.Input = normalized
-	if spec.Risk == RiskConfirm || spec.Risk == RiskDanger {
+	if requireConfirmation && (spec.Risk == RiskConfirm || spec.Risk == RiskDanger) {
 		if request.Confirmation != spec.ConfirmationText {
 			return ActionSpec{}, ActionRequest{}, fmt.Errorf("action %q requires exact confirmation %q", id, spec.ConfirmationText)
 		}
@@ -212,12 +230,15 @@ func validateActionSpec(spec ActionSpec) error {
 		}
 		seen[field.Name] = true
 		switch field.Type {
-		case FieldString, FieldText, FieldBoolean, FieldInteger, FieldSelect, FieldPath, FieldSecret, FieldDuration:
+		case FieldString, FieldText, FieldBoolean, FieldInteger, FieldSelect, FieldPath, FieldSecret, FieldDuration, FieldEntity:
 		default:
 			return fmt.Errorf("action %q input %q has invalid type %q", spec.ID, field.Name, field.Type)
 		}
 		if field.Type == FieldSelect && len(field.Options) == 0 {
 			return fmt.Errorf("action %q select input %q requires options", spec.ID, field.Name)
+		}
+		if field.Type == FieldEntity && (field.Entity == nil || field.Entity.Kind == "") {
+			return fmt.Errorf("action %q entity input %q requires an entity kind", spec.ID, field.Name)
 		}
 	}
 	return nil
@@ -259,7 +280,7 @@ func validateActionInput(fields []InputField, input map[string]any) (map[string]
 
 func normalizeFieldValue(field InputField, value any) (any, error) {
 	switch field.Type {
-	case FieldString, FieldText, FieldPath, FieldSecret, FieldDuration, FieldSelect:
+	case FieldString, FieldText, FieldPath, FieldSecret, FieldDuration, FieldSelect, FieldEntity:
 		text, ok := value.(string)
 		if !ok {
 			return nil, fmt.Errorf("input %q must be a string", field.Name)

@@ -56,6 +56,73 @@ func TestCatalogValidatesInputsAndConfirmation_BitsUT(t *testing.T) {
 	}
 }
 
+func TestPreparationResolvesEntityAndRejectsChangedVersion_BitsUT(t *testing.T) {
+	entities := &memoryEntityProvider{entity: EntityDescriptor{
+		Kind: EntityDelivery, ID: "delivery-1", Title: "Delivery One",
+		Status: "approved", Version: "v1",
+	}}
+	catalog, err := NewCatalog(ActionSpec{
+		ID: "delivery.merge", Category: "delivery", Label: "Merge",
+		Description: "Merge an approved delivery.", Risk: RiskDanger, ConfirmationText: "MERGE",
+		Inputs: []InputField{{
+			Name: "delivery_id", Label: "Delivery", Type: FieldEntity, Required: true,
+			Entity: &EntitySelector{Kind: EntityDelivery, Status: []string{"approved"}},
+		}},
+		Handler: func(context.Context, ActionRequest) (ActionResult, error) {
+			return ActionResult{Summary: "merged"}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewPreparationManager(catalog, entities)
+	request := ActionRequest{
+		ProjectRoot: t.TempDir(), Actor: "tester",
+		Input: map[string]any{"delivery_id": "delivery-1"},
+	}
+	prepared, err := manager.Prepare(context.Background(), "delivery.merge", request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prepared.Entities) != 1 || prepared.Entities[0].Title != "Delivery One" {
+		t.Fatalf("preparation = %#v", prepared)
+	}
+	entities.entity.Version = "v2"
+	if _, err := manager.Consume(context.Background(), prepared.Token, "delivery.merge"); err == nil || !strings.Contains(err.Error(), "changed") {
+		t.Fatalf("changed entity consume err = %v", err)
+	}
+	prepared, err = manager.Prepare(context.Background(), "delivery.merge", request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := manager.Consume(context.Background(), prepared.Token, "delivery.merge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved.Confirmation = "MERGE"
+	if _, err := catalog.Execute(context.Background(), "delivery.merge", resolved); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Consume(context.Background(), prepared.Token, "delivery.merge"); err == nil {
+		t.Fatal("preparation token was reusable")
+	}
+}
+
+type memoryEntityProvider struct {
+	entity EntityDescriptor
+}
+
+func (p *memoryEntityProvider) ListEntities(context.Context, EntityKind, url.Values) ([]EntityDescriptor, error) {
+	return []EntityDescriptor{p.entity}, nil
+}
+
+func (p *memoryEntityProvider) GetEntity(_ context.Context, kind EntityKind, id string) (EntityDescriptor, error) {
+	if p.entity.Kind != kind || p.entity.ID != id {
+		return EntityDescriptor{}, os.ErrNotExist
+	}
+	return p.entity, nil
+}
+
 func TestOperationManagerPersistsRedactsStreamsAndRecovers_BitsUT(t *testing.T) {
 	projectRoot := t.TempDir()
 	release := make(chan struct{})

@@ -131,6 +131,20 @@ button.primary { border-color: #769cff; background: #6d8dff; color: #07101f; fon
 .action-form input:focus, .action-form textarea:focus, .action-form select:focus { border-color: var(--blue); }
 .action-form textarea { min-height: 100px; resize: vertical; }
 .action-form label small { color: var(--muted); }
+.impact-preview { margin-top: 15px; padding: 12px; border: 1px solid #49628f; border-radius: 9px; background: #79a8ff10; }
+.impact-preview p { margin: 6px 0; color: #d5e1f8; font-size: 11px; }
+.impact-preview span { display: block; color: var(--muted); font-size: 9px; }
+.entity-field { position: relative; }
+.entity-trigger { width: 100%; min-height: 48px; display: flex; align-items: flex-start; justify-content: center; flex-direction: column; text-align: left; }
+.entity-trigger strong, .entity-trigger small { display: block; }
+.entity-trigger small { margin-top: 3px; color: var(--muted); }
+.entity-picker { position: relative; z-index: 5; padding: 8px; border: 1px solid #3d4f70; border-radius: 9px; background: #090e19; box-shadow: 0 14px 35px #0008; }
+.entity-picker > div { max-height: 230px; overflow: auto; }
+.entity-picker button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 9px; margin-top: 5px; padding: 9px; text-align: left; border-color: transparent; background: #111a2b; }
+.entity-picker button:hover { border-color: var(--blue); }
+.entity-picker button strong, .entity-picker button small { display: block; }
+.entity-picker button small { margin-top: 3px; color: var(--muted); }
+.entity-picker button em { color: var(--blue); font-size: 8px; font-style: normal; text-transform: uppercase; }
 .checkbox-field { display: flex !important; align-items: center; }
 .checkbox-field input { width: auto; }
 .execute-button { width: 100%; margin-top: 20px; }

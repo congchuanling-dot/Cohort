@@ -4,12 +4,42 @@ export interface InputField {
   name: string;
   label: string;
   description?: string;
-  type: "string" | "text" | "boolean" | "integer" | "select" | "path" | "secret" | "duration";
+  type: "string" | "text" | "boolean" | "integer" | "select" | "path" | "secret" | "duration" | "entity";
   required?: boolean;
   default?: unknown;
   options?: string[];
   placeholder?: string;
   sensitive?: boolean;
+  entity?: {
+    kind: EntityKind;
+    status?: string[];
+    recent_first?: boolean;
+    allow_missing?: boolean;
+  };
+}
+
+export type EntityKind = "session" | "eval_run" | "delivery" | "hermes_action" | "skill" | "capability" | "mcp_server" | "model_profile";
+
+export interface EntityDescriptor {
+  kind: EntityKind;
+  id: string;
+  title: string;
+  subtitle?: string;
+  status?: string;
+  updated_at?: string;
+  version: string;
+  badges?: string[];
+  actions?: Array<{ action_id: string; label: string; risk: RiskLevel; enabled: boolean; disabled_reason?: string }>;
+}
+
+export interface ActionPreparation {
+  preparation_token: string;
+  action_id: string;
+  resolved_input: Record<string, unknown>;
+  entities?: Array<{ field: string; kind: EntityKind; id: string; title: string; status?: string; version: string }>;
+  impact: string;
+  confirmation_text?: string;
+  expires_at: string;
 }
 
 export interface ActionSpec {

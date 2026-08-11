@@ -11,8 +11,8 @@ import (
 
 func deliveryActions() []controlplane.ActionSpec {
 	deliveryID := controlplane.InputField{
-		Name: "delivery_id", Label: "Delivery ID", Type: controlplane.FieldString,
-		Required: true, Placeholder: "delivery_...",
+		Name: "delivery_id", Label: "Delivery", Type: controlplane.FieldEntity, Required: true,
+		Entity: &controlplane.EntitySelector{Kind: controlplane.EntityDelivery, RecentFirst: true},
 	}
 	return []controlplane.ActionSpec{
 		{
@@ -115,7 +115,10 @@ func deliveryActions() []controlplane.ActionSpec {
 }
 
 func hermesActions() []controlplane.ActionSpec {
-	actionID := controlplane.InputField{Name: "action_id", Label: "Action ID", Type: controlplane.FieldString, Required: true}
+	actionID := controlplane.InputField{
+		Name: "action_id", Label: "Hermes Action", Type: controlplane.FieldEntity, Required: true,
+		Entity: &controlplane.EntitySelector{Kind: controlplane.EntityHermesAction, RecentFirst: true},
+	}
 	return []controlplane.ActionSpec{
 		{
 			ID: "hermes.action.acknowledge", Category: "hermes", Label: "确认 Action",

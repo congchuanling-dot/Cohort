@@ -57,7 +57,7 @@ func runUICommand(ctx context.Context, explicitConfigPath string, args []string,
 	if _, err := projects.Register(projectRoot); err != nil {
 		return err
 	}
-	dataHub, err := controlactions.NewProjectDataHub(projectRoot)
+	dataHub, err := controlactions.NewProjectDataHub(projectRoot, configPath)
 	if err != nil {
 		return err
 	}
@@ -70,6 +70,7 @@ func runUICommand(ctx context.Context, explicitConfigPath string, args []string,
 		Projects:    projects,
 		Resources:   controlactions.NewResourceProvider(configPath),
 		DataSources: dataHub,
+		Entities:    dataHub,
 	})
 	if err != nil {
 		return err

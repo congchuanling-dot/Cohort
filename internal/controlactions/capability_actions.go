@@ -22,7 +22,10 @@ import (
 )
 
 func capabilityActions() []controlplane.ActionSpec {
-	capabilityID := controlplane.InputField{Name: "capability_id", Label: "Capability ID", Type: controlplane.FieldString, Required: true}
+	capabilityID := controlplane.InputField{
+		Name: "capability_id", Label: "Capability", Type: controlplane.FieldEntity, Required: true,
+		Entity: &controlplane.EntitySelector{Kind: controlplane.EntityCapability, RecentFirst: true},
+	}
 	proposalID := controlplane.InputField{Name: "proposal_id", Label: "Proposal ID", Type: controlplane.FieldString, Required: true}
 	return []controlplane.ActionSpec{
 		{
@@ -157,6 +160,10 @@ func capabilityActions() []controlplane.ActionSpec {
 func mcpActions() []controlplane.ActionSpec {
 	scope := controlplane.InputField{Name: "scope", Label: "配置范围", Type: controlplane.FieldSelect, Required: true, Default: "project", Options: []string{"project", "local", "user"}}
 	name := controlplane.InputField{Name: "name", Label: "Server 名称", Type: controlplane.FieldString, Required: true}
+	existingName := controlplane.InputField{
+		Name: "name", Label: "MCP Server", Type: controlplane.FieldEntity, Required: true,
+		Entity: &controlplane.EntitySelector{Kind: controlplane.EntityMCPServer},
+	}
 	return []controlplane.ActionSpec{
 		{
 			ID: "mcp.add", Category: "mcp", Label: "添加 MCP Server",
@@ -190,7 +197,7 @@ func mcpActions() []controlplane.ActionSpec {
 			ID: "mcp.probe", Category: "mcp", Label: "探测 MCP Server",
 			Description: "执行 initialize 和 tools/list，返回可用性与工具数量。",
 			Keywords:    []string{"mcp", "probe", "tools", "探测"}, Risk: controlplane.RiskRead, Async: true,
-			Inputs: []controlplane.InputField{name},
+			Inputs: []controlplane.InputField{existingName},
 			Handler: func(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 				servers, err := mcp.NewStore(request.ProjectRoot).LoadEffective()
 				if err != nil {
@@ -221,7 +228,7 @@ func mcpActions() []controlplane.ActionSpec {
 			ID: "mcp.remove", Category: "mcp", Label: "移除 MCP Server",
 			Description: "仅从指定 scope 删除 MCP 配置，不执行任何 Server 命令。",
 			Keywords:    []string{"mcp", "remove", "删除"}, Risk: controlplane.RiskDanger,
-			ConfirmationText: "REMOVE_MCP", Inputs: []controlplane.InputField{scope, name},
+			ConfirmationText: "REMOVE_MCP", Inputs: []controlplane.InputField{scope, existingName},
 			Handler: func(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 				parsedScope, err := mcp.ParseScope(textInput(request, "scope"))
 				if err != nil {
@@ -279,7 +286,10 @@ func mcpActions() []controlplane.ActionSpec {
 			Keywords:    []string{"mcp", "policy", "permission", "权限"}, Risk: controlplane.RiskDanger,
 			ConfirmationText: "SET_MCP_POLICY",
 			Inputs: []controlplane.InputField{
-				{Name: "server", Label: "Server", Type: controlplane.FieldString, Required: true},
+				{
+					Name: "server", Label: "MCP Server", Type: controlplane.FieldEntity, Required: true,
+					Entity: &controlplane.EntitySelector{Kind: controlplane.EntityMCPServer},
+				},
 				{Name: "tool", Label: "Tool", Type: controlplane.FieldString, Required: true},
 				{Name: "decision", Label: "Decision", Type: controlplane.FieldSelect, Required: true, Default: "ask", Options: []string{"allow", "ask", "deny"}},
 				{Name: "risk", Label: "Risk", Type: controlplane.FieldSelect, Required: true, Default: "R2", Options: []string{"R1", "R2", "R3"}},
@@ -302,7 +312,10 @@ func mcpActions() []controlplane.ActionSpec {
 			Keywords:    []string{"mcp", "policy", "remove"}, Risk: controlplane.RiskConfirm,
 			ConfirmationText: "REMOVE_MCP_POLICY",
 			Inputs: []controlplane.InputField{
-				{Name: "server", Label: "Server", Type: controlplane.FieldString, Required: true},
+				{
+					Name: "server", Label: "MCP Server", Type: controlplane.FieldEntity, Required: true,
+					Entity: &controlplane.EntitySelector{Kind: controlplane.EntityMCPServer},
+				},
 				{Name: "tool", Label: "Tool", Type: controlplane.FieldString, Required: true},
 			},
 			Handler: func(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
@@ -314,7 +327,10 @@ func mcpActions() []controlplane.ActionSpec {
 }
 
 func skillActions() []controlplane.ActionSpec {
-	skillID := controlplane.InputField{Name: "skill_id", Label: "Skill ID", Type: controlplane.FieldString, Required: true}
+	skillID := controlplane.InputField{
+		Name: "skill_id", Label: "Skill", Type: controlplane.FieldEntity, Required: true,
+		Entity: &controlplane.EntitySelector{Kind: controlplane.EntitySkill, RecentFirst: true},
+	}
 	return []controlplane.ActionSpec{
 		{
 			ID: "skill.install", Category: "skill", Label: "安装 Skill",
@@ -538,7 +554,10 @@ func agentActions(configPath string) []controlplane.ActionSpec {
 			Description: "恢复指定 Session 的历史，再运行一条新任务。",
 			Keywords:    []string{"agent", "session", "continue", "resume", "继续"}, Risk: controlplane.RiskExecute, Async: true,
 			Inputs: []controlplane.InputField{
-				{Name: "session_id", Label: "Session ID", Type: controlplane.FieldString, Required: true}, task,
+				{
+					Name: "session_id", Label: "Session", Type: controlplane.FieldEntity, Required: true,
+					Entity: &controlplane.EntitySelector{Kind: controlplane.EntitySession, RecentFirst: true},
+				}, task,
 			},
 			Handler: agentRunHandler(configPath, true),
 		},
@@ -552,7 +571,10 @@ func settingsActions(configPath string) []controlplane.ActionSpec {
 			Description: "原子更新 llm.active_profile，并保留其余配置、注释和文件权限。",
 			Keywords:    []string{"settings", "model", "profile", "切换模型"}, Risk: controlplane.RiskConfirm,
 			ConfirmationText: "SWITCH_MODEL",
-			Inputs:           []controlplane.InputField{{Name: "profile_id", Label: "Profile ID", Type: controlplane.FieldString, Required: true}},
+			Inputs: []controlplane.InputField{{
+				Name: "profile_id", Label: "Model Profile", Type: controlplane.FieldEntity, Required: true,
+				Entity: &controlplane.EntitySelector{Kind: controlplane.EntityModelProfile},
+			}},
 			Handler: func(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 				profileID := textInput(request, "profile_id")
 				if err := app.UpdateActiveProfile(configPath, profileID); err != nil {

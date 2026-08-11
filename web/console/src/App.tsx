@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ActionSpec, apiGet, apiPost, CapabilityResource, DashboardSnapshot, initializeSession,
-  DataSourceHealth, DeliveryItem, EvalRun, HermesResource, InputField, LSPResource, MCPServerSummary,
+  ActionPreparation, ActionSpec, apiGet, apiPost, CapabilityResource, DashboardSnapshot, initializeSession,
+  DataSourceHealth, DeliveryItem, EntityDescriptor, EvalRun, HermesResource, InputField, LSPResource, MCPServerSummary,
   Operation, operationEvents, ProjectRecord, SessionInfo, SessionSummary,
   SettingsResource, SkillSummary,
 } from "./api";
@@ -342,13 +342,23 @@ function CommandCenter({ actions, initialQuery, onClose }: { actions: ActionSpec
   const [selected, setSelected] = useState<ActionSpec | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [confirmation, setConfirmation] = useState("");
+  const [prepared, setPrepared] = useState<ActionPreparation | null>(null);
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     if (!keyword) return actions;
     return actions.filter((action) => [action.id, action.label, action.description, ...(action.keywords ?? [])].join(" ").toLowerCase().includes(keyword));
   }, [actions, query]);
+  const prepare = useMutation({
+    mutationFn: (action: ActionSpec) => apiPost<ActionPreparation>(`/api/v1/actions/${action.id}/prepare`, { input: values }),
+    onSuccess: setPrepared,
+  });
   const execute = useMutation({
-    mutationFn: (action: ActionSpec) => apiPost<Operation>(`/api/v1/actions/${action.id}/execute`, { input: values, confirmation }),
+    mutationFn: async (action: ActionSpec) => {
+      const current = prepared ?? await apiPost<ActionPreparation>(`/api/v1/actions/${action.id}/prepare`, { input: values });
+      return apiPost<Operation>(`/api/v1/actions/${action.id}/execute`, {
+        input: values, confirmation, preparation_token: current.preparation_token,
+      });
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["operations"] });
       onClose();
@@ -370,10 +380,16 @@ function CommandCenter({ actions, initialQuery, onClose }: { actions: ActionSpec
     for (const field of action.inputs ?? []) if (field.default !== undefined) defaults[field.name] = field.default;
     setValues(defaults);
     setConfirmation("");
+    setPrepared(null);
   };
   const submit = (event: { preventDefault: () => void }) => {
     event.preventDefault();
-    if (selected) execute.mutate(selected);
+    if (!selected) return;
+    if ((selected.risk === "confirm" || selected.risk === "danger") && !prepared) {
+      prepare.mutate(selected);
+      return;
+    }
+    execute.mutate(selected);
   };
 
   return (
@@ -388,10 +404,16 @@ function CommandCenter({ actions, initialQuery, onClose }: { actions: ActionSpec
           <form className="action-form" onSubmit={submit}>
             {selected ? <>
               <div><Risk risk={selected.risk} /><h3>{selected.label}</h3><p>{selected.description}</p></div>
-              {(selected.inputs ?? []).map((field) => <DynamicField key={field.name} field={field} value={values[field.name]} onChange={(value) => setValues((current) => ({ ...current, [field.name]: value }))} />)}
-              {selected.confirmation_text && <label><span>输入 <code>{selected.confirmation_text}</code> 确认</span><input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required /></label>}
-              {execute.error && <p className="form-error">{execute.error.message}</p>}
-              <button className="primary execute-button" disabled={execute.isPending} type="submit">{execute.isPending ? "正在创建 Operation…" : "执行动作"}</button>
+              {(selected.inputs ?? []).map((field) => <DynamicField key={field.name} field={field} value={values[field.name]} onChange={(value) => {
+                setPrepared(null);
+                setValues((current) => ({ ...current, [field.name]: value }));
+              }} />)}
+              {prepared && <div className="impact-preview"><strong>执行影响</strong><p>{prepared.impact}</p>{prepared.entities?.map((entity) => <span key={entity.field}>{entity.title} · {entity.status || entity.kind}</span>)}</div>}
+              {selected.confirmation_text && prepared && <label><span>输入 <code>{selected.confirmation_text}</code> 确认</span><input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required /></label>}
+              {(prepare.error || execute.error) && <p className="form-error">{prepare.error?.message || execute.error?.message}</p>}
+              <button className="primary execute-button" disabled={prepare.isPending || execute.isPending} type="submit">
+                {prepare.isPending ? "正在检查对象状态…" : execute.isPending ? "正在创建 Operation…" : (selected.risk === "confirm" || selected.risk === "danger") && !prepared ? "检查影响" : "执行动作"}
+              </button>
             </> : <div className="action-placeholder"><strong>选择一个动作</strong><p>参数表单会根据 Action Schema 自动生成。</p></div>}
           </form>
         </div>
@@ -401,10 +423,48 @@ function CommandCenter({ actions, initialQuery, onClose }: { actions: ActionSpec
 }
 
 function DynamicField({ field, value, onChange }: { field: InputField; value: unknown; onChange: (value: unknown) => void }) {
+  if (field.type === "entity" && field.entity) return <EntityField field={field} value={String(value ?? "")} onChange={onChange} />;
   if (field.type === "boolean") return <label className="checkbox-field"><input type="checkbox" checked={Boolean(value)} onChange={(event) => onChange(event.target.checked)} /><span>{field.label}</span></label>;
   if (field.type === "select") return <label><span>{field.label}</span><select value={String(value ?? "")} required={field.required} onChange={(event) => onChange(event.target.value)}><option value="">请选择</option>{field.options?.map((option) => <option key={option}>{option}</option>)}</select><small>{field.description}</small></label>;
   if (field.type === "text") return <label><span>{field.label}</span><textarea value={String(value ?? "")} required={field.required} placeholder={field.placeholder} onChange={(event) => onChange(event.target.value)} /><small>{field.description}</small></label>;
   return <label><span>{field.label}</span><input type={field.type === "secret" || field.sensitive ? "password" : field.type === "integer" ? "number" : "text"} value={String(value ?? "")} required={field.required} placeholder={field.placeholder} onChange={(event) => onChange(field.type === "integer" ? Number(event.target.value) : event.target.value)} /><small>{field.description}</small></label>;
+}
+
+function EntityField({ field, value, onChange }: { field: InputField; value: string; onChange: (value: unknown) => void }) {
+  const [search, setSearch] = useState("");
+  const [open, setOpen] = useState(false);
+  const params = new URLSearchParams({ limit: "100" });
+  if (search) params.set("q", search);
+  for (const status of field.entity?.status ?? []) params.append("status", status);
+  const entities = useQuery({
+    queryKey: ["entities", field.entity?.kind, search, field.entity?.status],
+    queryFn: () => apiGet<{ entities: EntityDescriptor[] }>(`/api/v1/entities/${field.entity?.kind}?${params}`),
+    enabled: open,
+  });
+  const selected = useQuery({
+    queryKey: ["entity", field.entity?.kind, value],
+    queryFn: () => apiGet<{ entity: EntityDescriptor }>(`/api/v1/entities/${field.entity?.kind}/${encodeURIComponent(value)}`),
+    enabled: value !== "",
+  });
+  return <label className="entity-field">
+    <span>{field.label}</span>
+    <button type="button" className="entity-trigger" onClick={() => { setSearch(""); setOpen((current) => !current); }}>
+      {selected.data?.entity ? <><strong>{selected.data.entity.title}</strong><small>{selected.data.entity.subtitle || selected.data.entity.status}</small></> : <span>选择{field.label}</span>}
+    </button>
+    {open && <div className="entity-picker">
+      <input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`搜索${field.label}`} />
+      <div>
+        {(entities.data?.entities ?? []).map((entity) => <button type="button" key={`${entity.kind}:${entity.id}`} onClick={() => {
+          onChange(entity.id);
+          setOpen(false);
+        }}><span><strong>{entity.title}</strong><small>{entity.subtitle}</small></span><em>{entity.status}</em></button>)}
+        {entities.isPending && <p className="empty">正在读取本地数据…</p>}
+        {entities.isError && <p className="form-error">{entities.error.message}</p>}
+        {entities.isSuccess && entities.data.entities.length === 0 && <p className="empty">没有可选对象</p>}
+      </div>
+    </div>}
+    <small>{field.description || "从当前项目的本地数据中选择，无需填写内部 ID。"}</small>
+  </label>;
 }
 
 function OperationList({ operations }: { operations: Operation[] }) {

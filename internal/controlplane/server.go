@@ -34,6 +34,7 @@ type ServerConfig struct {
 	Projects    *ProjectRegistry
 	Resources   ResourceProvider
 	DataSources DataSourceProvider
+	Entities    EntityProvider
 }
 
 type SnapshotProvider func(context.Context, string) (any, error)
@@ -48,7 +49,9 @@ type Server struct {
 	projects      *ProjectRegistry
 	resources     ResourceProvider
 	dataSources   DataSourceProvider
+	entities      EntityProvider
 	operations    *OperationManager
+	preparations  *PreparationManager
 	bootstrap     string
 	session       string
 	csrf          string
@@ -84,18 +87,20 @@ func NewServer(config ServerConfig) (*Server, error) {
 		return nil, err
 	}
 	return &Server{
-		projectRoot: config.ProjectRoot,
-		listen:      listen,
-		staticFS:    config.StaticFS,
-		catalog:     config.Catalog,
-		snapshot:    config.Snapshot,
-		projects:    config.Projects,
-		resources:   config.Resources,
-		dataSources: config.DataSources,
-		operations:  operations,
-		bootstrap:   randomToken(24),
-		session:     randomToken(32),
-		csrf:        randomToken(24),
+		projectRoot:  config.ProjectRoot,
+		listen:       listen,
+		staticFS:     config.StaticFS,
+		catalog:      config.Catalog,
+		snapshot:     config.Snapshot,
+		projects:     config.Projects,
+		resources:    config.Resources,
+		dataSources:  config.DataSources,
+		entities:     config.Entities,
+		operations:   operations,
+		preparations: NewPreparationManager(config.Catalog, config.Entities),
+		bootstrap:    randomToken(24),
+		session:      randomToken(32),
+		csrf:         randomToken(24),
 	}, nil
 }
 
@@ -154,6 +159,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/projects", s.requireSession(http.HandlerFunc(s.handleProjects)))
 	mux.Handle("/api/v1/data-sources", s.requireSession(http.HandlerFunc(s.handleDataSources)))
 	mux.Handle("/api/v1/data-sources/refresh", s.requireSession(http.HandlerFunc(s.handleDataSources)))
+	mux.Handle("/api/v1/entities/", s.requireSession(http.HandlerFunc(s.handleEntities)))
 	mux.Handle("/api/v1/resources/", s.requireSession(http.HandlerFunc(s.handleResource)))
 	mux.Handle("/api/v1/actions/", s.requireSession(http.HandlerFunc(s.handleAction)))
 	mux.Handle("/api/v1/operations", s.requireSession(http.HandlerFunc(s.handleOperations)))
@@ -290,6 +296,48 @@ func (s *Server) handleDataSources(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleEntities(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeControlError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s.entities == nil {
+		writeControlError(w, http.StatusNotImplemented, "entity provider is unavailable")
+		return
+	}
+	suffix := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/entities/"), "/")
+	parts := strings.Split(suffix, "/")
+	if suffix == "" || len(parts) > 2 {
+		writeControlError(w, http.StatusBadRequest, "invalid entity path")
+		return
+	}
+	kind := EntityKind(parts[0])
+	if len(parts) == 1 {
+		entities, err := s.entities.ListEntities(r.Context(), kind, r.URL.Query())
+		if err != nil {
+			writeControlError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeControlJSON(w, http.StatusOK, map[string]any{"kind": kind, "entities": entities})
+		return
+	}
+	id, err := url.PathUnescape(parts[1])
+	if err != nil {
+		writeControlError(w, http.StatusBadRequest, "invalid entity id")
+		return
+	}
+	entity, err := s.entities.GetEntity(r.Context(), kind, id)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			writeControlError(w, http.StatusNotFound, "entity not found")
+		} else {
+			writeControlError(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+	writeControlJSON(w, http.StatusOK, map[string]any{"entity": entity})
+}
+
 func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeControlError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -326,23 +374,48 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	}
 	suffix := strings.TrimPrefix(r.URL.Path, "/api/v1/actions/")
 	actionID, operationName, found := strings.Cut(suffix, "/")
-	if !found || operationName != "execute" || actionID == "" || strings.Contains(actionID, "/") {
+	if !found || (operationName != "prepare" && operationName != "execute") || actionID == "" || strings.Contains(actionID, "/") {
 		writeControlError(w, http.StatusNotFound, "action endpoint not found")
 		return
 	}
 	var request struct {
-		Input        map[string]any `json:"input"`
-		Confirmation string         `json:"confirmation"`
+		Input            map[string]any `json:"input"`
+		Confirmation     string         `json:"confirmation"`
+		PreparationToken string         `json:"preparation_token"`
 	}
 	if err := decodeControlJSON(w, r, &request); err != nil {
 		return
 	}
-	operation, err := s.operations.Start(context.Background(), actionID, ActionRequest{
+	actionRequest := ActionRequest{
 		ProjectRoot:  s.projectRoot,
 		Actor:        "local-user",
 		Input:        request.Input,
 		Confirmation: request.Confirmation,
-	})
+	}
+	if operationName == "prepare" {
+		preparation, err := s.preparations.Prepare(r.Context(), actionID, actionRequest)
+		if err != nil {
+			writeControlError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeControlJSON(w, http.StatusOK, preparation)
+		return
+	}
+	spec, exists := s.catalog.Get(actionID)
+	if !exists {
+		writeControlError(w, http.StatusNotFound, "unknown action")
+		return
+	}
+	if ActionRequiresPreparation(spec) {
+		prepared, err := s.preparations.Consume(r.Context(), request.PreparationToken, actionID)
+		if err != nil {
+			writeControlError(w, http.StatusConflict, err.Error())
+			return
+		}
+		actionRequest = prepared
+		actionRequest.Confirmation = request.Confirmation
+	}
+	operation, err := s.operations.Start(context.Background(), actionID, actionRequest)
 	if err != nil {
 		writeControlError(w, http.StatusBadRequest, err.Error())
 		return

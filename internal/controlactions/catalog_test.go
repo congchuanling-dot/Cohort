@@ -102,6 +102,13 @@ func TestProjectDataHubDiscoversStoresAndIsolatesSourceErrors_BitsUT(t *testing.
 	if info.Mode().Perm() != 0600 {
 		t.Fatalf("index mode = %v, want 0600", info.Mode().Perm())
 	}
+	entities, err := hub.ListEntities(context.Background(), controlplane.EntitySession, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entities) != 1 || entities[0].Title != "existing session" || entities[0].Actions[0].ActionID != "agent.continue" {
+		t.Fatalf("session entities = %#v", entities)
+	}
 
 	hermesRoot := filepath.Join(root, ".cohort", "hermes")
 	if err := os.MkdirAll(hermesRoot, 0755); err != nil {
