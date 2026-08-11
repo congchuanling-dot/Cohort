@@ -54,7 +54,7 @@
 | `[完成]` | [adaptive_tool_routing.md](adaptive_tool_routing.md) | 按任务意图渐进暴露工具 schema，能力早停或连续失败时自动扩容；含真实 81→15 工具和 payload 降低 82.6% 的测量结果。 |
 | `[完成]` | [evidence_driven_multi_agent_delivery.md](evidence_driven_multi_agent_delivery.md) | 契约/DAG、隔离 Builder、Evidence/Integration、独立 Verifier、定向返修、离线 Review、人工批准、可恢复事务合并、合并后复验与 Reflection 已落地。 |
 | `[完成]` | [cohort_control_center.md](cohort_control_center.md) | 本地可视化控制台；44 个类型化 Action、持久 Operation、REST/SSE、真实状态聚合、风险确认和全局搜索入口。 |
-| `[技术方案]` | [control_center_v2_data_and_visualization.md](control_center_v2_data_and_visualization.md) | Control Center V2：自动发现本地数据、零 ID 实体操作、Eval/Stability/Trace/Tuning 原生可视化与离线 HTML 双渲染。 |
+| `[完成]` | [control_center_v2_data_and_visualization.md](control_center_v2_data_and_visualization.md) | Control Center V2：自动发现本地数据、零 ID 实体操作、Eval/Stability/Trace/Tuning 原生可视化与离线 HTML 双渲染。 |
 | `[历史]` | [cohort_vs_ga_gap.md](cohort_vs_ga_gap.md) | 早期 MVP 差距快照，已由 `cohort_vs_ga_current_gap.md` 取代。 |
 
 ## 核心能力设计

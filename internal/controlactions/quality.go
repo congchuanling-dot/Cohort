@@ -49,9 +49,7 @@ func NewQualityProvider() controlplane.QualityProvider {
 			}
 			return evaluation.BuildStabilityIndex(results, stabilityOptions(query)), nil
 		case len(segments) == 3 && segments[0] == "traces":
-			view, err := traceview.LoadSessionRun(
-				filepath.Join(projectRoot, session.DefaultRootDir), segments[1], segments[2],
-			)
+			view, err := loadQualityTrace(projectRoot, segments[1], segments[2])
 			if err != nil {
 				return nil, err
 			}
@@ -103,9 +101,7 @@ func NewExportProvider() controlplane.ExportProvider {
 			if !ok {
 				return controlplane.ExportResult{}, os.ErrNotExist
 			}
-			view, err := traceview.LoadSessionRun(
-				filepath.Join(projectRoot, session.DefaultRootDir), segments[1], runID,
-			)
+			view, err := loadQualityTrace(projectRoot, segments[1], runID)
 			if err != nil {
 				return controlplane.ExportResult{}, err
 			}
@@ -131,6 +127,22 @@ func NewExportProvider() controlplane.ExportProvider {
 			return controlplane.ExportResult{}, os.ErrNotExist
 		}
 	}
+}
+
+func loadQualityTrace(projectRoot, sessionID, runID string) (traceview.RunView, error) {
+	roots := []string{
+		filepath.Join(projectRoot, session.DefaultRootDir),
+		evaluation.NewStore(projectRoot).SessionsDir(),
+	}
+	var lastErr error
+	for _, root := range roots {
+		view, err := traceview.LoadSessionRun(root, sessionID, runID)
+		if err == nil {
+			return view, nil
+		}
+		lastErr = err
+	}
+	return traceview.RunView{}, lastErr
 }
 
 func stabilityOptions(query url.Values) evaluation.StabilityOptions {

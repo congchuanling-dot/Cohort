@@ -260,21 +260,39 @@ func waitForOperationStatus(t *testing.T, manager *OperationManager, id string, 
 
 func TestServerEnforcesBootstrapSessionOriginAndCSRF_BitsUT(t *testing.T) {
 	projectRoot := t.TempDir()
-	catalog, err := NewCatalog(ActionSpec{
-		ID: "system.ping", Category: "system", Label: "连通测试",
-		Description: "验证控制面执行链路。", Risk: RiskExecute,
-		Handler: func(context.Context, ActionRequest) (ActionResult, error) {
-			return ActionResult{Summary: "pong", Data: map[string]any{"ok": true}}, nil
+	catalog, err := NewCatalog(
+		ActionSpec{
+			ID: "system.ping", Category: "system", Label: "连通测试",
+			Description: "验证控制面执行链路。", Risk: RiskExecute,
+			Handler: func(context.Context, ActionRequest) (ActionResult, error) {
+				return ActionResult{Summary: "pong", Data: map[string]any{"ok": true}}, nil
+			},
 		},
-	})
+		ActionSpec{
+			ID: "delivery.merge", Category: "delivery", Label: "合并",
+			Description: "合并已批准 Delivery。", Risk: RiskDanger, ConfirmationText: "MERGE",
+			Inputs: []InputField{{
+				Name: "delivery_id", Label: "Delivery", Type: FieldEntity, Required: true,
+				Entity: &EntitySelector{Kind: EntityDelivery, Status: []string{"approved"}},
+			}},
+			Handler: func(context.Context, ActionRequest) (ActionResult, error) {
+				return ActionResult{Summary: "merged"}, nil
+			},
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
+	entities := &memoryEntityProvider{entity: EntityDescriptor{
+		Kind: EntityDelivery, ID: "delivery-1", Title: "Delivery One",
+		Status: "approved", Version: "v1",
+	}}
 	server, err := NewServer(ServerConfig{
 		ProjectRoot: projectRoot,
 		Listen:      "127.0.0.1:0",
 		Catalog:     catalog,
 		DataSources: staticDataSourceProvider{},
+		Entities:    entities,
 		StaticFS: fstest.MapFS{
 			"index.html": &fstest.MapFile{Data: []byte("<html>control center</html>")},
 		},
@@ -382,6 +400,38 @@ func TestServerEnforcesBootstrapSessionOriginAndCSRF_BitsUT(t *testing.T) {
 	if completed.Summary != "pong" {
 		t.Fatalf("operation = %#v", completed)
 	}
+
+	mutationHeaders := map[string]string{
+		"Content-Type": "application/json", "Origin": running.URL, "X-CSRF-Token": bootstrap.CSRF,
+	}
+	response = mustControlRequest(t, client, http.MethodPost, running.URL+"/api/v1/actions/delivery.merge/execute",
+		[]byte(`{"input":{"delivery_id":"delivery-1"},"confirmation":"MERGE"}`), mutationHeaders)
+	if response.StatusCode != http.StatusConflict {
+		t.Fatalf("danger action without preparation status = %d", response.StatusCode)
+	}
+	_ = response.Body.Close()
+	response = mustControlRequest(t, client, http.MethodPost, running.URL+"/api/v1/actions/delivery.merge/prepare",
+		[]byte(`{"input":{"delivery_id":"delivery-1"}}`), mutationHeaders)
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("prepare status=%d body=%s", response.StatusCode, body)
+	}
+	var prepared ActionPreparation
+	if err := json.NewDecoder(response.Body).Decode(&prepared); err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	response = mustControlRequest(t, client, http.MethodPost, running.URL+"/api/v1/actions/delivery.merge/execute",
+		[]byte(`{"confirmation":"MERGE","preparation_token":"`+prepared.Token+`"}`), mutationHeaders)
+	if response.StatusCode != http.StatusAccepted {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("prepared execute status=%d body=%s", response.StatusCode, body)
+	}
+	if err := json.NewDecoder(response.Body).Decode(&operation); err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	waitForOperationStatus(t, server.operations, operation.ID, OperationSucceeded)
 }
 
 type staticDataSourceProvider struct{}

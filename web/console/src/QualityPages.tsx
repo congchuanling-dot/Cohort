@@ -70,7 +70,10 @@ export function StabilityPage() {
   if (stability.isPending) return <QualityLoading />;
   if (stability.isError) return <QualityError detail={stability.error.message} />;
   const data = stability.data;
-  const cases = data.cases.filter((item) => `${item.suite_id} ${item.case_id} ${item.name} ${item.model}`.toLowerCase().includes(filter.toLowerCase()));
+  const runs = data.runs ?? [];
+  const cases = (data.cases ?? []).filter((item) => `${item.suite_id} ${item.case_id} ${item.name} ${item.model}`.toLowerCase().includes(filter.toLowerCase()));
+  const failureSignatures = data.failure_signatures ?? [];
+  const regressions = data.regressions ?? [];
   return <section className="page-stack">
     <div className="quality-breadcrumb"><Link to="/quality">质量中心</Link><span>/</span><strong>Stability</strong></div>
     <header className="page-heading"><div><p className="eyebrow">HISTORICAL QUALITY</p><h2>稳定性分析</h2><p>Flaky Case、回归和重复失败签名。</p></div><a className="button-link" href="/api/v1/exports/stability.html?window=50">导出离线 HTML</a></header>
@@ -79,10 +82,10 @@ export function StabilityPage() {
       <QualityMetric label="Stability" value={`${data.summary.average_stability.toFixed(1)}%`} /><QualityMetric label="Flaky" value={data.summary.flaky_cases} tone={data.summary.flaky_cases ? "warn" : "good"} />
       <QualityMetric label="Regressions" value={data.summary.regressions} tone={data.summary.regressions ? "bad" : "good"} /><QualityMetric label="Signatures" value={data.summary.failure_signatures} />
     </div>
-    <section className="panel"><div className="panel-heading"><h3>历史趋势</h3><span className="risk read">{data.window} WINDOW</span></div><TrendChart runs={data.runs} /></section>
+    <section className="panel"><div className="panel-heading"><h3>历史趋势</h3><span className="risk read">{data.window} WINDOW</span></div><TrendChart runs={runs} /></section>
     <div className="quality-columns">
-      <section className="panel"><div className="panel-heading"><h3>Failure Signatures</h3></div>{data.failure_signatures.slice(0, 12).map((item) => <article className="signature-row" key={item.signature}><strong>{item.signature}</strong><span>{item.count}x</span><small>{item.example}</small></article>)}</section>
-      <section className="panel"><div className="panel-heading"><h3>Regressions</h3></div>{data.regressions.slice(0, 12).map((item) => <Link className="regression-row" key={`${item.case_id}:${item.to_run_id}`} to={`/quality/evals/${encodeURIComponent(item.to_run_id)}`}><strong>{item.case_id}</strong><small>{item.from_run_id} → {item.to_run_id}</small></Link>)}</section>
+      <section className="panel"><div className="panel-heading"><h3>Failure Signatures</h3></div>{failureSignatures.slice(0, 12).map((item) => <article className="signature-row" key={item.signature}><strong>{item.signature}</strong><span>{item.count}x</span><small>{item.example}</small></article>)}</section>
+      <section className="panel"><div className="panel-heading"><h3>Regressions</h3></div>{regressions.slice(0, 12).map((item) => <Link className="regression-row" key={`${item.case_id}:${item.to_run_id}`} to={`/quality/evals/${encodeURIComponent(item.to_run_id)}`}><strong>{item.case_id}</strong><small>{item.from_run_id} → {item.to_run_id}</small></Link>)}</section>
     </div>
     <section className="panel"><div className="panel-heading"><h3>Case Heat</h3><input className="table-search" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="搜索 Case / Suite / Model" /></div>
       <div className="stability-table">{cases.map((item) => <article key={`${item.suite_id}:${item.case_id}:${item.model}`}><div><strong>{item.case_id}</strong><small>{item.suite_id} · {item.name}</small></div><span>{item.pass_rate.toFixed(1)}%</span><span>{item.average_stability.toFixed(1)}%</span><span className={item.flaky ? "warn-text" : "good-text"}>{item.flaky ? "FLAKY" : "STABLE"}</span><Link to={`/quality/evals/${encodeURIComponent(item.latest_run_id)}`}>latest</Link></article>)}</div>

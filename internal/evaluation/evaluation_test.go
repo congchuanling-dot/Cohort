@@ -454,6 +454,19 @@ func TestStabilityIndexAndReports_BitsUT(t *testing.T) {
 	if len(index.Cases) != 1 || !index.Cases[0].Flaky || index.Cases[0].LatestTraceRunID != "run_2" {
 		t.Fatalf("case metrics = %#v", index.Cases)
 	}
+	emptyData, err := json.Marshal(BuildStabilityIndex(nil, StabilityOptions{Window: 20}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var emptyJSON map[string]json.RawMessage
+	if unmarshalErr := json.Unmarshal(emptyData, &emptyJSON); unmarshalErr != nil {
+		t.Fatal(unmarshalErr)
+	}
+	for _, field := range []string{"runs", "suites", "cases", "failure_signatures", "regressions"} {
+		if string(emptyJSON[field]) != "[]" {
+			t.Fatalf("empty stability field %q = %s, want []", field, emptyJSON[field])
+		}
+	}
 	store := NewStore(t.TempDir())
 	indexPath, markdownPath, htmlPath, err := WriteStabilityReports(store, index)
 	if err != nil {

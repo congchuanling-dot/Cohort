@@ -1,6 +1,6 @@
 # Cohort Control Center V2：本地数据与评测可视化
 
-> 状态：`[技术方案]`
+> 状态：`[完成]`
 >
 > 目标：把本地数据自动发现、零 ID 操作和 Agent 评测可视化整合进 Control Center。
 
@@ -539,3 +539,27 @@ operation.updated
 8. 高风险 Action 在实体状态变化后拒绝使用旧确认执行。
 9. 不新增任意文件读取、任意命令执行或跨项目路径 API。
 10. 全量 Go Test、Race、Vet、TypeScript Typecheck、Production Build 和浏览器 E2E 通过。
+
+## 13. 实现记录
+
+| 模块 | Commit | 结果 |
+| --- | --- | --- |
+| Local Data Hub | `10e025a` | 六类本地数据源、健康状态、错误隔离和原子索引 |
+| 零 ID Action | `371c73f` | Entity Picker、上下文动作、Prepare Token 和版本校验 |
+| 路由与详情 | `97aadc6` | React Router、实体深链、领域详情与动作预填 |
+| Eval 与 Stability | `41d8367` | 原生质量页面、共享 ViewModel 和受控 HTML 导出 |
+| Trace 与 Tuning | `b4d5b7b` | 因果 DAG、关键路径、调优视图和跨实体跳转 |
+| 端到端与迁移 | 本次最终提交 | 大历史行兼容、Eval Trace 双数据根、安全回归和浏览器 E2E |
+
+## 14. 最终验收
+
+- 真实项目数据自动发现：Session 111、Eval 28、Delivery 2、Hermes Action 57、Reflection 5、Trace 35，六类数据源均为 `ready`。
+- Session Store 可读取超过 Scanner 默认 64 KiB 的历史行，不再因单条大消息导致整个数据源显示为空。
+- Delivery 列表、详情深链、Entity Picker、状态过滤、上下文预填和 Action Prepare 影响预览通过浏览器验证。
+- Quality Overview、Eval Case Drawer、Stability、Trace DAG、关键路径、节点 Inspector 和 Tuning 通过真实数据验证。
+- Eval Trace 和普通 Agent Trace 只在 `.cohort/evals/sessions`、`temp/sessions` 两个受信任根目录内解析；不接受浏览器提交的任意路径。
+- Eval、Stability、Trace、Tuning 四类离线 HTML 导出均返回 `200`、`text/html` 和 `attachment`，并与原生页面复用领域 ViewModel。
+- Stability 空集合固定序列化为 `[]`，前端兼容历史 `null` 数据，避免 API 成功但页面白屏。
+- Bootstrap Token、HttpOnly Cookie、CSRF、Origin、CSP 和高风险 Action Preparation Token 回归通过。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、TypeScript Typecheck、Vite Production Build 全部通过。
+- `npm audit` 为 0 vulnerabilities。

@@ -150,6 +150,11 @@ func TestStoreListAndLoadHistory(t *testing.T) {
 	if appendErr != nil {
 		t.Fatal(appendErr)
 	}
+	largeContent := strings.Repeat("x", 128*1024)
+	appendErr = store.AppendHistory(second.ID, llm.Message{Role: llm.RoleAssistant, Content: largeContent})
+	if appendErr != nil {
+		t.Fatal(appendErr)
+	}
 
 	summaries, err := store.List()
 	if err != nil {
@@ -162,8 +167,8 @@ func TestStoreListAndLoadHistory(t *testing.T) {
 	if summaries[0].Session.ID != second.ID {
 		t.Fatalf("first listed session = %q, want %q", summaries[0].Session.ID, second.ID)
 	}
-	if summaries[0].MessageCount != 2 {
-		t.Fatalf("second message count = %d, want 2", summaries[0].MessageCount)
+	if summaries[0].MessageCount != 3 {
+		t.Fatalf("second message count = %d, want 3", summaries[0].MessageCount)
 	}
 	if summaries[1].Session.ID != first.ID || summaries[1].MessageCount != 1 {
 		t.Fatalf("second listed summary = %#v, want first session with 1 message", summaries[1])
@@ -173,13 +178,16 @@ func TestStoreListAndLoadHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(history) != 2 {
-		t.Fatalf("history messages = %d, want 2", len(history))
+	if len(history) != 3 {
+		t.Fatalf("history messages = %d, want 3", len(history))
 	}
 	if history[0].Role != llm.RoleUser || history[0].Content != "第二条用户" {
 		t.Fatalf("first restored message = %#v", history[0])
 	}
 	if history[1].Role != llm.RoleAssistant || history[1].Content != "第二条回复" {
 		t.Fatalf("second restored message = %#v", history[1])
+	}
+	if history[2].Content != largeContent {
+		t.Fatalf("large history message length = %d, want %d", len(history[2].Content), len(largeContent))
 	}
 }

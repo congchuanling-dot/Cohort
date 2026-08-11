@@ -20,6 +20,9 @@ func NewStore(projectRoot string) Store {
 
 func (s Store) SuitesDir() string { return filepath.Join(s.Root, "suites") }
 func (s Store) RunsDir() string   { return filepath.Join(s.Root, "runs") }
+func (s Store) SessionsDir() string {
+	return filepath.Join(s.Root, "sessions")
+}
 func (s Store) StabilityDir() string {
 	return filepath.Join(s.Root, "stability")
 }

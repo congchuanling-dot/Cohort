@@ -13,6 +13,8 @@ import (
 	"cohort/internal/llm"
 )
 
+const maxHistoryLineBytes = 16 << 20
+
 // Store 管理本地 session 目录。
 // 它只负责文件路径和落盘，不负责 Agent 运行逻辑。
 //
@@ -187,6 +189,7 @@ func (s Store) CountHistory(sessionID string) (int, error) {
 
 	count := 0
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), maxHistoryLineBytes)
 	for scanner.Scan() {
 		if strings.TrimSpace(scanner.Text()) == "" {
 			continue
@@ -215,6 +218,7 @@ func (s Store) LoadHistory(sessionID string) ([]llm.Message, error) {
 
 	var messages []llm.Message
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), maxHistoryLineBytes)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {

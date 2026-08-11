@@ -139,6 +139,12 @@ func BuildStabilityIndex(results []RunResult, opts StabilityOptions) StabilityIn
 			Profile: opts.Profile,
 			Model:   opts.Model,
 		},
+		Runs:              []StabilityRun{},
+		Suites:            []StabilitySuite{},
+		Cases:             []StabilityCase{},
+		FailureSignatures: []FailureSignature{},
+		Regressions:       []StabilityRegression{},
+		ActionItems:       []ActionItem{},
 	}
 	suiteAgg := map[string]*suiteAccumulator{}
 	caseAgg := map[string]*caseAccumulator{}
@@ -292,16 +298,16 @@ func BuildStabilityIndex(results []RunResult, opts StabilityOptions) StabilityIn
 
 func WriteStabilityReports(store Store, index StabilityIndex) (indexPath, markdownPath, htmlPath string, err error) {
 	dir := store.StabilityDir()
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return "", "", "", err
+	if mkdirErr := os.MkdirAll(dir, 0755); mkdirErr != nil {
+		return "", "", "", mkdirErr
 	}
 	data, err := json.MarshalIndent(index, "", "  ")
 	if err != nil {
 		return "", "", "", err
 	}
 	indexPath = filepath.Join(dir, "index.json")
-	if err := os.WriteFile(indexPath, append(data, '\n'), 0644); err != nil {
-		return "", "", "", err
+	if writeErr := os.WriteFile(indexPath, append(data, '\n'), 0644); writeErr != nil {
+		return "", "", "", writeErr
 	}
 	markdownPath = filepath.Join(dir, "report.md")
 	if err := os.WriteFile(markdownPath, []byte(renderStabilityMarkdown(index)), 0644); err != nil {

@@ -12,6 +12,7 @@ import (
 	"cohort/internal/controlplane"
 	"cohort/internal/evaluation"
 	"cohort/internal/session"
+	"cohort/internal/traceview"
 )
 
 func TestSnapshotProviderAggregatesProjectWithoutMutatingRepository_BitsUT(t *testing.T) {
@@ -134,6 +135,18 @@ func TestProjectDataHubDiscoversStoresAndIsolatesSourceErrors_BitsUT(t *testing.
 func TestQualityProviderAndHTMLExportShareEvalModel_BitsUT(t *testing.T) {
 	root := t.TempDir()
 	store := evaluation.NewStore(root)
+	evalSessionStore := session.NewStore(store.SessionsDir())
+	evalSession, err := evalSessionStore.Create("eval trace", root, "test-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	traceRunID := "run-eval-trace"
+	traceData := `{"schema_version":1,"event_id":"start","event_type":"RunStarted","time":"2026-08-12T00:00:00Z","run_id":"` + traceRunID + `","session_id":"` + evalSession.ID + `","severity":"info","redaction":{}}` + "\n" +
+		`{"schema_version":1,"event_id":"finish","event_type":"RunFinished","time":"2026-08-12T00:00:00.010Z","run_id":"` + traceRunID + `","session_id":"` + evalSession.ID + `","severity":"info","data":{"status":"done","duration_ms":10},"redaction":{}}` + "\n"
+	tracePath := filepath.Join(evalSessionStore.SessionDir(evalSession.ID), traceview.ObservationLogFileName)
+	if writeErr := os.WriteFile(tracePath, []byte(traceData), 0644); writeErr != nil {
+		t.Fatal(writeErr)
+	}
 	result := evaluation.RunResult{
 		SchemaVersion: 1, RunID: "run-quality-1", SuiteID: "core", SuiteName: "Core",
 		Model: "test-model", StartedAt: time.Now().UTC().Add(-time.Minute), FinishedAt: time.Now().UTC(),
@@ -141,10 +154,11 @@ func TestQualityProviderAndHTMLExportShareEvalModel_BitsUT(t *testing.T) {
 		Cases: []evaluation.CaseResult{{
 			CaseID: "case-1", Name: "passes", Passed: true, Score: 96,
 			Attempts: 1, PassedAttempts: 1, StabilityRate: 100,
+			SessionID: evalSession.ID, TraceRunID: traceRunID, TracePath: tracePath,
 		}},
 	}
-	if _, err := store.SaveResult(result); err != nil {
-		t.Fatal(err)
+	if _, saveErr := store.SaveResult(result); saveErr != nil {
+		t.Fatal(saveErr)
 	}
 	value, err := NewQualityProvider()(context.Background(), root, []string{"evals", result.RunID}, nil)
 	if err != nil {
@@ -160,6 +174,21 @@ func TestQualityProviderAndHTMLExportShareEvalModel_BitsUT(t *testing.T) {
 	}
 	if exported.ContentType != "text/html; charset=utf-8" || !strings.Contains(string(exported.Data), "Core") || !strings.Contains(string(exported.Data), result.RunID) {
 		t.Fatalf("export = %#v", exported)
+	}
+	traceValue, err := NewQualityProvider()(context.Background(), root, []string{"traces", evalSession.ID, traceRunID}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph, ok := traceValue.(map[string]any)["graph"].(traceview.Graph)
+	if !ok || graph.SessionID != evalSession.ID || graph.RunID != traceRunID {
+		t.Fatalf("eval trace graph = %#v", traceValue)
+	}
+	traceExport, err := NewExportProvider()(context.Background(), root, []string{"traces", evalSession.ID, traceRunID + ".html"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(traceExport.Data), "Causal Trace Graph") {
+		t.Fatal("eval trace HTML export is missing graph content")
 	}
 	stability, err := NewQualityProvider()(context.Background(), root, []string{"stability"}, nil)
 	if err != nil {
