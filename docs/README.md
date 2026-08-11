@@ -53,6 +53,7 @@
 | `[部分完成]` | [agent_observability_technical_design.md](agent_observability_technical_design.md) | 提炼 GA hook、Langfuse、checkpoint 和 L4 反射经验；Runner lifecycle events、usage/cost 汇总、Langfuse 基础、trace/perf CLI 和 tuning report 已落地，完整 tracing sink、TUI trace panel、eval 与 A/B 仍待补。 |
 | `[完成]` | [adaptive_tool_routing.md](adaptive_tool_routing.md) | 按任务意图渐进暴露工具 schema，能力早停或连续失败时自动扩容；含真实 81→15 工具和 payload 降低 82.6% 的测量结果。 |
 | `[完成]` | [evidence_driven_multi_agent_delivery.md](evidence_driven_multi_agent_delivery.md) | 契约/DAG、隔离 Builder、Evidence/Integration、独立 Verifier、定向返修、离线 Review、人工批准、可恢复事务合并、合并后复验与 Reflection 已落地。 |
+| `[开发中]` | [cohort_control_center.md](cohort_control_center.md) | 本地可视化控制台；统一 Action Catalog、持久 Operation、REST/SSE、专用工作流页面和全命令搜索入口。 |
 | `[历史]` | [cohort_vs_ga_gap.md](cohort_vs_ga_gap.md) | 早期 MVP 差距快照，已由 `cohort_vs_ga_current_gap.md` 取代。 |
 
 ## 核心能力设计
