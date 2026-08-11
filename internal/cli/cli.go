@@ -1496,8 +1496,10 @@ Usage:
                           preview adaptive tool routing without calling an LLM
   cohort deliver plan "requirement"
                           compile a repository-grounded acceptance contract and task DAG
+  cohort deliver run <delivery_id>
+                          execute DAG builders in isolated child processes and worktrees
   cohort deliver list|status|show|cancel
-                          inspect or cancel persistent delivery plans
+                          inspect or cancel persistent deliveries
   cohort components [--json]
                           show system component map and visibility status
   cohort project init [title]

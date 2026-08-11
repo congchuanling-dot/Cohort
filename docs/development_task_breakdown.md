@@ -39,7 +39,7 @@
 | 14 | TS/Python Language Server | `[已完成]` | TypeScript/Python 已使用 `typescript-language-server`/`pyright-langserver` 长驻 stdio，支持 initialize、文件同步、definition/references/hover/symbols、查询缓存、状态、重启、自动恢复和显式 fallback reason；安装计划固定 TypeScript 5.x 兼容版本。 |
 | 15 | 自适应工具路由 | `[完成]` | Registry 与 per-request schema visibility 已分离；按代码/浏览器/桌面/外部领域意图渐进暴露工具，能力早停或连续失败时自动扩容；`tools route`、`ToolRouteSelected`、trace/perf/tuning 和 81→15 工具实测已完成。 |
 | 16 | Agent 因果追踪图 | `[完成]` | 从脱敏事件流关联 LLM、tool、permission、route 和 file change，输出机器可读 DAG、最长加权关键路径、异常与瓶颈，并生成无外部依赖的交互式 HTML。 |
-| 17 | 证据驱动多 Agent 交付 | `[部分完成]` | Delivery 状态机、原子 Store、Acceptance Contract、Task DAG 校验和只读计划 CLI 已完成；下一步接隔离 Builder、Evidence、Integration、Verifier、返修和事务合并。 |
+| 17 | 证据驱动多 Agent 交付 | `[部分完成]` | 契约/DAG、隔离子进程 Builder、Git worktree、Scheduler、lease/heartbeat 和 Artifact Board 已完成；下一步接 Evidence、Integration、Verifier、返修和事务合并。 |
 
 ### 延后项
 

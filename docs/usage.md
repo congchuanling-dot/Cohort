@@ -141,6 +141,7 @@ cohort plan status
 
 ```bash
 cohort deliver plan "为服务增加限流、指标和降级策略"
+cohort deliver run <delivery_id>
 cohort deliver list
 cohort deliver status [delivery_id]
 cohort deliver show <delivery_id>
@@ -150,6 +151,12 @@ cohort deliver cancel <delivery_id>
 计划保存在 `.cohort/deliveries/<delivery_id>/`。Mandatory Criterion、执行 Gate、仓库相对
 scope、节点依赖和 write set 会经过本地确定性校验；存在 blocking question 时状态为
 `needs_human_decision`，不能进入执行阶段。
+
+`deliver run` 会按 DAG 调度 Builder。每个候选运行在独立 OS 子进程、Git branch 和
+`.cohort/delivery-worktrees/` worktree 中；主工作区有未提交改动或 HEAD 偏离计划的
+`base_commit` 时拒绝启动。Worker 通过 lease/heartbeat 持续声明所有权，结果以内容寻址
+Artifact 保存，实际修改超出 `declared_writes` 会判定失败。Builder 全部完成后进入
+`integrating`，不会在此阶段写主工作区。
 
 完整并行 Builder、独立 Verifier、Integration Gate 和事务合并设计见
 [证据驱动的多 Agent 交付引擎](evidence_driven_multi_agent_delivery.md)。
