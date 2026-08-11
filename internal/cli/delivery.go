@@ -37,6 +37,51 @@ func runDeliveryCommand(ctx context.Context, explicitConfigPath string, args []s
 	store := delivery.NewStore(projectRoot)
 
 	switch args[0] {
+	case "run-revision-child":
+		if os.Getenv(deliveryChildEnv) != "1" {
+			return errors.New("deliver run-revision-child is internal; use cohort deliver revise <delivery_id>")
+		}
+		if len(args) != 4 {
+			return errors.New("invalid internal revision worker arguments")
+		}
+		configPath, err := app.ResolveConfigPath(explicitConfigPath)
+		if err != nil {
+			return err
+		}
+		cfg, err := app.LoadConfig(configPath)
+		if err != nil {
+			return err
+		}
+		result, err := runDeliveryRevisionChild(ctx, cfg, store, args[1], args[2], args[3])
+		if err != nil {
+			return err
+		}
+		return store.SaveWorkerResult(args[1], args[2], args[3], result)
+	case "run-verifier-child":
+		if os.Getenv(deliveryChildEnv) != "1" {
+			return errors.New("deliver run-verifier-child is internal; use cohort deliver verify <delivery_id>")
+		}
+		if len(args) != 3 {
+			return errors.New("invalid internal verifier arguments")
+		}
+		configPath, err := app.ResolveConfigPath(explicitConfigPath)
+		if err != nil {
+			return err
+		}
+		cfg, err := app.LoadConfig(configPath)
+		if err != nil {
+			return err
+		}
+		role := delivery.AgentRole(args[2])
+		report, err := runDeliveryVerifierChild(ctx, cfg, store, args[1], role)
+		if err != nil {
+			return err
+		}
+		integration, err := store.LoadIntegration(args[1])
+		if err != nil {
+			return err
+		}
+		return store.SaveVerifierWorkerReport(args[1], integration.TreeHash, role, report)
 	case "run-node-child":
 		if os.Getenv(deliveryChildEnv) != "1" {
 			return errors.New("deliver run-node-child is internal; use cohort deliver run <delivery_id>")
@@ -106,7 +151,22 @@ func runDeliveryCommand(ctx context.Context, explicitConfigPath string, args []s
 		}
 		integration, err := (delivery.Integrator{Store: store}).Run(ctx, args[1])
 		printDeliveryIntegrationSummary(out, integration)
-		return err
+		if err != nil {
+			return err
+		}
+		verification, err := (delivery.VerifierCouncil{Store: store, MaxParallel: 3}).Run(
+			ctx,
+			args[1],
+			deliverySubprocessVerifier(configPath, store),
+		)
+		printDeliveryVerificationSummary(out, verification)
+		if err != nil {
+			return err
+		}
+		if verification.Status == delivery.VerificationFailed {
+			return runDeliveryRevisionLoop(ctx, configPath, store, args[1], out)
+		}
+		return nil
 	case "integrate":
 		if len(args) != 2 {
 			return errors.New("usage: cohort deliver integrate <delivery_id>")
@@ -114,6 +174,36 @@ func runDeliveryCommand(ctx context.Context, explicitConfigPath string, args []s
 		integration, err := (delivery.Integrator{Store: store}).Run(ctx, args[1])
 		printDeliveryIntegrationSummary(out, integration)
 		return err
+	case "verify":
+		if len(args) != 2 {
+			return errors.New("usage: cohort deliver verify <delivery_id>")
+		}
+		configPath, err := app.ResolveConfigPath(explicitConfigPath)
+		if err != nil {
+			return err
+		}
+		if _, err := app.LoadConfig(configPath); err != nil {
+			return err
+		}
+		verification, err := (delivery.VerifierCouncil{Store: store, MaxParallel: 3}).Run(
+			ctx,
+			args[1],
+			deliverySubprocessVerifier(configPath, store),
+		)
+		printDeliveryVerificationSummary(out, verification)
+		return err
+	case "revise":
+		if len(args) != 2 {
+			return errors.New("usage: cohort deliver revise <delivery_id>")
+		}
+		configPath, err := app.ResolveConfigPath(explicitConfigPath)
+		if err != nil {
+			return err
+		}
+		if _, err := app.LoadConfig(configPath); err != nil {
+			return err
+		}
+		return runDeliveryRevisionLoop(ctx, configPath, store, args[1], out)
 	case "list":
 		if len(args) != 1 {
 			return errors.New("usage: cohort deliver list")
@@ -157,6 +247,12 @@ func runDeliveryCommand(ctx context.Context, explicitConfigPath string, args []s
 		}
 		if integration, integrationErr := store.LoadIntegration(item.ID); integrationErr == nil {
 			printDeliveryIntegrationSummary(out, integration)
+		}
+		if verification, verificationErr := store.LoadVerification(item.ID); verificationErr == nil {
+			printDeliveryVerificationSummary(out, verification)
+		}
+		if revisions, revisionErr := store.LoadRevisions(item.ID); revisionErr == nil && len(revisions.Records) > 0 {
+			printDeliveryRevisionSummary(out, revisions.Records[len(revisions.Records)-1])
 		}
 		return nil
 	case "show":
@@ -255,6 +351,166 @@ func deliverySubprocessWorker(configPath string, store delivery.Store, ownerID s
 	}
 }
 
+func deliverySubprocessVerifier(configPath string, store delivery.Store) delivery.SemanticVerifier {
+	return func(ctx context.Context, item delivery.Delivery, _ delivery.AcceptanceContract, integration delivery.IntegrationState, role delivery.AgentRole) (delivery.VerifierReport, error) {
+		executable, err := os.Executable()
+		if err != nil {
+			return delivery.VerifierReport{}, err
+		}
+		args := []string{
+			"--config", configPath,
+			"deliver", "run-verifier-child",
+			item.ID, string(role),
+		}
+		command := exec.CommandContext(ctx, executable, args...)
+		command.Dir = item.ProjectRoot
+		command.Env = append(os.Environ(), deliveryChildEnv+"=1")
+		output, err := command.CombinedOutput()
+		if err != nil {
+			return delivery.VerifierReport{}, fmt.Errorf("isolated %s failed: %w: %s", role, err, strings.TrimSpace(string(output)))
+		}
+		return store.LoadVerifierWorkerReport(item.ID, integration.TreeHash, role)
+	}
+}
+
+func runDeliveryVerifierChild(ctx context.Context, cfg app.Config, store delivery.Store, deliveryID string, role delivery.AgentRole) (delivery.VerifierReport, error) {
+	item, err := store.Load(deliveryID)
+	if err != nil {
+		return delivery.VerifierReport{}, err
+	}
+	contract, _, err := store.LoadPlan(deliveryID)
+	if err != nil {
+		return delivery.VerifierReport{}, err
+	}
+	integration, err := store.LoadIntegration(deliveryID)
+	if err != nil {
+		return delivery.VerifierReport{}, err
+	}
+	_, diff, err := store.ReadArtifact(deliveryID, integration.DiffArtifact)
+	if err != nil {
+		return delivery.VerifierReport{}, err
+	}
+	diffText := string(diff)
+	diffRunes := []rune(diffText)
+	if len(diffRunes) > 120000 {
+		diffText = string(diffRunes[:120000]) + "\n...[diff truncated; inspect files for full context]..."
+	}
+	prompt, err := delivery.VerifierTaskPrompt(item, contract, integration, diffText, role)
+	if err != nil {
+		return delivery.VerifierReport{}, err
+	}
+	runCfg := cfg
+	runCfg.Workspace = integration.WorktreePath
+	runCfg.LogDir = filepath.Join(store.RootDir, deliveryID, "verifier-logs", string(role))
+	runCfg.Tools.EnabledGroups = []string{"core", "lsp"}
+	runCfg.Tools.AdaptiveRouting = false
+	runCfg.Observability.AutoRefresh = false
+	if runCfg.MaxTurns <= 0 || runCfg.MaxTurns > 60 {
+		runCfg.MaxTurns = 60
+	}
+	runner, err := app.NewRunner(runCfg)
+	if err != nil {
+		return delivery.VerifierReport{}, err
+	}
+	defer runner.Close()
+	runner.Tools = explorer.NewReadOnlyToolRunner(runner.Tools, integration.WorktreePath)
+	runner.SessionStore = nil
+	runner.SessionCWD = integration.WorktreePath
+	runner.RunMode = agent.RunModeDeliveryVerifier
+	runner.DisableLongTermMemoryReview = true
+	runner.DisableCapabilityGapRecording = true
+	runner.SystemPrompt = delivery.VerifierSystemPrompt(role, cfg.Language)
+	verifyCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancel()
+	result, err := runner.Run(verifyCtx, prompt, agent.NewConsoleSink(io.Discard))
+	if err != nil {
+		return delivery.VerifierReport{}, err
+	}
+	if result.Status != agent.RunStatusDone || result.Response == nil {
+		return delivery.VerifierReport{}, fmt.Errorf("%s finished with status %s", role, result.Status)
+	}
+	report, err := delivery.ParseVerifierReport(result.Response.Content)
+	if err != nil {
+		return delivery.VerifierReport{}, err
+	}
+	report.Role = role
+	return report, nil
+}
+
+func runDeliveryRevisionLoop(ctx context.Context, configPath string, store delivery.Store, deliveryID string, out io.Writer) error {
+	for {
+		record, err := (delivery.RevisionService{Store: store}).Run(
+			ctx,
+			deliveryID,
+			deliveryRevisionSubprocessWorker(configPath, store),
+		)
+		printDeliveryRevisionSummary(out, record)
+		if err != nil {
+			return err
+		}
+		integration, err := (delivery.Integrator{Store: store}).Run(ctx, deliveryID)
+		printDeliveryIntegrationSummary(out, integration)
+		if err != nil {
+			return err
+		}
+		verification, err := (delivery.VerifierCouncil{Store: store, MaxParallel: 3}).Run(
+			ctx,
+			deliveryID,
+			deliverySubprocessVerifier(configPath, store),
+		)
+		printDeliveryVerificationSummary(out, verification)
+		if err != nil {
+			return err
+		}
+		if verification.Status != delivery.VerificationFailed {
+			return nil
+		}
+	}
+}
+
+func deliveryRevisionSubprocessWorker(configPath string, store delivery.Store) delivery.NodeWorker {
+	return func(ctx context.Context, item delivery.Delivery, _ delivery.AcceptanceContract, node delivery.TaskNode, candidate delivery.Candidate) (delivery.WorkerResult, error) {
+		executable, err := os.Executable()
+		if err != nil {
+			return delivery.WorkerResult{}, err
+		}
+		args := []string{
+			"--config", configPath,
+			"deliver", "run-revision-child",
+			item.ID, node.ID, candidate.ID,
+		}
+		command := exec.CommandContext(ctx, executable, args...)
+		command.Dir = item.ProjectRoot
+		command.Env = append(os.Environ(), deliveryChildEnv+"=1")
+		output, err := command.CombinedOutput()
+		if err != nil {
+			return delivery.WorkerResult{}, fmt.Errorf("isolated revision worker failed: %w: %s", err, strings.TrimSpace(string(output)))
+		}
+		return store.LoadWorkerResult(item.ID, node.ID, candidate.ID)
+	}
+}
+
+func runDeliveryRevisionChild(ctx context.Context, cfg app.Config, store delivery.Store, deliveryID string, nodeID string, candidateID string) (delivery.WorkerResult, error) {
+	item, err := store.Load(deliveryID)
+	if err != nil {
+		return delivery.WorkerResult{}, err
+	}
+	contract, _, err := store.LoadPlan(deliveryID)
+	if err != nil {
+		return delivery.WorkerResult{}, err
+	}
+	revisions, err := store.LoadRevisions(deliveryID)
+	if err != nil {
+		return delivery.WorkerResult{}, err
+	}
+	for _, record := range revisions.Records {
+		if record.Node.ID == nodeID && record.Candidate.ID == candidateID {
+			return executeDeliveryBuilder(ctx, cfg, store, item, contract, record.Node, record.Candidate, "")
+		}
+	}
+	return delivery.WorkerResult{}, fmt.Errorf("revision candidate %q not found", candidateID)
+}
+
 func runDeliveryBuilderChild(ctx context.Context, cfg app.Config, store delivery.Store, deliveryID string, nodeID string, candidateID string, ownerID string) (delivery.WorkerResult, error) {
 	item, err := store.Load(deliveryID)
 	if err != nil {
@@ -272,6 +528,10 @@ func runDeliveryBuilderChild(ctx context.Context, cfg app.Config, store delivery
 	if err != nil {
 		return delivery.WorkerResult{}, err
 	}
+	return executeDeliveryBuilder(ctx, cfg, store, item, contract, node, candidate, ownerID)
+}
+
+func executeDeliveryBuilder(ctx context.Context, cfg app.Config, store delivery.Store, item delivery.Delivery, contract delivery.AcceptanceContract, node delivery.TaskNode, candidate delivery.Candidate, ownerID string) (delivery.WorkerResult, error) {
 	manager, err := worktree.NewManager(item.ProjectRoot, store.WorktreeDir)
 	if err != nil {
 		return delivery.WorkerResult{}, err
@@ -295,7 +555,7 @@ func runDeliveryBuilderChild(ctx context.Context, cfg app.Config, store delivery
 	}
 	runCfg := cfg
 	runCfg.Workspace = candidate.WorktreePath
-	runCfg.LogDir = filepath.Join(store.RootDir, deliveryID, "worker-logs", nodeID, candidateID)
+	runCfg.LogDir = filepath.Join(store.RootDir, item.ID, "worker-logs", node.ID, candidate.ID)
 	runCfg.Tools.EnabledGroups = []string{"core", "lsp"}
 	runCfg.Tools.AdaptiveRouting = false
 	runCfg.Observability.AutoRefresh = false
@@ -315,7 +575,9 @@ func runDeliveryBuilderChild(ctx context.Context, cfg app.Config, store delivery
 	workerCtx, cancel := context.WithTimeout(ctx, time.Duration(node.Budget.MaxDurationSecond)*time.Second)
 	defer cancel()
 	stopHeartbeat := make(chan struct{})
-	go heartbeatDeliveryChild(workerCtx, store, deliveryID, nodeID, ownerID, stopHeartbeat)
+	if ownerID != "" {
+		go heartbeatDeliveryChild(workerCtx, store, item.ID, node.ID, ownerID, stopHeartbeat)
+	}
 	startedAt := time.Now()
 	result, runErr := runner.Run(workerCtx, taskPrompt, agent.NewConsoleSink(io.Discard))
 	close(stopHeartbeat)
@@ -332,15 +594,15 @@ func runDeliveryBuilderChild(ctx context.Context, cfg app.Config, store delivery
 	if inspection.DiffBytes > 2<<20 {
 		return delivery.WorkerResult{}, fmt.Errorf("builder diff exceeds 2 MiB: %d bytes", inspection.DiffBytes)
 	}
-	commit, err := manager.Commit(ctx, spec, "cohort delivery "+deliveryID+" "+nodeID)
+	commit, err := manager.Commit(ctx, spec, "cohort delivery "+item.ID+" "+node.ID)
 	if err != nil {
 		return delivery.WorkerResult{}, err
 	}
 	responseSummary := strings.TrimSpace(result.Response.Content)
 	payload, _ := json.MarshalIndent(map[string]any{
-		"delivery_id":  deliveryID,
-		"node_id":      nodeID,
-		"candidate_id": candidateID,
+		"delivery_id":  item.ID,
+		"node_id":      node.ID,
+		"candidate_id": candidate.ID,
 		"summary":      responseSummary,
 		"status":       result.Status,
 		"usage":        result.Response.Usage,
@@ -432,6 +694,43 @@ func printDeliveryIntegrationSummary(out io.Writer, state delivery.IntegrationSt
 	}
 	if state.Error != "" {
 		fmt.Fprintf(out, "integration_error: %s\n", state.Error)
+	}
+}
+
+func printDeliveryVerificationSummary(out io.Writer, state delivery.VerificationState) {
+	if state.DeliveryID == "" {
+		return
+	}
+	fmt.Fprintf(out, "verification_status: %s\n", state.Status)
+	fmt.Fprintf(out, "verification_round: %d\n", state.Round)
+	fmt.Fprintf(out, "verifier_reports: %d\n", len(state.Reports))
+	fmt.Fprintf(out, "verifier_findings: %d\n", len(state.Findings))
+	blocking := 0
+	for _, finding := range state.Findings {
+		if finding.Status == delivery.FindingOpen &&
+			(finding.Severity == delivery.SeverityHigh || finding.Severity == delivery.SeverityCritical) {
+			blocking++
+		}
+	}
+	fmt.Fprintf(out, "blocking_findings: %d\n", blocking)
+	if state.Error != "" {
+		fmt.Fprintf(out, "verification_error: %s\n", state.Error)
+	}
+}
+
+func printDeliveryRevisionSummary(out io.Writer, record delivery.RevisionRecord) {
+	if record.DeliveryID == "" {
+		return
+	}
+	fmt.Fprintf(out, "revision_round: %d\n", record.Round)
+	fmt.Fprintf(out, "revision_status: %s\n", record.Status)
+	fmt.Fprintf(out, "revision_findings: %d\n", len(record.FindingIDs))
+	if record.Candidate.Commit != "" {
+		fmt.Fprintf(out, "revision_commit: %s\n", record.Candidate.Commit)
+		fmt.Fprintf(out, "revision_tree: %s\n", record.Candidate.TreeHash)
+	}
+	if record.Error != "" {
+		fmt.Fprintf(out, "revision_error: %s\n", record.Error)
 	}
 }
 

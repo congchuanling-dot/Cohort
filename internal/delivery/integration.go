@@ -70,6 +70,11 @@ func (i Integrator) Run(ctx context.Context, deliveryID string) (IntegrationStat
 	if err != nil {
 		return IntegrationState{}, err
 	}
+	revisionCommits, err := i.Store.RevisionCommits(deliveryID)
+	if err != nil {
+		return IntegrationState{}, err
+	}
+	commits = appendUniqueCommits(commits, revisionCommits...)
 	manager, err := worktree.NewManager(item.ProjectRoot, i.Store.WorktreeDir)
 	if err != nil {
 		return IntegrationState{}, err
@@ -251,4 +256,19 @@ func selectedCommitsInOrder(order []string, runtime RuntimeState) ([]string, err
 		}
 	}
 	return commits, nil
+}
+
+func appendUniqueCommits(commits []string, additional ...string) []string {
+	seen := map[string]bool{}
+	for _, commit := range commits {
+		seen[commit] = true
+	}
+	for _, commit := range additional {
+		commit = strings.TrimSpace(commit)
+		if commit != "" && !seen[commit] {
+			commits = append(commits, commit)
+			seen[commit] = true
+		}
+	}
+	return commits
 }

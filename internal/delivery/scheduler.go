@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -175,7 +176,7 @@ func (s Scheduler) runNode(ctx context.Context, item Delivery, contract Acceptan
 	go s.heartbeat(nodeCtx, item.ID, node.ID, ownerID, ttl, stopHeartbeat)
 	defer close(stopHeartbeat)
 
-	var selected string
+	var passing []Candidate
 	var failures []string
 	for _, candidate := range claimed.Candidates {
 		if err := s.Store.SetCandidateRunning(item.ID, node.ID, candidate.ID); err != nil {
@@ -194,6 +195,7 @@ func (s Scheduler) runNode(ctx context.Context, item Delivery, contract Acceptan
 		candidate.Commit = result.Commit
 		candidate.TreeHash = result.TreeHash
 		candidate.ActualWrites = append([]string(nil), result.ActualWrites...)
+		candidate.DiffBytes = len(result.Diff)
 		if runErr != nil {
 			candidate.Status = CandidateFailed
 			candidate.Error = runErr.Error()
@@ -237,22 +239,28 @@ func (s Scheduler) runNode(ctx context.Context, item Delivery, contract Acceptan
 				}
 				candidate.DiffArtifact = diffMeta.ID
 				candidate.ResultArtifact = resultMeta.ID
-				if selected == "" {
-					selected = candidate.ID
-				}
+				passing = append(passing, candidate)
 			}
 		}
 		if err := s.Store.CompleteCandidate(item.ID, node.ID, candidate); err != nil {
 			return err
 		}
-		if selected != "" && node.CandidateCount == 1 {
+		if len(passing) > 0 && node.CandidateCount == 1 {
 			break
 		}
 	}
-	if selected == "" {
+	if len(passing) == 0 {
 		return fmt.Errorf("all candidates failed: %s", strings.Join(failures, "; "))
 	}
-	_, err = s.Store.CompleteNode(item.ID, node.ID, selected)
+	selected := SelectCandidate(passing)
+	for _, candidate := range passing {
+		if candidate.ID != selected.ID {
+			if err := s.Store.RejectCandidate(item.ID, node.ID, candidate.ID); err != nil {
+				return err
+			}
+		}
+	}
+	_, err = s.Store.CompleteNode(item.ID, node.ID, selected.ID)
 	return err
 }
 
@@ -347,4 +355,27 @@ func runningRuntimeNodes(runtime RuntimeState) int {
 		}
 	}
 	return count
+}
+
+func SelectCandidate(candidates []Candidate) Candidate {
+	if len(candidates) == 0 {
+		return Candidate{}
+	}
+	ranked := append([]Candidate(nil), candidates...)
+	sort.SliceStable(ranked, func(left, right int) bool {
+		if ranked[left].DiffBytes != ranked[right].DiffBytes {
+			return ranked[left].DiffBytes < ranked[right].DiffBytes
+		}
+		if len(ranked[left].ActualWrites) != len(ranked[right].ActualWrites) {
+			return len(ranked[left].ActualWrites) < len(ranked[right].ActualWrites)
+		}
+		if ranked[left].Tokens != ranked[right].Tokens {
+			return ranked[left].Tokens < ranked[right].Tokens
+		}
+		if ranked[left].DurationMS != ranked[right].DurationMS {
+			return ranked[left].DurationMS < ranked[right].DurationMS
+		}
+		return ranked[left].ID < ranked[right].ID
+	})
+	return ranked[0]
 }

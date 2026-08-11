@@ -1500,6 +1500,8 @@ Usage:
                           execute isolated builders, integration, and deterministic gates
   cohort deliver integrate <delivery_id>
                           resume integration and fresh-evidence generation
+  cohort deliver verify|revise <delivery_id>
+                          run independent verifier council or bounded targeted revision
   cohort deliver list|status|show|cancel
                           inspect or cancel persistent deliveries
   cohort components [--json]

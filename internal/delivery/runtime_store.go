@@ -190,6 +190,15 @@ func (s Store) CompleteCandidate(deliveryID string, nodeID string, candidate Can
 	})
 }
 
+func (s Store) RejectCandidate(deliveryID string, nodeID string, candidateID string) error {
+	return s.updateCandidate(deliveryID, nodeID, candidateID, func(candidate *Candidate, now time.Time) {
+		if candidate.Status == CandidatePassed {
+			candidate.Status = CandidateRejected
+			candidate.UpdatedAt = now
+		}
+	})
+}
+
 func (s Store) CompleteNode(deliveryID string, nodeID string, selectedID string) (RuntimeState, error) {
 	release, err := s.AcquireDeliveryLock(deliveryID)
 	if err != nil {

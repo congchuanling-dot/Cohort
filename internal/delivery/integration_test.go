@@ -141,6 +141,74 @@ func TestIntegratorMergesSelectedCommitAndProducesFreshEvidence_BitsUT(t *testin
 	if err := VerifyEvidenceFreshness(evidence, stored, state.TreeHash, contract.RequiredGates[0], environmentHash); err == nil || !strings.Contains(err.Error(), "tree hash") {
 		t.Fatalf("stale evidence err = %v", err)
 	}
+
+	finding := Finding{
+		ID:          "finding_revision",
+		Fingerprint: HashString("feature revision"),
+		Verifier:    RoleCorrectnessVerifier,
+		CriterionID: "AC-1",
+		Severity:    SeverityHigh,
+		Confidence:  1,
+		File:        "feature.txt",
+		Claim:       "feature requires revision",
+		Evidence:    []string{"fixture finding"},
+		FixHint:     "replace feature content",
+		Status:      FindingOpen,
+	}
+	if err := store.SaveVerification(item.ID, VerificationState{
+		SchemaVersion: SchemaVersion,
+		DeliveryID:    item.ID,
+		Round:         1,
+		Status:        VerificationFailed,
+		TreeHash:      state.TreeHash,
+		Findings:      []Finding{finding},
+		StartedAt:     time.Now().UTC(),
+		FinishedAt:    time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Transition(item.ID, StatusNeedsRevision, "fixture_revision", nil); err != nil {
+		t.Fatal(err)
+	}
+	revisionWorker := func(ctx context.Context, _ Delivery, _ AcceptanceContract, _ TaskNode, candidate Candidate) (WorkerResult, error) {
+		revisionSpec := worktree.Spec{ID: candidate.ID, BaseCommit: candidate.BaseCommit, Branch: candidate.Branch, Path: candidate.WorktreePath}
+		if err := manager.Prepare(ctx, revisionSpec); err != nil {
+			return WorkerResult{}, err
+		}
+		if err := os.WriteFile(filepath.Join(revisionSpec.Path, "feature.txt"), []byte("revised\n"), 0644); err != nil {
+			return WorkerResult{}, err
+		}
+		inspection, err := manager.Inspect(ctx, revisionSpec)
+		if err != nil {
+			return WorkerResult{}, err
+		}
+		commit, err := manager.Commit(ctx, revisionSpec, "revision")
+		if err != nil {
+			return WorkerResult{}, err
+		}
+		return WorkerResult{
+			Summary:      "revised",
+			Commit:       commit,
+			TreeHash:     inspection.TreeHash,
+			ActualWrites: inspection.Files,
+			Diff:         inspection.Diff,
+			Result:       []byte(`{"status":"revised"}`),
+		}, nil
+	}
+	if _, err := (RevisionService{Store: store}).Run(context.Background(), item.ID, revisionWorker); err != nil {
+		t.Fatal(err)
+	}
+	reintegrated, err := (Integrator{Store: store}).Run(context.Background(), item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reintegrated.TreeHash == state.TreeHash {
+		t.Fatal("revision did not change integration tree")
+	}
+	revisedData, err := os.ReadFile(filepath.Join(reintegrated.WorktreePath, "feature.txt"))
+	if err != nil || string(revisedData) != "revised\n" {
+		t.Fatalf("reintegrated feature = %q, err=%v", revisedData, err)
+	}
 }
 
 func TestValidateGateCommandRejectsShell_BitsUT(t *testing.T) {

@@ -11,7 +11,8 @@
 > 当前进展：Delivery 状态机、原子 Store、Acceptance Contract / Task DAG 本地校验、
 > `deliver plan/list/status/show/cancel`，以及隔离子进程 Builder、Git worktree、DAG
 > Scheduler、lease/heartbeat、内容寻址 Artifact Board、Evidence 新鲜度、Integration
-> Worktree 和确定性 Gate 已落地；Verifier Council、返修和事务合并仍按本文阶段继续实现。
+> Worktree、确定性 Gate、独立 Verifier Council、Finding 去重、确定性候选选择和最多两轮
+> 定向返修已落地；人工 Review、事务合并、合并后复验和可视化仍按本文阶段继续实现。
 
 ## 1. 执行摘要
 

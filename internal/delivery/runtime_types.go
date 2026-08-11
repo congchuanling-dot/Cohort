@@ -54,6 +54,7 @@ type Candidate struct {
 	Commit            string          `json:"commit,omitempty"`
 	TreeHash          string          `json:"tree_hash,omitempty"`
 	ActualWrites      []string        `json:"actual_writes,omitempty"`
+	DiffBytes         int             `json:"diff_bytes,omitempty"`
 	DiffArtifact      string          `json:"diff_artifact,omitempty"`
 	ResultArtifact    string          `json:"result_artifact,omitempty"`
 	Summary           string          `json:"summary,omitempty"`

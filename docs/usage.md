@@ -143,6 +143,8 @@ cohort plan status
 cohort deliver plan "为服务增加限流、指标和降级策略"
 cohort deliver run <delivery_id>
 cohort deliver integrate <delivery_id>
+cohort deliver verify <delivery_id>
+cohort deliver revise <delivery_id>
 cohort deliver list
 cohort deliver status [delivery_id]
 cohort deliver show <delivery_id>
@@ -161,6 +163,12 @@ Artifact 保存，实际修改超出 `declared_writes` 会判定失败。Builder
 确定性 Gate。Gate Evidence 绑定 contract hash、Git tree、command hash 和 environment
 hash；任一输入变化都会让旧证据失效。Gate 通过后状态进入 `verifying`，整个过程仍不会
 写主工作区；中断时可用 `deliver integrate` 恢复。
+
+Verifier Council 至少并行运行 Spec 与 Correctness 两个独立只读 Agent；安全、兼容和性能
+Verifier 按契约风险动态加入。Verifier 不接收 Builder 对话历史，Finding 必须绑定 criterion、
+文件位置和代码证据。High/Critical Finding 会触发最多两轮 `revise -> integrate -> verify`
+闭环；Revision Builder 只能修改 Finding 指向且仍在 contract scope 内的路径。重复失败或
+无法形成安全 write set 时转 `needs_human_decision`，不会无限自动修改。
 
 完整并行 Builder、独立 Verifier、Integration Gate 和事务合并设计见
 [证据驱动的多 Agent 交付引擎](evidence_driven_multi_agent_delivery.md)。
