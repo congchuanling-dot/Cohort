@@ -1,6 +1,7 @@
 package traceview
 
 import (
+	"bytes"
 	"fmt"
 	"html/template"
 	"os"
@@ -40,7 +41,6 @@ type graphRenderEdge struct {
 // WriteGraphHTML 生成不依赖外部脚本和网络资源的离线因果图。
 func WriteGraphHTML(view RunView, path string) (Graph, error) {
 	graph := view.CausalGraph()
-	page := buildGraphPage(graph)
 	if strings.TrimSpace(path) == "" {
 		return graph, fmt.Errorf("graph output path is required")
 	}
@@ -48,24 +48,29 @@ func WriteGraphHTML(view RunView, path string) (Graph, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return graph, err
 	}
+	data, err := GraphHTML(view)
+	if err != nil {
+		return graph, err
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return graph, err
+	}
+	return graph, nil
+}
+
+func GraphHTML(view RunView) ([]byte, error) {
+	page := buildGraphPage(view.CausalGraph())
 	tmpl, err := template.New("causal-graph").Funcs(template.FuncMap{
 		"duration": formatGraphDuration,
 	}).Parse(causalGraphHTML)
 	if err != nil {
-		return graph, err
+		return nil, err
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
-	if err != nil {
-		return graph, err
+	var output bytes.Buffer
+	if err := tmpl.Execute(&output, page); err != nil {
+		return nil, err
 	}
-	if err := tmpl.Execute(file, page); err != nil {
-		_ = file.Close()
-		return graph, err
-	}
-	if err := file.Close(); err != nil {
-		return graph, err
-	}
-	return graph, nil
+	return output.Bytes(), nil
 }
 
 func buildGraphPage(graph Graph) graphPage {

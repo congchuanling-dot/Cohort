@@ -163,6 +163,13 @@ func TestCausalGraphLinksToolArtifactsAndComputesCriticalPath_BitsUT(t *testing.
 	if strings.Contains(string(html), "must-not-leak") {
 		t.Fatalf("graph HTML leaked raw event data")
 	}
+	inMemory, err := GraphHTML(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(inMemory), "Causal Trace Graph") || strings.Contains(string(inMemory), "must-not-leak") {
+		t.Fatal("in-memory graph HTML did not preserve the redacted graph view")
+	}
 }
 
 func testEvent(at time.Time, runID string, sessionID string, eventType observability.EventType, turn int, severity observability.Severity, data map[string]any) observability.Event {

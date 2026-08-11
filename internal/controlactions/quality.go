@@ -4,11 +4,15 @@ import (
 	"context"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"cohort/internal/controlplane"
 	"cohort/internal/evaluation"
+	"cohort/internal/session"
+	"cohort/internal/traceview"
+	"cohort/internal/tuning"
 )
 
 func NewQualityProvider() controlplane.QualityProvider {
@@ -44,6 +48,19 @@ func NewQualityProvider() controlplane.QualityProvider {
 				return nil, err
 			}
 			return evaluation.BuildStabilityIndex(results, stabilityOptions(query)), nil
+		case len(segments) == 3 && segments[0] == "traces":
+			view, err := traceview.LoadSessionRun(
+				filepath.Join(projectRoot, session.DefaultRootDir), segments[1], segments[2],
+			)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"graph": view.CausalGraph(), "summary": view.Summary()}, nil
+		case len(segments) == 1 && segments[0] == "tuning":
+			limit := boundedLimit(query.Get("limit"), 50, 500)
+			return tuning.Analyze(projectRoot, tuning.Options{
+				SessionRoot: filepath.Join(projectRoot, session.DefaultRootDir), Limit: limit,
+			})
 		default:
 			return nil, os.ErrNotExist
 		}
@@ -81,6 +98,35 @@ func NewExportProvider() controlplane.ExportProvider {
 				return controlplane.ExportResult{}, err
 			}
 			return htmlExport("cohort-eval-stability.html", data), nil
+		case len(segments) == 3 && segments[0] == "traces":
+			runID, ok := trimHTMLSuffix(segments[2])
+			if !ok {
+				return controlplane.ExportResult{}, os.ErrNotExist
+			}
+			view, err := traceview.LoadSessionRun(
+				filepath.Join(projectRoot, session.DefaultRootDir), segments[1], runID,
+			)
+			if err != nil {
+				return controlplane.ExportResult{}, err
+			}
+			data, err := traceview.GraphHTML(view)
+			if err != nil {
+				return controlplane.ExportResult{}, err
+			}
+			return htmlExport("cohort-trace-"+safeExportName(runID)+".html", data), nil
+		case len(segments) == 1 && segments[0] == "tuning.html":
+			report, err := tuning.Analyze(projectRoot, tuning.Options{
+				SessionRoot: filepath.Join(projectRoot, session.DefaultRootDir),
+				Limit:       boundedLimit(query.Get("limit"), 50, 500),
+			})
+			if err != nil {
+				return controlplane.ExportResult{}, err
+			}
+			data, err := tuning.DashboardHTML(report)
+			if err != nil {
+				return controlplane.ExportResult{}, err
+			}
+			return htmlExport("cohort-runtime-tuning.html", data), nil
 		default:
 			return controlplane.ExportResult{}, os.ErrNotExist
 		}
@@ -97,6 +143,14 @@ func stabilityOptions(query url.Values) evaluation.StabilityOptions {
 		Profile: strings.TrimSpace(query.Get("profile")), Model: strings.TrimSpace(query.Get("model")),
 		OnlyFlaky: query.Get("flaky") == "true",
 	}
+}
+
+func boundedLimit(value string, fallback, maximum int) int {
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return min(parsed, maximum)
 }
 
 func trimHTMLSuffix(value string) (string, bool) {

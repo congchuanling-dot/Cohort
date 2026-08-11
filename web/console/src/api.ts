@@ -204,6 +204,25 @@ export interface StabilityIndex {
   action_items?: Array<{ id: string; severity: string; category: string; title: string; detail?: string; evidence?: string; trace_run_id?: string }>;
 }
 
+export interface TraceGraph {
+  session_id: string; run_id: string; status: string; duration_ms: number;
+  nodes: Array<{ id: string; kind: string; label: string; detail?: string; turn?: number; status?: string; severity?: string; started_at?: string; duration_ms?: number; order: number; critical?: boolean }>;
+  edges: Array<{ from: string; to: string; relation: string }>;
+  critical_path: string[]; critical_path_ms: number;
+  bottlenecks?: Array<{ node_id: string; kind: string; label: string; reason: string; duration_ms?: number }>;
+  anomalies?: Array<{ node_id: string; kind: string; label: string; reason: string; duration_ms?: number }>;
+  summary: { node_count: number; edge_count: number; llm_nodes: number; tool_nodes: number; failed_tools: number; file_changes: number; route_escalations: number };
+}
+
+export interface TuningReport {
+  runs_scanned: number; sessions_scanned: number; total_duration_ms: number; llm_duration_ms: number; tool_duration_ms: number;
+  tool_failures: number; ask_user_calls: number; permission_events: number; schema_bloat_runs: number; adaptive_routed_runs: number;
+  tool_route_escalations: number; schema_bytes_saved: number; request_bloat_runs: number; context_bloat_runs: number;
+  slow_llms: Array<{ session_id: string; run_id: string; turn: number; duration_ms: number; tool_schema_count: number; request_chars: number; total_tokens: number }>;
+  failed_tools: Array<{ tool: string; error_code: string; status: string; count: number; sessions: number }>;
+  recommendations: string[];
+}
+
 export interface SessionSummary {
   id: string;
   title: string;

@@ -23,43 +23,43 @@ type Options struct {
 }
 
 type Report struct {
-	OutputPath           string
-	DashboardPath        string
-	RunsScanned          int
-	SessionsScanned      int
-	TotalDurationMS      int64
-	LLMDurationMS        int64
-	ToolDurationMS       int64
-	ToolFailures         int
-	AskUserCalls         int
-	PermissionEvents     int
-	SchemaBloatRuns      int
-	AdaptiveRoutedRuns   int
-	ToolRouteEscalations int
-	SchemaBytesSaved     int64
-	RequestBloatRuns     int
-	ContextBloatRuns     int
-	SlowLLMs             []SlowLLM
-	FailedTools          []FailedTool
-	Recommendations      []string
+	OutputPath           string       `json:"output_path,omitempty"`
+	DashboardPath        string       `json:"dashboard_path,omitempty"`
+	RunsScanned          int          `json:"runs_scanned"`
+	SessionsScanned      int          `json:"sessions_scanned"`
+	TotalDurationMS      int64        `json:"total_duration_ms"`
+	LLMDurationMS        int64        `json:"llm_duration_ms"`
+	ToolDurationMS       int64        `json:"tool_duration_ms"`
+	ToolFailures         int          `json:"tool_failures"`
+	AskUserCalls         int          `json:"ask_user_calls"`
+	PermissionEvents     int          `json:"permission_events"`
+	SchemaBloatRuns      int          `json:"schema_bloat_runs"`
+	AdaptiveRoutedRuns   int          `json:"adaptive_routed_runs"`
+	ToolRouteEscalations int          `json:"tool_route_escalations"`
+	SchemaBytesSaved     int64        `json:"schema_bytes_saved"`
+	RequestBloatRuns     int          `json:"request_bloat_runs"`
+	ContextBloatRuns     int          `json:"context_bloat_runs"`
+	SlowLLMs             []SlowLLM    `json:"slow_llms"`
+	FailedTools          []FailedTool `json:"failed_tools"`
+	Recommendations      []string     `json:"recommendations"`
 }
 
 type SlowLLM struct {
-	SessionID       string
-	RunID           string
-	Turn            int
-	DurationMS      int64
-	ToolSchemaCount int64
-	RequestChars    int64
-	TotalTokens     int64
+	SessionID       string `json:"session_id"`
+	RunID           string `json:"run_id"`
+	Turn            int    `json:"turn"`
+	DurationMS      int64  `json:"duration_ms"`
+	ToolSchemaCount int64  `json:"tool_schema_count"`
+	RequestChars    int64  `json:"request_chars"`
+	TotalTokens     int64  `json:"total_tokens"`
 }
 
 type FailedTool struct {
-	Tool      string
-	ErrorCode string
-	Status    string
-	Count     int
-	Sessions  int
+	Tool      string `json:"tool"`
+	ErrorCode string `json:"error_code"`
+	Status    string `json:"status"`
+	Count     int    `json:"count"`
+	Sessions  int    `json:"sessions"`
 }
 
 type failureGroup struct {
@@ -71,6 +71,29 @@ type failureGroup struct {
 }
 
 func Generate(workspace string, opts Options) (Report, error) {
+	report, views, err := analyze(workspace, opts)
+	if err != nil {
+		return Report{}, err
+	}
+	content := renderReport(report, views)
+	if err := os.MkdirAll(filepath.Dir(report.OutputPath), 0755); err != nil {
+		return Report{}, err
+	}
+	if err := os.WriteFile(report.OutputPath, []byte(content), 0644); err != nil {
+		return Report{}, err
+	}
+	if err := writeDashboard(report.DashboardPath, report); err != nil {
+		return Report{}, err
+	}
+	return report, nil
+}
+
+func Analyze(workspace string, opts Options) (Report, error) {
+	report, _, err := analyze(workspace, opts)
+	return report, err
+}
+
+func analyze(workspace string, opts Options) (Report, []traceview.RunView, error) {
 	if opts.SessionRoot == "" {
 		opts.SessionRoot = session.DefaultRootDir
 	}
@@ -82,22 +105,12 @@ func Generate(workspace string, opts Options) (Report, error) {
 	}
 	views, err := traceview.LoadRecentRuns(opts.SessionRoot, opts.Limit)
 	if err != nil {
-		return Report{}, err
+		return Report{}, nil, err
 	}
 	report := buildReport(views)
 	report.OutputPath = opts.OutputPath
 	report.DashboardPath = strings.TrimSuffix(opts.OutputPath, filepath.Ext(opts.OutputPath)) + ".html"
-	content := renderReport(report, views)
-	if err := os.MkdirAll(filepath.Dir(opts.OutputPath), 0755); err != nil {
-		return Report{}, err
-	}
-	if err := os.WriteFile(opts.OutputPath, []byte(content), 0644); err != nil {
-		return Report{}, err
-	}
-	if err := writeDashboard(report.DashboardPath, report); err != nil {
-		return Report{}, err
-	}
-	return report, nil
+	return report, views, nil
 }
 
 func buildReport(views []traceview.RunView) Report {
@@ -306,17 +319,25 @@ func formatMS(ms int64) string {
 }
 
 func writeDashboard(path string, report Report) error {
+	data, err := DashboardHTML(report)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+func DashboardHTML(report Report) ([]byte, error) {
 	tmpl, err := template.New("tuning").Funcs(template.FuncMap{
 		"duration": formatMS,
 	}).Parse(tuningDashboardHTML)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var output bytes.Buffer
 	if err := tmpl.Execute(&output, report); err != nil {
-		return err
+		return nil, err
 	}
-	return os.WriteFile(path, output.Bytes(), 0644)
+	return output.Bytes(), nil
 }
 
 const tuningDashboardHTML = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

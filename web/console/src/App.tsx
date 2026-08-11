@@ -9,6 +9,7 @@ import {
 } from "./api";
 import { EntityDetailPage, EntityListPage } from "./EntityPages";
 import { EvalRunPage, QualityOverviewPage, StabilityPage } from "./QualityPages";
+import { TraceGraphPage, TuningPage } from "./TraceTuningPages";
 
 function StatusDot({ online }: { online: boolean }) {
   return <span className={online ? "status-dot online" : "status-dot"} aria-hidden="true" />;
@@ -204,6 +205,8 @@ export default function App() {
         <Route path="/quality" element={<QualityOverviewPage />} />
         <Route path="/quality/evals/:runId" element={<EvalRunPage />} />
         <Route path="/quality/stability" element={<StabilityPage />} />
+        <Route path="/quality/traces/:sessionId/:runId" element={<TraceGraphPage />} />
+        <Route path="/quality/tuning" element={<TuningPage />} />
         <Route path="/quality/resources" element={<DomainPanels
           deliveries={deliveries.data?.deliveries ?? []}
           hermes={hermes.data}

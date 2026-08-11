@@ -120,6 +120,20 @@ func TestGenerateWritesTuningReport_BitsUT(t *testing.T) {
 			t.Fatalf("dashboard missing %q", want)
 		}
 	}
+	analyzed, err := Analyze(workspace, Options{SessionRoot: sessionRoot, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if analyzed.RunsScanned != report.RunsScanned || analyzed.ToolFailures != report.ToolFailures {
+		t.Fatalf("analyzed report diverged: %#v != %#v", analyzed, report)
+	}
+	rendered, err := DashboardHTML(analyzed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(rendered), "日常 Agent 调优面板") {
+		t.Fatal("in-memory tuning dashboard missing title")
+	}
 }
 
 func tuningEvent(at time.Time, runID string, sessionID string, eventType observability.EventType, turn int, severity observability.Severity, data map[string]any) observability.Event {
