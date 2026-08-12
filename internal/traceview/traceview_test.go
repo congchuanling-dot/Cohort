@@ -172,6 +172,63 @@ func TestCausalGraphLinksToolArtifactsAndComputesCriticalPath_BitsUT(t *testing.
 	}
 }
 
+func TestReceiptLedgerSeparatesProviderUsageFromEstimate_BitsUT(t *testing.T) {
+	base := time.Date(2026, 8, 12, 13, 0, 0, 0, time.UTC)
+	events := []observability.Event{
+		testEvent(base, "run_receipt", "session_receipt", observability.EventContextBuilt, 1, observability.SeverityInfo, map[string]any{
+			"final_tokens": 900,
+		}),
+		testEvent(base.Add(time.Millisecond), "run_receipt", "session_receipt", observability.EventLLMRequestStarted, 1, observability.SeverityInfo, map[string]any{
+			"message_count": 4, "request_chars": 3600, "tool_schema_count": 81,
+		}),
+		testEvent(base.Add(100*time.Millisecond), "run_receipt", "session_receipt", observability.EventLLMResponseFinished, 1, observability.SeverityInfo, map[string]any{
+			"status": "success", "duration_ms": 99, "usage": map[string]any{
+				"input_tokens": 1000, "output_tokens": 50, "total_tokens": 1050, "cache_read_input_tokens": 800,
+			},
+		}),
+		testEvent(base.Add(101*time.Millisecond), "run_receipt", "session_receipt", observability.EventContextBuilt, 2, observability.SeverityInfo, map[string]any{
+			"final_tokens": 1200,
+		}),
+		testEvent(base.Add(102*time.Millisecond), "run_receipt", "session_receipt", observability.EventLLMRequestStarted, 2, observability.SeverityInfo, map[string]any{
+			"message_count": 6, "request_chars": 4800, "tool_schema_count": 81,
+		}),
+		testEvent(base.Add(200*time.Millisecond), "run_receipt", "session_receipt", observability.EventLLMResponseFinished, 2, observability.SeverityInfo, map[string]any{
+			"status": "success", "duration_ms": 98,
+		}),
+	}
+	ledger := (RunView{SessionID: "session_receipt", RunID: "run_receipt", Events: events}).ReceiptLedger()
+	if ledger.UsageSource != UsageSourceProviderReported || ledger.ProviderTurns != 1 || ledger.UnavailableTurns != 1 {
+		t.Fatalf("ledger sources = %#v", ledger)
+	}
+	if ledger.InputTokens != 1000 || ledger.OutputTokens != 50 || ledger.TotalTokens != 1050 || ledger.CacheReadTokens != 800 {
+		t.Fatalf("ledger totals = %#v", ledger)
+	}
+	if len(ledger.Receipts) != 2 || ledger.Receipts[0].EstimatedInputTokens != 900 ||
+		ledger.Receipts[0].UsageSource != UsageSourceProviderReported ||
+		ledger.Receipts[1].UsageSource != UsageSourceUnavailable ||
+		ledger.Receipts[1].EstimatedInputTokens != 1200 {
+		t.Fatalf("receipts = %#v", ledger.Receipts)
+	}
+	if ledger.EstimatedCostUSD != nil || ledger.CostPricingSource != "not_configured" {
+		t.Fatalf("unconfigured cost must stay unavailable: %#v", ledger)
+	}
+}
+
+func TestReceiptLedgerDoesNotTreatRedactedUsageAsProviderNumbers_BitsUT(t *testing.T) {
+	event := testEvent(time.Now(), "run_redacted", "session_redacted", observability.EventLLMResponseFinished, 1, observability.SeverityInfo, map[string]any{
+		"status": "success",
+		"usage": map[string]any{
+			"input_tokens": map[string]any{"redacted": true, "hash": "sha256:secret"},
+			"total_tokens": map[string]any{"redacted": true, "hash": "sha256:secret"},
+		},
+	})
+	ledger := (RunView{SessionID: "session_redacted", RunID: "run_redacted", Events: []observability.Event{event}}).ReceiptLedger()
+	if ledger.ProviderTurns != 0 || ledger.UnavailableTurns != 1 || ledger.TotalTokens != 0 ||
+		ledger.Receipts[0].UsageSource != UsageSourceUnavailable {
+		t.Fatalf("redacted usage leaked into numeric ledger: %#v", ledger)
+	}
+}
+
 func testEvent(at time.Time, runID string, sessionID string, eventType observability.EventType, turn int, severity observability.Severity, data map[string]any) observability.Event {
 	return observability.Event{
 		SchemaVersion: observability.SchemaVersion,
