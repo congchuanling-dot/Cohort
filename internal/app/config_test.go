@@ -79,8 +79,11 @@ llm:
 	if cfg.Context.MaxCompactSummaryChars != 188 {
 		t.Fatalf("max compact summary chars = %d, want 188", cfg.Context.MaxCompactSummaryChars)
 	}
-	if cfg.Context.ContextWindowTokens != 1000000 {
-		t.Fatalf("resolved context window tokens = %d, want 1000000", cfg.Context.ContextWindowTokens)
+	if cfg.Context.ContextWindowTokens != 128000 {
+		t.Fatalf("resolved context window tokens = %d, want conservative 128000", cfg.Context.ContextWindowTokens)
+	}
+	if cfg.Context.ContextWindowSource != "conservative_fallback" || cfg.Context.CapabilityConfidence != "unknown" {
+		t.Fatalf("unknown model capability = source %q confidence %q", cfg.Context.ContextWindowSource, cfg.Context.CapabilityConfidence)
 	}
 	if cfg.Context.EnableMicroCompact {
 		t.Fatal("enable micro compact = true, want false")

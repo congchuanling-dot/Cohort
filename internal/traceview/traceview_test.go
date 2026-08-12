@@ -229,6 +229,38 @@ func TestReceiptLedgerDoesNotTreatRedactedUsageAsProviderNumbers_BitsUT(t *testi
 	}
 }
 
+func TestContextCapacityUsesProviderReceiptAndExplainsWaterfall_BitsUT(t *testing.T) {
+	base := time.Date(2026, 8, 12, 14, 0, 0, 0, time.UTC)
+	events := []observability.Event{
+		testEvent(base, "run_capacity", "session_capacity", observability.EventContextBuilt, 1, observability.SeverityInfo, map[string]any{
+			"original_tokens": 800, "final_tokens": 1000, "original_messages": 4, "final_messages": 6,
+			"context_window_tokens": 2000, "usable_input_tokens": 1800, "compact_trigger_tokens": 1260,
+			"context_window_source": "test_registry", "capability_version": "v1", "capability_confidence": "verified",
+			"relevant_memory_chars": 200, "omitted_tool_result_chars": 100, "trigger_reason": "below_compact_trigger_threshold",
+		}),
+		testEvent(base.Add(time.Millisecond), "run_capacity", "session_capacity", observability.EventLLMRequestStarted, 1, observability.SeverityInfo, map[string]any{
+			"message_count": 6, "request_chars": 4000,
+		}),
+		testEvent(base.Add(2*time.Millisecond), "run_capacity", "session_capacity", observability.EventLLMResponseFinished, 1, observability.SeverityInfo, map[string]any{
+			"status": "success", "usage": map[string]any{"input_tokens": 1700, "output_tokens": 20, "total_tokens": 1720},
+		}),
+	}
+	report := (RunView{SessionID: "session_capacity", RunID: "run_capacity", Events: events}).ContextCapacity("test-model")
+	if report.Capability.ContextWindowTokens != 2000 || report.Capability.Source != "test_registry" ||
+		report.State != "critical" || len(report.Turns) != 1 {
+		t.Fatalf("capacity report = %#v", report)
+	}
+	turn := report.Turns[0]
+	if turn.MeasurementSource != UsageSourceProviderReported || turn.EffectiveInputTokens != 1700 ||
+		turn.EstimatedInputTokens != 1000 || turn.OccupancyRatio < 0.94 {
+		t.Fatalf("capacity turn = %#v", turn)
+	}
+	if report.Calibration.Samples != 1 || report.Calibration.AverageActualRatio != 1.7 ||
+		len(turn.Waterfall) < 4 || len(report.RecommendedActions) == 0 {
+		t.Fatalf("capacity calibration/waterfall = %#v", report)
+	}
+}
+
 func testEvent(at time.Time, runID string, sessionID string, eventType observability.EventType, turn int, severity observability.Severity, data map[string]any) observability.Event {
 	return observability.Event{
 		SchemaVersion: observability.SchemaVersion,

@@ -8,22 +8,30 @@ import (
 
 const (
 	// defaultContextWindowTokens 是未知模型的兜底窗口。
-	// 当前默认跟 dsv4pro 对齐为 1M，后续如果接入更多模型，可以把未知模型改得更保守。
-	defaultContextWindowTokens  = 1000000
+	// 未知模型不能继承某个内部模型的 1M 能力，否则会在没有证据时放大超窗风险。
+	defaultContextWindowTokens  = 128000
 	triggerReasonBelowThreshold = "below_compact_trigger_threshold"
 	triggerReasonOverThreshold  = "over_compact_trigger_threshold"
 	triggerReasonOverBudget     = "over_usable_input_budget"
 )
 
-// modelContextWindows 是模型名到上下文窗口大小的内置表。
-//
-// Cohort 不让用户配置 context window，原因是窗口大小属于模型能力，而不是用户偏好。
-// 用户只选择 llm.model，运行时根据模型名查这里。
-var modelContextWindows = map[string]int{
-	"deepseek-v4-pro": 1000000,
-	"dsv4pro":         1000000,
-	"dsv4-pro":        1000000,
-	"dsv4":            1000000,
+const modelCapabilityRegistryVersion = "2026-08-12"
+
+type ModelCapability struct {
+	Model               string `json:"model"`
+	ContextWindowTokens int    `json:"context_window_tokens"`
+	Source              string `json:"source"`
+	Version             string `json:"version"`
+	Confidence          string `json:"confidence"`
+}
+
+var modelCapabilities = map[string]ModelCapability{
+	"deepseek-v4-pro":   {ContextWindowTokens: 1000000, Source: "cohort_builtin_override", Confidence: "configured"},
+	"dsv4pro":           {ContextWindowTokens: 1000000, Source: "cohort_builtin_override", Confidence: "configured"},
+	"dsv4-pro":          {ContextWindowTokens: 1000000, Source: "cohort_builtin_override", Confidence: "configured"},
+	"dsv4":              {ContextWindowTokens: 1000000, Source: "cohort_builtin_override", Confidence: "configured"},
+	"deepseek-chat":     {ContextWindowTokens: 128000, Source: "cohort_model_registry", Confidence: "documented"},
+	"deepseek-reasoner": {ContextWindowTokens: 128000, Source: "cohort_model_registry", Confidence: "documented"},
 }
 
 type budget struct {
@@ -39,11 +47,24 @@ type budget struct {
 // ResolveContextWindowTokens 根据模型名返回上下文窗口。
 // 模型 API 通常不提供稳定的上下文窗口接口，因此这里使用内置模型表。
 func ResolveContextWindowTokens(model string) int {
+	return ResolveModelCapability(model).ContextWindowTokens
+}
+
+// ResolveModelCapability 返回带来源和版本的模型能力，供运行时和控制面共同解释容量依据。
+func ResolveModelCapability(model string) ModelCapability {
 	key := strings.ToLower(strings.TrimSpace(model))
-	if value, ok := modelContextWindows[key]; ok {
-		return value
+	if capability, ok := modelCapabilities[key]; ok {
+		capability.Model = strings.TrimSpace(model)
+		capability.Version = modelCapabilityRegistryVersion
+		return capability
 	}
-	return defaultContextWindowTokens
+	return ModelCapability{
+		Model:               strings.TrimSpace(model),
+		ContextWindowTokens: defaultContextWindowTokens,
+		Source:              "conservative_fallback",
+		Version:             modelCapabilityRegistryVersion,
+		Confidence:          "unknown",
+	}
 }
 
 // newBudget 计算本轮请求的输入预算和压缩触发线。

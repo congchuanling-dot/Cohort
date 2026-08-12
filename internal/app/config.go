@@ -238,7 +238,11 @@ func finalizeConfig(cfg Config) (Config, error) {
 	cfg.Observability = normalizeObservabilityConfig(cfg.Observability)
 	cfg.Reflection = normalizeReflectionConfig(cfg.Reflection)
 	active := cfg.LLM.Active()
-	cfg.Context.ContextWindowTokens = contextmgr.ResolveContextWindowTokens(active.Model)
+	capability := contextmgr.ResolveModelCapability(active.Model)
+	cfg.Context.ContextWindowTokens = capability.ContextWindowTokens
+	cfg.Context.ContextWindowSource = capability.Source
+	cfg.Context.CapabilityVersion = capability.Version
+	cfg.Context.CapabilityConfidence = capability.Confidence
 	return cfg, nil
 }
 

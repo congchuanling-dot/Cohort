@@ -49,12 +49,13 @@ func NewQualityProvider() controlplane.QualityProvider {
 			}
 			return evaluation.BuildStabilityIndex(results, stabilityOptions(query)), nil
 		case len(segments) == 3 && segments[0] == "traces":
-			view, err := loadQualityTrace(projectRoot, segments[1], segments[2])
+			view, model, err := loadQualityTraceDetails(projectRoot, segments[1], segments[2])
 			if err != nil {
 				return nil, err
 			}
 			return map[string]any{
 				"graph": view.CausalGraph(), "summary": view.Summary(), "receipts": view.ReceiptLedger(),
+				"capacity": view.ContextCapacity(model),
 			}, nil
 		case len(segments) == 3 && segments[0] == "receipts":
 			view, err := loadQualityTrace(projectRoot, segments[1], segments[2])
@@ -62,6 +63,12 @@ func NewQualityProvider() controlplane.QualityProvider {
 				return nil, err
 			}
 			return view.ReceiptLedger(), nil
+		case len(segments) == 3 && segments[0] == "capacity":
+			view, model, err := loadQualityTraceDetails(projectRoot, segments[1], segments[2])
+			if err != nil {
+				return nil, err
+			}
+			return view.ContextCapacity(model), nil
 		case len(segments) == 1 && segments[0] == "tuning":
 			limit := boundedLimit(query.Get("limit"), 50, 500)
 			return tuning.Analyze(projectRoot, tuning.Options{
@@ -138,6 +145,11 @@ func NewExportProvider() controlplane.ExportProvider {
 }
 
 func loadQualityTrace(projectRoot, sessionID, runID string) (traceview.RunView, error) {
+	view, _, err := loadQualityTraceDetails(projectRoot, sessionID, runID)
+	return view, err
+}
+
+func loadQualityTraceDetails(projectRoot, sessionID, runID string) (traceview.RunView, string, error) {
 	roots := []string{
 		filepath.Join(projectRoot, session.DefaultRootDir),
 		evaluation.NewStore(projectRoot).SessionsDir(),
@@ -146,11 +158,12 @@ func loadQualityTrace(projectRoot, sessionID, runID string) (traceview.RunView, 
 	for _, root := range roots {
 		view, err := traceview.LoadSessionRun(root, sessionID, runID)
 		if err == nil {
-			return view, nil
+			meta, _ := session.NewStore(root).LoadMeta(sessionID)
+			return view, meta.Model, nil
 		}
 		lastErr = err
 	}
-	return traceview.RunView{}, lastErr
+	return traceview.RunView{}, "", lastErr
 }
 
 func stabilityOptions(query url.Values) evaluation.StabilityOptions {

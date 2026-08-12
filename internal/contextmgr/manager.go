@@ -25,8 +25,14 @@ func (m Manager) Build(input BuildInput) BuildResult {
 	// Runner.history 和 history.jsonl 必须保留完整原始消息，后续 resume、审计和重新压缩都依赖它们。
 	messages := cloneMessages(input.Messages)
 	stats := Stats{
-		OriginalMessages: len(input.Messages),
-		OriginalChars:    messagesChars(input.Messages),
+		OriginalMessages:     len(input.Messages),
+		OriginalChars:        messagesChars(input.Messages),
+		ContextWindowTokens:  cfg.ContextWindowTokens,
+		ContextWindowSource:  cfg.ContextWindowSource,
+		CapabilityVersion:    cfg.CapabilityVersion,
+		CapabilityConfidence: cfg.CapabilityConfidence,
+		MaxOutputTokens:      cfg.MaxOutputTokens,
+		SafetyTokens:         cfg.SafetyTokens,
 	}
 	stats.OriginalTokens = estimateTokensFromChars(stats.OriginalChars)
 

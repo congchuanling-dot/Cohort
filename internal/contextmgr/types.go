@@ -57,7 +57,10 @@ type Config struct {
 
 	// ContextWindowTokens 是当前模型最大上下文窗口。
 	// 它由 app 层根据当前模型名从内置表填充，不从用户配置读取。
-	ContextWindowTokens int
+	ContextWindowTokens  int
+	ContextWindowSource  string
+	CapabilityVersion    string
+	CapabilityConfidence string
 
 	// MaxOutputTokens 是为模型回复预留的 token 数。
 	// 输入上下文预算会从模型窗口里扣掉这部分，避免输入占满后导致输出失败。
@@ -146,6 +149,15 @@ func (c Config) Normalize() Config {
 	if c.ContextWindowTokens <= 0 {
 		c.ContextWindowTokens = defaultContextWindowTokens
 	}
+	if c.ContextWindowSource == "" {
+		c.ContextWindowSource = "runtime_config"
+	}
+	if c.CapabilityVersion == "" {
+		c.CapabilityVersion = "unversioned"
+	}
+	if c.CapabilityConfidence == "" {
+		c.CapabilityConfidence = "configured"
+	}
 	if c.MaxOutputTokens < 0 {
 		c.MaxOutputTokens = defaults.MaxOutputTokens
 	}
@@ -224,6 +236,13 @@ type Stats struct {
 
 	// UsableInputTokens 是扣除输出预留和安全余量后的可用输入 token 预算。
 	UsableInputTokens int
+
+	ContextWindowTokens  int
+	ContextWindowSource  string
+	CapabilityVersion    string
+	CapabilityConfidence string
+	MaxOutputTokens      int
+	SafetyTokens         int
 
 	// CompactTriggerTokens 是触发压缩的 token 阈值。
 	// 低于该值时不会执行 Micro Compact 或 Group Trim。
