@@ -322,6 +322,40 @@ func TestGovernanceReportIncludesEnforcedAndPendingInterventions_BitsUT(t *testi
 	}
 }
 
+func TestRunCompareSelectsSuccessfulBaselineAndBuildsProposal_BitsUT(t *testing.T) {
+	base := time.Date(2026, 8, 12, 16, 0, 0, 0, time.UTC)
+	baseline := RunView{SessionID: "session_compare", RunID: "run_good", Events: []observability.Event{
+		testEvent(base, "run_good", "session_compare", observability.EventRunStarted, 0, observability.SeverityInfo, nil),
+		testEvent(base.Add(time.Millisecond), "run_good", "session_compare", observability.EventLLMResponseFinished, 1, observability.SeverityInfo, map[string]any{
+			"status": "success", "duration_ms": 100, "usage": map[string]any{"input_tokens": 100, "output_tokens": 10, "total_tokens": 110},
+		}),
+		testEvent(base.Add(200*time.Millisecond), "run_good", "session_compare", observability.EventRunFinished, 1, observability.SeverityInfo, map[string]any{
+			"status": "completed", "duration_ms": 200,
+		}),
+	}}
+	current := RunView{SessionID: "session_compare", RunID: "run_bad", Events: []observability.Event{
+		testEvent(base.Add(time.Second), "run_bad", "session_compare", observability.EventRunStarted, 0, observability.SeverityInfo, nil),
+		testEvent(base.Add(1001*time.Millisecond), "run_bad", "session_compare", observability.EventLLMResponseFinished, 1, observability.SeverityInfo, map[string]any{
+			"status": "success", "duration_ms": 300, "usage": map[string]any{"input_tokens": 200, "output_tokens": 20, "total_tokens": 220},
+		}),
+		testEvent(base.Add(1100*time.Millisecond), "run_bad", "session_compare", observability.EventToolFinished, 1, observability.SeverityWarn, map[string]any{
+			"tool": "code_run", "status": "error", "error_code": "exit_1", "duration_ms": 100,
+		}),
+		testEvent(base.Add(1500*time.Millisecond), "run_bad", "session_compare", observability.EventRunFinished, 1, observability.SeverityError, map[string]any{
+			"status": "failed", "duration_ms": 500,
+		}),
+	}}
+	selected := SelectSuccessfulBaseline(current, []RunView{current, baseline})
+	if selected.RunID != baseline.RunID {
+		t.Fatalf("selected baseline = %#v", selected)
+	}
+	comparison := CompareRuns(current, selected, "test-model")
+	if comparison.State != "ready" || comparison.Baseline == nil || comparison.Baseline.RunID != "run_good" ||
+		len(comparison.Findings) < 2 || len(comparison.Proposal.Recommendations) == 0 {
+		t.Fatalf("comparison = %#v", comparison)
+	}
+}
+
 func testEvent(at time.Time, runID string, sessionID string, eventType observability.EventType, turn int, severity observability.Severity, data map[string]any) observability.Event {
 	return observability.Event{
 		SchemaVersion: observability.SchemaVersion,

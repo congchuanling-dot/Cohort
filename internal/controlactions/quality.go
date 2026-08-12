@@ -75,6 +75,8 @@ func NewQualityProvider() controlplane.QualityProvider {
 				return nil, err
 			}
 			return view.Governance(model), nil
+		case len(segments) == 3 && segments[0] == "compare":
+			return compareQualityRun(projectRoot, segments[1], segments[2])
 		case len(segments) == 1 && segments[0] == "tuning":
 			limit := boundedLimit(query.Get("limit"), 50, 500)
 			return tuning.Analyze(projectRoot, tuning.Options{
@@ -170,6 +172,26 @@ func loadQualityTraceDetails(projectRoot, sessionID, runID string) (traceview.Ru
 		lastErr = err
 	}
 	return traceview.RunView{}, "", lastErr
+}
+
+func compareQualityRun(projectRoot, sessionID, runID string) (traceview.RunComparison, error) {
+	current, model, err := loadQualityTraceDetails(projectRoot, sessionID, runID)
+	if err != nil {
+		return traceview.RunComparison{}, err
+	}
+	roots := []string{
+		filepath.Join(projectRoot, session.DefaultRootDir),
+		evaluation.NewStore(projectRoot).SessionsDir(),
+	}
+	var candidates []traceview.RunView
+	for _, root := range roots {
+		views, loadErr := traceview.LoadRecentRuns(root, 100)
+		if loadErr == nil {
+			candidates = append(candidates, views...)
+		}
+	}
+	baseline := traceview.SelectSuccessfulBaseline(current, candidates)
+	return traceview.CompareRuns(current, baseline, model), nil
 }
 
 func stabilityOptions(query url.Values) evaluation.StabilityOptions {

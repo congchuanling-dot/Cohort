@@ -39,6 +39,7 @@ func NewCatalog(configPaths ...string) (*controlplane.Catalog, error) {
 	specs = append(specs, skillActions()...)
 	specs = append(specs, lspActions()...)
 	specs = append(specs, reflectionActions()...)
+	specs = append(specs, runtimeOptimizationActions()...)
 	specs = append(specs, agentActions(configPath)...)
 	specs = append(specs, settingsActions(configPath)...)
 	return controlplane.NewCatalog(specs...)
