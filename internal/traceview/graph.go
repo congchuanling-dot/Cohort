@@ -25,17 +25,53 @@ type Graph struct {
 }
 
 type GraphNode struct {
-	ID         string    `json:"id"`
-	Kind       string    `json:"kind"`
-	Label      string    `json:"label"`
-	Detail     string    `json:"detail,omitempty"`
-	Turn       int       `json:"turn,omitempty"`
-	Status     string    `json:"status,omitempty"`
-	Severity   string    `json:"severity,omitempty"`
-	StartedAt  time.Time `json:"started_at,omitempty"`
-	DurationMS int64     `json:"duration_ms,omitempty"`
-	Order      int       `json:"order"`
-	Critical   bool      `json:"critical,omitempty"`
+	ID         string               `json:"id"`
+	Kind       string               `json:"kind"`
+	Label      string               `json:"label"`
+	Detail     string               `json:"detail,omitempty"`
+	Turn       int                  `json:"turn,omitempty"`
+	Status     string               `json:"status,omitempty"`
+	Severity   string               `json:"severity,omitempty"`
+	StartedAt  time.Time            `json:"started_at,omitempty"`
+	DurationMS int64                `json:"duration_ms,omitempty"`
+	Order      int                  `json:"order"`
+	Critical   bool                 `json:"critical,omitempty"`
+	Execution  GraphExecutionDetail `json:"execution"`
+}
+
+type GraphExecutionDetail struct {
+	What              string            `json:"what,omitempty"`
+	How               string            `json:"how,omitempty"`
+	InputSummary      string            `json:"input_summary,omitempty"`
+	ParametersSummary string            `json:"parameters_summary,omitempty"`
+	ParametersHash    string            `json:"parameters_hash,omitempty"`
+	OutputSummary     string            `json:"output_summary,omitempty"`
+	TokenUsage        *GraphTokenUsage  `json:"token_usage,omitempty"`
+	Permission        *GraphPermission  `json:"permission,omitempty"`
+	Evidence          []GraphEvidence   `json:"evidence,omitempty"`
+	Attributes        map[string]string `json:"attributes,omitempty"`
+}
+
+type GraphTokenUsage struct {
+	Source    string `json:"source"`
+	Input     int64  `json:"input,omitempty"`
+	Output    int64  `json:"output,omitempty"`
+	Total     int64  `json:"total,omitempty"`
+	CacheRead int64  `json:"cache_read,omitempty"`
+	Estimated int64  `json:"estimated_input,omitempty"`
+}
+
+type GraphPermission struct {
+	Decision string `json:"decision"`
+	Risk     string `json:"risk,omitempty"`
+	External bool   `json:"external,omitempty"`
+	Server   string `json:"server,omitempty"`
+}
+
+type GraphEvidence struct {
+	Type  string `json:"type"`
+	Ref   string `json:"ref,omitempty"`
+	Label string `json:"label"`
 }
 
 type GraphEdge struct {
@@ -70,6 +106,7 @@ type graphBuilder struct {
 	llmNodes     map[int]string
 	toolNodes    map[string]string
 	kindCounts   map[string]int
+	contexts     map[int]observability.Event
 }
 
 // CausalGraph 从脱敏后的运行事件重建因果 DAG，不读取 prompt 或工具结果正文。
@@ -89,6 +126,7 @@ func (v RunView) CausalGraph() Graph {
 		llmNodes:   map[int]string{},
 		toolNodes:  map[string]string{},
 		kindCounts: map[string]int{},
+		contexts:   map[int]observability.Event{},
 	}
 	builder.addNode(GraphNode{
 		ID:        "run",
@@ -96,6 +134,10 @@ func (v RunView) CausalGraph() Graph {
 		Label:     "Agent Run",
 		Status:    "running",
 		StartedAt: firstEventTime(events),
+		Execution: GraphExecutionDetail{
+			What: "执行一次 Agent 任务直到完成、失败或被治理策略中止。",
+			How:  "按事件证据重建运行主链，不读取原始 Prompt 或工具结果正文。",
+		},
 	}, false)
 	builder.lastSequence = "run"
 	for _, event := range events {
@@ -120,35 +162,25 @@ func (b *graphBuilder) consume(event observability.Event) {
 			Detail:    fmt.Sprintf("%d chars", graphInt(event.Data, "chars")),
 			StartedAt: event.Time,
 			Severity:  string(event.Severity),
+			Execution: GraphExecutionDetail{
+				What:         "接收用户任务并启动 Agent Run。",
+				How:          "只记录字符数和不可逆 hash，任务正文不进入控制面。",
+				InputSummary: fmt.Sprintf("%d chars", graphInt(event.Data, "chars")),
+				Evidence:     eventEvidence(event, "user task submitted"),
+			},
 		}, "triggers")
 	case observability.EventTurnStarted:
-		id := fmt.Sprintf("turn-%d", event.Turn)
-		if _, exists := b.nodeIndex[id]; !exists {
-			b.addSequential(GraphNode{
-				ID:        id,
-				Kind:      "turn",
-				Label:     fmt.Sprintf("Turn %d", event.Turn),
-				Turn:      event.Turn,
-				StartedAt: event.Time,
-			}, "next")
-		}
+		// Turn 是 LLM/Tool 节点属性，不再作为主链中的空操作节点。
 	case observability.EventContextBuilt:
-		b.addSequential(GraphNode{
-			ID:    b.nextID(fmt.Sprintf("context-%d", event.Turn)),
-			Kind:  "context",
-			Label: "Context Build",
-			Detail: fmt.Sprintf(
-				"%d messages · %d tokens · %d chars",
-				graphInt(event.Data, "final_messages"),
-				graphInt(event.Data, "final_tokens"),
-				graphInt(event.Data, "final_chars"),
-			),
-			Turn:      event.Turn,
-			StartedAt: event.Time,
-			Severity:  string(event.Severity),
-		}, "builds")
+		b.contexts[event.Turn] = event
+		if contextChanged(event.Data) {
+			b.addSequential(contextGraphNode(b.nextID(fmt.Sprintf("context-%d", event.Turn)), event), "governs")
+		}
 	case observability.EventToolRouteSelected:
 		mode := graphString(event.Data, "mode")
+		if mode != "adaptive" && mode != "escalating" && !graphBool(event.Data, "escalated") {
+			return
+		}
 		detail := fmt.Sprintf(
 			"%s · %d/%d tools · saved %dB",
 			graphStringDefault(event.Data, "reason", "route"),
@@ -165,6 +197,14 @@ func (b *graphBuilder) consume(event observability.Event) {
 			Status:    mode,
 			StartedAt: event.Time,
 			Severity:  string(event.Severity),
+			Execution: GraphExecutionDetail{
+				What:         "选择本轮可见工具 Schema。",
+				How:          graphStringDefault(event.Data, "reason", "runtime route policy"),
+				InputSummary: fmt.Sprintf("%d registered tools", graphInt(event.Data, "full_schema_count")),
+				OutputSummary: fmt.Sprintf("%d selected, %d schema bytes saved",
+					graphInt(event.Data, "selected_count"), graphInt(event.Data, "saved_schema_bytes")),
+				Evidence: eventEvidence(event, "tool route decision"),
+			},
 		}
 		b.addSequential(node, "routes")
 		if mode == "escalating" || graphBool(event.Data, "escalated") {
@@ -173,6 +213,8 @@ func (b *graphBuilder) consume(event observability.Event) {
 		}
 	case observability.EventLLMRequestStarted:
 		id := fmt.Sprintf("llm-%d", event.Turn)
+		contextEvent := b.contexts[event.Turn]
+		execution := llmRequestExecution(event, contextEvent)
 		node := GraphNode{
 			ID:        id,
 			Kind:      "llm",
@@ -181,6 +223,7 @@ func (b *graphBuilder) consume(event observability.Event) {
 			Turn:      event.Turn,
 			Status:    "running",
 			StartedAt: event.Time,
+			Execution: execution,
 		}
 		b.addSequential(node, "requests")
 		b.llmNodes[event.Turn] = id
@@ -196,6 +239,7 @@ func (b *graphBuilder) consume(event observability.Event) {
 			node.DurationMS = graphInt(event.Data, "duration_ms")
 			node.Detail = fmt.Sprintf("%d tool calls · %d chars", graphInt(event.Data, "tool_call_count"), graphInt(event.Data, "content_chars"))
 			node.Severity = string(event.Severity)
+			applyLLMResponseExecution(&node.Execution, event)
 		})
 		node := b.graph.Nodes[b.nodeIndex[id]]
 		if node.Status != "success" || event.Severity == observability.SeverityError {
@@ -216,24 +260,28 @@ func (b *graphBuilder) consume(event observability.Event) {
 			Status:    "running",
 			StartedAt: event.Time,
 			Severity:  string(event.Severity),
+			Execution: GraphExecutionDetail{
+				What:              "调用工具 " + graphStringDefault(event.Data, "tool", "unknown tool") + "。",
+				How:               "由工具 Registry 按名称分发，在当前 Run 上下文中执行。",
+				ParametersSummary: graphStringDefault(event.Data, "args_summary", graphString(event.Data, "arguments_summary")),
+				ParametersHash:    graphString(event.Data, "args_hash"),
+				Evidence:          eventEvidence(event, "tool invocation"),
+			},
 		}
 		b.addSequential(node, "calls")
 		b.toolNodes[callID] = id
 	case observability.EventPermissionDecision:
 		callID := graphToolCallID(event)
-		node := GraphNode{
-			ID:        b.nextID("permission"),
-			Kind:      "permission",
-			Label:     "Permission: " + graphStringDefault(event.Data, "permission_decision", "decision"),
-			Detail:    graphString(event.Data, "tool"),
-			Turn:      event.Turn,
-			Status:    graphString(event.Data, "permission_decision"),
-			StartedAt: event.Time,
-			Severity:  string(event.Severity),
-		}
-		b.addSequential(node, "gates")
 		if toolID := b.resolveToolNode(callID, event); toolID != "" {
-			b.addEdge(toolID, node.ID, "permission")
+			b.updateNode(toolID, func(node *GraphNode) {
+				node.Execution.Permission = &GraphPermission{
+					Decision: graphStringDefault(event.Data, "permission_decision", "unknown"),
+					Risk:     graphString(event.Data, "risk"),
+					External: graphBool(event.Data, "external"),
+					Server:   graphString(event.Data, "server"),
+				}
+				node.Execution.Evidence = append(node.Execution.Evidence, eventEvidence(event, "permission decision")...)
+			})
 		}
 	case observability.EventToolFinished:
 		callID := graphToolCallID(event)
@@ -249,9 +297,23 @@ func (b *graphBuilder) consume(event observability.Event) {
 			node.Severity = string(event.Severity)
 			if code := graphString(event.Data, "error_code"); code != "" {
 				node.Detail = "error: " + code
+				node.Execution.OutputSummary = "执行失败，error_code=" + code
 			} else {
 				node.Detail = fmt.Sprintf("%d result chars", graphInt(event.Data, "result_chars"))
+				node.Execution.OutputSummary = fmt.Sprintf(
+					"status=%s, result=%d chars, truncated=%t",
+					node.Status, graphInt(event.Data, "result_chars"), graphBool(event.Data, "truncated"),
+				)
 			}
+			if node.Execution.Permission == nil && graphString(event.Data, "permission_decision") != "" {
+				node.Execution.Permission = &GraphPermission{
+					Decision: graphString(event.Data, "permission_decision"),
+					Risk:     graphString(event.Data, "risk"),
+					External: graphBool(event.Data, "external"),
+					Server:   graphString(event.Data, "server"),
+				}
+			}
+			node.Execution.Evidence = append(node.Execution.Evidence, eventEvidence(event, "tool result")...)
 		})
 		node := b.graph.Nodes[b.nodeIndex[id]]
 		if node.Status != "success" && !expectedControlErrorCode(graphString(event.Data, "error_code")) {
@@ -270,6 +332,13 @@ func (b *graphBuilder) consume(event observability.Event) {
 			Status:    "changed",
 			StartedAt: event.Time,
 			Severity:  string(event.Severity),
+			Execution: GraphExecutionDetail{
+				What:          "记录工具产生的文件变更。",
+				How:           "成功执行文件变更工具后，从受控参数中提取路径并建立 Artifact 证据。",
+				InputSummary:  graphStringDefault(event.Data, "tool", "unknown tool"),
+				OutputSummary: path,
+				Evidence:      eventEvidence(event, "file changed"),
+			},
 		}
 		previous := b.lastSequence
 		b.addNode(node, true)
@@ -295,9 +364,26 @@ func (b *graphBuilder) consume(event observability.Event) {
 			Status:    "running",
 			StartedAt: event.Time,
 			Severity:  string(event.Severity),
+			Execution: GraphExecutionDetail{
+				What:     "生成上下文压缩摘要。",
+				How:      graphStringDefault(event.Data, "kind", "context compact"),
+				Evidence: eventEvidence(event, "compact started"),
+			},
 		}, "compacts")
 	case observability.EventCompactFinished:
 		b.finishLatestKind("compact", event)
+		for index := len(b.graph.Nodes) - 1; index >= 0; index-- {
+			if b.graph.Nodes[index].Kind != "compact" {
+				continue
+			}
+			b.graph.Nodes[index].Execution.OutputSummary = fmt.Sprintf(
+				"status=%s, %d chars", graphStringDefault(event.Data, "status", "success"), graphInt(event.Data, "chars"),
+			)
+			b.graph.Nodes[index].Execution.Evidence = append(
+				b.graph.Nodes[index].Execution.Evidence, eventEvidence(event, "compact finished")...,
+			)
+			break
+		}
 	case observability.EventRunFinished:
 		b.graph.Status = graphStringDefault(event.Data, "status", "unknown")
 		b.graph.DurationMS = graphInt(event.Data, "duration_ms")
@@ -305,6 +391,10 @@ func (b *graphBuilder) consume(event observability.Event) {
 			node.Status = b.graph.Status
 			node.DurationMS = b.graph.DurationMS
 			node.Severity = string(event.Severity)
+			node.Execution.OutputSummary = fmt.Sprintf(
+				"status=%s, duration=%dms", b.graph.Status, b.graph.DurationMS,
+			)
+			node.Execution.Evidence = append(node.Execution.Evidence, eventEvidence(event, "run finished")...)
 		})
 	}
 }
@@ -319,6 +409,12 @@ func (b *graphBuilder) addDecision(event observability.Event, label string, deta
 		Status:    graphString(event.Data, "status"),
 		StartedAt: event.Time,
 		Severity:  string(event.Severity),
+		Execution: GraphExecutionDetail{
+			What:         label,
+			How:          "运行时根据当前证据执行确定性决策。",
+			InputSummary: detail,
+			Evidence:     eventEvidence(event, strings.ToLower(label)),
+		},
 	}
 	b.addSequential(node, "decides")
 	if event.Severity == observability.SeverityWarn || event.Severity == observability.SeverityError {
@@ -572,4 +668,133 @@ func graphInt(data map[string]any, key string) int64 {
 
 func graphBool(data map[string]any, key string) bool {
 	return boolValue(data, key)
+}
+
+func contextChanged(data map[string]any) bool {
+	return intValue(data, "trimmed_messages") > 0 ||
+		intValue(data, "compacted_tool_results") > 0 ||
+		boolValue(data, "injected_session_memory") ||
+		boolValue(data, "injected_relevant_memory") ||
+		boolValue(data, "injected_compact_summary") ||
+		firstString(data, "trigger_reason") != "below_compact_trigger_threshold"
+}
+
+func contextGraphNode(id string, event observability.Event) GraphNode {
+	finalTokens := graphInt(event.Data, "final_tokens")
+	usableTokens := graphInt(event.Data, "usable_input_tokens")
+	attributes := contextAttributes(event.Data)
+	return GraphNode{
+		ID:    id,
+		Kind:  "context",
+		Label: "Context Governance",
+		Detail: fmt.Sprintf(
+			"%d messages · %d/%d tokens",
+			graphInt(event.Data, "final_messages"), finalTokens, usableTokens,
+		),
+		Turn:      event.Turn,
+		Status:    capacityState(ratioOf(finalTokens, usableTokens)),
+		StartedAt: event.Time,
+		Severity:  string(event.Severity),
+		Execution: GraphExecutionDetail{
+			What:          "改变本轮发送给模型的上下文。",
+			How:           firstStringDefault(event.Data, "trigger_reason", "context manager"),
+			InputSummary:  fmt.Sprintf("%d messages, estimated %d tokens", graphInt(event.Data, "original_messages"), graphInt(event.Data, "original_tokens")),
+			OutputSummary: fmt.Sprintf("%d messages, estimated %d tokens", graphInt(event.Data, "final_messages"), finalTokens),
+			TokenUsage: &GraphTokenUsage{
+				Source:    "estimated",
+				Estimated: finalTokens,
+			},
+			Attributes: attributes,
+			Evidence:   eventEvidence(event, "context governance"),
+		},
+	}
+}
+
+func llmRequestExecution(event, contextEvent observability.Event) GraphExecutionDetail {
+	detail := GraphExecutionDetail{
+		What: "调用模型生成下一步回答或工具计划。",
+		How:  "使用 OpenAI-compatible Chat Completions 请求；控制面仅展示结构化摘要。",
+		InputSummary: fmt.Sprintf(
+			"%d messages, %d tools, %d chars",
+			graphInt(event.Data, "message_count"),
+			graphInt(event.Data, "tool_schema_count"),
+			graphInt(event.Data, "request_chars"),
+		),
+		Attributes: map[string]string{
+			"tool_schema_count": fmt.Sprint(graphInt(event.Data, "tool_schema_count")),
+			"request_chars":     fmt.Sprint(graphInt(event.Data, "request_chars")),
+		},
+		Evidence: eventEvidence(event, "LLM request"),
+	}
+	if contextEvent.EventType == observability.EventContextBuilt {
+		estimated := graphInt(contextEvent.Data, "final_tokens")
+		detail.TokenUsage = &GraphTokenUsage{Source: "estimated", Estimated: estimated}
+		detail.Attributes["context_trigger"] = firstStringDefault(contextEvent.Data, "trigger_reason", "unknown")
+		detail.Attributes["context_messages"] = fmt.Sprint(graphInt(contextEvent.Data, "final_messages"))
+		detail.Attributes["context_window"] = fmt.Sprint(graphInt(contextEvent.Data, "context_window_tokens"))
+		detail.Attributes["usable_input_tokens"] = fmt.Sprint(graphInt(contextEvent.Data, "usable_input_tokens"))
+		detail.Attributes["trimmed_messages"] = fmt.Sprint(graphInt(contextEvent.Data, "trimmed_messages"))
+		detail.Attributes["compacted_tool_results"] = fmt.Sprint(graphInt(contextEvent.Data, "compacted_tool_results"))
+		detail.Evidence = append(detail.Evidence, eventEvidence(contextEvent, "context build attribute")...)
+	}
+	return detail
+}
+
+func applyLLMResponseExecution(detail *GraphExecutionDetail, event observability.Event) {
+	if detail == nil {
+		return
+	}
+	detail.OutputSummary = fmt.Sprintf(
+		"status=%s, %d tool calls, %d response chars",
+		graphStringDefault(event.Data, "status", "unknown"),
+		graphInt(event.Data, "tool_call_count"),
+		graphInt(event.Data, "content_chars"),
+	)
+	usage := valueMap(event.Data["usage"])
+	if numericUsageAvailable(usage) {
+		detail.TokenUsage = &GraphTokenUsage{
+			Source:    UsageSourceProviderReported,
+			Input:     intValue(usage, "input_tokens"),
+			Output:    intValue(usage, "output_tokens"),
+			Total:     intValue(usage, "total_tokens"),
+			CacheRead: intValue(usage, "cache_read_input_tokens"),
+		}
+	} else if detail.TokenUsage == nil {
+		detail.TokenUsage = &GraphTokenUsage{Source: UsageSourceUnavailable}
+	}
+	detail.Evidence = append(detail.Evidence, eventEvidence(event, "LLM provider response")...)
+}
+
+func eventEvidence(event observability.Event, label string) []GraphEvidence {
+	evidence := []GraphEvidence{{
+		Type:  "runtime_event",
+		Ref:   event.EventID,
+		Label: label,
+	}}
+	if event.Redaction.Applied {
+		evidence = append(evidence, GraphEvidence{
+			Type:  "redaction",
+			Label: fmt.Sprintf("%d fields redacted", len(event.Redaction.Fields)),
+		})
+	}
+	return evidence
+}
+
+func contextAttributes(data map[string]any) map[string]string {
+	return map[string]string{
+		"trimmed_messages":         fmt.Sprint(intValue(data, "trimmed_messages")),
+		"compacted_tool_results":   fmt.Sprint(intValue(data, "compacted_tool_results")),
+		"injected_session_memory":  fmt.Sprint(boolValue(data, "injected_session_memory")),
+		"injected_relevant_memory": fmt.Sprint(boolValue(data, "injected_relevant_memory")),
+		"injected_compact_summary": fmt.Sprint(boolValue(data, "injected_compact_summary")),
+		"context_window_source":    firstStringDefault(data, "context_window_source", "legacy_event"),
+		"capability_confidence":    firstStringDefault(data, "capability_confidence", "unknown"),
+	}
+}
+
+func ratioOf(value, total int64) float64 {
+	if total <= 0 {
+		return 0
+	}
+	return float64(value) / float64(total)
 }

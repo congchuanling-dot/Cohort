@@ -206,7 +206,18 @@ export interface StabilityIndex {
 
 export interface TraceGraph {
   session_id: string; run_id: string; status: string; duration_ms: number;
-  nodes: Array<{ id: string; kind: string; label: string; detail?: string; turn?: number; status?: string; severity?: string; started_at?: string; duration_ms?: number; order: number; critical?: boolean }>;
+  nodes: Array<{
+    id: string; kind: string; label: string; detail?: string; turn?: number; status?: string; severity?: string;
+    started_at?: string; duration_ms?: number; order: number; critical?: boolean;
+    execution: {
+      what?: string; how?: string; input_summary?: string; parameters_summary?: string; parameters_hash?: string;
+      output_summary?: string;
+      token_usage?: { source: string; input?: number; output?: number; total?: number; cache_read?: number; estimated_input?: number };
+      permission?: { decision: string; risk?: string; external?: boolean; server?: string };
+      evidence?: Array<{ type: string; ref?: string; label: string }>;
+      attributes?: Record<string, string>;
+    };
+  }>;
   edges: Array<{ from: string; to: string; relation: string }>;
   critical_path: string[]; critical_path_ms: number;
   bottlenecks?: Array<{ node_id: string; kind: string; label: string; reason: string; duration_ms?: number }>;

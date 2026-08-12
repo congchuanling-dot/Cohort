@@ -33,8 +33,43 @@ export function TraceGraphPage() {
       <FindingPanel title="Latency Bottlenecks" items={graph.bottlenecks ?? []} />
       <FindingPanel title="Anomalies" items={graph.anomalies ?? []} />
     </div>
-    {selected && <aside className="operation-drawer"><div className="drawer-heading"><div><p className="eyebrow">CAUSAL NODE</p><h3>{selected.label}</h3></div><button type="button" onClick={() => setSelectedID("")}>关闭</button></div><dl className="detail-list"><div><dt>Kind</dt><dd>{selected.kind}</dd></div><div><dt>Status</dt><dd>{selected.status || "-"}</dd></div><div><dt>Turn</dt><dd>{selected.turn ?? 0}</dd></div><div><dt>Duration</dt><dd>{formatDuration(selected.duration_ms ?? 0)}</dd></div></dl><p>{selected.detail}</p><code>{selected.id}</code></aside>}
+    {selected && <ExecutionInspector node={selected} onClose={() => setSelectedID("")} />}
   </section>;
+}
+
+function ExecutionInspector({ node, onClose }: { node: TraceGraph["nodes"][number]; onClose: () => void }) {
+  const execution = node.execution ?? {};
+  const attributes = Object.entries(execution.attributes ?? {});
+  return <aside className="operation-drawer execution-inspector">
+    <div className="drawer-heading"><div><p className="eyebrow">EXECUTION EVIDENCE</p><h3>{node.label}</h3></div><button type="button" onClick={onClose}>关闭</button></div>
+    <dl className="detail-list"><div><dt>Kind</dt><dd>{node.kind}</dd></div><div><dt>Status</dt><dd>{node.status || "-"}</dd></div><div><dt>Turn</dt><dd>{node.turn ?? 0}</dd></div><div><dt>Duration</dt><dd>{formatDuration(node.duration_ms ?? 0)}</dd></div></dl>
+    <ExecutionSection title="这一步做了什么" value={execution.what || node.detail} />
+    <ExecutionSection title="怎么执行" value={execution.how} />
+    <ExecutionSection title="输入摘要" value={execution.input_summary} />
+    <ExecutionSection title="参数摘要（已脱敏）" value={execution.parameters_summary} mono />
+    {execution.parameters_hash && <ExecutionSection title="参数证据 Hash" value={execution.parameters_hash} mono />}
+    <ExecutionSection title="输出摘要" value={execution.output_summary} />
+    {execution.token_usage && <section className="execution-section"><h4>Token / 成本依据</h4><dl className="execution-grid">
+      <div><dt>来源</dt><dd>{execution.token_usage.source}</dd></div>
+      <div><dt>Input</dt><dd>{execution.token_usage.input ?? "-"}</dd></div>
+      <div><dt>Output</dt><dd>{execution.token_usage.output ?? "-"}</dd></div>
+      <div><dt>Total</dt><dd>{execution.token_usage.total ?? "-"}</dd></div>
+      <div><dt>Cache Read</dt><dd>{execution.token_usage.cache_read ?? "-"}</dd></div>
+      <div><dt>本地估算</dt><dd>{execution.token_usage.estimated_input ?? "-"}</dd></div>
+    </dl></section>}
+    {execution.permission && <section className="execution-section"><h4>权限决策</h4><dl className="execution-grid">
+      <div><dt>Decision</dt><dd>{execution.permission.decision}</dd></div><div><dt>Risk</dt><dd>{execution.permission.risk || "-"}</dd></div>
+      <div><dt>External</dt><dd>{execution.permission.external ? "yes" : "no"}</dd></div><div><dt>Server</dt><dd>{execution.permission.server || "-"}</dd></div>
+    </dl></section>}
+    {attributes.length > 0 && <section className="execution-section"><h4>执行属性</h4><dl className="execution-attributes">{attributes.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl></section>}
+    <section className="execution-section"><h4>Evidence</h4><div className="evidence-list">{(execution.evidence ?? []).map((item, index) => <article key={`${item.ref}:${index}`}><strong>{item.label}</strong><small>{item.type}</small>{item.ref && <code>{item.ref}</code>}</article>)}{!execution.evidence?.length && <div className="empty">当前节点没有关联证据</div>}</div></section>
+    <code className="node-id">{node.id}</code>
+  </aside>;
+}
+
+function ExecutionSection({ title, value, mono = false }: { title: string; value?: string; mono?: boolean }) {
+  if (!value) return null;
+  return <section className="execution-section"><h4>{title}</h4>{mono ? <pre>{value}</pre> : <p>{value}</p>}</section>;
 }
 
 function TraceCanvas({ graph, selectedID, criticalOnly, zoom, onSelect }: { graph: TraceGraph; selectedID: string; criticalOnly: boolean; zoom: number; onSelect: (id: string) => void }) {

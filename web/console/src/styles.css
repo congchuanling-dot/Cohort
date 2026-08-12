@@ -197,6 +197,19 @@ button.primary { border-color: #769cff; background: #6d8dff; color: #07101f; fon
 .trace-edge { fill: none; stroke: #486486; stroke-width: 1.4; marker-end: url(#trace-arrow); transition: opacity .15s; }.trace-edge.dim { opacity: .08; }#trace-arrow path { fill: #58759c; }
 .trace-node { cursor: pointer; transition: opacity .15s; outline: none; }.trace-node rect { fill: #10213a; stroke: #375679; stroke-width: 1.2; }.trace-node.kind-llm rect { fill: #12284b; }.trace-node.kind-tool rect { fill: #112d2c; }.trace-node.kind-route rect { fill: #251f49; }.trace-node.critical rect { stroke: #ffc857; stroke-width: 2.2; }.trace-node.problem rect { stroke: var(--red); }.trace-node.selected rect { stroke: #fff; stroke-width: 2.8; }.trace-node.dim { opacity: .14; }
 .trace-node text { pointer-events: none; }.node-label { fill: #edf4ff; font-size: 11px; font-weight: 700; }.node-detail { fill: #8da2c2; font-size: 9px; }.node-meta { fill: #4de2d0; font-size: 8px; }
+.execution-inspector { width: min(680px, calc(100vw - 30px)); overflow-y: auto; }
+.execution-section { margin-top: 15px; padding-top: 13px; border-top: 1px solid var(--line); }
+.execution-section h4 { margin: 0 0 8px; color: var(--blue); font-size: 9px; letter-spacing: .09em; text-transform: uppercase; }
+.execution-section p { margin: 0; color: #d8e1f0; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.execution-section pre { max-height: 180px; margin: 0; overflow: auto; padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: #070b13; color: #c4d4eb; font: 9px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.execution-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+.execution-grid div, .execution-attributes div { min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 7px; background: #0b1322; }
+.execution-grid dt, .execution-attributes dt { color: var(--muted); font-size: 8px; text-transform: uppercase; }
+.execution-grid dd, .execution-attributes dd { margin: 4px 0 0; color: #edf4ff; font: 9px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.execution-attributes { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.evidence-list article { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; padding: 8px 2px; border-bottom: 1px solid var(--line); }
+.evidence-list strong { font-size: 10px; }.evidence-list small { color: var(--muted); font-size: 8px; }.evidence-list code { grid-column: 1 / -1; color: #87a8d6; font-size: 8px; overflow-wrap: anywhere; }
+.node-id { display: block; margin-top: 14px; color: var(--muted); font-size: 8px; }
 .finding-row { display: flex; justify-content: space-between; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--line); }.finding-row strong, .finding-row small { display: block; }.finding-row small { margin-top: 3px; color: var(--muted); font-size: 9px; }
 .duration-bars > div { display: grid; grid-template-columns: 55px 1fr 80px; align-items: center; gap: 10px; margin: 12px 0; }.duration-bars i { display: block; min-width: 2px; height: 9px; border-radius: 9px; background: linear-gradient(90deg, var(--blue), var(--green)); }.duration-bars b { text-align: right; font-size: 10px; }
 .tuning-recommendation { padding: 10px 12px; border-left: 3px solid var(--blue); background: #182239; color: #d9e4f8; font-size: 10px; }

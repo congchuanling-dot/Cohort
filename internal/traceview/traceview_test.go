@@ -122,11 +122,19 @@ func TestCausalGraphLinksToolArtifactsAndComputesCriticalPath_BitsUT(t *testing.
 		testEvent(base, runID, sessionID, observability.EventRunStarted, 0, observability.SeverityInfo, nil),
 		testEvent(base.Add(time.Millisecond), runID, sessionID, observability.EventUserPromptSubmitted, 0, observability.SeverityInfo, map[string]any{"chars": 42, "raw": "must-not-leak"}),
 		testEvent(base.Add(2*time.Millisecond), runID, sessionID, observability.EventTurnStarted, 1, observability.SeverityInfo, nil),
-		testEvent(base.Add(3*time.Millisecond), runID, sessionID, observability.EventContextBuilt, 1, observability.SeverityInfo, map[string]any{"final_messages": 3, "final_tokens": 100, "final_chars": 400}),
+		testEvent(base.Add(3*time.Millisecond), runID, sessionID, observability.EventContextBuilt, 1, observability.SeverityInfo, map[string]any{
+			"final_messages": 3, "final_tokens": 100, "final_chars": 400, "usable_input_tokens": 1000,
+			"trigger_reason": "below_compact_trigger_threshold",
+		}),
 		testEvent(base.Add(4*time.Millisecond), runID, sessionID, observability.EventToolRouteSelected, 1, observability.SeverityInfo, map[string]any{"mode": "adaptive", "selected_count": 15, "full_schema_count": 81, "saved_schema_bytes": 55000}),
 		testEvent(base.Add(5*time.Millisecond), runID, sessionID, observability.EventLLMRequestStarted, 1, observability.SeverityInfo, map[string]any{"message_count": 3, "tool_schema_count": 15}),
-		testEvent(base.Add(505*time.Millisecond), runID, sessionID, observability.EventLLMResponseFinished, 1, observability.SeverityInfo, map[string]any{"status": "success", "duration_ms": 500, "tool_call_count": 1, "content_chars": 10}),
-		testEvent(base.Add(506*time.Millisecond), runID, sessionID, observability.EventToolStarted, 1, observability.SeverityInfo, map[string]any{"tool": "apply_patch", "tool_call_id": "call_1"}),
+		testEvent(base.Add(505*time.Millisecond), runID, sessionID, observability.EventLLMResponseFinished, 1, observability.SeverityInfo, map[string]any{
+			"status": "success", "duration_ms": 500, "tool_call_count": 1, "content_chars": 10,
+			"usage": map[string]any{"input_tokens": 120, "output_tokens": 10, "total_tokens": 130},
+		}),
+		testEvent(base.Add(506*time.Millisecond), runID, sessionID, observability.EventToolStarted, 1, observability.SeverityInfo, map[string]any{
+			"tool": "apply_patch", "tool_call_id": "call_1", "args_hash": "sha256:test", "args_summary": `{"path":"main.go"}`,
+		}),
 		testEvent(base.Add(706*time.Millisecond), runID, sessionID, observability.EventToolFinished, 1, observability.SeverityInfo, map[string]any{"tool": "apply_patch", "tool_call_id": "call_1", "status": "success", "duration_ms": 200}),
 		testEvent(base.Add(707*time.Millisecond), runID, sessionID, observability.EventFileChanged, 1, observability.SeverityInfo, map[string]any{"tool": "apply_patch", "tool_call_id": "call_1", "path": "/workspace/main.go"}),
 		testEvent(base.Add(710*time.Millisecond), runID, sessionID, observability.EventRunFinished, 1, observability.SeverityInfo, map[string]any{"status": "completed", "duration_ms": 710}),
@@ -135,6 +143,11 @@ func TestCausalGraphLinksToolArtifactsAndComputesCriticalPath_BitsUT(t *testing.
 	graph := view.CausalGraph()
 	if graph.Summary.LLMNodes != 1 || graph.Summary.ToolNodes != 1 || graph.Summary.FileChanges != 1 {
 		t.Fatalf("graph summary = %#v", graph.Summary)
+	}
+	for _, node := range graph.Nodes {
+		if node.Kind == "context" || node.Kind == "turn" {
+			t.Fatalf("ordinary context/turn must be an LLM attribute, got node %#v", node)
+		}
 	}
 	if graph.CriticalPathMS != 700 {
 		t.Fatalf("critical path = %dms, want 700ms", graph.CriticalPathMS)
@@ -147,6 +160,15 @@ func TestCausalGraphLinksToolArtifactsAndComputesCriticalPath_BitsUT(t *testing.
 	}
 	if !hasWriteEdge {
 		t.Fatalf("graph edges = %#v, want tool -> artifact write edge", graph.Edges)
+	}
+	llmNode, toolNode := graphNodeByID(graph, "llm-1"), graphNodeByID(graph, "tool-call_1")
+	if llmNode.Execution.TokenUsage == nil || llmNode.Execution.TokenUsage.Source != UsageSourceProviderReported ||
+		llmNode.Execution.TokenUsage.Total != 130 || llmNode.Execution.Attributes["context_messages"] != "3" {
+		t.Fatalf("LLM execution detail = %#v", llmNode.Execution)
+	}
+	if toolNode.Execution.ParametersSummary != `{"path":"main.go"}` || toolNode.Execution.ParametersHash != "sha256:test" ||
+		toolNode.Execution.OutputSummary == "" || len(toolNode.Execution.Evidence) < 2 {
+		t.Fatalf("tool execution detail = %#v", toolNode.Execution)
 	}
 
 	output := filepath.Join(t.TempDir(), "causal.html")
@@ -170,6 +192,15 @@ func TestCausalGraphLinksToolArtifactsAndComputesCriticalPath_BitsUT(t *testing.
 	if !strings.Contains(string(inMemory), "Causal Trace Graph") || strings.Contains(string(inMemory), "must-not-leak") {
 		t.Fatal("in-memory graph HTML did not preserve the redacted graph view")
 	}
+}
+
+func graphNodeByID(graph Graph, id string) GraphNode {
+	for _, node := range graph.Nodes {
+		if node.ID == id {
+			return node
+		}
+	}
+	return GraphNode{}
 }
 
 func TestReceiptLedgerSeparatesProviderUsageFromEstimate_BitsUT(t *testing.T) {
