@@ -129,12 +129,15 @@ function ComparePanel({ comparison, pending, error, sessionId, runId }: { compar
   if (pending) return <section className="panel"><div className="empty">正在寻找成功基线并对比…</div></section>;
   if (error) return <section className="panel"><div className="page-error">{error.message}</div></section>;
   if (!comparison) return null;
+  const deltas = comparison.deltas ?? [];
+  const findings = comparison.findings ?? [];
+  const recommendations = comparison.proposal?.recommendations ?? [];
   return <section className="panel runtime-evidence-panel"><div className="panel-heading"><div><p className="eyebrow">RUN DIFFERENTIAL</p><h3>成功基线对比</h3></div><div className="hero-actions"><span className={`risk ${comparison.state === "ready" ? "ok" : "warn"}`}>{comparison.state}</span>{comparison.baseline && <button type="button" disabled={propose.isPending || propose.isSuccess} onClick={() => propose.mutate()}>{propose.isPending ? "正在创建…" : propose.isSuccess ? "已进入审批链" : "生成优化 Proposal"}</button>}</div></div>
     {comparison.baseline ? <><p className="compare-baseline">Current <code>{comparison.current.run_id}</code> vs successful baseline <code>{comparison.baseline.run_id}</code></p>
-      <div className="compare-deltas">{comparison.deltas.map((item) => <article key={item.metric}><span>{item.metric}</span><strong className={item.delta > 0 ? "bad-text" : item.delta < 0 ? "good-text" : ""}>{formatDelta(item.delta, item.unit)}</strong><small>{item.current.toFixed(item.unit === "ratio" ? 2 : 0)} vs {item.baseline.toFixed(item.unit === "ratio" ? 2 : 0)}</small></article>)}</div>
-      <div className="compare-findings">{comparison.findings.map((item) => <article key={item.evidence}><span className={`severity ${item.severity}`} /><div><strong>{item.title}</strong><small>{item.category} · {item.detail}</small><code>{item.evidence}</code></div></article>)}{comparison.findings.length === 0 && <div className="empty">没有发现相对成功基线的显著回归</div>}</div>
-      <div className="proposal-preview"><strong>{comparison.proposal.summary}</strong>{comparison.proposal.recommendations.map((item) => <p key={item}>{item}</p>)}</div>
-    </> : <div className="empty">{comparison.proposal.recommendations[0]}</div>}
+      <div className="compare-deltas">{deltas.map((item) => <article key={item.metric}><span>{item.metric}</span><strong className={item.delta > 0 ? "bad-text" : item.delta < 0 ? "good-text" : ""}>{formatDelta(item.delta, item.unit)}</strong><small>{item.current.toFixed(item.unit === "ratio" ? 2 : 0)} vs {item.baseline.toFixed(item.unit === "ratio" ? 2 : 0)}</small></article>)}</div>
+      <div className="compare-findings">{findings.map((item) => <article key={item.evidence}><span className={`severity ${item.severity}`} /><div><strong>{item.title}</strong><small>{item.category} · {item.detail}</small><code>{item.evidence}</code></div></article>)}{findings.length === 0 && <div className="empty">没有发现相对成功基线的显著回归</div>}</div>
+      <div className="proposal-preview"><strong>{comparison.proposal?.summary ?? "暂无优化提案"}</strong>{recommendations.map((item) => <p key={item}>{item}</p>)}</div>
+    </> : <div className="empty">{recommendations[0] ?? "暂无可比较的成功基线"}</div>}
     {propose.isError && <p className="form-error">{propose.error.message}</p>}{propose.isSuccess && <p className="good-text">Operation {propose.data.id} 已创建。<Link to="/operations">查看执行状态</Link></p>}
   </section>;
 }

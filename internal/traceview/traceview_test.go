@@ -356,6 +356,35 @@ func TestRunCompareSelectsSuccessfulBaselineAndBuildsProposal_BitsUT(t *testing.
 	}
 }
 
+func TestRunCompareEncodesEmptyFindingsAsArray_BitsUT(t *testing.T) {
+	base := time.Date(2026, 8, 12, 17, 0, 0, 0, time.UTC)
+	baseline := RunView{SessionID: "session_compare_clean", RunID: "run_good", Events: []observability.Event{
+		testEvent(base, "run_good", "session_compare_clean", observability.EventRunStarted, 0, observability.SeverityInfo, nil),
+		testEvent(base.Add(time.Millisecond), "run_good", "session_compare_clean", observability.EventLLMResponseFinished, 1, observability.SeverityInfo, map[string]any{
+			"status": "success", "duration_ms": 100, "usage": map[string]any{"input_tokens": 100, "output_tokens": 10, "total_tokens": 110},
+		}),
+		testEvent(base.Add(200*time.Millisecond), "run_good", "session_compare_clean", observability.EventRunFinished, 1, observability.SeverityInfo, map[string]any{
+			"status": "completed", "duration_ms": 200,
+		}),
+	}}
+	current := RunView{SessionID: "session_compare_clean", RunID: "run_current", Events: []observability.Event{
+		testEvent(base.Add(time.Second), "run_current", "session_compare_clean", observability.EventRunStarted, 0, observability.SeverityInfo, nil),
+		testEvent(base.Add(1001*time.Millisecond), "run_current", "session_compare_clean", observability.EventLLMResponseFinished, 1, observability.SeverityInfo, map[string]any{
+			"status": "success", "duration_ms": 100, "usage": map[string]any{"input_tokens": 100, "output_tokens": 10, "total_tokens": 110},
+		}),
+		testEvent(base.Add(1200*time.Millisecond), "run_current", "session_compare_clean", observability.EventRunFinished, 1, observability.SeverityInfo, map[string]any{
+			"status": "completed", "duration_ms": 200,
+		}),
+	}}
+	data, err := json.Marshal(CompareRuns(current, baseline, "test-model"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"findings":[]`) {
+		t.Fatalf("findings must encode as empty array, got %s", data)
+	}
+}
+
 func testEvent(at time.Time, runID string, sessionID string, eventType observability.EventType, turn int, severity observability.Severity, data map[string]any) observability.Event {
 	return observability.Event{
 		SchemaVersion: observability.SchemaVersion,

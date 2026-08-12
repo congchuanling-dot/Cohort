@@ -173,7 +173,7 @@ func newFloatDelta(metric string, current, baseline float64, unit string) RunCom
 }
 
 func comparisonFindings(current, baseline RunCompareSnapshot) []RunCompareFinding {
-	var findings []RunCompareFinding
+	findings := []RunCompareFinding{}
 	add := func(severity, category, title, detail, metric string) {
 		findings = append(findings, RunCompareFinding{
 			Severity: severity, Category: category, Title: title, Detail: detail,
