@@ -1,13 +1,21 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
-import { apiGet, TraceGraph, TuningReport } from "./api";
+import {
+  ActionPreparation, apiGet, apiPost, ContextCapacityReport, GovernanceReport, Operation, ReceiptLedger,
+  RunComparison, TraceGraph, TraceRuntimeView, TuningReport,
+} from "./api";
 
 export function TraceGraphPage() {
   const { sessionId = "", runId = "" } = useParams();
   const trace = useQuery({
     queryKey: ["quality", "trace", sessionId, runId],
-    queryFn: () => apiGet<{ graph: TraceGraph }>(`/api/v1/quality/traces/${encodeURIComponent(sessionId)}/${encodeURIComponent(runId)}`),
+    queryFn: () => apiGet<TraceRuntimeView>(`/api/v1/quality/traces/${encodeURIComponent(sessionId)}/${encodeURIComponent(runId)}`),
+    enabled: sessionId !== "" && runId !== "",
+  });
+  const comparison = useQuery({
+    queryKey: ["quality", "compare", sessionId, runId],
+    queryFn: () => apiGet<RunComparison>(`/api/v1/quality/compare/${encodeURIComponent(sessionId)}/${encodeURIComponent(runId)}`),
     enabled: sessionId !== "" && runId !== "",
   });
   const [selectedID, setSelectedID] = useState("");
@@ -16,6 +24,9 @@ export function TraceGraphPage() {
   if (trace.isPending) return <div className="empty">正在重建因果图…</div>;
   if (trace.isError) return <div className="page-error"><strong>Trace 不可用</strong><p>{trace.error.message}</p></div>;
   const graph = trace.data.graph;
+  const receipts = trace.data.receipts;
+  const capacity = trace.data.capacity;
+  const governance = trace.data.governance;
   const selected = graph.nodes.find((node) => node.id === selectedID);
   return <section className="page-stack">
     <div className="quality-breadcrumb"><Link to="/quality">质量中心</Link><span>/</span><strong>{graph.run_id}</strong></div>
@@ -23,7 +34,7 @@ export function TraceGraphPage() {
     <div className="quality-metrics">
       <TraceMetric label="Duration" value={formatDuration(graph.duration_ms)} /><TraceMetric label="Critical Path" value={formatDuration(graph.critical_path_ms)} />
       <TraceMetric label="Nodes / Edges" value={`${graph.summary.node_count} / ${graph.summary.edge_count}`} /><TraceMetric label="LLM / Tools" value={`${graph.summary.llm_nodes} / ${graph.summary.tool_nodes}`} />
-      <TraceMetric label="Failed Tools" value={graph.summary.failed_tools} tone={graph.summary.failed_tools ? "bad" : "good"} /><TraceMetric label="File Changes" value={graph.summary.file_changes} />
+      <TraceMetric label="Provider Tokens" value={receipts.total_tokens || "-"} tone={receipts.usage_source === "provider_reported" ? "good" : "warn"} /><TraceMetric label="Context Peak" value={`${(capacity.max_occupancy_ratio * 100).toFixed(1)}%`} tone={capacityTone(capacity.state)} />
     </div>
     <section className="panel trace-panel">
       <div className="trace-toolbar"><button type="button" className={criticalOnly ? "active" : ""} onClick={() => setCriticalOnly((value) => !value)}>关键路径</button><button type="button" onClick={() => setSelectedID("")}>重置选择</button><label>缩放 <input type="range" min=".6" max="1.8" step=".1" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /></label></div>
@@ -33,6 +44,12 @@ export function TraceGraphPage() {
       <FindingPanel title="Latency Bottlenecks" items={graph.bottlenecks ?? []} />
       <FindingPanel title="Anomalies" items={graph.anomalies ?? []} />
     </div>
+    <div className="quality-columns">
+      <ReceiptPanel ledger={receipts} />
+      <CapacityPanel report={capacity} />
+    </div>
+    <GovernancePanel report={governance} />
+    <ComparePanel comparison={comparison.data} pending={comparison.isPending} error={comparison.error} sessionId={sessionId} runId={runId} />
     {selected && <ExecutionInspector node={selected} onClose={() => setSelectedID("")} />}
   </section>;
 }
@@ -70,6 +87,56 @@ function ExecutionInspector({ node, onClose }: { node: TraceGraph["nodes"][numbe
 function ExecutionSection({ title, value, mono = false }: { title: string; value?: string; mono?: boolean }) {
   if (!value) return null;
   return <section className="execution-section"><h4>{title}</h4>{mono ? <pre>{value}</pre> : <p>{value}</p>}</section>;
+}
+
+function ReceiptPanel({ ledger }: { ledger: ReceiptLedger }) {
+  return <section className="panel runtime-evidence-panel"><div className="panel-heading"><div><p className="eyebrow">PROVIDER RECEIPTS</p><h3>Token 回执账本</h3></div><span className={`risk ${ledger.usage_source === "provider_reported" ? "ok" : "warn"}`}>{ledger.usage_source}</span></div>
+    <dl className="execution-grid"><div><dt>Input</dt><dd>{ledger.input_tokens}</dd></div><div><dt>Output</dt><dd>{ledger.output_tokens}</dd></div><div><dt>Cache Read</dt><dd>{ledger.cache_read_tokens}</dd></div><div><dt>Total</dt><dd>{ledger.total_tokens}</dd></div><div><dt>Provider Turns</dt><dd>{ledger.provider_turns}</dd></div><div><dt>Cost</dt><dd>{ledger.estimated_cost_usd === undefined ? ledger.cost_pricing_source : `$${ledger.estimated_cost_usd.toFixed(6)}`}</dd></div></dl>
+    <div className="receipt-list">{ledger.receipts.map((item) => <article key={`${item.turn}:${item.duration_ms}`}><strong>Turn {item.turn}</strong><span>{item.usage_source}</span><small>{item.input_tokens ?? "-"} input / {item.output_tokens ?? "-"} output / {item.cache_read_tokens ?? 0} cached</small><em>{formatDuration(item.duration_ms)}</em></article>)}</div>
+  </section>;
+}
+
+function CapacityPanel({ report }: { report: ContextCapacityReport }) {
+  const latest = report.turns[report.turns.length - 1];
+  return <section className="panel runtime-evidence-panel"><div className="panel-heading"><div><p className="eyebrow">CONTEXT GOVERNOR</p><h3>上下文容量</h3></div><span className={`risk ${capacityTone(report.state)}`}>{report.state}</span></div>
+    <div className="capacity-gauge"><i style={{ width: `${Math.min(100, report.max_occupancy_ratio * 100)}%` }} /><span>{(report.max_occupancy_ratio * 100).toFixed(1)}%</span></div>
+    <dl className="detail-list"><div><dt>Window</dt><dd>{report.capability.context_window_tokens} tokens</dd></div><div><dt>依据</dt><dd>{report.capability.source}</dd></div><div><dt>置信度</dt><dd>{report.capability.confidence}</dd></div><div><dt>反校准样本</dt><dd>{report.calibration.samples}</dd></div></dl>
+    {latest && <div className="context-waterfall">{latest.waterfall.map((item, index) => <article key={`${item.kind}:${index}`}><span>{item.label}</span><i className={item.kind} style={{ width: `${Math.min(100, Math.abs(item.tokens) / Math.max(1, latest.usable_input_tokens) * 100)}%` }} /><b>{item.tokens}</b></article>)}</div>}
+    {report.recommended_actions.map((item) => <p className="tuning-recommendation" key={item}>{item}</p>)}
+  </section>;
+}
+
+function GovernancePanel({ report }: { report: GovernanceReport }) {
+  return <section className="panel runtime-evidence-panel"><div className="panel-heading"><div><p className="eyebrow">POLICY ENGINE</p><h3>治理干预</h3></div><span className={`risk ${report.state === "clear" ? "ok" : report.state === "action_required" ? "warn" : "read"}`}>{report.state}</span></div>
+    <div className="governance-grid">{report.policies.map((policy) => <article key={policy.id}><div><strong>{policy.id}</strong><span>{policy.enabled ? "ENABLED" : "DISABLED"}</span></div><p>{policy.description}</p><small>{policy.threshold} → {policy.action}</small></article>)}</div>
+    <div className="intervention-list">{report.interventions.map((item) => <article key={item.id}><span className={`intervention-status ${item.status}`} /><div><strong>{item.action}</strong><small>{item.policy_id} · turn {item.turn ?? 0}</small><p>{item.reason}</p></div><em>{item.enforcement}</em></article>)}{report.interventions.length === 0 && <div className="empty">本次 Run 未触发治理干预</div>}</div>
+  </section>;
+}
+
+function ComparePanel({ comparison, pending, error, sessionId, runId }: { comparison?: RunComparison; pending: boolean; error: Error | null; sessionId: string; runId: string }) {
+  const queryClient = useQueryClient();
+  const propose = useMutation({
+    mutationFn: async () => {
+      const input = { session_id: sessionId, run_id: runId };
+      const prepared = await apiPost<ActionPreparation>("/api/v1/actions/runtime.optimization.propose/prepare", { input });
+      return apiPost<Operation>("/api/v1/actions/runtime.optimization.propose/execute", { input, preparation_token: prepared.preparation_token });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["operations"] });
+      void queryClient.invalidateQueries({ queryKey: ["resource", "capabilities"] });
+    },
+  });
+  if (pending) return <section className="panel"><div className="empty">正在寻找成功基线并对比…</div></section>;
+  if (error) return <section className="panel"><div className="page-error">{error.message}</div></section>;
+  if (!comparison) return null;
+  return <section className="panel runtime-evidence-panel"><div className="panel-heading"><div><p className="eyebrow">RUN DIFFERENTIAL</p><h3>成功基线对比</h3></div><div className="hero-actions"><span className={`risk ${comparison.state === "ready" ? "ok" : "warn"}`}>{comparison.state}</span>{comparison.baseline && <button type="button" disabled={propose.isPending || propose.isSuccess} onClick={() => propose.mutate()}>{propose.isPending ? "正在创建…" : propose.isSuccess ? "已进入审批链" : "生成优化 Proposal"}</button>}</div></div>
+    {comparison.baseline ? <><p className="compare-baseline">Current <code>{comparison.current.run_id}</code> vs successful baseline <code>{comparison.baseline.run_id}</code></p>
+      <div className="compare-deltas">{comparison.deltas.map((item) => <article key={item.metric}><span>{item.metric}</span><strong className={item.delta > 0 ? "bad-text" : item.delta < 0 ? "good-text" : ""}>{formatDelta(item.delta, item.unit)}</strong><small>{item.current.toFixed(item.unit === "ratio" ? 2 : 0)} vs {item.baseline.toFixed(item.unit === "ratio" ? 2 : 0)}</small></article>)}</div>
+      <div className="compare-findings">{comparison.findings.map((item) => <article key={item.evidence}><span className={`severity ${item.severity}`} /><div><strong>{item.title}</strong><small>{item.category} · {item.detail}</small><code>{item.evidence}</code></div></article>)}{comparison.findings.length === 0 && <div className="empty">没有发现相对成功基线的显著回归</div>}</div>
+      <div className="proposal-preview"><strong>{comparison.proposal.summary}</strong>{comparison.proposal.recommendations.map((item) => <p key={item}>{item}</p>)}</div>
+    </> : <div className="empty">{comparison.proposal.recommendations[0]}</div>}
+    {propose.isError && <p className="form-error">{propose.error.message}</p>}{propose.isSuccess && <p className="good-text">Operation {propose.data.id} 已创建。<Link to="/operations">查看执行状态</Link></p>}
+  </section>;
 }
 
 function TraceCanvas({ graph, selectedID, criticalOnly, zoom, onSelect }: { graph: TraceGraph; selectedID: string; criticalOnly: boolean; zoom: number; onSelect: (id: string) => void }) {
@@ -131,4 +198,6 @@ function FindingPanel({ title, items }: { title: string; items: Array<{ node_id:
 }
 function TraceMetric({ label, value, tone = "" }: { label: string; value: string | number; tone?: string }) { return <article><span>{label}</span><strong className={tone}>{value}</strong></article>; }
 function formatDuration(ms: number) { return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(2)}s`; }
+function formatDelta(value: number, unit: string) { const prefix = value > 0 ? "+" : ""; return `${prefix}${value.toFixed(unit === "ratio" ? 2 : 0)} ${unit}`; }
+function capacityTone(state: string) { return state === "healthy" ? "good" : state === "warning" ? "warn" : "bad"; }
 function truncate(value: string, limit: number) { return value.length <= limit ? value : `${value.slice(0, limit)}…`; }

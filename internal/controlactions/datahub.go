@@ -368,25 +368,36 @@ func (h *ProjectDataHub) loadEntities(kind controlplane.EntityKind) ([]controlpl
 }
 
 func (h *ProjectDataHub) sessionEntities() ([]controlplane.EntityDescriptor, error) {
-	items, err := session.NewStore(filepath.Join(h.projectRoot, session.DefaultRootDir)).List()
-	if err != nil {
-		return nil, err
+	roots := []string{
+		filepath.Join(h.projectRoot, session.DefaultRootDir),
+		evaluation.NewStore(h.projectRoot).SessionsDir(),
 	}
-	result := make([]controlplane.EntityDescriptor, 0, len(items))
-	for _, item := range items {
-		title := strings.TrimSpace(item.Session.Title)
-		if title == "" {
-			title = "Untitled session"
+	seen := map[string]bool{}
+	var result []controlplane.EntityDescriptor
+	for _, root := range roots {
+		items, err := session.NewStore(root).List()
+		if err != nil {
+			return nil, err
 		}
-		result = append(result, entityDescriptor(
-			controlplane.EntitySession, item.Session.ID, title,
-			fmt.Sprintf("%s · %d messages", item.Session.Model, item.MessageCount),
-			"saved", item.Session.UpdatedAt,
-			[]string{item.Session.Model, item.Session.CWD},
-			[]controlplane.ContextAction{
-				contextAction("agent.continue", "继续 Session", controlplane.RiskExecute, true, ""),
-			},
-		))
+		for _, item := range items {
+			if seen[item.Session.ID] {
+				continue
+			}
+			seen[item.Session.ID] = true
+			title := strings.TrimSpace(item.Session.Title)
+			if title == "" {
+				title = "Untitled session"
+			}
+			result = append(result, entityDescriptor(
+				controlplane.EntitySession, item.Session.ID, title,
+				fmt.Sprintf("%s · %d messages", item.Session.Model, item.MessageCount),
+				"saved", item.Session.UpdatedAt,
+				[]string{item.Session.Model, item.Session.CWD},
+				[]controlplane.ContextAction{
+					contextAction("agent.continue", "继续 Session", controlplane.RiskExecute, true, ""),
+				},
+			))
+		}
 	}
 	return result, nil
 }

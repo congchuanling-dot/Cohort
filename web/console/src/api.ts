@@ -225,6 +225,55 @@ export interface TraceGraph {
   summary: { node_count: number; edge_count: number; llm_nodes: number; tool_nodes: number; failed_tools: number; file_changes: number; route_escalations: number };
 }
 
+export interface ReceiptLedger {
+  usage_source: string; input_tokens: number; output_tokens: number; total_tokens: number;
+  cache_read_tokens: number; cache_write_tokens: number; estimated_cost_usd?: number;
+  cost_pricing_source: string; provider_turns: number; unavailable_turns: number;
+  receipts: Array<{
+    turn: number; status: string; duration_ms: number; usage_source: string; input_tokens?: number; output_tokens?: number;
+    total_tokens?: number; cache_read_tokens?: number; estimated_input_tokens?: number; estimate_source?: string;
+    request_messages?: number; request_chars?: number; tool_schema_count?: number;
+  }>;
+}
+
+export interface ContextCapacityReport {
+  state: string; max_occupancy_ratio: number;
+  capability: { model: string; context_window_tokens: number; source: string; version: string; confidence: string };
+  calibration: { samples: number; average_actual_ratio?: number; last_actual_ratio?: number };
+  recommended_actions: string[];
+  turns: Array<{
+    turn: number; build: number; estimated_input_tokens: number; provider_input_tokens?: number; effective_input_tokens: number;
+    measurement_source: string; usable_input_tokens: number; occupancy_ratio: number; state: string; trigger_reason?: string;
+    trimmed_messages: number; compacted_tool_results: number;
+    waterfall: Array<{ kind: string; label: string; tokens: number }>;
+  }>;
+}
+
+export interface GovernanceReport {
+  state: string;
+  policies: Array<{ id: string; description: string; enabled: boolean; threshold: string; action: string }>;
+  interventions: Array<{
+    id: string; policy_id: string; turn?: number; action: string; enforcement: string; status: string; reason: string;
+    evidence: Array<{ type: string; ref?: string; label: string }>;
+  }>;
+}
+
+export interface RunComparison {
+  state: string;
+  current: { session_id: string; run_id: string; status: string };
+  baseline?: { session_id: string; run_id: string; status: string };
+  deltas: Array<{ metric: string; current: number; baseline: number; delta: number; delta_rate?: number; unit: string }>;
+  findings: Array<{ severity: string; category: string; title: string; detail: string; evidence: string }>;
+  proposal: { summary: string; risk: string; recommendations: string[]; verification_command: string; evidence: string[] };
+}
+
+export interface TraceRuntimeView {
+  graph: TraceGraph;
+  receipts: ReceiptLedger;
+  capacity: ContextCapacityReport;
+  governance: GovernanceReport;
+}
+
 export interface TuningReport {
   runs_scanned: number; sessions_scanned: number; total_duration_ms: number; llm_duration_ms: number; tool_duration_ms: number;
   tool_failures: number; ask_user_calls: number; permission_events: number; schema_bloat_runs: number; adaptive_routed_runs: number;

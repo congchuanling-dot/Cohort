@@ -563,3 +563,17 @@ operation.updated
 - Bootstrap Token、HttpOnly Cookie、CSRF、Origin、CSP 和高风险 Action Preparation Token 回归通过。
 - `go test ./...`、`go test -race ./...`、`go vet ./...`、TypeScript Typecheck、Vite Production Build 全部通过。
 - `npm audit` 为 0 vulnerabilities。
+
+## 15. Runtime Governor 扩展
+
+Control Center V2 已继续升级为 Proof-Carrying Agent Runtime Governor：
+
+- DeepSeek/OpenAI-compatible Provider Receipt Ledger。
+- 带来源、版本和置信度的 Context Capacity Governor。
+- 普通 Context Build 降为 LLM 属性，真实上下文变更才进入因果 DAG。
+- DAG 节点展示执行方式、脱敏参数、hash、输出、Token、Permission 和 Evidence。
+- 相同工具与参数连续失败后的运行时熔断。
+- 自动成功基线 Run Compare。
+- Optimization Proposal 进入 Capability 审批、验证和晋级闭环。
+
+完整设计和 API 见 `docs/proof_carrying_runtime_governor.md`。
