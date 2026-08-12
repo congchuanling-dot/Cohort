@@ -334,6 +334,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 		routeConfig.Enabled = false
 	}
 	toolRouter := newAdaptiveToolRouter(routeConfig, input)
+	toolCircuit := newToolFailureCircuit(defaultToolFailureCircuitThreshold)
 
 	for turn := 1; turn <= r.MaxTurns; turn++ {
 		lastTurn = turn
@@ -510,6 +511,19 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 					),
 					NextPrompt: "\n",
 				}
+			} else if decision, blocked := toolCircuit.Before(call.Function.Name, stableArgsHash(args)); blocked {
+				outcome = Outcome{
+					Data: NewToolError(
+						"governance_circuit_open",
+						"identical tool invocation was blocked after repeated failures",
+						"请诊断失败原因、修改参数或选择其他工具，不要原样重试。",
+					),
+					NextPrompt: "\n",
+				}
+				r.emitObservation(
+					ctx, obs, runID, observability.EventGovernanceIntervention, turn,
+					observability.SeverityWarn, governanceInterventionData(decision),
+				)
 			} else {
 				// Registry 会根据工具名分发到具体工具，例如 file_read.Run。
 				var runErr error
@@ -549,6 +563,13 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 				r.rememberSkillRead(args)
 			}
 			r.recordLongTermMemorySignal(&memorySignals, call.Function.Name, args, outcome)
+			if err == nil {
+				toolCircuit.Observe(
+					call.Function.Name,
+					stableArgsHash(args),
+					outcomeSucceeded(outcome) || expectedControlOutcome(outcome),
+				)
+			}
 			toolRouter.ObserveToolResult(outcomeSucceeded(outcome) || expectedControlOutcome(outcome))
 			evidenceLedger = append(evidenceLedger, newToolEvidence(call, turn, i, outcome))
 			r.logToolRun(call, args, turn, i, outcome, time.Since(toolStartedAt))

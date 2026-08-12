@@ -351,6 +351,12 @@ func (b *graphBuilder) consume(event observability.Event) {
 		b.lastSequence = node.ID
 	case observability.EventFinishGuardTriggered:
 		b.addDecision(event, "Finish Guard", graphString(event.Data, "reason"))
+	case observability.EventGovernanceIntervention:
+		b.addDecision(
+			event,
+			"Governance: "+graphStringDefault(event.Data, "action", "intervention"),
+			graphString(event.Data, "reason"),
+		)
 	case observability.EventCapabilityGapRecorded:
 		b.addDecision(event, "Capability Gap", graphString(event.Data, "status"))
 	case observability.EventTextToolUseParsed:

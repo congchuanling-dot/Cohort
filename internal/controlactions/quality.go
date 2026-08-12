@@ -55,7 +55,7 @@ func NewQualityProvider() controlplane.QualityProvider {
 			}
 			return map[string]any{
 				"graph": view.CausalGraph(), "summary": view.Summary(), "receipts": view.ReceiptLedger(),
-				"capacity": view.ContextCapacity(model),
+				"capacity": view.ContextCapacity(model), "governance": view.Governance(model),
 			}, nil
 		case len(segments) == 3 && segments[0] == "receipts":
 			view, err := loadQualityTrace(projectRoot, segments[1], segments[2])
@@ -69,6 +69,12 @@ func NewQualityProvider() controlplane.QualityProvider {
 				return nil, err
 			}
 			return view.ContextCapacity(model), nil
+		case len(segments) == 3 && segments[0] == "governance":
+			view, model, err := loadQualityTraceDetails(projectRoot, segments[1], segments[2])
+			if err != nil {
+				return nil, err
+			}
+			return view.Governance(model), nil
 		case len(segments) == 1 && segments[0] == "tuning":
 			limit := boundedLimit(query.Get("limit"), 50, 500)
 			return tuning.Analyze(projectRoot, tuning.Options{

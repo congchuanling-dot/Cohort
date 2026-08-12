@@ -292,6 +292,36 @@ func TestContextCapacityUsesProviderReceiptAndExplainsWaterfall_BitsUT(t *testin
 	}
 }
 
+func TestGovernanceReportIncludesEnforcedAndPendingInterventions_BitsUT(t *testing.T) {
+	base := time.Date(2026, 8, 12, 15, 0, 0, 0, time.UTC)
+	events := []observability.Event{
+		testEvent(base, "run_governance", "session_governance", observability.EventContextBuilt, 1, observability.SeverityWarn, map[string]any{
+			"final_tokens": 950, "usable_input_tokens": 1000, "trimmed_messages": 2,
+			"trigger_reason": "over_usable_input_budget",
+		}),
+		testEvent(base.Add(time.Millisecond), "run_governance", "session_governance", observability.EventGovernanceIntervention, 2, observability.SeverityWarn, map[string]any{
+			"policy_id": "tool.repeated_identical_failure", "action": "circuit_break",
+			"reason": "same call failed twice", "enforcement": "enforced",
+		}),
+	}
+	report := (RunView{SessionID: "session_governance", RunID: "run_governance", Events: events}).Governance("unknown")
+	if report.State != "action_required" || len(report.Policies) != 4 || len(report.Interventions) != 3 {
+		t.Fatalf("governance report = %#v", report)
+	}
+	var enforcedCircuit, pendingCompact bool
+	for _, item := range report.Interventions {
+		if item.PolicyID == "tool.repeated_identical_failure" && item.Enforcement == "enforced" {
+			enforcedCircuit = true
+		}
+		if item.PolicyID == "context.capacity" && item.Status == "pending" && item.Action == "full_compact" {
+			pendingCompact = true
+		}
+	}
+	if !enforcedCircuit || !pendingCompact {
+		t.Fatalf("interventions = %#v", report.Interventions)
+	}
+}
+
 func testEvent(at time.Time, runID string, sessionID string, eventType observability.EventType, turn int, severity observability.Severity, data map[string]any) observability.Event {
 	return observability.Event{
 		SchemaVersion: observability.SchemaVersion,
