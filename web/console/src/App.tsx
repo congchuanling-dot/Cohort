@@ -431,9 +431,9 @@ function CommandCenter({ actions, initialQuery, initialValues, onClose }: { acti
           <form className="action-form" onSubmit={submit}>
             {selected ? <>
               <div><Risk risk={selected.risk} /><h3>{selected.label}</h3><p>{selected.description}</p></div>
-              {(selected.inputs ?? []).map((field) => <DynamicField key={field.name} field={field} value={values[field.name]} onChange={(value) => {
+              {(selected.inputs ?? []).map((field) => <DynamicField key={field.name} field={field} value={values[field.name]} values={values} onChange={(value) => {
                 setPrepared(null);
-                setValues((current) => ({ ...current, [field.name]: value }));
+                setValues((current) => updateFieldValues(selected.inputs ?? [], current, field.name, value));
               }} />)}
               {prepared && <div className="impact-preview"><strong>执行影响</strong><p>{prepared.impact}</p>{prepared.entities?.map((entity) => <span key={entity.field}>{entity.title} · {entity.status || entity.kind}</span>)}</div>}
               {selected.confirmation_text && prepared && <label><span>输入 <code>{selected.confirmation_text}</code> 确认</span><input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required /></label>}
@@ -449,24 +449,57 @@ function CommandCenter({ actions, initialQuery, initialValues, onClose }: { acti
   );
 }
 
-function DynamicField({ field, value, onChange }: { field: InputField; value: unknown; onChange: (value: unknown) => void }) {
-  if (field.type === "entity" && field.entity) return <EntityField field={field} value={String(value ?? "")} onChange={onChange} />;
+function updateFieldValues(fields: InputField[], current: Record<string, unknown>, changedField: string, value: unknown): Record<string, unknown> {
+  const next = { ...current, [changedField]: value };
+  const cleared = new Set<string>([changedField]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const field of fields) {
+      if (!field.entity?.depends_on || cleared.has(field.name)) continue;
+      const dependsOnChanged = Object.values(field.entity.depends_on).some((sourceField) => cleared.has(sourceField));
+      if (!dependsOnChanged) continue;
+      delete next[field.name];
+      cleared.add(field.name);
+      changed = true;
+    }
+  }
+  return next;
+}
+
+function DynamicField({ field, value, values, onChange }: { field: InputField; value: unknown; values: Record<string, unknown>; onChange: (value: unknown) => void }) {
+  if (field.type === "entity" && field.entity) return <EntityField field={field} value={String(value ?? "")} values={values} onChange={onChange} />;
   if (field.type === "boolean") return <label className="checkbox-field"><input type="checkbox" checked={Boolean(value)} onChange={(event) => onChange(event.target.checked)} /><span>{field.label}</span></label>;
   if (field.type === "select") return <label><span>{field.label}</span><select value={String(value ?? "")} required={field.required} onChange={(event) => onChange(event.target.value)}><option value="">请选择</option>{field.options?.map((option) => <option key={option}>{option}</option>)}</select><small>{field.description}</small></label>;
   if (field.type === "text") return <label><span>{field.label}</span><textarea value={String(value ?? "")} required={field.required} placeholder={field.placeholder} onChange={(event) => onChange(event.target.value)} /><small>{field.description}</small></label>;
   return <label><span>{field.label}</span><input type={field.type === "secret" || field.sensitive ? "password" : field.type === "integer" ? "number" : "text"} value={String(value ?? "")} required={field.required} placeholder={field.placeholder} onChange={(event) => onChange(field.type === "integer" ? Number(event.target.value) : event.target.value)} /><small>{field.description}</small></label>;
 }
 
-function EntityField({ field, value, onChange }: { field: InputField; value: string; onChange: (value: unknown) => void }) {
+function EntityField({ field, value, values, onChange }: { field: InputField; value: string; values: Record<string, unknown>; onChange: (value: unknown) => void }) {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const params = new URLSearchParams({ limit: "100" });
   if (search) params.set("q", search);
   for (const status of field.entity?.status ?? []) params.append("status", status);
+  if (field.entity?.recent_first) params.set("recent_first", "true");
+  const dependencyEntries = Object.entries(field.entity?.depends_on ?? {}).map(([queryName, sourceField]) => [
+    queryName,
+    sourceField,
+    String(values[sourceField] ?? ""),
+  ] as const);
+  for (const [queryName, , dependencyValue] of dependencyEntries) {
+    if (dependencyValue) params.set(queryName, dependencyValue);
+  }
+  const missingDependencies = dependencyEntries.filter(([, , dependencyValue]) => dependencyValue === "").map(([, sourceField]) => sourceField);
+  const dependencyKey = dependencyEntries.map(([queryName, sourceField, dependencyValue]) => `${queryName}:${sourceField}:${dependencyValue}`).join("|");
+  useEffect(() => {
+    setOpen(false);
+    setSearch("");
+  }, [dependencyKey]);
   const entities = useQuery({
-    queryKey: ["entities", field.entity?.kind, search, field.entity?.status],
+    queryKey: ["entities", field.entity?.kind, search, field.entity?.status, dependencyKey],
     queryFn: () => apiGet<{ entities: EntityDescriptor[] }>(`/api/v1/entities/${field.entity?.kind}?${params}`),
-    enabled: open,
+    enabled: open && missingDependencies.length === 0,
   });
   const selected = useQuery({
     queryKey: ["entity", field.entity?.kind, value],
@@ -475,8 +508,12 @@ function EntityField({ field, value, onChange }: { field: InputField; value: str
   });
   return <label className="entity-field">
     <span>{field.label}</span>
-    <button type="button" className="entity-trigger" onClick={() => { setSearch(""); setOpen((current) => !current); }}>
-      {selected.data?.entity ? <><strong>{selected.data.entity.title}</strong><small>{selected.data.entity.subtitle || selected.data.entity.status}</small></> : <span>选择{field.label}</span>}
+    <button type="button" className="entity-trigger" disabled={missingDependencies.length > 0} onClick={() => { setSearch(""); setOpen((current) => !current); }}>
+      {missingDependencies.length > 0
+        ? <span>请先选择{missingDependencies.join("、")}</span>
+        : selected.data?.entity
+          ? <><strong>{selected.data.entity.title}</strong><small>{selected.data.entity.subtitle || selected.data.entity.status}</small></>
+          : <span>选择{field.label}</span>}
     </button>
     {open && <div className="entity-picker">
       <input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`搜索${field.label}`} />

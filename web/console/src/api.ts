@@ -13,12 +13,28 @@ export interface InputField {
   entity?: {
     kind: EntityKind;
     status?: string[];
+    depends_on?: Record<string, string>;
     recent_first?: boolean;
     allow_missing?: boolean;
   };
 }
 
-export type EntityKind = "session" | "eval_run" | "delivery" | "hermes_action" | "skill" | "capability" | "mcp_server" | "model_profile";
+export type EntityKind =
+  | "session"
+  | "run"
+  | "replay_bundle"
+  | "eval_run"
+  | "delivery"
+  | "hermes_action"
+  | "skill"
+  | "capability"
+  | "capability_gap"
+  | "capability_proposal"
+  | "dependency_plan"
+  | "reflection_job"
+  | "mcp_server"
+  | "mcp_tool"
+  | "model_profile";
 
 export interface EntityDescriptor {
   kind: EntityKind;
@@ -29,6 +45,7 @@ export interface EntityDescriptor {
   updated_at?: string;
   version: string;
   badges?: string[];
+  relations?: Record<string, string>;
   actions?: Array<{ action_id: string; label: string; risk: RiskLevel; enabled: boolean; disabled_reason?: string }>;
 }
 

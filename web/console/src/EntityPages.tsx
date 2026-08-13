@@ -11,17 +11,25 @@ export interface EntityPageProps {
 }
 
 export function entityInput(kind: EntityKind, id: string): Record<string, unknown> {
-  const fields: Record<EntityKind, string> = {
+  const fields: Partial<Record<EntityKind, string>> = {
     delivery: "delivery_id",
     session: "session_id",
+    run: "run_id",
+    replay_bundle: "run_id",
     eval_run: "run_id",
     hermes_action: "action_id",
     skill: "skill_id",
     capability: "capability_id",
+    capability_gap: "gap_id",
+    capability_proposal: "proposal_id",
+    dependency_plan: "plan_id",
+    reflection_job: "job_id",
     mcp_server: "name",
+    mcp_tool: "tool",
     model_profile: "profile_id",
   };
-  return { [fields[kind]]: id };
+  const field = fields[kind];
+  return field ? { [field]: id } : {};
 }
 
 export function EntityListPage({ kind, title, description, basePath, onAction }: EntityPageProps) {
