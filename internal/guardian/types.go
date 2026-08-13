@@ -106,6 +106,7 @@ type ProvenanceEvent struct {
 	RunID         string    `json:"run_id"`
 	SessionID     string    `json:"session_id"`
 	Turn          int       `json:"turn"`
+	Index         int       `json:"index"`
 	Tool          string    `json:"tool"`
 	ToolCallID    string    `json:"tool_call_id,omitempty"`
 	Phase         string    `json:"phase"`

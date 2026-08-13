@@ -159,11 +159,26 @@ func HashValue(value any) string {
 }
 
 func Contract(policy Policy, tool string) ToolContract {
-	if contract, exists := policy.Contracts[strings.TrimSpace(tool)]; exists {
+	tool = strings.TrimSpace(tool)
+	if contract, exists := policy.Contracts[tool]; exists {
 		return contract
 	}
 	contract := policy.Default
-	contract.Tool = strings.TrimSpace(tool)
+	contract.Tool = tool
+	switch {
+	case strings.HasPrefix(tool, "mcp_"):
+		contract.Role = ToolRoleSink
+		contract.Effect = EffectExternal
+	case strings.HasPrefix(tool, "browser_"):
+		contract.Role = ToolRoleSink
+		contract.Effect = EffectExternal
+	case strings.HasPrefix(tool, "desktop_"), strings.HasPrefix(tool, "computer_"):
+		contract.Role = ToolRoleSink
+		contract.Effect = EffectUnknown
+	case tool == "code_run":
+		contract.Role = ToolRoleSink
+		contract.Effect = EffectLocal
+	}
 	return normalizeContract(contract)
 }
 
@@ -235,19 +250,23 @@ func Decide(policy Policy, label Label, tool string) Decision {
 		decision.Reason = "untrusted source must be inspected in a confined trajectory"
 		return decision
 	}
-	if contract.Effect == EffectExternal || contract.Effect == EffectUnknown {
+	if contract.Effect != EffectNone {
 		if label.Confidentiality == ConfidentialitySecret && !contract.AllowSecretContext {
-			decision.Action = ActionRequireDeclassification
-			decision.RuleID = "G-NO-SECRET-EGRESS"
-			decision.Reason = "secret-tainted context cannot flow to an external or unknown sink"
-			return decision
+			if contract.Effect == EffectExternal || contract.Effect == EffectUnknown {
+				decision.Action = ActionRequireDeclassification
+				decision.RuleID = "G-NO-SECRET-EGRESS"
+				decision.Reason = "secret-tainted context cannot flow to an external or unknown sink"
+				return decision
+			}
 		}
 		if label.Integrity == IntegrityUntrusted && !contract.AllowUntrustedContext {
 			decision.Action = ActionDeny
 			decision.RuleID = "G-NO-UNTRUSTED-EFFECT"
-			decision.Reason = "untrusted observations cannot authorize external or unknown side effects"
+			decision.Reason = "untrusted observations cannot authorize side effects"
 			return decision
 		}
+	}
+	if contract.Effect == EffectExternal || contract.Effect == EffectUnknown {
 		decision.Action = ActionAsk
 		decision.RuleID = "G-EXTERNAL-EFFECT"
 		decision.Reason = "external or unknown side effect requires an authority decision"
