@@ -1242,6 +1242,13 @@ func (r *Runner) ResumeSession(sessionID string, history []llm.Message) {
 	r.history = append([]llm.Message(nil), history...)
 }
 
+// SeedHistory 为隔离的 Replay Runner 注入历史前缀，但不绑定源 Session。
+// 下一次 Run 会创建新的 Session，确保反事实分支不会污染原始证据。
+func (r *Runner) SeedHistory(history []llm.Message) {
+	r.sessionID = ""
+	r.history = append([]llm.Message(nil), history...)
+}
+
 // appendMessage 同时维护内存 history 和本地 history.jsonl。
 //
 // Runner 的主流程只调用这个方法追加消息，避免某些分支只写内存、不写文件。
