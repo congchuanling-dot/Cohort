@@ -40,26 +40,27 @@ const (
 )
 
 type Manifest struct {
-	SchemaVersion     int           `json:"schema_version"`
-	SessionID         string        `json:"session_id"`
-	RunID             string        `json:"run_id"`
-	CreatedAt         time.Time     `json:"created_at"`
-	CompletedAt       time.Time     `json:"completed_at,omitempty"`
-	Status            string        `json:"status"`
-	Replayability     Replayability `json:"replayability"`
-	ReplayBlockReason string        `json:"replay_block_reason,omitempty"`
-	Provider          string        `json:"provider,omitempty"`
-	Model             string        `json:"model,omitempty"`
-	WorkingDirectory  string        `json:"working_directory"`
-	SystemPromptHash  string        `json:"system_prompt_hash"`
-	ToolSchemaHash    string        `json:"tool_schema_hash"`
-	InputHash         string        `json:"input_hash"`
-	PrefixHash        string        `json:"prefix_hash"`
-	Git               GitBaseline   `json:"git"`
-	FrameCount        int           `json:"frame_count"`
-	FramesHash        string        `json:"frames_hash,omitempty"`
-	FinalStatus       string        `json:"final_status,omitempty"`
-	Error             string        `json:"error,omitempty"`
+	SchemaVersion     int               `json:"schema_version"`
+	SessionID         string            `json:"session_id"`
+	RunID             string            `json:"run_id"`
+	CreatedAt         time.Time         `json:"created_at"`
+	CompletedAt       time.Time         `json:"completed_at,omitempty"`
+	Status            string            `json:"status"`
+	Replayability     Replayability     `json:"replayability"`
+	ReplayBlockReason string            `json:"replay_block_reason,omitempty"`
+	Provider          string            `json:"provider,omitempty"`
+	Model             string            `json:"model,omitempty"`
+	WorkingDirectory  string            `json:"working_directory"`
+	SystemPromptHash  string            `json:"system_prompt_hash"`
+	ToolSchemaHash    string            `json:"tool_schema_hash"`
+	InputHash         string            `json:"input_hash"`
+	PrefixHash        string            `json:"prefix_hash"`
+	Git               GitBaseline       `json:"git"`
+	Snapshot          WorkspaceSnapshot `json:"workspace_snapshot,omitempty"`
+	FrameCount        int               `json:"frame_count"`
+	FramesHash        string            `json:"frames_hash,omitempty"`
+	FinalStatus       string            `json:"final_status,omitempty"`
+	Error             string            `json:"error,omitempty"`
 }
 
 type GitBaseline struct {
@@ -69,6 +70,21 @@ type GitBaseline struct {
 	TreeHash   string `json:"tree_hash,omitempty"`
 	StatusHash string `json:"status_hash,omitempty"`
 	Dirty      bool   `json:"dirty,omitempty"`
+}
+
+type WorkspaceSnapshot struct {
+	Available  bool           `json:"available"`
+	PatchFile  string         `json:"patch_file,omitempty"`
+	PatchHash  string         `json:"patch_hash,omitempty"`
+	Untracked  []SnapshotFile `json:"untracked,omitempty"`
+	TotalBytes int64          `json:"total_bytes,omitempty"`
+	Error      string         `json:"error,omitempty"`
+}
+
+type SnapshotFile struct {
+	Path string `json:"path"`
+	Hash string `json:"hash"`
+	Size int64  `json:"size"`
 }
 
 type FrameKind string
@@ -149,14 +165,15 @@ func NewRecorder(cfg RecorderConfig) (*Recorder, error) {
 		return nil, err
 	}
 	git := inspectGitBaseline(cfg.WorkingDirectory)
+	snapshot := captureWorkspaceSnapshot(dir, git)
 	replayability := ReplayabilityForkable
 	blockReason := ""
 	if !git.Available {
 		replayability = ReplayabilityExactOnly
 		blockReason = "working directory is not a git repository"
-	} else if git.Dirty {
+	} else if git.Dirty && !snapshot.Available {
 		replayability = ReplayabilityExactOnly
-		blockReason = "working tree was dirty when the run started"
+		blockReason = "working tree snapshot failed: " + snapshot.Error
 	}
 	r := &Recorder{
 		dir:          dir,
@@ -178,6 +195,7 @@ func NewRecorder(cfg RecorderConfig) (*Recorder, error) {
 			InputHash:         StableHash(cfg.Input),
 			PrefixHash:        StableHash(cfg.PrefixMessages),
 			Git:               git,
+			Snapshot:          snapshot,
 		},
 	}
 	if err := r.writeManifest(); err != nil {
