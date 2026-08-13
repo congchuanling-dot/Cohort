@@ -108,6 +108,43 @@ func TestPreparationResolvesEntityAndRejectsChangedVersion_BitsUT(t *testing.T) 
 	}
 }
 
+func TestPreparationRejectsEntityOutsideSelectedParent(t *testing.T) {
+	entities := &memoryEntityProvider{entity: EntityDescriptor{
+		Kind: EntityRun, ID: "run-1", Title: "Run One", Status: "done", Version: "v1",
+		Relations: map[string]string{"session_id": "session-a"},
+	}}
+	catalog, err := NewCatalog(ActionSpec{
+		ID: "replay.fork", Category: "replay", Label: "Fork", Description: "Fork one run.", Risk: RiskExecute,
+		Inputs: []InputField{
+			{
+				Name: "session_id", Label: "Session", Type: FieldEntity, Required: true,
+				Entity: &EntitySelector{Kind: EntitySession, AllowMissing: true},
+			},
+			{
+				Name: "run_id", Label: "Run", Type: FieldEntity, Required: true,
+				Entity: &EntitySelector{Kind: EntityRun, DependsOn: map[string]string{"session_id": "session_id"}},
+			},
+		},
+		Handler: func(context.Context, ActionRequest) (ActionResult, error) {
+			return ActionResult{Summary: "forked"}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewPreparationManager(catalog, entities)
+	_, err = manager.Prepare(context.Background(), "replay.fork", ActionRequest{
+		ProjectRoot: t.TempDir(),
+		Input: map[string]any{
+			"session_id": "session-b",
+			"run_id":     "run-1",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "does not belong") {
+		t.Fatalf("parent mismatch err = %v", err)
+	}
+}
+
 type memoryEntityProvider struct {
 	entity EntityDescriptor
 }

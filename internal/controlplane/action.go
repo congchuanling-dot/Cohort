@@ -241,6 +241,21 @@ func validateActionSpec(spec ActionSpec) error {
 			return fmt.Errorf("action %q entity input %q requires an entity kind", spec.ID, field.Name)
 		}
 	}
+	for _, field := range spec.Inputs {
+		if field.Entity == nil {
+			continue
+		}
+		for queryName, sourceField := range field.Entity.DependsOn {
+			queryName = strings.TrimSpace(queryName)
+			sourceField = strings.TrimSpace(sourceField)
+			if queryName == "" || sourceField == "" || !seen[sourceField] || sourceField == field.Name {
+				return fmt.Errorf(
+					"action %q entity input %q has invalid dependency %q -> %q",
+					spec.ID, field.Name, queryName, sourceField,
+				)
+			}
+		}
+	}
 	return nil
 }
 

@@ -26,7 +26,22 @@ func capabilityActions() []controlplane.ActionSpec {
 		Name: "capability_id", Label: "Capability", Type: controlplane.FieldEntity, Required: true,
 		Entity: &controlplane.EntitySelector{Kind: controlplane.EntityCapability, RecentFirst: true},
 	}
-	proposalID := controlplane.InputField{Name: "proposal_id", Label: "Proposal ID", Type: controlplane.FieldString, Required: true}
+	proposalID := controlplane.InputField{
+		Name: "proposal_id", Label: "Capability Proposal", Type: controlplane.FieldEntity, Required: true,
+		Entity: &controlplane.EntitySelector{Kind: controlplane.EntityCapabilityProposal, RecentFirst: true},
+	}
+	plannedDependencyID := controlplane.InputField{
+		Name: "plan_id", Label: "Dependency Plan", Type: controlplane.FieldEntity, Required: true,
+		Entity: &controlplane.EntitySelector{
+			Kind: controlplane.EntityDependencyPlan, Status: []string{capability.DependencyStatusPlanned}, RecentFirst: true,
+		},
+	}
+	approvedDependencyID := controlplane.InputField{
+		Name: "plan_id", Label: "Approved Dependency Plan", Type: controlplane.FieldEntity, Required: true,
+		Entity: &controlplane.EntitySelector{
+			Kind: controlplane.EntityDependencyPlan, Status: []string{capability.DependencyStatusApproved}, RecentFirst: true,
+		},
+	}
 	return []controlplane.ActionSpec{
 		{
 			ID: "capability.propose", Category: "capability", Label: "记录能力缺口",
@@ -132,7 +147,7 @@ func capabilityActions() []controlplane.ActionSpec {
 			Description: "显式批准绑定的依赖安装计划。",
 			Keywords:    []string{"capability", "dependency", "approve"}, Risk: controlplane.RiskConfirm,
 			ConfirmationText: "APPROVE_DEPENDENCIES",
-			Inputs:           []controlplane.InputField{{Name: "plan_id", Label: "Plan ID", Type: controlplane.FieldString, Required: true}},
+			Inputs:           []controlplane.InputField{plannedDependencyID},
 			Handler: func(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 				result, err := capability.NewStore(request.ProjectRoot).ApproveDependencyPlan(textInput(request, "plan_id"))
 				return controlplane.ActionResult{Summary: "dependency plan approved", Data: result}, err
@@ -144,7 +159,7 @@ func capabilityActions() []controlplane.ActionSpec {
 			Keywords:    []string{"capability", "dependency", "install"}, Risk: controlplane.RiskDanger, Async: true,
 			ConfirmationText: "INSTALL_DEPENDENCIES",
 			Inputs: []controlplane.InputField{
-				{Name: "plan_id", Label: "Plan ID", Type: controlplane.FieldString, Required: true},
+				approvedDependencyID,
 				{Name: "dry_run", Label: "仅演练", Type: controlplane.FieldBoolean, Default: false},
 			},
 			Handler: func(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
@@ -530,7 +545,12 @@ func reflectionActions() []controlplane.ActionSpec {
 			Description: "把 failed/dead Reflection Job 重新放回可用队列。",
 			Keywords:    []string{"reflection", "retry", "重试"}, Risk: controlplane.RiskConfirm,
 			ConfirmationText: "RETRY",
-			Inputs:           []controlplane.InputField{{Name: "job_id", Label: "Job ID", Type: controlplane.FieldString, Required: true}},
+			Inputs: []controlplane.InputField{{
+				Name: "job_id", Label: "Failed Reflection Job", Type: controlplane.FieldEntity, Required: true,
+				Entity: &controlplane.EntitySelector{
+					Kind: controlplane.EntityReflectionJob, Status: []string{"dead"}, RecentFirst: true,
+				},
+			}},
 			Handler: func(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 				item, err := evolution.NewReflectionQueue(request.ProjectRoot).Retry(textInput(request, "job_id"))
 				return controlplane.ActionResult{Summary: "reflection job retried", Data: item}, err

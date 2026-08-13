@@ -86,6 +86,15 @@ func (m *PreparationManager) Prepare(ctx context.Context, actionID string, reque
 				field.Name, entity.ID, entity.Status, strings.Join(field.Entity.Status, ", "),
 			)
 		}
+		for relation, sourceField := range field.Entity.DependsOn {
+			parentValue := strings.TrimSpace(fmt.Sprint(normalized.Input[sourceField]))
+			if parentValue == "" || entity.Relations[relation] != parentValue {
+				return ActionPreparation{}, fmt.Errorf(
+					"input %q entity %q does not belong to selected %s %q",
+					field.Name, entity.ID, sourceField, parentValue,
+				)
+			}
+		}
 		normalized.Input[field.Name] = entity.ID
 		bindings = append(bindings, EntityBinding{
 			Field: field.Name, Kind: entity.Kind, ID: entity.ID, Title: entity.Title,

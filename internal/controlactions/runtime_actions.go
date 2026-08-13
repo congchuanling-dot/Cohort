@@ -22,7 +22,13 @@ func runtimeOptimizationActions() []controlplane.ActionSpec {
 				Name: "session_id", Label: "Session", Type: controlplane.FieldEntity, Required: true,
 				Entity: &controlplane.EntitySelector{Kind: controlplane.EntitySession, RecentFirst: true},
 			},
-			{Name: "run_id", Label: "Run ID", Type: controlplane.FieldString, Required: true},
+			{
+				Name: "run_id", Label: "Run", Type: controlplane.FieldEntity, Required: true,
+				Entity: &controlplane.EntitySelector{
+					Kind: controlplane.EntityRun, RecentFirst: true,
+					DependsOn: map[string]string{"session_id": "session_id"},
+				},
+			},
 		},
 		Handler: func(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 			comparison, err := compareQualityRun(

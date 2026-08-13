@@ -71,6 +71,13 @@ func TestCatalogExposesStableSystemAction_BitsUT(t *testing.T) {
 	if actions := catalog.List(); len(actions) < 40 {
 		t.Fatalf("catalog only exposes %d actions", len(actions))
 	}
+	for _, action := range catalog.List() {
+		for _, field := range action.Inputs {
+			if strings.HasSuffix(field.Name, "_id") && field.Type == controlplane.FieldString {
+				t.Fatalf("action %s requires manual id input %s", action.ID, field.Name)
+			}
+		}
+	}
 	root := t.TempDir()
 	if _, err := projectPath(root, "../outside.json"); err == nil {
 		t.Fatal("expected project path escape to be rejected")
