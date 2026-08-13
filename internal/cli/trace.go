@@ -218,7 +218,7 @@ func runForkReplay(ctx context.Context, cfg app.Config, options replayCLIOptions
 				trial.Error = err.Error()
 				report.Trials = append(report.Trials, trial)
 				if remove {
-					_ = manager.Remove(ctx, spec)
+					_ = manager.Discard(ctx, spec)
 				}
 				continue
 			}
@@ -242,7 +242,7 @@ func runForkReplay(ctx context.Context, cfg app.Config, options replayCLIOptions
 		}
 		report.Trials = append(report.Trials, trial)
 		if remove {
-			_ = manager.Remove(ctx, spec)
+			_ = manager.Discard(ctx, spec)
 		}
 	}
 	replay.FinalizeReport(&report)
@@ -251,7 +251,13 @@ func runForkReplay(ctx context.Context, cfg app.Config, options replayCLIOptions
 		return err
 	}
 	if options.jsonOutput {
-		return writeReplayJSON(out, report)
+		if err := writeReplayJSON(out, report); err != nil {
+			return err
+		}
+		if report.Successful == 0 {
+			return errors.New("all fork replay trials failed; inspect the persisted report")
+		}
+		return nil
 	}
 	fmt.Fprintf(out, "experiment: %s\n", report.ID)
 	fmt.Fprintf(out, "source: %s/%s\nfork_turn: %d\n", report.SourceSession, report.SourceRun, report.ForkTurn)
@@ -265,6 +271,9 @@ func runForkReplay(ctx context.Context, cfg app.Config, options replayCLIOptions
 			fmt.Fprintf(out, " error=%q", trial.Error)
 		}
 		fmt.Fprintln(out)
+	}
+	if report.Successful == 0 {
+		return errors.New("all fork replay trials failed; inspect the persisted report")
 	}
 	return nil
 }

@@ -1570,6 +1570,10 @@ Usage:
                           show one session run timeline
   cohort trace graph last|show <session_id> [--run id] [--out path] [--open] [--json]
                           build an offline causal DAG and critical-path analysis
+  cohort trace replay exact <session_id> --run <run_id> [--json]
+                          verify an offline replay bundle without model or tool side effects
+  cohort trace replay fork <session_id> --run <run_id> --fork-turn N [--model name] [--system-prompt path] [--repeat N]
+                          fork a historical run in isolated worktrees and emit a proof report
   cohort perf last        show latest run latency, usage, and bottlenecks
   cohort perf show <session_id> [--run <run_id>]
                           show one session run performance summary

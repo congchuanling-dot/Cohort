@@ -82,6 +82,35 @@ func TestManagerMergesDependencyCommit_BitsUT(t *testing.T) {
 	}
 }
 
+func TestManagerDiscardRemovesWorktreeAndBranch(t *testing.T) {
+	root := initRepo(t)
+	base := gitOutput(t, root, "rev-parse", "HEAD")
+	manager, err := NewManager(root, filepath.Join(root, ".cohort", "worktrees"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := Spec{
+		ID:         "replay-1",
+		BaseCommit: base,
+		Branch:     "cohort/replay/replay-1",
+		Path:       filepath.Join(manager.RootDir, "replay-1"),
+	}
+	if err := manager.Prepare(context.Background(), spec); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Discard(context.Background(), spec); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(spec.Path); !os.IsNotExist(err) {
+		t.Fatalf("worktree still exists: %v", err)
+	}
+	command := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+spec.Branch)
+	command.Dir = root
+	if err := command.Run(); err == nil {
+		t.Fatalf("temporary branch %s still exists", spec.Branch)
+	}
+}
+
 func initRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()

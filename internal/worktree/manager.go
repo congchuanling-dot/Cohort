@@ -220,6 +220,18 @@ func (m Manager) Remove(ctx context.Context, spec Spec) error {
 	return nil
 }
 
+// Discard 删除隔离 Worktree 及其临时分支，用于不需要保留提交的实验运行。
+func (m Manager) Discard(ctx context.Context, spec Spec) error {
+	if err := m.Remove(ctx, spec); err != nil {
+		return err
+	}
+	output, err := m.git(ctx, m.ProjectRoot, "branch", "-D", spec.Branch)
+	if err != nil && !strings.Contains(output, "not found") {
+		return fmt.Errorf("delete worktree branch: %w: %s", err, output)
+	}
+	return nil
+}
+
 func (m Manager) validateSpec(spec Spec) error {
 	if strings.TrimSpace(spec.ID) == "" || strings.TrimSpace(spec.BaseCommit) == "" || strings.TrimSpace(spec.Branch) == "" {
 		return errors.New("worktree id, base commit, and branch are required")

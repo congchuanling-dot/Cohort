@@ -103,6 +103,10 @@ func ApplyWorkspaceSnapshot(ctx context.Context, worktree string, bundleDir stri
 	}
 	if snapshot.PatchFile != "" {
 		patchPath := filepath.Join(bundleDir, snapshot.PatchFile)
+		patchPath, err := filepath.Abs(patchPath)
+		if err != nil {
+			return err
+		}
 		data, err := os.ReadFile(patchPath)
 		if err != nil {
 			return err
