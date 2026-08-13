@@ -11,6 +11,7 @@ import { EntityDetailPage, EntityListPage } from "./EntityPages";
 import { EvalRunPage, QualityOverviewPage, StabilityPage } from "./QualityPages";
 import { TraceGraphPage, TuningPage } from "./TraceTuningPages";
 import { TimeMachinePage } from "./TimeMachinePage";
+import { CapabilityGovernancePage } from "./CapabilityGovernancePage";
 
 function StatusDot({ online }: { online: boolean }) {
   return <span className={online ? "status-dot online" : "status-dot"} aria-hidden="true" />;
@@ -97,6 +98,8 @@ export default function App() {
       void queryClient.invalidateQueries({ queryKey: ["operations"] });
       void queryClient.invalidateQueries({ queryKey: ["snapshot"] });
       void queryClient.invalidateQueries({ queryKey: ["resource"] });
+      void queryClient.invalidateQueries({ queryKey: ["entities"] });
+      void queryClient.invalidateQueries({ queryKey: ["replay"] });
     });
   }, [queryClient, session.isSuccess]);
 
@@ -216,14 +219,7 @@ export default function App() {
           sessions={traces.data?.sessions ?? []}
           runAction={(intent) => openAction(intent)}
         />} />
-        <Route path="/capabilities" element={<CapabilityCenter
-          capabilities={capabilities.data}
-          skills={skills.data?.skills ?? []}
-          servers={mcp.data?.servers ?? []}
-          lsp={lsp.data}
-          settings={settings.data}
-          runAction={(intent) => openAction(intent)}
-        />} />
+        <Route path="/capabilities" element={<CapabilityGovernancePage onAction={openAction} />} />
         <Route path="/settings" element={<CapabilityCenter capabilities={capabilities.data} skills={skills.data?.skills ?? []} servers={mcp.data?.servers ?? []} lsp={lsp.data} settings={settings.data} runAction={(intent) => openAction(intent)} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

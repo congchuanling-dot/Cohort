@@ -348,11 +348,33 @@ export interface SessionSummary {
 
 export interface CapabilityResource {
   registry: {
-    capabilities: Array<{ id: string; status: string; type: string; risk?: string; entry?: string }>;
-    gaps: Array<{ id: string; status: string; missing_capability: string; task: string }>;
-    proposals: Array<{ id: string; status: string; summary: string; risk: string }>;
+    capabilities: Array<{
+      id: string; status: string; type: string; risk?: string; entry?: string; triggers?: string[];
+      requires?: { tools?: string[]; commands?: string[]; python?: string[]; npm?: string[]; brew?: string[]; env?: string[] };
+      verification?: { command?: string; sample_task?: string; last_passed_at?: string };
+      updated_at?: string;
+    }>;
+    gaps: Array<{
+      id: string; status: string; missing_capability: string; task: string; source?: string;
+      evidence?: string[]; suggested_actions?: string[]; updated_at?: string;
+    }>;
+    proposals: Array<{
+      id: string; gap_id?: string; status: string; summary: string; risk: string; install_scope?: string;
+      artifacts?: string[]; dependencies?: { python?: string[]; npm?: string[]; brew?: string[] };
+      verification?: { command?: string; sample_task?: string; last_passed_at?: string };
+      updated_at?: string;
+    }>;
   };
   suggestions: Array<{ missing_capability: string; count: number; reason: string }>;
+  dependencies?: {
+    plans: Array<{
+      id: string; proposal_id: string; capability_id: string; status: string; scope: string; risk: string;
+      actions: Array<{ id: string; manager: string; name: string; scope: string; command: string[]; risk: string }>;
+      updated_at?: string;
+    }>;
+    installs: Array<{ id: string; plan_id: string; action_id: string; status: string; exit_code: number; output?: string; installed_at: string }>;
+  };
+  enabled_adapters?: Array<{ capability_id: string; type: string; entry: string; enabled_at: string }>;
 }
 
 export interface SkillSummary {
