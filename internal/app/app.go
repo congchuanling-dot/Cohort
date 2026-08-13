@@ -152,6 +152,8 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 		SessionStore:              &sessionStore,
 		SessionCWD:                cwd,
 		SessionModel:              active.Model,
+		SessionProvider:           active.Provider,
+		ReplayEnabled:             true,
 		RunMode:                   agent.RunModeInteractive,
 		ReflectionMemoryWorkspace: workspace,
 		ReflectionSessionRoot:     sessionRoot,

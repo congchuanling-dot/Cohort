@@ -16,6 +16,7 @@ import (
 	"cohort/internal/hooks"
 	"cohort/internal/llm"
 	"cohort/internal/observability"
+	"cohort/internal/replay"
 	"cohort/internal/session"
 	"cohort/internal/skill"
 )
@@ -143,6 +144,10 @@ type Runner struct {
 	SessionCWD string
 	// SessionModel 记录本次会话使用的模型名，会写入 meta.json。
 	SessionModel string
+	// SessionProvider 记录本次运行的模型协议，用于 Replay Manifest 和跨模型对比。
+	SessionProvider string
+	// ReplayEnabled 为每次 Run 录制可校验的请求、响应和工具结果。
+	ReplayEnabled bool
 	// CloseFunc 由应用装配层注入，用于关闭 MCP 子进程等 Runner 持有的资源。
 	// Runner 本身不依赖具体实现，因此测试可留空。
 	CloseFunc func() error
@@ -220,6 +225,25 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 	if err := r.appendMessage(llm.Message{Role: llm.RoleUser, Content: input}, input); err != nil {
 		return RunResult{}, err
 	}
+	var replayRecorder *replay.Recorder
+	if r.ReplayEnabled && r.sessionID != "" {
+		prefix := append([]llm.Message(nil), r.history...)
+		if len(prefix) > 0 {
+			prefix = prefix[:len(prefix)-1]
+		}
+		replayRecorder, _ = replay.NewRecorder(replay.RecorderConfig{
+			SessionDir:       r.sessionDir(),
+			SessionID:        r.sessionID,
+			RunID:            runID,
+			Provider:         r.SessionProvider,
+			Model:            r.SessionModel,
+			WorkingDirectory: r.SessionCWD,
+			SystemPrompt:     r.SystemPrompt,
+			Tools:            r.Tools.Schemas(),
+			Input:            input,
+			PrefixMessages:   prefix,
+		})
+	}
 	// #region debug-point D:append-user
 	debugperf.Event("pre-fix", "D", "internal/agent/runner.go:Run", "User message appended", map[string]any{
 		"elapsed_ms":     debugperf.Since(appendStart),
@@ -274,6 +298,9 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			"session_root": r.ReflectionSessionRoot,
 			"trigger_kind": "run_boundary",
 		})
+		if replayRecorder != nil {
+			_ = replayRecorder.Complete(result.Status, err)
+		}
 		return result, err
 	}
 	if sessionBeforeInput == "" && r.sessionID != "" {
@@ -365,6 +392,9 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 		// #endregion
 		r.emitObservation(ctx, obs, runID, observability.EventToolRouteSelected, turn, observability.SeverityInfo, toolRouteDecisionData(routeDecision))
 		r.emitObservation(ctx, obs, runID, observability.EventLLMRequestStarted, turn, observability.SeverityInfo, llmRequestData(messages, tools, requestSystemPrompt))
+		if replayRecorder != nil {
+			replayRecorder.RecordRequest(turn, requestSystemPrompt, messages, tools)
+		}
 		llmStartedAt := time.Now()
 		stream, err := r.Client.Chat(ctx, llm.ChatRequest{
 			System:   requestSystemPrompt,
@@ -398,6 +428,9 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			return finishRun(RunResult{}, err)
 		}
 		r.emitObservation(ctx, obs, runID, observability.EventLLMResponseFinished, turn, observability.SeverityInfo, llmResponseData(resp, time.Since(llmStartedAt), messages, tools, requestSystemPrompt))
+		if replayRecorder != nil {
+			replayRecorder.RecordResponse(turn, resp)
+		}
 		// 记录模型原始响应用于排查问题，不影响主流程。
 		r.logResponse(turn, resp)
 		mergeUsageTotals(&totalUsage, resp.Usage)
@@ -573,6 +606,19 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			toolRouter.ObserveToolResult(outcomeSucceeded(outcome) || expectedControlOutcome(outcome))
 			evidenceLedger = append(evidenceLedger, newToolEvidence(call, turn, i, outcome))
 			r.logToolRun(call, args, turn, i, outcome, time.Since(toolStartedAt))
+			if replayRecorder != nil {
+				replayRecorder.RecordTool(
+					turn,
+					i,
+					call,
+					args,
+					stringify(outcome.Data),
+					outcome.NextPrompt,
+					outcome.ShouldExit,
+					outcome.Audit,
+					time.Since(toolStartedAt),
+				)
+			}
 			if decision, _ := outcome.Audit["permission_decision"].(string); decision != "" {
 				r.emitObservation(ctx, obs, runID, observability.EventPermissionDecision, turn, observability.SeverityInfo, map[string]any{
 					"tool":                call.Function.Name,
