@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "updated_at": "2026-08-12T04:37:16.812968Z",
+  "capabilities": null,
+  "gaps": [
+    {
+      "id": "gap_runtime_optimization_run_1786084824267644000_1",
+      "task": "Optimize run run_1786084824267644000_1 against successful baseline run_1786083961211727000_1",
+      "missing_capability": "runtime_optimization_run_1786084824267644000_1",
+      "source": "runtime_compare",
+      "status": "missing",
+      "evidence": [
+        "trace://20260807-144024-0d59ecf1/run_1786084824267644000_1",
+        "trace://20260807-142601-f677d473/run_1786083961211727000_1"
+      ],
+      "suggested_actions": [
+        "当前 Run 未发现显著回归，保留为新的成功基线候选。"
+      ],
+      "created_at": "2026-08-12T04:37:16.811088Z",
+      "updated_at": "2026-08-12T04:37:16.811088Z"
+    }
+  ],
+  "proposals": [
+    {
+      "id": "proposal_optimize_run_run_1786084824267644000_1_against_successf",
+      "gap_id": "gap_runtime_optimization_run_1786084824267644000_1",
+      "summary": "Optimize run run_1786084824267644000_1 against successful baseline run_1786083961211727000_1: 当前 Run 未发现显著回归，保留为新的成功基线候选。",
+      "install_scope": "project",
+      "dependencies": {},
+      "artifacts": [
+        "trace://20260807-144024-0d59ecf1/run_1786084824267644000_1",
+        "trace://20260807-142601-f677d473/run_1786083961211727000_1"
+      ],
+      "risk": "R2: proposal only; implementation requires explicit approval and verification",
+      "verification": {
+        "sample_task": "Re-run the acceptance task and compare against baseline run_1786083961211727000_1",
+        "last_passed_at": "0001-01-01T00:00:00Z"
+      },
+      "status": "proposed",
+      "created_at": "2026-08-12T04:37:16.812948Z",
+      "updated_at": "2026-08-12T04:37:16.812948Z"
+    }
+  ]
+}
