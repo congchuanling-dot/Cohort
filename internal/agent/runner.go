@@ -181,6 +181,8 @@ type Runner struct {
 	// sessionID 是当前 Runner 对应的本地 session 目录名。
 	// 它第一次收到用户输入时创建，之后同一个 REPL Runner 会持续复用。
 	sessionID string
+	// lastRunID 暴露最近一次运行的观测标识，供 Replay 实验关联分支证据。
+	lastRunID string
 	// pendingHints 保存下一轮临时注入给模型的系统提醒，不写入持久 history。
 	pendingHints []string
 	// pendingSOPRead 记录最近一次读取的 SOP。若下一轮没有 checkpoint，会再提醒一次。
@@ -203,6 +205,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 		r.MaxTurns = 300
 	}
 	runID := observability.NewRunID()
+	r.lastRunID = runID
 	runStartedAt := time.Now()
 	// 每次运行前确保日志目录存在，日志失败属于运行环境错误。
 	logDirStart := time.Now()
@@ -1211,6 +1214,11 @@ func (r *Runner) Close() error {
 // 此时返回空字符串。这样欢迎页可以展示 "new session"，而不是强行创建空会话。
 func (r *Runner) SessionID() string {
 	return r.sessionID
+}
+
+// LastRunID 返回最近一次 Run 的观测与 Replay Bundle 标识。
+func (r *Runner) LastRunID() string {
+	return r.lastRunID
 }
 
 func (r *Runner) effectiveRunMode() RunMode {

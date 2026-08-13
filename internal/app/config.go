@@ -350,6 +350,27 @@ func (cfg LLMConfig) Active() LLMProfile {
 	}
 }
 
+// WithModelOverride 复制配置并只替换当前 active profile 的模型名。
+// Replay 使用它做单变量干预，避免修改用户磁盘上的配置文件。
+func (cfg Config) WithModelOverride(model string) Config {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return cfg
+	}
+	if len(cfg.LLM.Profiles) > 0 && cfg.LLM.ActiveProfile != "" {
+		profiles := make(map[string]LLMProfile, len(cfg.LLM.Profiles))
+		for id, profile := range cfg.LLM.Profiles {
+			profiles[id] = profile
+		}
+		active := profiles[cfg.LLM.ActiveProfile]
+		active.Model = model
+		profiles[cfg.LLM.ActiveProfile] = active
+		cfg.LLM.Profiles = profiles
+	}
+	cfg.LLM.Model = model
+	return cfg
+}
+
 func normalizeLLMConfig(cfg *LLMConfig) error {
 	if len(cfg.Profiles) > 0 {
 		if strings.TrimSpace(cfg.ActiveProfile) == "" {

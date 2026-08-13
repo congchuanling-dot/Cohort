@@ -85,6 +85,17 @@ func Run(args []string) error {
 		return runPlanCommand(args[1:], os.Stdout)
 	}
 	if args[0] == "trace" {
+		if len(args) > 1 && args[1] == "replay" {
+			configPath, resolveErr := app.ResolveConfigPath(opts.ConfigPath)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			cfg, loadErr := app.LoadConfig(configPath)
+			if loadErr != nil {
+				return loadErr
+			}
+			return runTraceReplayCommand(context.Background(), cfg, args[2:], os.Stdout)
+		}
 		return runTraceCommand(args[1:], os.Stdout)
 	}
 	if args[0] == "perf" {

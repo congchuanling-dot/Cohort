@@ -24,6 +24,7 @@ import (
 	"cohort/internal/plan"
 	"cohort/internal/plugin"
 	"cohort/internal/project"
+	"cohort/internal/replay"
 	"cohort/internal/session"
 	"cohort/internal/skill"
 	"cohort/internal/tools"
@@ -179,6 +180,31 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 		"system_prompt_chars": len([]rune(runner.SystemPrompt)),
 	})
 	// #endregion
+	return runner, nil
+}
+
+// NewForkRunner 创建隔离的反事实 Runner。分叉点之前只消费录制结果，
+// 分叉点及之后才调用当前配置里的真实模型和工具。
+func NewForkRunner(cfg Config, plan replay.ForkPlan, systemPrompt string, observationOverrides map[string]string) (*agent.Runner, error) {
+	runner, err := NewRunner(cfg)
+	if err != nil {
+		return nil, err
+	}
+	liveClient := runner.Client
+	liveTools := runner.Tools
+	runner.Client = replay.NewForkClient(plan, liveClient)
+	runner.Tools = agent.ReplayToolRunner{
+		Base:                 liveTools,
+		Plan:                 plan,
+		ObservationOverrides: observationOverrides,
+	}
+	if strings.TrimSpace(systemPrompt) != "" {
+		runner.SystemPrompt = systemPrompt
+	}
+	runner.RunMode = agent.RunModeReplay
+	runner.DisableLongTermMemoryReview = true
+	runner.DisableCapabilityGapRecording = true
+	runner.SeedHistory(plan.PrefixHistory)
 	return runner, nil
 }
 
