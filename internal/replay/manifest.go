@@ -19,10 +19,11 @@ import (
 )
 
 const (
-	SchemaVersion    = 1
+	SchemaVersion    = 2
 	ReplayDirName    = "replay"
 	ManifestFileName = "manifest.json"
 	FramesFileName   = "frames.jsonl"
+	RuntimeFileName  = "runtime.json"
 )
 
 type Mode string
@@ -53,6 +54,7 @@ type Manifest struct {
 	WorkingDirectory  string            `json:"working_directory"`
 	SystemPromptHash  string            `json:"system_prompt_hash"`
 	ToolSchemaHash    string            `json:"tool_schema_hash"`
+	RuntimeHash       string            `json:"runtime_hash"`
 	InputHash         string            `json:"input_hash"`
 	PrefixHash        string            `json:"prefix_hash"`
 	Git               GitBaseline       `json:"git"`
@@ -156,6 +158,11 @@ type Recorder struct {
 	failed       error
 }
 
+type RuntimeSnapshot struct {
+	SystemPrompt string           `json:"system_prompt"`
+	Tools        []llm.ToolSchema `json:"tools"`
+}
+
 func NewRecorder(cfg RecorderConfig) (*Recorder, error) {
 	if strings.TrimSpace(cfg.SessionDir) == "" || strings.TrimSpace(cfg.RunID) == "" {
 		return nil, errors.New("replay recorder requires session directory and run id")
@@ -192,16 +199,47 @@ func NewRecorder(cfg RecorderConfig) (*Recorder, error) {
 			WorkingDirectory:  filepath.Clean(cfg.WorkingDirectory),
 			SystemPromptHash:  StableHash(cfg.SystemPrompt),
 			ToolSchemaHash:    StableHash(cfg.Tools),
+			RuntimeHash:       StableHash(RuntimeSnapshot{SystemPrompt: cfg.SystemPrompt, Tools: cfg.Tools}),
 			InputHash:         StableHash(cfg.Input),
 			PrefixHash:        StableHash(cfg.PrefixMessages),
 			Git:               git,
 			Snapshot:          snapshot,
 		},
 	}
+	runtimeData, err := json.MarshalIndent(RuntimeSnapshot{
+		SystemPrompt: cfg.SystemPrompt,
+		Tools:        append([]llm.ToolSchema(nil), cfg.Tools...),
+	}, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(filepath.Join(dir, RuntimeFileName), append(runtimeData, '\n'), 0600); err != nil {
+		return nil, err
+	}
 	if err := r.writeManifest(); err != nil {
 		return nil, err
 	}
 	return r, nil
+}
+
+func LoadRuntime(sessionRoot, sessionID, runID string, manifest Manifest) (RuntimeSnapshot, error) {
+	path := filepath.Join(sessionRoot, sessionID, ReplayDirName, runID, RuntimeFileName)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return RuntimeSnapshot{}, err
+	}
+	var runtime RuntimeSnapshot
+	if err := json.Unmarshal(data, &runtime); err != nil {
+		return RuntimeSnapshot{}, err
+	}
+	if StableHash(runtime) != manifest.RuntimeHash {
+		return RuntimeSnapshot{}, errors.New("runtime snapshot hash mismatch")
+	}
+	if StableHash(runtime.SystemPrompt) != manifest.SystemPromptHash ||
+		StableHash(runtime.Tools) != manifest.ToolSchemaHash {
+		return RuntimeSnapshot{}, errors.New("runtime snapshot does not match manifest")
+	}
+	return runtime, nil
 }
 
 func (r *Recorder) Dir() string {

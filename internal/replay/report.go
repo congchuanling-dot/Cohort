@@ -137,7 +137,7 @@ func ArchiveBundle(sessionRoot, sessionID, runID, destination string) error {
 	if err := os.MkdirAll(destination, 0700); err != nil {
 		return err
 	}
-	for _, name := range []string{ManifestFileName, FramesFileName} {
+	for _, name := range []string{ManifestFileName, FramesFileName, RuntimeFileName} {
 		data, err := os.ReadFile(filepath.Join(source, name))
 		if err != nil {
 			return err

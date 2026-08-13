@@ -37,6 +37,9 @@ func ExactReplay(sessionRoot, sessionID, runID string) (ExactResult, error) {
 	if err != nil {
 		return ExactResult{}, err
 	}
+	if _, err := LoadRuntime(sessionRoot, sessionID, runID, manifest); err != nil {
+		return ExactResult{}, err
+	}
 	result := ExactResult{
 		SessionID:     manifest.SessionID,
 		RunID:         manifest.RunID,

@@ -198,6 +198,7 @@ func NewForkRunner(cfg Config, plan replay.ForkPlan, systemPrompt string, observ
 		Plan:                 plan,
 		ObservationOverrides: observationOverrides,
 	}
+	runner.SystemPrompt = plan.Runtime.SystemPrompt
 	if strings.TrimSpace(systemPrompt) != "" {
 		runner.SystemPrompt = systemPrompt
 	}

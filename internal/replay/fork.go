@@ -12,6 +12,7 @@ import (
 
 type ForkPlan struct {
 	Manifest      Manifest
+	Runtime       RuntimeSnapshot
 	Frames        []Frame
 	ForkTurn      int
 	Input         string
@@ -29,6 +30,10 @@ func BuildForkPlan(sessionRoot, sessionID, runID string, forkTurn int) (ForkPlan
 	if err != nil {
 		return ForkPlan{}, err
 	}
+	runtimeSnapshot, err := LoadRuntime(sessionRoot, sessionID, runID, manifest)
+	if err != nil {
+		return ForkPlan{}, err
+	}
 	exact := ExactResult{
 		SessionID:       manifest.SessionID,
 		RunID:           manifest.RunID,
@@ -40,6 +45,7 @@ func BuildForkPlan(sessionRoot, sessionID, runID string, forkTurn int) (ForkPlan
 	}
 	plan := ForkPlan{
 		Manifest:  manifest,
+		Runtime:   runtimeSnapshot,
 		Frames:    frames,
 		ForkTurn:  forkTurn,
 		Requests:  map[int]Request{},
