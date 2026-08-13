@@ -176,6 +176,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/entities/", s.requireSession(http.HandlerFunc(s.handleEntities)))
 	mux.Handle("/api/v1/quality/", s.requireSession(http.HandlerFunc(s.handleQuality)))
 	mux.Handle("/api/v1/exports/", s.requireSession(http.HandlerFunc(s.handleExport)))
+	mux.Handle("/api/v1/replays/", s.requireSession(http.HandlerFunc(s.handleReplay)))
 	mux.Handle("/api/v1/resources/", s.requireSession(http.HandlerFunc(s.handleResource)))
 	mux.Handle("/api/v1/actions/", s.requireSession(http.HandlerFunc(s.handleAction)))
 	mux.Handle("/api/v1/operations", s.requireSession(http.HandlerFunc(s.handleOperations)))
