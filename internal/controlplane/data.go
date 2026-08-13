@@ -35,14 +35,21 @@ type DataSourceProvider interface {
 type EntityKind string
 
 const (
-	EntitySession      EntityKind = "session"
-	EntityEvalRun      EntityKind = "eval_run"
-	EntityDelivery     EntityKind = "delivery"
-	EntityHermesAction EntityKind = "hermes_action"
-	EntitySkill        EntityKind = "skill"
-	EntityCapability   EntityKind = "capability"
-	EntityMCPServer    EntityKind = "mcp_server"
-	EntityModelProfile EntityKind = "model_profile"
+	EntitySession            EntityKind = "session"
+	EntityRun                EntityKind = "run"
+	EntityReplayBundle       EntityKind = "replay_bundle"
+	EntityEvalRun            EntityKind = "eval_run"
+	EntityDelivery           EntityKind = "delivery"
+	EntityHermesAction       EntityKind = "hermes_action"
+	EntitySkill              EntityKind = "skill"
+	EntityCapability         EntityKind = "capability"
+	EntityCapabilityGap      EntityKind = "capability_gap"
+	EntityCapabilityProposal EntityKind = "capability_proposal"
+	EntityDependencyPlan     EntityKind = "dependency_plan"
+	EntityReflectionJob      EntityKind = "reflection_job"
+	EntityMCPTool            EntityKind = "mcp_tool"
+	EntityMCPServer          EntityKind = "mcp_server"
+	EntityModelProfile       EntityKind = "model_profile"
 )
 
 type ContextAction struct {
@@ -64,6 +71,9 @@ type EntityDescriptor struct {
 	Version    string          `json:"version"`
 	Badges     []string        `json:"badges,omitempty"`
 	Actions    []ContextAction `json:"actions,omitempty"`
+	// Relations 保存实体与父对象的稳定关联，用于级联 Entity Picker。
+	// 例如 Run 会记录 session_id，Dependency Plan 会记录 proposal_id。
+	Relations map[string]string `json:"relations,omitempty"`
 }
 
 type EntityProvider interface {

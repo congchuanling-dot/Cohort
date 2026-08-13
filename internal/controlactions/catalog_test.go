@@ -2,6 +2,7 @@ package controlactions
 
 import (
 	"context"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,8 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"cohort/internal/capability"
 	"cohort/internal/controlplane"
 	"cohort/internal/evaluation"
+	"cohort/internal/llm"
+	"cohort/internal/replay"
 	"cohort/internal/session"
 	"cohort/internal/traceview"
 )
@@ -129,6 +133,84 @@ func TestProjectDataHubDiscoversStoresAndIsolatesSourceErrors_BitsUT(t *testing.
 	}
 	if source := findSource(sources, "sessions"); source.State != controlplane.SourceReady || source.Count != 1 {
 		t.Fatalf("session source after hermes failure = %#v", source)
+	}
+}
+
+func TestProjectDataHubProvidesCascadingRuntimeAndCapabilityEntities(t *testing.T) {
+	root := t.TempDir()
+	sessionStore := session.NewStore(filepath.Join(root, session.DefaultRootDir))
+	sess, err := sessionStore.Create("replay target", root, "test-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID := "run_entity_test"
+	traceData := `{"schema_version":1,"event_id":"start","event_type":"RunStarted","time":"2026-08-12T00:00:00Z","run_id":"` + runID + `","session_id":"` + sess.ID + `","severity":"info","redaction":{}}` + "\n" +
+		`{"schema_version":1,"event_id":"finish","event_type":"RunFinished","time":"2026-08-12T00:00:00.100Z","run_id":"` + runID + `","session_id":"` + sess.ID + `","severity":"info","data":{"status":"done","duration_ms":100},"redaction":{}}` + "\n"
+	if err := os.WriteFile(filepath.Join(sessionStore.SessionDir(sess.ID), traceview.ObservationLogFileName), []byte(traceData), 0644); err != nil {
+		t.Fatal(err)
+	}
+	recorder, err := replay.NewRecorder(replay.RecorderConfig{
+		SessionDir: sessionStore.SessionDir(sess.ID), SessionID: sess.ID, RunID: runID,
+		WorkingDirectory: root, SystemPrompt: "system", Input: "task",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder.RecordRequest(1, "system", []llm.Message{{Role: llm.RoleUser, Content: "task"}}, nil)
+	recorder.RecordResponse(1, &llm.Response{Content: "done"})
+	if err := recorder.Complete("done", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	capabilityStore := capability.NewStore(root)
+	gap, err := capabilityStore.AddGap(capability.NewGapFromTask("parse local parquet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal := capability.NewProposalFromGap(gap)
+	proposal.Dependencies.NPM = []string{"parquetjs"}
+	proposal, err = capabilityStore.AddProposal(proposal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := capabilityStore.PlanDependencies(proposal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	hub, err := NewProjectDataHub(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runQuery := make(url.Values)
+	runQuery.Set("session_id", sess.ID)
+	runs, err := hub.ListEntities(context.Background(), controlplane.EntityRun, runQuery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || runs[0].ID != runID || runs[0].Relations["session_id"] != sess.ID {
+		t.Fatalf("run entities = %#v", runs)
+	}
+	replays, err := hub.ListEntities(context.Background(), controlplane.EntityReplayBundle, runQuery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(replays) != 1 || replays[0].ID != runID {
+		t.Fatalf("replay entities = %#v", replays)
+	}
+	proposals, err := hub.ListEntities(context.Background(), controlplane.EntityCapabilityProposal, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(proposals) != 1 || proposals[0].ID != proposal.ID || proposals[0].Relations["gap_id"] != gap.ID {
+		t.Fatalf("proposal entities = %#v", proposals)
+	}
+	plans, err := hub.ListEntities(context.Background(), controlplane.EntityDependencyPlan, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plans) != 1 || plans[0].ID != plan.ID || plans[0].Relations["proposal_id"] != proposal.ID {
+		t.Fatalf("dependency plan entities = %#v", plans)
 	}
 }
 

@@ -93,6 +93,12 @@ type ReflectionQueueStatus struct {
 	LastDeadJobID string    `json:"last_dead_job_id,omitempty"`
 }
 
+// ReflectionQueueItem 是控制面只读枚举使用的任务及其当前队列状态。
+type ReflectionQueueItem struct {
+	Trigger ReflectionTrigger `json:"trigger"`
+	Status  string            `json:"status"`
+}
+
 // ReflectionRunRecord 记录一次批量反思的结果，不包含输入正文。
 type ReflectionRunRecord struct {
 	Time        time.Time `json:"time"`
@@ -606,6 +612,41 @@ func (q ReflectionQueue) Status() (ReflectionQueueStatus, error) {
 		}
 	}
 	return status, nil
+}
+
+// ListJobs 枚举当前持久队列。它不 claim、不恢复 lease，也不修改任何任务。
+func (q ReflectionQueue) ListJobs() ([]ReflectionQueueItem, error) {
+	if err := q.Ensure(); err != nil {
+		return nil, err
+	}
+	descriptors := []struct {
+		status string
+		dir    string
+	}{
+		{status: reflectionPendingDirName, dir: q.pendingDir()},
+		{status: reflectionRunningDirName, dir: q.runningDir()},
+		{status: reflectionDoneDirName, dir: q.doneDir()},
+		{status: reflectionDeadDirName, dir: q.deadDir()},
+	}
+	var result []ReflectionQueueItem
+	for _, descriptor := range descriptors {
+		items, err := q.loadDir(descriptor.dir)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range items {
+			result = append(result, ReflectionQueueItem{Trigger: item, Status: descriptor.status})
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		left := result[i].Trigger
+		right := result[j].Trigger
+		if left.CreatedAt.Equal(right.CreatedAt) {
+			return left.ID < right.ID
+		}
+		return left.CreatedAt.After(right.CreatedAt)
+	})
+	return result, nil
 }
 
 func (q ReflectionQueue) loadDir(dir string) ([]ReflectionTrigger, error) {

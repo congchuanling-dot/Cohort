@@ -23,6 +23,7 @@ import (
 	"cohort/internal/evolution"
 	"cohort/internal/hermes"
 	"cohort/internal/mcp"
+	"cohort/internal/replay"
 	"cohort/internal/session"
 	"cohort/internal/skill"
 	"cohort/internal/traceview"
@@ -316,6 +317,20 @@ func (h *ProjectDataHub) ListEntities(ctx context.Context, kind controlplane.Ent
 		if len(statuses) > 0 && !statuses[entity.Status] {
 			continue
 		}
+		matchesRelations := true
+		for name, values := range query {
+			if name == "q" || name == "status" || name == "limit" || name == "recent_first" || len(values) == 0 {
+				continue
+			}
+			expected := strings.TrimSpace(values[len(values)-1])
+			if expected != "" && entity.Relations[name] != expected {
+				matchesRelations = false
+				break
+			}
+		}
+		if !matchesRelations {
+			continue
+		}
 		filtered = append(filtered, entity)
 		if len(filtered) == limit {
 			break
@@ -348,6 +363,10 @@ func (h *ProjectDataHub) loadEntities(kind controlplane.EntityKind) ([]controlpl
 	switch kind {
 	case controlplane.EntitySession:
 		return h.sessionEntities()
+	case controlplane.EntityRun:
+		return h.runEntities()
+	case controlplane.EntityReplayBundle:
+		return h.replayBundleEntities()
 	case controlplane.EntityEvalRun:
 		return h.evalEntities()
 	case controlplane.EntityDelivery:
@@ -358,6 +377,14 @@ func (h *ProjectDataHub) loadEntities(kind controlplane.EntityKind) ([]controlpl
 		return h.skillEntities()
 	case controlplane.EntityCapability:
 		return h.capabilityEntities()
+	case controlplane.EntityCapabilityGap:
+		return h.capabilityGapEntities()
+	case controlplane.EntityCapabilityProposal:
+		return h.capabilityProposalEntities()
+	case controlplane.EntityDependencyPlan:
+		return h.dependencyPlanEntities()
+	case controlplane.EntityReflectionJob:
+		return h.reflectionJobEntities()
 	case controlplane.EntityMCPServer:
 		return h.mcpEntities()
 	case controlplane.EntityModelProfile:
@@ -365,6 +392,96 @@ func (h *ProjectDataHub) loadEntities(kind controlplane.EntityKind) ([]controlpl
 	default:
 		return nil, fmt.Errorf("unknown entity kind %q", kind)
 	}
+}
+
+func (h *ProjectDataHub) runEntities() ([]controlplane.EntityDescriptor, error) {
+	roots := []string{
+		filepath.Join(h.projectRoot, session.DefaultRootDir),
+		evaluation.NewStore(h.projectRoot).SessionsDir(),
+	}
+	seen := map[string]bool{}
+	var result []controlplane.EntityDescriptor
+	for _, root := range roots {
+		views, err := traceview.LoadRecentRuns(root, 0)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return nil, err
+		}
+		for _, view := range views {
+			key := view.SessionID + "\x00" + view.RunID
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			summary := view.Summary()
+			result = append(result, entityDescriptorWithRelations(
+				controlplane.EntityRun,
+				view.RunID,
+				fmt.Sprintf("Run %s", shortValue(view.RunID, 18)),
+				fmt.Sprintf("%s · %d turns · %d tools", summary.Status, summary.TurnCount, summary.ToolCalls),
+				summary.Status,
+				summary.FinishedAt,
+				[]string{view.SessionID, fmt.Sprint(summary.TotalTokens), fmt.Sprint(summary.DurationMS)},
+				nil,
+				map[string]string{"session_id": view.SessionID},
+			))
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].UpdatedAt.After(result[j].UpdatedAt) })
+	return result, nil
+}
+
+func (h *ProjectDataHub) replayBundleEntities() ([]controlplane.EntityDescriptor, error) {
+	root := filepath.Join(h.projectRoot, session.DefaultRootDir)
+	sessions, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var result []controlplane.EntityDescriptor
+	for _, sessionEntry := range sessions {
+		if !sessionEntry.IsDir() {
+			continue
+		}
+		replayRoot := filepath.Join(root, sessionEntry.Name(), replay.ReplayDirName)
+		runs, readErr := os.ReadDir(replayRoot)
+		if errors.Is(readErr, os.ErrNotExist) {
+			continue
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+		for _, runEntry := range runs {
+			if !runEntry.IsDir() {
+				continue
+			}
+			manifest, _, loadErr := replay.LoadBundle(root, sessionEntry.Name(), runEntry.Name())
+			if loadErr != nil {
+				continue
+			}
+			status := manifest.Status
+			if manifest.Replayability == replay.ReplayabilityForkable {
+				status = "forkable"
+			}
+			result = append(result, entityDescriptorWithRelations(
+				controlplane.EntityReplayBundle,
+				manifest.RunID,
+				fmt.Sprintf("Replay %s", shortValue(manifest.RunID, 18)),
+				fmt.Sprintf("%s · %d frames · %s", manifest.Model, manifest.FrameCount, manifest.Replayability),
+				status,
+				manifest.CompletedAt,
+				[]string{manifest.Provider, manifest.Model, manifest.FramesHash, manifest.ReplayBlockReason},
+				nil,
+				map[string]string{"session_id": manifest.SessionID, "run_id": manifest.RunID},
+			))
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].UpdatedAt.After(result[j].UpdatedAt) })
+	return result, nil
 }
 
 func (h *ProjectDataHub) sessionEntities() ([]controlplane.EntityDescriptor, error) {
@@ -509,6 +626,103 @@ func (h *ProjectDataHub) capabilityEntities() ([]controlplane.EntityDescriptor, 
 	return result, nil
 }
 
+func (h *ProjectDataHub) capabilityGapEntities() ([]controlplane.EntityDescriptor, error) {
+	registry, err := capability.NewStore(h.projectRoot).Load()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]controlplane.EntityDescriptor, 0, len(registry.Gaps))
+	for _, item := range registry.Gaps {
+		result = append(result, entityDescriptor(
+			controlplane.EntityCapabilityGap,
+			item.ID,
+			firstNonEmptyValue(item.MissingCapability, item.ID),
+			item.Task,
+			item.Status,
+			item.UpdatedAt,
+			append(append([]string(nil), item.Evidence...), item.Source),
+			nil,
+		))
+	}
+	return result, nil
+}
+
+func (h *ProjectDataHub) capabilityProposalEntities() ([]controlplane.EntityDescriptor, error) {
+	registry, err := capability.NewStore(h.projectRoot).Load()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]controlplane.EntityDescriptor, 0, len(registry.Proposals))
+	for _, item := range registry.Proposals {
+		result = append(result, entityDescriptorWithRelations(
+			controlplane.EntityCapabilityProposal,
+			item.ID,
+			item.Summary,
+			item.Risk+" · "+item.InstallScope,
+			item.Status,
+			item.UpdatedAt,
+			append([]string(nil), item.Artifacts...),
+			[]controlplane.ContextAction{
+				contextAction("capability.build", "构建 Skill 骨架", controlplane.RiskConfirm, item.Status == capability.StatusProposed, "Proposal 已进入后续阶段"),
+				contextAction("capability.adapter.build", "构建 Adapter", controlplane.RiskConfirm, item.Status == capability.StatusProposed, "Proposal 已进入后续阶段"),
+				contextAction("capability.dependencies.plan", "生成依赖计划", controlplane.RiskRead, true, ""),
+			},
+			map[string]string{"gap_id": item.GapID},
+		))
+	}
+	return result, nil
+}
+
+func (h *ProjectDataHub) dependencyPlanEntities() ([]controlplane.EntityDescriptor, error) {
+	state, err := capability.NewStore(h.projectRoot).LoadDependencies()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]controlplane.EntityDescriptor, 0, len(state.Plans))
+	for _, item := range state.Plans {
+		result = append(result, entityDescriptorWithRelations(
+			controlplane.EntityDependencyPlan,
+			item.ID,
+			fmt.Sprintf("%s dependencies", item.CapabilityID),
+			fmt.Sprintf("%d actions · %s · %s", len(item.Actions), item.Scope, item.Risk),
+			item.Status,
+			item.UpdatedAt,
+			[]string{item.ProposalID, item.CapabilityID},
+			[]controlplane.ContextAction{
+				contextAction("capability.dependencies.approve", "批准依赖计划", controlplane.RiskConfirm, item.Status == capability.DependencyStatusPlanned, "计划无需批准"),
+				contextAction("capability.dependencies.install", "安装依赖", controlplane.RiskDanger, item.Status == capability.DependencyStatusApproved, "计划尚未批准或已经执行"),
+			},
+			map[string]string{"proposal_id": item.ProposalID, "capability_id": item.CapabilityID},
+		))
+	}
+	return result, nil
+}
+
+func (h *ProjectDataHub) reflectionJobEntities() ([]controlplane.EntityDescriptor, error) {
+	items, err := evolution.NewReflectionQueue(h.projectRoot).ListJobs()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]controlplane.EntityDescriptor, 0, len(items))
+	for _, item := range items {
+		trigger := item.Trigger
+		result = append(result, entityDescriptorWithRelations(
+			controlplane.EntityReflectionJob,
+			trigger.ID,
+			fmt.Sprintf("%s reflection", trigger.Kind),
+			fmt.Sprintf("%s · attempt %d/%d", trigger.SessionID, trigger.Attempt, trigger.MaxAttempts),
+			item.Status,
+			trigger.CreatedAt,
+			[]string{trigger.RunID, trigger.LastError},
+			[]controlplane.ContextAction{
+				contextAction("reflection.retry", "重试 Reflection Job", controlplane.RiskConfirm, item.Status == "dead", "只有 dead Job 可手动重试"),
+			},
+			map[string]string{"session_id": trigger.SessionID, "run_id": trigger.RunID},
+		))
+	}
+	return result, nil
+}
+
 func (h *ProjectDataHub) mcpEntities() ([]controlplane.EntityDescriptor, error) {
 	entries, err := mcp.NewStore(h.projectRoot).LoadEffectiveWithScopes()
 	if err != nil {
@@ -560,12 +774,21 @@ func (h *ProjectDataHub) profileEntities() ([]controlplane.EntityDescriptor, err
 }
 
 func entityDescriptor(kind controlplane.EntityKind, id, title, subtitle, status string, updatedAt time.Time, search []string, actions []controlplane.ContextAction) controlplane.EntityDescriptor {
-	versionInput := strings.Join([]string{string(kind), id, status, updatedAt.UTC().Format(time.RFC3339Nano), strings.Join(search, "\x00")}, "\x00")
+	return entityDescriptorWithRelations(kind, id, title, subtitle, status, updatedAt, search, actions, nil)
+}
+
+func entityDescriptorWithRelations(kind controlplane.EntityKind, id, title, subtitle, status string, updatedAt time.Time, search []string, actions []controlplane.ContextAction, relations map[string]string) controlplane.EntityDescriptor {
+	relationParts := make([]string, 0, len(relations))
+	for name, value := range relations {
+		relationParts = append(relationParts, name+"="+value)
+	}
+	sort.Strings(relationParts)
+	versionInput := strings.Join([]string{string(kind), id, status, updatedAt.UTC().Format(time.RFC3339Nano), strings.Join(search, "\x00"), strings.Join(relationParts, "\x00")}, "\x00")
 	sum := sha256.Sum256([]byte(versionInput))
 	return controlplane.EntityDescriptor{
 		Kind: kind, ID: id, Title: title, Subtitle: subtitle, Status: status,
 		UpdatedAt: updatedAt, SearchText: strings.Join(search, " "),
-		Version: fmt.Sprintf("sha256:%x", sum[:12]), Actions: actions,
+		Version: fmt.Sprintf("sha256:%x", sum[:12]), Actions: actions, Relations: relations,
 	}
 }
 
