@@ -13,7 +13,6 @@ import (
 	"cohort/internal/contextmgr"
 	"cohort/internal/debugperf"
 	"cohort/internal/evolution"
-	"cohort/internal/guardian"
 	"cohort/internal/hooks"
 	"cohort/internal/llm"
 	"cohort/internal/observability"
@@ -149,8 +148,6 @@ type Runner struct {
 	SessionProvider string
 	// ReplayEnabled 为每次 Run 录制可校验的请求、响应和工具结果。
 	ReplayEnabled bool
-	// Guardian 在模型之外中介每次工具调用并维护运行级信息流标签。
-	Guardian *guardian.Runtime
 	// CloseFunc 由应用装配层注入，用于关闭 MCP 子进程等 Runner 持有的资源。
 	// Runner 本身不依赖具体实现，因此测试可留空。
 	CloseFunc func() error
@@ -231,14 +228,6 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 	if err := r.appendMessage(llm.Message{Role: llm.RoleUser, Content: input}, input); err != nil {
 		return RunResult{}, err
 	}
-	var securityTrajectory *guardian.Trajectory
-	if r.Guardian != nil {
-		var guardianErr error
-		securityTrajectory, guardianErr = r.Guardian.Begin(runID, r.sessionID, r.sessionDir())
-		if guardianErr != nil {
-			return RunResult{}, fmt.Errorf("start guardian trajectory: %w", guardianErr)
-		}
-	}
 	var replayRecorder *replay.Recorder
 	if r.ReplayEnabled && r.sessionID != "" {
 		prefix := append([]llm.Message(nil), r.history...)
@@ -292,9 +281,6 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 			} else {
 				data["cost_pricing_source"] = estimate.Source
 			}
-		}
-		if securityTrajectory != nil {
-			data["guardian"] = securityTrajectory.Summary()
 		}
 		severity := observability.SeverityInfo
 		if err != nil {
@@ -552,16 +538,6 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 				})
 			}
 			var outcome Outcome
-			var guardianDecision guardian.Decision
-			var runErr error
-			if securityTrajectory != nil {
-				guardianDecision, runErr = securityTrajectory.Before(turn, i, call.ID, call.Function.Name, args)
-				if runErr != nil {
-					return finishRun(RunResult{}, fmt.Errorf("guardian pre-dispatch: %w", runErr))
-				}
-				r.emitObservation(ctx, obs, runID, observability.EventGuardianDecision, turn, guardianSeverity(guardianDecision), guardianDecisionData(guardianDecision, call.ID, i))
-			}
-			toolExecuted := false
 			if err != nil {
 				outcome = Outcome{
 					Data: NewToolError(
@@ -571,8 +547,6 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 					),
 					NextPrompt: "\n",
 				}
-			} else if guardianBlocks(guardianDecision) {
-				outcome = guardianBlockedOutcome(guardianDecision)
 			} else if decision, blocked := toolCircuit.Before(call.Function.Name, stableArgsHash(args)); blocked {
 				outcome = Outcome{
 					Data: NewToolError(
@@ -588,7 +562,7 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 				)
 			} else {
 				// Registry 会根据工具名分发到具体工具，例如 file_read.Run。
-				toolExecuted = true
+				var runErr error
 				outcome, runErr = r.Tools.Run(ctx, ToolCallContext{
 					Name:              call.Function.Name,
 					Args:              args,
@@ -614,25 +588,6 @@ func (r *Runner) Run(ctx context.Context, input string, sink OutputSink) (RunRes
 						NextPrompt: "\n",
 					}
 				}
-			}
-			if securityTrajectory != nil {
-				var securityLabel guardian.Label
-				securityLabel, runErr = securityTrajectory.After(turn, i, call.ID, call.Function.Name, args, guardianDecision, outcome.Data, toolExecuted)
-				if runErr != nil {
-					return finishRun(RunResult{}, fmt.Errorf("guardian post-dispatch: %w", runErr))
-				}
-				outcome.Audit = mergeGuardianAudit(outcome.Audit, guardianDecision, securityLabel)
-				r.emitObservation(ctx, obs, runID, observability.EventGuardianLineageUpdated, turn, guardianSeverity(guardianDecision), map[string]any{
-					"tool":          call.Function.Name,
-					"tool_call_id":  call.ID,
-					"index":         i,
-					"executed":      toolExecuted,
-					"decision":      guardianDecision.Action,
-					"rule_id":       guardianDecision.RuleID,
-					"policy_hash":   guardianDecision.PolicyHash,
-					"contract_hash": guardianDecision.ContractHash,
-					"label":         securityLabel,
-				})
 			}
 			if err == nil && call.Function.Name == "update_working_checkpoint" {
 				r.updateWorkingCheckpoint(args, turn)

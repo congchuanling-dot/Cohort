@@ -29,8 +29,6 @@ const (
 	EventCompactFinished        EventType = "CompactFinished"
 	EventHookDispatched         EventType = "HookDispatched"
 	EventPermissionDecision     EventType = "PermissionDecision"
-	EventGuardianDecision       EventType = "GuardianDecision"
-	EventGuardianLineageUpdated EventType = "GuardianLineageUpdated"
 	EventGovernanceIntervention EventType = "GovernanceIntervention"
 	EventCapabilityGapRecorded  EventType = "CapabilityGapRecorded"
 	EventRunFinished            EventType = "RunFinished"

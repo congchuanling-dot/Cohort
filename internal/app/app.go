@@ -16,7 +16,6 @@ import (
 	"cohort/internal/debugperf"
 	"cohort/internal/desktop"
 	"cohort/internal/evolution"
-	"cohort/internal/guardian"
 	"cohort/internal/hooks"
 	"cohort/internal/llm"
 	"cohort/internal/lsp"
@@ -161,11 +160,6 @@ func NewRunnerForProject(cfg Config, projectRoot string) (*agent.Runner, error) 
 			MaxAttempts:     cfg.Reflection.MaxAttempts,
 		},
 	)
-	guardianRuntime, err := guardian.NewRuntime(cwd)
-	if err != nil {
-		_ = mcpManager.Close()
-		return nil, fmt.Errorf("load guardian policy: %w", err)
-	}
 
 	// Runner 不直接知道具体工具类型，只依赖 ToolRunner 接口。
 	runner := &agent.Runner{
@@ -180,7 +174,6 @@ func NewRunnerForProject(cfg Config, projectRoot string) (*agent.Runner, error) 
 		SessionModel:              active.Model,
 		SessionProvider:           active.Provider,
 		ReplayEnabled:             true,
-		Guardian:                  guardianRuntime,
 		RunMode:                   agent.RunModeInteractive,
 		ReflectionMemoryWorkspace: workspace,
 		ReflectionSessionRoot:     sessionRoot,
