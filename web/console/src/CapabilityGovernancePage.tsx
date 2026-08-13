@@ -82,7 +82,19 @@ function CapabilityLane({ title, subtitle, entities, selected, onSelect, onActio
   return <section className="capability-lane">
     <header><div><h3>{title}</h3><p>{subtitle}</p></div><span>{entities.length}</span></header>
     <div>
-      {entities.map((entity) => <article key={`${entity.kind}:${entity.id}`} className={selected?.kind === entity.kind && selected.id === entity.id ? "selected" : ""} onClick={() => onSelect({ kind: entity.kind, id: entity.id })}>
+      {entities.map((entity) => <article
+        key={`${entity.kind}:${entity.id}`}
+        role="button"
+        tabIndex={0}
+        className={selected?.kind === entity.kind && selected.id === entity.id ? "selected" : ""}
+        onClick={() => onSelect({ kind: entity.kind, id: entity.id })}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onSelect({ kind: entity.kind, id: entity.id });
+          }
+        }}
+      >
         <div className="capability-card-heading"><strong>{humanize(entity.title)}</strong><span className={`entity-status ${entity.status}`}>{entity.status}</span></div>
         <p>{entity.subtitle}</p>
         {(entity.actions ?? []).some((action) => action.enabled) && <div className="capability-card-actions">

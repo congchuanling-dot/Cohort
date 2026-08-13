@@ -95,6 +95,12 @@ func FinalizeReport(report *ExperimentReport) {
 	if report == nil {
 		return
 	}
+	// FinalizeReport 会在执行完成和原子落盘前调用，必须保持幂等。
+	report.Successful = 0
+	report.SuccessRate = 0
+	report.MeanTokens = 0
+	report.MeanDurationMS = 0
+	report.ProofHash = ""
 	var tokens int64
 	var duration int64
 	for _, trial := range report.Trials {
@@ -109,7 +115,6 @@ func FinalizeReport(report *ExperimentReport) {
 		report.MeanTokens = float64(tokens) / float64(len(report.Trials))
 		report.MeanDurationMS = float64(duration) / float64(len(report.Trials))
 	}
-	report.ProofHash = ""
 	report.ProofHash = StableHash(report)
 }
 
