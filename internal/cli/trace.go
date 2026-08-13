@@ -14,12 +14,11 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"cohort/internal/agent"
 	"cohort/internal/app"
 	"cohort/internal/replay"
+	"cohort/internal/replayexec"
 	"cohort/internal/session"
 	"cohort/internal/traceview"
-	"cohort/internal/worktree"
 )
 
 func runTraceCommand(args []string, out io.Writer) error {
@@ -163,13 +162,6 @@ func replayUsageError() error {
 }
 
 func runForkReplay(ctx context.Context, cfg app.Config, options replayCLIOptions, out io.Writer) error {
-	plan, err := replay.BuildForkPlan(session.DefaultRootDir, options.sessionID, options.runID, options.forkTurn)
-	if err != nil {
-		return err
-	}
-	if plan.Manifest.Replayability != replay.ReplayabilityForkable {
-		return fmt.Errorf("run is not forkable: %s", plan.Manifest.ReplayBlockReason)
-	}
 	systemPrompt := ""
 	if options.systemPromptPath != "" {
 		data, err := os.ReadFile(options.systemPromptPath)
@@ -178,92 +170,34 @@ func runForkReplay(ctx context.Context, cfg app.Config, options replayCLIOptions
 		}
 		systemPrompt = string(data)
 	}
-	baselineMetrics := replay.Metrics(plan.Manifest, plan.Frames)
-	experimentID := fmt.Sprintf("fork-%s-%d", safeTraceFileID(options.runID), time.Now().UTC().UnixNano())
-	sourceBundleDir := filepath.Join(session.DefaultRootDir, options.sessionID, replay.ReplayDirName, options.runID)
-	experimentDir := filepath.Join(sourceBundleDir, "experiments", experimentID)
-	report := replay.ExperimentReport{
-		SchemaVersion: 1,
-		ID:            experimentID,
-		CreatedAt:     time.Now().UTC(),
-		SourceSession: options.sessionID,
-		SourceRun:     options.runID,
-		ForkTurn:      options.forkTurn,
-		Model:         options.model,
-		SystemPrompt:  options.systemPromptPath,
-		Baseline:      baselineMetrics,
-	}
-	manager, err := worktree.NewManager(plan.Manifest.Git.Root, filepath.Join(plan.Manifest.Git.Root, ".cohort", "replay-worktrees"))
+	sessionRoot, err := filepath.Abs(session.DefaultRootDir)
 	if err != nil {
 		return err
 	}
-	for trialIndex := 1; trialIndex <= options.repeat; trialIndex++ {
-		trial := replay.TrialResult{Index: trialIndex}
-		spec := worktree.Spec{
-			ID:         fmt.Sprintf("%s-%d", experimentID, trialIndex),
-			BaseCommit: plan.Manifest.Git.HeadCommit,
-			Branch:     fmt.Sprintf("cohort/replay/%s-%d", experimentID, trialIndex),
-			Path:       filepath.Join(plan.Manifest.Git.Root, ".cohort", "replay-worktrees", experimentID, fmt.Sprintf("trial-%d", trialIndex)),
-		}
-		if err := manager.Prepare(ctx, spec); err != nil {
-			trial.Status = "setup_error"
-			trial.Error = err.Error()
-			report.Trials = append(report.Trials, trial)
-			continue
-		}
-		remove := !options.keepWorktree
-		if plan.Manifest.Git.Dirty {
-			if err := replay.ApplyWorkspaceSnapshot(ctx, spec.Path, sourceBundleDir, plan.Manifest.Snapshot); err != nil {
-				trial.Status = "snapshot_error"
-				trial.Error = err.Error()
-				report.Trials = append(report.Trials, trial)
-				if remove {
-					_ = manager.Discard(ctx, spec)
-				}
-				continue
-			}
-		}
-		trialResult := executeForkTrial(ctx, cfg, plan, options, spec.Path, systemPrompt)
-		trial = trialResult
-		trial.Index = trialIndex
-		if trial.SessionID != "" && trial.RunID != "" {
-			trialRoot := filepath.Join(spec.Path, session.DefaultRootDir)
-			manifest, frames, loadErr := replay.LoadBundle(trialRoot, trial.SessionID, trial.RunID)
-			if loadErr != nil {
-				trial.Error = loadErr.Error()
-			} else {
-				trial.Metrics = replay.Metrics(manifest, frames)
-				trial.FirstDivergenceTurn = replay.FirstDivergenceTurn(plan.Frames, frames)
-				archiveDir := filepath.Join(experimentDir, "trials", fmt.Sprintf("%d", trialIndex))
-				if archiveErr := replay.ArchiveBundle(trialRoot, trial.SessionID, trial.RunID, archiveDir); archiveErr != nil {
-					trial.Error = archiveErr.Error()
-				}
-			}
-		}
-		report.Trials = append(report.Trials, trial)
-		if remove {
-			_ = manager.Discard(ctx, spec)
-		}
-	}
-	replay.FinalizeReport(&report)
-	reportPath := filepath.Join(experimentDir, "report.json")
-	if err := replay.WriteReport(reportPath, report); err != nil {
-		return err
-	}
+	result, runErr := replayexec.RunFork(ctx, replayexec.Config{
+		AppConfig:         cfg,
+		SessionRoot:       sessionRoot,
+		SessionID:         options.sessionID,
+		RunID:             options.runID,
+		ForkTurn:          options.forkTurn,
+		Repeat:            options.repeat,
+		ModelOverride:     options.model,
+		SystemPrompt:      systemPrompt,
+		SystemPromptLabel: options.systemPromptPath,
+		KeepWorktrees:     options.keepWorktree,
+	})
+	report := result.Report
 	if options.jsonOutput {
 		if err := writeReplayJSON(out, report); err != nil {
 			return err
 		}
-		if report.Successful == 0 {
-			return errors.New("all fork replay trials failed; inspect the persisted report")
-		}
-		return nil
+		return runErr
 	}
 	fmt.Fprintf(out, "experiment: %s\n", report.ID)
 	fmt.Fprintf(out, "source: %s/%s\nfork_turn: %d\n", report.SourceSession, report.SourceRun, report.ForkTurn)
 	fmt.Fprintf(out, "trials: %d\nsuccessful: %d\nsuccess_rate: %.1f%%\n", len(report.Trials), report.Successful, report.SuccessRate*100)
 	fmt.Fprintf(out, "mean_tokens: %.0f\nmean_duration: %s\n", report.MeanTokens, formatDurationMS(int64(report.MeanDurationMS)))
-	fmt.Fprintf(out, "proof_hash: %s\nreport: %s\n", report.ProofHash, reportPath)
+	fmt.Fprintf(out, "proof_hash: %s\nreport: %s\n", report.ProofHash, result.ReportPath)
 	for _, trial := range report.Trials {
 		fmt.Fprintf(out, "trial_%d: status=%s divergence_turn=%d session=%s run=%s",
 			trial.Index, trial.Status, trial.FirstDivergenceTurn, trial.SessionID, trial.RunID)
@@ -272,39 +206,7 @@ func runForkReplay(ctx context.Context, cfg app.Config, options replayCLIOptions
 		}
 		fmt.Fprintln(out)
 	}
-	if report.Successful == 0 {
-		return errors.New("all fork replay trials failed; inspect the persisted report")
-	}
-	return nil
-}
-
-func executeForkTrial(ctx context.Context, cfg app.Config, plan replay.ForkPlan, options replayCLIOptions, worktreePath, systemPrompt string) replay.TrialResult {
-	originalCWD, err := os.Getwd()
-	if err != nil {
-		return replay.TrialResult{Status: "setup_error", Error: err.Error()}
-	}
-	if err := os.Chdir(worktreePath); err != nil {
-		return replay.TrialResult{Status: "setup_error", Error: err.Error()}
-	}
-	defer os.Chdir(originalCWD)
-	cfg = cfg.WithModelOverride(options.model)
-	cfg.Workspace = worktreePath
-	cfg.LogDir = filepath.Join(worktreePath, "temp", "logs")
-	runner, err := app.NewForkRunner(cfg, plan, systemPrompt, nil)
-	if err != nil {
-		return replay.TrialResult{Status: "runner_error", Error: err.Error()}
-	}
-	defer runner.Close()
-	result, runErr := runner.Run(ctx, plan.Input, agent.NewConsoleSink(io.Discard))
-	trial := replay.TrialResult{
-		SessionID: runner.SessionID(),
-		RunID:     runner.LastRunID(),
-		Status:    result.Status,
-	}
-	if runErr != nil {
-		trial.Error = runErr.Error()
-	}
-	return trial
+	return runErr
 }
 
 func writeReplayJSON(out io.Writer, value any) error {

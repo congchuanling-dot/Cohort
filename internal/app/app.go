@@ -41,6 +41,16 @@ const (
 // NewRunner 根据配置创建完整的 Agent Runner。
 // 这里是应用装配层：负责把 LLM Client、工具注册器、系统提示词组合到一起。
 func NewRunner(cfg Config) (*agent.Runner, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	return NewRunnerForProject(cfg, cwd)
+}
+
+// NewRunnerForProject 在显式项目根目录中装配 Runner。
+// Replay/Delivery 等隔离执行不能依赖进程级 os.Chdir，否则并发 Operation 会互相污染。
+func NewRunnerForProject(cfg Config, projectRoot string) (*agent.Runner, error) {
 	// #region debug-point A:runner-startup
 	debugStart := time.Now()
 	debugperf.Event("pre-fix", "A", "internal/app/app.go:NewRunner", "NewRunner start", map[string]any{
@@ -48,8 +58,20 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 		"log_dir":   cfg.LogDir,
 	})
 	// #endregion
+	projectRoot, err := filepath.Abs(strings.TrimSpace(projectRoot))
+	if err != nil {
+		return nil, err
+	}
+	projectRoot = filepath.Clean(projectRoot)
+	info, err := os.Stat(projectRoot)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("project root is not a directory: %s", projectRoot)
+	}
 	active := cfg.LLM.Active()
-	workspace := normalizeWorkspace(cfg.Workspace)
+	workspace := normalizeWorkspaceForProject(cfg.Workspace, projectRoot)
 	// workspace 是文件和命令工具默认工作的目录。
 	if err := os.MkdirAll(workspace, 0755); err != nil {
 		return nil, err
@@ -72,10 +94,7 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 	})
 	// #endregion
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
+	cwd := projectRoot
 	mcpStart := time.Now()
 	mcpManager := mcp.NewManager()
 	if cfg.Tools.groupEnabled("mcp") {
@@ -123,7 +142,7 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 		"enabled_groups":      cfg.Tools.normalizedGroups(),
 	})
 	// #endregion
-	sessionStore := session.NewStore(session.DefaultRootDir)
+	sessionStore := session.NewStore(filepath.Join(cwd, session.DefaultRootDir))
 	sessionRoot := normalizeWorkspace(sessionStore.RootDir)
 	contextManager := &contextmgr.Manager{
 		Config:     cfg.Context.Normalize(),
@@ -186,7 +205,7 @@ func NewRunner(cfg Config) (*agent.Runner, error) {
 // NewForkRunner 创建隔离的反事实 Runner。分叉点之前只消费录制结果，
 // 分叉点及之后才调用当前配置里的真实模型和工具。
 func NewForkRunner(cfg Config, plan replay.ForkPlan, systemPrompt string, observationOverrides map[string]string) (*agent.Runner, error) {
-	runner, err := NewRunner(cfg)
+	runner, err := NewRunnerForProject(cfg, cfg.Workspace)
 	if err != nil {
 		return nil, err
 	}
@@ -504,11 +523,15 @@ func findProjectRoot(path string) string {
 }
 
 func normalizeWorkspace(workspace string) string {
+	cwd, _ := os.Getwd()
+	return normalizeWorkspaceForProject(workspace, cwd)
+}
+
+func normalizeWorkspaceForProject(workspace string, projectRoot string) string {
 	if strings.TrimSpace(workspace) == "" {
-		workspace = "."
-	}
-	if abs, err := filepath.Abs(workspace); err == nil {
-		workspace = abs
+		workspace = projectRoot
+	} else if !filepath.IsAbs(workspace) {
+		workspace = filepath.Join(projectRoot, workspace)
 	}
 	return filepath.Clean(workspace)
 }

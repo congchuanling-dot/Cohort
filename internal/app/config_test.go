@@ -641,3 +641,25 @@ tools:
 		t.Fatal("expected unknown profile error")
 	}
 }
+
+func TestWithActiveProfileCreatesRunLocalOverride(t *testing.T) {
+	cfg := Config{LLM: LLMConfig{
+		ActiveProfile:    "first",
+		FallbackProfiles: []string{"second"},
+		Profiles: map[string]LLMProfile{
+			"first":  {ID: "first", Provider: "openai", Model: "model-a", APIKey: "key-a"},
+			"second": {ID: "second", Provider: "anthropic", Model: "model-b", APIKey: "key-b"},
+		},
+	}}
+	overridden, err := cfg.WithActiveProfile("second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overridden.LLM.ActiveProfile != "second" || overridden.LLM.Model != "model-b" ||
+		overridden.LLM.Provider != "anthropic" || len(overridden.LLM.FallbackProfiles) != 0 {
+		t.Fatalf("override = %#v", overridden.LLM)
+	}
+	if cfg.LLM.ActiveProfile != "first" || len(cfg.LLM.FallbackProfiles) != 1 {
+		t.Fatalf("source config was mutated: %#v", cfg.LLM)
+	}
+}

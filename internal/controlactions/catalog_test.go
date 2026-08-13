@@ -68,6 +68,14 @@ func TestCatalogExposesStableSystemAction_BitsUT(t *testing.T) {
 	if !exists || merge.Risk != controlplane.RiskDanger || merge.ConfirmationText != "MERGE" {
 		t.Fatalf("delivery merge action = %#v exists=%t", merge, exists)
 	}
+	fork, exists := catalog.Get("replay.fork")
+	if !exists || !fork.Async || fork.Risk != controlplane.RiskExecute {
+		t.Fatalf("replay fork action = %#v exists=%t", fork, exists)
+	}
+	if len(fork.Inputs) < 2 || fork.Inputs[0].Type != controlplane.FieldEntity ||
+		fork.Inputs[1].Entity == nil || fork.Inputs[1].Entity.Kind != controlplane.EntityReplayBundle {
+		t.Fatalf("replay fork inputs = %#v", fork.Inputs)
+	}
 	if actions := catalog.List(); len(actions) < 40 {
 		t.Fatalf("catalog only exposes %d actions", len(actions))
 	}

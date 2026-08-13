@@ -371,6 +371,37 @@ func (cfg Config) WithModelOverride(model string) Config {
 	return cfg
 }
 
+// WithActiveProfile 返回只在本次运行中切换模型 Profile 的配置副本。
+// 它不写配置文件，并移除 fallback 中与 active 重复的项。
+func (cfg Config) WithActiveProfile(profileID string) (Config, error) {
+	profileID = strings.TrimSpace(profileID)
+	if profileID == "" {
+		return cfg, nil
+	}
+	profile, exists := cfg.LLM.Profiles[profileID]
+	if !exists {
+		return Config{}, fmt.Errorf("llm profile %q does not exist", profileID)
+	}
+	cfg.LLM.ActiveProfile = profileID
+	cfg.LLM.Provider = profile.Provider
+	cfg.LLM.Name = profile.Name
+	cfg.LLM.APIKey = profile.APIKey
+	cfg.LLM.APIBase = profile.APIBase
+	cfg.LLM.Model = profile.Model
+	cfg.LLM.Stream = profile.Stream
+	cfg.LLM.ConnectTimeoutSeconds = profile.ConnectTimeoutSeconds
+	cfg.LLM.ReadTimeoutSeconds = profile.ReadTimeoutSeconds
+	cfg.LLM.MaxRetries = profile.MaxRetries
+	fallbacks := make([]string, 0, len(cfg.LLM.FallbackProfiles))
+	for _, fallback := range cfg.LLM.FallbackProfiles {
+		if fallback != profileID {
+			fallbacks = append(fallbacks, fallback)
+		}
+	}
+	cfg.LLM.FallbackProfiles = fallbacks
+	return cfg, nil
+}
+
 func normalizeLLMConfig(cfg *LLMConfig) error {
 	if len(cfg.Profiles) > 0 {
 		if strings.TrimSpace(cfg.ActiveProfile) == "" {
