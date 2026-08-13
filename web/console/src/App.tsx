@@ -10,6 +10,7 @@ import {
 import { EntityDetailPage, EntityListPage } from "./EntityPages";
 import { EvalRunPage, QualityOverviewPage, StabilityPage } from "./QualityPages";
 import { TraceGraphPage, TuningPage } from "./TraceTuningPages";
+import { TimeMachinePage } from "./TimeMachinePage";
 
 function StatusDot({ online }: { online: boolean }) {
   return <span className={online ? "status-dot online" : "status-dot"} aria-hidden="true" />;
@@ -132,7 +133,7 @@ export default function App() {
         <nav aria-label="主导航">
           <NavLink end to="/">概览</NavLink><NavLink to="/sessions">Agent Sessions</NavLink>
           <NavLink to="/deliveries">Deliveries</NavLink><NavLink to="/operations">Operations</NavLink>
-          <NavLink to="/quality">质量与追踪</NavLink><NavLink to="/capabilities">能力中心</NavLink><NavLink to="/settings">设置</NavLink>
+          <NavLink to="/quality">质量与追踪</NavLink><NavLink to="/time-machine">Time Machine</NavLink><NavLink to="/capabilities">能力中心</NavLink><NavLink to="/settings">设置</NavLink>
         </nav>
         <div className="project-switcher">
           <span>当前项目</span>
@@ -207,6 +208,7 @@ export default function App() {
         <Route path="/quality/stability" element={<StabilityPage />} />
         <Route path="/quality/traces/:sessionId/:runId" element={<TraceGraphPage />} />
         <Route path="/quality/tuning" element={<TuningPage />} />
+        <Route path="/time-machine" element={<TimeMachinePage />} />
         <Route path="/quality/resources" element={<DomainPanels
           deliveries={deliveries.data?.deliveries ?? []}
           hermes={hermes.data}

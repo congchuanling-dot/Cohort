@@ -261,6 +261,22 @@ button.primary { border-color: #769cff; background: #6d8dff; color: #07101f; fon
 .profile-grid article.active { border-color: var(--blue); box-shadow: inset 0 0 0 1px #79a8ff44; }
 .profile-grid article > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .profile-grid p { color: #c8d1e3; font-size: 10px; }.profile-grid code { display: block; color: var(--muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.time-machine-selector { display: grid; grid-template-columns: 1fr 1fr 1.15fr; gap: 12px; }
+.time-entity-column { min-width: 0; }.time-entity-column.disabled { opacity: .55; }
+.time-entity-column > input, .intervention-form input, .intervention-form textarea, .intervention-form select { width: 100%; color: #e8edf8; background: #090e19; border: 1px solid #2d3952; border-radius: 8px; padding: 9px 10px; outline: none; }
+.time-entity-column > div:last-child { max-height: 310px; margin-top: 8px; overflow: auto; }
+.time-entity-column button { width: 100%; display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; padding: 10px; text-align: left; border-color: transparent; background: #101a2b; }
+.time-entity-column button.selected { border-color: var(--blue); background: #172643; box-shadow: inset 3px 0 var(--blue); }
+.time-entity-column button strong, .time-entity-column button small { display: block; }.time-entity-column button small { margin-top: 3px; color: var(--muted); font-size: 9px; }
+.time-entity-column button em { color: var(--blue); font-size: 8px; font-style: normal; text-transform: uppercase; }
+.replay-proof-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 10px 0; }.replay-proof-grid div { padding: 9px; border: 1px solid var(--line); border-radius: 8px; background: #0b1424; }.replay-proof-grid dt { color: var(--muted); font-size: 8px; }.replay-proof-grid dd { margin: 5px 0 0; font-size: 10px; }
+.proof-hash { display: block; overflow: hidden; color: #7996c0; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.turn-picker { display: grid; grid-template-columns: repeat(6, minmax(110px, 1fr)); gap: 8px; margin-top: 12px; overflow-x: auto; }
+.turn-picker button { min-width: 110px; padding: 12px; text-align: left; background: #0d1728; }.turn-picker button.selected { border-color: var(--blue); background: #192a49; box-shadow: inset 0 -3px var(--blue); }
+.turn-picker strong, .turn-picker span, .turn-picker em { display: block; }.turn-picker span { margin-top: 5px; color: var(--muted); font-size: 8px; }.turn-picker em { margin-top: 5px; color: var(--red); font-size: 8px; font-style: normal; }
+.time-machine-experiment-grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 12px; }
+.intervention-form label { display: block; margin-top: 12px; }.intervention-form label > span { display: block; margin-bottom: 6px; color: #cbd6e8; font-size: 9px; }.intervention-form textarea { min-height: 110px; resize: vertical; }.intervention-form .checkbox-field { display: flex; align-items: center; gap: 8px; }.intervention-form .checkbox-field span { margin: 0; }.intervention-form .execute-button { width: 100%; margin-top: 16px; }
+.experiment-history article { display: grid; grid-template-columns: 1fr auto; gap: 5px 10px; padding: 10px 2px; border-bottom: 1px solid var(--line); }.experiment-history strong, .experiment-history small { display: block; }.experiment-history small { margin-top: 4px; color: var(--muted); font-size: 8px; }.experiment-history code { grid-column: 1 / -1; color: #7893bc; font-size: 8px; }
 
 .centered-state { min-height: 100vh; display: grid; place-content: center; justify-items: center; text-align: center; padding: 30px; }
 .centered-state h1 { margin: 18px 0 8px; }
@@ -290,4 +306,6 @@ button.primary { border-color: #769cff; background: #6d8dff; color: #07101f; fon
   .session-grid { grid-template-columns: repeat(2, 1fr); }
   .capability-grid, .profile-grid { grid-template-columns: 1fr; }
   .capability-hero { align-items: flex-start; flex-direction: column; }
+  .time-machine-selector, .time-machine-experiment-grid { grid-template-columns: 1fr; }
+  .turn-picker { grid-template-columns: repeat(2, minmax(110px, 1fr)); }
 }

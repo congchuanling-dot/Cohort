@@ -291,6 +291,45 @@ export interface TraceRuntimeView {
   governance: GovernanceReport;
 }
 
+export interface ReplayRuntimeView {
+  manifest: {
+    schema_version: number;
+    session_id: string;
+    run_id: string;
+    created_at: string;
+    completed_at?: string;
+    status: string;
+    replayability: "exact_only" | "forkable";
+    replay_block_reason?: string;
+    provider?: string;
+    model?: string;
+    frame_count: number;
+    frames_hash?: string;
+    final_status?: string;
+    git: { available: boolean; head_commit?: string; tree_hash?: string; dirty?: boolean };
+    workspace_snapshot?: { available: boolean; total_bytes?: number; error?: string };
+  };
+  exact_proof: {
+    verified: boolean;
+    frame_count: number;
+    turn_count: number;
+    llm_calls: number;
+    tool_calls: number;
+    final_status: string;
+    proof_hash?: string;
+    first_divergence?: { sequence: number; turn?: number; kind: string; reason: string };
+  };
+  experiments: Array<{
+    id: string;
+    created_at: string;
+    fork_turn: number;
+    trials: number;
+    success_rate: number;
+    proof_hash: string;
+    report_path: string;
+  }>;
+}
+
 export interface TuningReport {
   runs_scanned: number; sessions_scanned: number; total_duration_ms: number; llm_duration_ms: number; tool_duration_ms: number;
   tool_failures: number; ask_user_calls: number; permission_events: number; schema_bloat_runs: number; adaptive_routed_runs: number;
