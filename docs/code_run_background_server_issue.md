@@ -7,7 +7,7 @@
 典型命令：
 
 ```bash
-cd /Users/bytedance/Desktop/myOwnProject/Cohort/workspace && python3 -m http.server 8899 &
+cd workspace && python3 -m http.server 8899 &
 sleep 1 && echo "Server started on port 8899"
 ```
 
@@ -42,7 +42,7 @@ curl -I --max-time 3 http://127.0.0.1:8899/demo.html
 启动长期服务时，应让服务进程彻底脱离当前 `code_run` 的输出流：
 
 ```bash
-cd /Users/bytedance/Desktop/myOwnProject/Cohort/workspace
+cd workspace
 nohup python3 -m http.server 8899 > /tmp/cohort-demo-server.log 2>&1 &
 echo "Server started on port 8899"
 ```

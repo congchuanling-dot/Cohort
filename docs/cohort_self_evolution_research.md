@@ -54,8 +54,8 @@ GenericAgent 通过 `update_working_checkpoint` 保存当前任务的关键约�
 
 关键位置：
 
-- `/Users/bytedance/Desktop/myOwnProject/GenericAgent/ga.py`
-- `/Users/bytedance/Desktop/myOwnProject/GenericAgent/assets/tools_schema.json`
+- `<generic-agent-repo>/ga.py`
+- `<generic-agent-repo>/assets/tools_schema.json`
 
 数据流：
 
@@ -78,8 +78,8 @@ GenericAgent 通过 `start_long_term_update` 启动任务收尾阶段的经验�
 
 关键位置：
 
-- `/Users/bytedance/Desktop/myOwnProject/GenericAgent/ga.py`
-- `/Users/bytedance/Desktop/myOwnProject/GenericAgent/memory/memory_management_sop.md`
+- `<generic-agent-repo>/ga.py`
+- `<generic-agent-repo>/memory/memory_management_sop.md`
 
 它不是直接写文件，而是先让模型判断本轮是否有可复用、已验证、值得未来检索的经验。核心公理是：
 
@@ -100,10 +100,10 @@ GenericAgent 支持 `agentmain.py --reflect <script>` 后台反射模式。
 
 关键位置：
 
-- `/Users/bytedance/Desktop/myOwnProject/GenericAgent/agentmain.py`
-- `/Users/bytedance/Desktop/myOwnProject/GenericAgent/reflect/scheduler.py`
-- `/Users/bytedance/Desktop/myOwnProject/GenericAgent/reflect/goal_mode.py`
-- `/Users/bytedance/Desktop/myOwnProject/GenericAgent/reflect/autonomous.py`
+- `<generic-agent-repo>/agentmain.py`
+- `<generic-agent-repo>/reflect/scheduler.py`
+- `<generic-agent-repo>/reflect/goal_mode.py`
+- `<generic-agent-repo>/reflect/autonomous.py`
 
 运行模式：
 

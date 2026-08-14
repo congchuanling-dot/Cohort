@@ -24,7 +24,7 @@ browser_open / browser_tabs
 1. OCR/视觉定位：当 DOM 文本不可用、内容在 canvas/image/PDF 预览/验证码说明图中，基于截图识别文字和候选区域。
 2. 系统级真实输入 fallback：当 DOM、JS、CDP 输入都无法完成，且确实需要像用户一样操作前台 Chrome 窗口时，通过 OS 鼠标键盘执行最后一步。
 
-更完整的 GenericAgent 功能调研与 Cohort 可借鉴清单见 [GenericAgent 调研与 Cohort 可借鉴能力清单](file:///Users/bytedance/Desktop/myOwnProject/Cohort/docs/genericagent_borrowing_research.md)。本文只展开其中“浏览器视觉和真实输入 fallback”这一条技术路线。
+更完整的 GenericAgent 功能调研与 Cohort 可借鉴清单见 [GenericAgent 调研与 Cohort 可借鉴能力清单](genericagent_borrowing_research.md)。本文只展开其中“浏览器视觉和真实输入 fallback”这一条技术路线。
 
 ## GA 调研结论
 

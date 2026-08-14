@@ -1,20 +1,20 @@
 <div align="center">
   <h1 align="center">Cohort</h1>
   <p align="center">
-    <strong>Local-first Agent Runtime for Real-World Workflows</strong>
+    <strong>Proof-Carrying Agent Runtime with Causal Replay and Runtime Governance</strong>
   </p>
   <p align="center">
-    面向真实任务的本地 Agent 执行内核。
+    面向真实任务的本地 Agent 运行时。
     <br />
-    把 OpenAI-compatible / Anthropic 模型接入受控工具、浏览器、桌面、MCP、上下文治理与可验证记忆，
+    录制可校验的执行轨迹，在隔离 Worktree 中分叉历史运行，并治理上下文、成本、缓存与工具风险，
     <br />
-    让 Agent 不只会回答，而是能在真实环境里稳定行动、恢复和沉淀经验。
+    让 Agent 的执行、调试和改进都能携带证据。
   </p>
 </div>
 
 <p align="center">
   <img alt="Go" src="https://img.shields.io/badge/Go-1.21-00ADD8?style=flat-square&logo=go&logoColor=white">
-  <img alt="Stage" src="https://img.shields.io/badge/stage-stable%201.0-0F172A?style=flat-square">
+  <img alt="Stage" src="https://img.shields.io/badge/stage-public%20preview-0F172A?style=flat-square">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-16A34A?style=flat-square">
   <img alt="npm" src="https://img.shields.io/npm/v/@cohort-ai/cohort?style=flat-square&logo=npm&logoColor=white&color=CB3837">
   <img alt="LLM" src="https://img.shields.io/badge/LLM-OpenAI--compatible%20%2B%20Anthropic-4F46E5?style=flat-square">
@@ -47,6 +47,12 @@
 <p align="center">
   <a href="#30-秒看懂-cohort">30 秒看懂</a>
   ·
+  <a href="#核心能力">核心能力</a>
+  ·
+  <a href="#cohort-time-machine">Time Machine</a>
+  ·
+  <a href="#runtime-governor">Runtime Governor</a>
+  ·
   <a href="#项目叙事">项目叙事</a>
   ·
   <a href="#为什么是-cohort">为什么是 Cohort</a>
@@ -78,13 +84,14 @@
 
 ## 30 秒看懂 Cohort
 
-Cohort 是一个本地优先的 Agent Runtime。它不绑定某一个模型厂商，而是把 OpenAI-compatible 或 Anthropic 协议的模型，接到一套可审计、可恢复、可扩展的本地执行系统上。
+Cohort 是一个本地优先、证据驱动的 Agent Runtime。它不绑定模型厂商，而是把 OpenAI-compatible 或 Anthropic 模型接入可审计、可回放、可治理的执行系统。
 
 你可以把它理解成 Agent 的运行时层：
 
 - 模型负责理解目标、规划步骤和调用工具。
-- Runtime 负责权限、工具边界、浏览器/桌面动作、上下文治理、历史记录和安全恢复。
-- 任务过程会落到本地 session、日志、截图、记忆和审计文件中，方便复盘与继续执行。
+- Runtime 负责权限、工具边界、上下文容量、Provider 回执和安全恢复。
+- Time Machine 把请求、响应和工具观察录制成带 SHA-256 证明的 Replay Bundle。
+- 历史运行可以离线校验，也可以从指定 Turn 在隔离 Worktree 中分叉实验。
 
 ```bash
 npm install -g @cohort-ai/cohort@latest
@@ -97,6 +104,9 @@ cohort
 
 | 你得到什么 | Cohort 怎么做 |
 | --- | --- |
+| 可验证因果回放 | 录制 Replay Bundle，离线校验帧、运行时快照和聚合哈希 |
+| 反事实分叉实验 | 在指定 Turn 前复用历史证据，之后切换模型或 Prompt 并重复 Trial |
+| 运行时治理 | 区分 Provider 回执与本地估算，治理上下文容量、缓存、成本和重复失败 |
 | 真实执行闭环 | LLM 负责推理，runtime 负责工具、权限、证据和恢复 |
 | 浏览器自动化 | 通过 Chrome Bridge 读 DOM、执行 JS、点击、输入、等待和截图 |
 | 桌面 Computer Use | 基于 macOS Accessibility / AX 做窗口、控件、键盘和受控动作 |
@@ -106,7 +116,62 @@ cohort
 | 可观测性 | 本地 `run.log.jsonl`，可选 Langfuse trace 上报 |
 
 > 我们并不缺新的聊天框。  
-> 我们缺的是一个足够可靠的运行时层, 让模型的判断可以穿过工具、浏览器、桌面和长期任务，真正抵达现实世界。
+> 我们缺的是一个能解释“发生了什么”、验证“有没有被篡改”、实验“怎样会更好”的 Agent Runtime。
+
+## 核心能力
+
+### Cohort Time Machine
+
+Time Machine 把一次 Agent Run 变成可验证、可执行的实验：
+
+```text
+Record -> Verify -> Fork -> Intervene -> Replay -> Compare -> Prove
+```
+
+每次正常运行都会保存模型请求与响应、工具调用与观察、运行时 Prompt、工具 Schema、Git 基线和工作区快照。Exact Replay 完全离线，不调用模型、工具或网络；它会校验帧级哈希、聚合哈希、请求/响应状态迁移和工具结果顺序，并在首个分歧点停止。
+
+```bash
+cohort trace replay exact <session_id> --run <run_id>
+```
+
+Fork Replay 在分叉点之前复用已录制的模型响应和工具观察，从分叉点开始切换到实时模型与工具。每个 Trial 都在独立 Git Worktree 中恢复基线与脏工作区快照，源 Session 不会被修改。
+
+```bash
+cohort trace replay fork <session_id> \
+  --run <run_id> \
+  --fork-turn 7 \
+  --model candidate-model \
+  --system-prompt candidate.md \
+  --repeat 5
+```
+
+实验报告包含成功率、Token、延迟、首个行为分歧点和 Proof Hash。前缀回放是确定性的；分叉后的实时后缀属于统计实验，因此需要通过重复 Trial 评估，而不是把一次成功当成稳定改进。
+
+完整设计见 [Cohort Time Machine](docs/cohort_time_machine.md)。
+
+### Runtime Governor
+
+Runtime Governor 使用同一份不可变 `run.log.jsonl` 证据流建立运行控制面：
+
+- **Provider Receipt Ledger**：区分 Provider 实际回执、本地估算和不可用状态，记录输入、输出、缓存 Token 与耗时。
+- **Context Capacity Governor**：解析模型窗口能力，保留输出与安全预算，展示 History、Memory、Compact 的 Context Waterfall。
+- **Executable Policy Engine**：对容量越界、重复同参失败、工具路由升级和高风险权限执行真实干预。
+- **Causal DAG**：把 Task、LLM、Tool、Decision 和 Artifact 重建为可下钻的执行证据图。
+- **Run Compare**：自动寻找相似成功基线，对比质量、Token、缓存、耗时和失败，并生成需要审批的优化 Proposal。
+
+```text
+Provider Receipt + Context Build + Tool Evidence
+                  |
+                  v
+        Causal DAG / Policy Engine
+                  |
+                  v
+        Baseline Compare -> Proposal
+```
+
+Governor 不猜测供应商价格，也不会把完整 Prompt 或工具结果暴露给控制台。缺失数据明确标为 unavailable，优化建议必须绑定当前 Run 和成功基线。
+
+完整设计见 [Proof-Carrying Runtime Governor](docs/proof_carrying_runtime_governor.md)。
 
 ## 项目叙事
 
@@ -660,11 +725,16 @@ Cohort 当前已经适合做本地 Agent Runtime 的公开预览，但它不是�
 - 桌面：需要给运行 Cohort 的终端或 IDE 授予 Accessibility 和 Screen Recording 权限。
 - 安全：外部副作用动作需要确认；支付、审批、授权、登录验证、破坏性删除等高风险动作不自动执行。
 - 数据：session、日志、截图、记忆默认本地存储；启用外部 tracing 前应确认数据边界。
+- 回放：Exact Replay 验证录制证据，不重新执行历史副作用；Fork Replay 当前支持在分叉点切换模型或 System Prompt，实时后缀不宣称确定性。
 
 ## 能力矩阵
 
 | 模块 | 真实能力 | 解决的问题 |
 | --- | --- | --- |
+| Time Machine | Replay Bundle、Exact Replay、隔离 Worktree Fork、重复 Trial、Proof Hash | 复现非确定性行为并验证模型或 Prompt 变更 |
+| Runtime Governor | Provider Receipt、Context Capacity、Policy Engine、Run Compare | 用真实回执和执行证据治理容量、成本、缓存与失败 |
+| Causal Trace | LLM/Tool/Decision/Artifact DAG、关键路径、节点证据下钻 | 定位首个行为分歧和运行瓶颈 |
+| Evidence Delivery | Acceptance Contract、隔离 Builder、独立 Verifier、事务合并 | 让多 Agent 交付绑定可复验的 Git Tree 证据 |
 | Agent Loop | 流式对话、工具调用、最大轮次控制、行动说明 | 让模型真正进入可执行闭环 |
 | Local Tools | 文件读写、补丁、命令执行、用户确认 | 处理真实仓库和本地环境 |
 | MCP Runtime | 兼容 `.mcp.json`、stdio/HTTP server、动态发现工具 | 接入外部系统而不是只活在本地 |
@@ -682,7 +752,9 @@ Cohort 当前已经适合做本地 Agent Runtime 的公开预览，但它不是�
 flowchart TD
     U[User Intent] --> R[CLI / REPL]
     R --> A[Agent Runner]
+    A --> TM[Replay Recorder]
     A --> C[Context Manager]
+    C --> G[Runtime Governor]
     C --> L[LLM Provider<br/>OpenAI-compatible / Anthropic]
     L --> A
     A --> T[Tool Registry]
@@ -692,6 +764,10 @@ flowchart TD
     T --> D[Desktop Driver]
     T --> E[Memory Evolution]
     A --> S[Session Store]
+    TM --> RB[Replay Bundle<br/>Hashes / Runtime / Frames]
+    RB --> EX[Exact Replay]
+    RB --> FK[Fork Replay<br/>Isolated Worktree]
+    G --> DAG[Causal DAG / Policy / Compare]
     C --> SM[session memory.md]
     C --> CP[compact.md]
     C --> LM[relevant memory entries]
@@ -813,6 +889,11 @@ temp/sessions/<session_id>/
 | --- | --- | --- |
 | App Assembly | `internal/app` | 配置加载、LLM client、工具注册、系统提示 |
 | Agent Runtime | `internal/agent` | 工具调用循环、运行日志、compact、证据收集 |
+| Replay Core | `internal/replay` | Replay Bundle、哈希校验、Exact Replay 和 Fork 前缀 |
+| Replay Execution | `internal/replayexec` | 隔离 Worktree Trial、实时后缀执行和实验报告 |
+| Runtime Evidence | `internal/traceview` | Provider 回执、容量治理、因果 DAG 和 Run Compare |
+| Control Plane | `internal/controlplane`, `internal/controlactions` | 本地安全会话、实体选择、Action 风险门禁和 Operation |
+| Evidence Delivery | `internal/delivery` | 契约、DAG Builder、证据、Verifier、审批与事务合并 |
 | Context Manager | `internal/contextmgr` | 请求构造、预算控制、裁剪、记忆注入 |
 | Tool Runtime | `internal/tools` | 文件、命令、浏览器、桌面、记忆和 checkpoint 工具 |
 | Browser Bridge | `internal/browser` | Chrome Bridge 的 WebSocket 协议与服务端实现 |
@@ -832,6 +913,10 @@ cohort                         # 进入交互模式
 cohort ask "task"              # 执行一次任务后退出
 cohort tools                   # 查看已挂载工具
 cohort config                  # 查看有效配置
+cohort ui                      # 打开本地 Control Center
+cohort trace graph last --open # 查看最近一次运行的因果 DAG
+cohort trace replay exact ...  # 离线校验 Replay Bundle
+cohort trace replay fork ...   # 在隔离 Worktree 中运行分叉实验
 cohort mcp list                # 查看 MCP server
 cohort mcp status              # 检查 MCP server 连通性
 cohort mcp add <name> -- ...   # 添加 stdio MCP server
@@ -1023,13 +1108,18 @@ internal/agent/         Agent loop、证据流、compact
 internal/browser/       Chrome Bridge 协议与服务
 internal/cli/           命令分发和 CLI 子命令
 internal/contextmgr/    请求构造、裁剪、记忆注入
+internal/controlplane/  本地安全控制面与 Operation
+internal/delivery/      证据驱动的多 Agent 交付
 internal/desktop/       桌面驱动与 helper runner
 internal/evolution/     长期记忆演化与审计
 internal/llm/           OpenAI-compatible + Anthropic client
 internal/mcp/           MCP server 管理
+internal/replay/        Replay Bundle、Exact/Fork Replay
+internal/replayexec/    隔离 Worktree 分叉实验
 internal/repl/          交互 shell 和 slash 命令
 internal/session/       session 存储与恢复
 internal/tools/         全部受控工具
+internal/traceview/     因果 DAG、容量与基线对比
 sops/                   SOP 索引和执行手册
 workspace/              默认工作区与长期记忆目录
 temp/                   session、日志和运行时输出
@@ -1040,6 +1130,10 @@ temp/                   session、日志和运行时输出
 - [CHANGELOG.md](CHANGELOG.md): 版本变更与已知限制
 - [SECURITY.md](SECURITY.md): 安全边界、漏洞报告和加固建议
 - [docs/usage.md](docs/usage.md): 使用方法、命令、session 恢复
+- [docs/cohort_time_machine.md](docs/cohort_time_machine.md): 可验证录制、Exact Replay、Fork Replay 与确定性边界
+- [docs/proof_carrying_runtime_governor.md](docs/proof_carrying_runtime_governor.md): Provider 回执、上下文容量、策略干预与 Run Compare
+- [docs/causal_trace_graph.md](docs/causal_trace_graph.md): 因果 DAG、关键路径与执行证据下钻
+- [docs/evidence_driven_multi_agent_delivery.md](docs/evidence_driven_multi_agent_delivery.md): 证据驱动的多 Agent 交付与事务合并
 - [docs/context_management_design.md](docs/context_management_design.md): 上下文裁剪与 compact 设计
 - [docs/browser_operation_design.md](docs/browser_operation_design.md): 浏览器操作设计
 - [docs/desktop_computer_use_technical_design.md](docs/desktop_computer_use_technical_design.md): 桌面 Computer Use 技术设计

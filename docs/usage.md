@@ -9,7 +9,7 @@
 开发阶段可以继续在 Cohort 项目根目录运行：
 
 ```bash
-cd /Users/bytedance/Desktop/myOwnProject/Cohort
+cd /path/to/Cohort
 ```
 
 也可以通过 npm 安装成用户级命令：
@@ -864,7 +864,7 @@ go run . session list
 
 ```text
 ID                        TITLE           MESSAGES  UPDATED              CWD
-20260718-223408-8af91b03  你的session有什么效果  8         2026-07-18 22:36:49  /Users/bytedance/Desktop/myOwnProject/Cohort
+20260718-223408-8af91b03  示例会话        8         2026-07-18 22:36:49  /path/to/Cohort
 ```
 
 字段含义：

@@ -6,7 +6,7 @@
 
 ## 目标
 
-本文档基于 `/Users/bytedance/Desktop/myOwnProject/GenericAgent` 的代码和记忆/SOP 文件，整理 GenericAgent 的功能结构、关键实现思路，以及 Cohort 后续还能借鉴哪些能力。
+本文档基于一个独立的 GenericAgent 参考实现及其记忆/SOP 文件，整理功能结构、关键实现思路，以及 Cohort 后续还能借鉴哪些能力。
 
 结论先行：
 
@@ -347,7 +347,7 @@ Cohort 已有 `browser_screenshot` 和 `browser_ocr`：
 
 ### 建议借鉴
 
-已在 [browser_ocr_real_input_fallback_design.md](file:///Users/bytedance/Desktop/myOwnProject/Cohort/docs/browser_ocr_real_input_fallback_design.md) 中展开。
+已在 [browser_ocr_real_input_fallback_design.md](browser_ocr_real_input_fallback_design.md) 中展开。
 
 补充建议：
 

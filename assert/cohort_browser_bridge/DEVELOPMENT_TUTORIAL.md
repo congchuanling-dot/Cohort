@@ -500,7 +500,7 @@ chrome://extensions
 3. 选择目录：
 
 ```text
-/Users/bytedance/Desktop/myOwnProject/Cohort/assert/cohort_browser_bridge
+<repo>/assert/cohort_browser_bridge
 ```
 
 安装成功后：

@@ -14,7 +14,7 @@
 进入项目根目录：
 
 ```bash
-cd /Users/bytedance/Desktop/myOwnProject/Cohort
+cd /path/to/Cohort
 ```
 
 确认 Go 可用：
