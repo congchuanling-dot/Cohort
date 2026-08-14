@@ -30,3 +30,12 @@
 /web/console/*.tsbuildinfo
 
 *.log
+
+# 个人/面试准备文档，不应进入展示仓库（本地保留即可）
+/cohort_source_onboarding_feishu.xml
+/cohort_resume_interview_feishu.xml
+/debug-llm-stream-slow.md
+
+# Agent 运行时记忆与 Hermes 事件日志（运行时自动再生，勿提交）
+/memory/
+/.cohort/hermes/*.jsonl
