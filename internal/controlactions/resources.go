@@ -67,6 +67,7 @@ func sessionResource(projectRoot string, id string) (any, error) {
 		}
 		return map[string]any{"sessions": flattenSessions(summaries)}, err
 	}
+	//1
 	meta, err := store.LoadMeta(id)
 	if err != nil {
 		return nil, err
