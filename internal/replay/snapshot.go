@@ -17,6 +17,11 @@ const (
 	snapshotFilesDir  = "workspace-files"
 	maxSnapshotBytes  = 20 << 20
 	maxSnapshotFile   = 5 << 20
+	// engineArtifactDir 是回放/控制面引擎在工作区内的运行时目录。
+	// 其中的内容（如 fork worktree、控制面数据）是引擎产物而非用户工作区状态，
+	// 不应进入快照；在 fork worktree 内再次快照时，嵌套的 worktree 目录还会
+	// 作为未跟踪的非普通文件出现，若不排除会被误判为 unsupported untracked file type。
+	engineArtifactDir = ".cohort"
 )
 
 func captureWorkspaceSnapshot(bundleDir string, git GitBaseline) WorkspaceSnapshot {
@@ -60,6 +65,11 @@ func captureWorkspaceSnapshot(bundleDir string, git GitBaseline) WorkspaceSnapsh
 	for _, raw := range bytes.Split(untracked, []byte{0}) {
 		relative := filepath.Clean(strings.TrimSpace(string(raw)))
 		if relative == "." || relative == "" {
+			continue
+		}
+		// 跳过引擎自身产物目录：这些不是用户工作区状态，且在 fork worktree 内
+		// 会以嵌套 worktree（非普通文件）形式出现，纳入快照只会误报错误。
+		if relative == engineArtifactDir || strings.HasPrefix(relative, engineArtifactDir+string(filepath.Separator)) {
 			continue
 		}
 		if filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
