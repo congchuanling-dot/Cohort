@@ -174,10 +174,7 @@ func redactArgsSummary(args map[string]any) string {
 		return "{}"
 	}
 	const maxChars = 400
-	if len(content) > maxChars {
-		return string(content[:maxChars]) + "...[truncated]"
-	}
-	return string(content)
+	return truncateRunes(string(content), maxChars)
 }
 
 func redactValue(value any, key string) any {
@@ -204,11 +201,21 @@ func redactValue(value any, key string) any {
 		}
 		return result
 	case string:
-		if len(typed) > 160 {
-			return typed[:160] + "...[truncated]"
-		}
-		return typed
+		return truncateRunes(typed, 160)
 	default:
 		return value
 	}
+}
+
+// truncateRunes 按 rune 而非字节截断，避免把多字节 UTF-8 字符（如中文）
+// 切成半个导致乱码。上限以内原样返回，超出则追加截断标记。
+func truncateRunes(text string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return text
+	}
+	runes := []rune(text)
+	if len(runes) <= maxRunes {
+		return text
+	}
+	return string(runes[:maxRunes]) + "...[truncated]"
 }

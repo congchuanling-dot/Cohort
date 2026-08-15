@@ -187,11 +187,13 @@ func mcpArgsSummary(args map[string]any) string {
 	if err != nil {
 		return "{}"
 	}
-	text := string(content)
-	if len(text) > 400 {
-		return text[:400] + "...[truncated]"
+	const maxRunes = 400
+	runes := []rune(string(content))
+	if len(runes) <= maxRunes {
+		return string(runes)
 	}
-	return text
+	// 按 rune 截断，避免把多字节 UTF-8 字符切成半个导致授权提示乱码。
+	return string(runes[:maxRunes]) + "...[truncated]"
 }
 
 // ensureMCPPermission 执行风险分级、会话缓存和用户询问的完整授权流程。
