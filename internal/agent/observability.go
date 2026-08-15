@@ -255,7 +255,7 @@ func toolStartedData(call llm.ToolCall, turn, index int, args map[string]any, pa
 }
 
 func toolFinishedData(call llm.ToolCall, outcome Outcome, duration time.Duration) map[string]any {
-	resultChars, truncated, errorCode := outcomeAuditShape(outcome.Data)
+	resultChars, truncated, errorCode, errorMessage := outcomeAuditShape(outcome.Data)
 	data := map[string]any{
 		"tool":         call.Function.Name,
 		"tool_call_id": call.ID,
@@ -266,6 +266,9 @@ func toolFinishedData(call llm.ToolCall, outcome Outcome, duration time.Duration
 	}
 	if errorCode != "" {
 		data["error_code"] = errorCode
+	}
+	if errorMessage != "" {
+		data["error_message"] = errorMessage
 	}
 	if outcome.ShouldExit {
 		data["should_exit"] = true

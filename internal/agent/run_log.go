@@ -28,11 +28,12 @@ type runLogEntry struct {
 	Status     string    `json:"status"`
 	DurationMS int64     `json:"duration_ms"`
 
-	ArgsHash    string `json:"args_hash,omitempty"`
-	ArgsSummary string `json:"args_summary,omitempty"`
-	ResultChars int    `json:"result_chars"`
-	Truncated   bool   `json:"truncated,omitempty"`
-	ErrorCode   string `json:"error_code,omitempty"`
+	ArgsHash     string `json:"args_hash,omitempty"`
+	ArgsSummary  string `json:"args_summary,omitempty"`
+	ResultChars  int    `json:"result_chars"`
+	Truncated    bool   `json:"truncated,omitempty"`
+	ErrorCode    string `json:"error_code,omitempty"`
+	ErrorMessage string `json:"error_message,omitempty"`
 
 	External           bool   `json:"external,omitempty"`
 	Server             string `json:"server,omitempty"`
@@ -66,7 +67,7 @@ func (r *Runner) logToolRun(
 		ArgsHash:    stableArgsHash(args),
 		ArgsSummary: redactArgsSummary(args),
 	}
-	entry.ResultChars, entry.Truncated, entry.ErrorCode = outcomeAuditShape(outcome.Data)
+	entry.ResultChars, entry.Truncated, entry.ErrorCode, entry.ErrorMessage = outcomeAuditShape(outcome.Data)
 	applyOutcomeAudit(&entry, outcome.Audit)
 
 	content, err := json.Marshal(entry)
@@ -104,11 +105,16 @@ func outcomeStatus(outcome Outcome) string {
 	return ToolStatusSuccess
 }
 
-// outcomeAuditShape 只读取安全的大小、状态和错误码，不把结果正文写到 run.log。
-func outcomeAuditShape(data any) (resultChars int, truncated bool, errorCode string) {
+// maxErrorMessageRunes 限制审计与观测里保留的工具错误说明长度。
+// 错误说明面向用户和模型、不含密钥或结果正文，因此可保留但仍按 rune 截断控体积。
+const maxErrorMessageRunes = 400
+
+// outcomeAuditShape 只读取安全的大小、状态、错误码和错误说明，不把结果正文写到 run.log。
+// 错误说明来自 ToolErrorData.Message，用于排查“为什么失败”，不含结果正文或密钥。
+func outcomeAuditShape(data any) (resultChars int, truncated bool, errorCode string, errorMessage string) {
 	switch value := data.(type) {
 	case ToolErrorData:
-		return 0, false, value.Code
+		return 0, false, value.Code, truncateRunes(value.Message, maxErrorMessageRunes)
 	case map[string]any:
 		if content, ok := value["content"].(string); ok {
 			resultChars = len(content)
@@ -119,15 +125,18 @@ func outcomeAuditShape(data any) (resultChars int, truncated bool, errorCode str
 		if code, ok := value["code"].(string); ok {
 			errorCode = code
 		}
-		return resultChars, truncated, errorCode
+		if message, ok := value["message"].(string); ok {
+			errorMessage = truncateRunes(message, maxErrorMessageRunes)
+		}
+		return resultChars, truncated, errorCode, errorMessage
 	case string:
-		return len(value), false, ""
+		return len(value), false, "", ""
 	default:
 		content, err := json.Marshal(value)
 		if err != nil {
-			return 0, false, ""
+			return 0, false, "", ""
 		}
-		return len(content), false, ""
+		return len(content), false, "", ""
 	}
 }
 
