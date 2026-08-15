@@ -172,6 +172,7 @@ export default function App() {
           <Metric label="Eval 通过率" value={`${(data?.evaluation.pass_rate ?? 0).toFixed(1)}%`} hint={`${data?.evaluation.regressions ?? 0} regressions`} />
         </section>
 
+        {snapshot.isError && <InlineError label="项目状态快照加载失败（概览指标可能不完整）" error={snapshot.error} />}
         <DataSourcesPanel />
 
         <div className="overview-grid">
@@ -217,10 +218,22 @@ export default function App() {
           hermes={hermes.data}
           evaluations={evaluations.data?.runs ?? []}
           sessions={traces.data?.sessions ?? []}
+          errors={[
+            deliveries.isError ? deliveries.error : null,
+            hermes.isError ? hermes.error : null,
+            evaluations.isError ? evaluations.error : null,
+            traces.isError ? traces.error : null,
+          ]}
           runAction={(intent) => openAction(intent)}
         />} />
         <Route path="/capabilities" element={<CapabilityGovernancePage onAction={openAction} />} />
-        <Route path="/settings" element={<CapabilityCenter capabilities={capabilities.data} skills={skills.data?.skills ?? []} servers={mcp.data?.servers ?? []} lsp={lsp.data} settings={settings.data} runAction={(intent) => openAction(intent)} />} />
+        <Route path="/settings" element={<CapabilityCenter capabilities={capabilities.data} skills={skills.data?.skills ?? []} servers={mcp.data?.servers ?? []} lsp={lsp.data} settings={settings.data} errors={[
+          capabilities.isError ? capabilities.error : null,
+          skills.isError ? skills.error : null,
+          mcp.isError ? mcp.error : null,
+          lsp.isError ? lsp.error : null,
+          settings.isError ? settings.error : null,
+        ]} runAction={(intent) => openAction(intent)} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
@@ -265,15 +278,18 @@ function DataSourcesPanel() {
 }
 
 function DomainPanels({
-  deliveries, hermes, evaluations, sessions, runAction,
+  deliveries, hermes, evaluations, sessions, errors, runAction,
 }: {
   deliveries: DeliveryItem[];
   hermes?: HermesResource;
   evaluations: EvalRun[];
   sessions: SessionSummary[];
+  errors?: Array<unknown>;
   runAction: (intent: string) => void;
 }) {
+  const failure = (errors ?? []).find((item) => item != null);
   return <div className="domain-stack">
+    {failure != null && <InlineError label="部分本地数据加载失败，下方内容可能不完整" error={failure} />}
     <section className="panel" id="deliveries">
       <div className="panel-heading"><div><p className="eyebrow">EVIDENCE-DRIVEN DELIVERY</p><h3>Deliveries</h3></div><button type="button" onClick={() => runAction("delivery")}>Delivery 动作</button></div>
       <div className="resource-table">
@@ -308,17 +324,20 @@ function DomainPanels({
 }
 
 function CapabilityCenter({
-  capabilities, skills, servers, lsp, settings, runAction,
+  capabilities, skills, servers, lsp, settings, errors, runAction,
 }: {
   capabilities?: CapabilityResource;
   skills: SkillSummary[];
   servers: MCPServerSummary[];
   lsp?: LSPResource;
   settings?: SettingsResource;
+  errors?: Array<unknown>;
   runAction: (intent: string) => void;
 }) {
   const items = capabilities?.registry.capabilities ?? [];
+  const failure = (errors ?? []).find((item) => item != null);
   return <div className="capability-center" id="capabilities">
+    {failure != null && <InlineError label="部分能力数据加载失败，下方内容可能不完整" error={failure} />}
     <section className="panel capability-hero">
       <div><p className="eyebrow">CAPABILITY CONTROL PLANE</p><h3>能力中心</h3><p>统一管理可复用能力、Skills、MCP、LSP 和模型配置。所有写操作都经过 Action 风险门禁。</p></div>
       <div className="hero-actions"><button className="primary" type="button" onClick={() => runAction("agent.run")}>运行 Agent</button><button type="button" onClick={() => runAction("capability")}>管理能力</button></div>
@@ -561,3 +580,4 @@ function Risk({ risk }: { risk: ActionSpec["risk"] }) { return <span className={
 function Metric({ label, value, hint, accent = false }: { label: string; value: string | number; hint: string; accent?: boolean }) { return <article className="metric"><span>{label}</span><strong className={accent ? "accent" : ""}>{value}</strong><small>{hint}</small></article>; }
 function Detail({ label, value, danger = false }: { label: string; value: string; danger?: boolean }) { return <div><dt>{label}</dt><dd className={danger ? "danger-text" : ""}>{value}</dd></div>; }
 function CenteredState({ title, detail, failed = false }: { title: string; detail: string; failed?: boolean }) { return <div className="centered-state"><div className={failed ? "loader failed" : "loader"} /><h1>{title}</h1><p>{detail}</p></div>; }
+function InlineError({ label, error }: { label: string; error: unknown }) { return <div className="source-error"><strong>{label}</strong><span>{error instanceof Error ? error.message : String(error)}</span></div>; }
