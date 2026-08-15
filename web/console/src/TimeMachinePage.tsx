@@ -20,6 +20,8 @@ export function TimeMachinePage() {
   const [profileID, setProfileID] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [keepWorktrees, setKeepWorktrees] = useState(false);
+  const [detailTurn, setDetailTurn] = useState(0);
+  const [includeRaw, setIncludeRaw] = useState(false);
 
   const sessions = useQuery({
     queryKey: ["entities", "session", "time-machine"],
@@ -44,6 +46,13 @@ export function TimeMachinePage() {
     queryKey: ["quality", "trace", sessionID, runID, "time-machine"],
     queryFn: () => apiGet<TraceRuntimeView>(`/api/v1/quality/traces/${encodeURIComponent(sessionID)}/${encodeURIComponent(runID)}`),
     enabled: sessionID !== "" && runID !== "",
+  });
+  const turnDetail = useQuery({
+    queryKey: ["replay", "turn-detail", sessionID, runID, detailTurn, includeRaw],
+    queryFn: () => apiGet<ReplayRuntimeView>(
+      `/api/v1/replays/${encodeURIComponent(sessionID)}/${encodeURIComponent(runID)}?turn=${detailTurn}${includeRaw ? "&include_raw=true" : ""}`,
+    ),
+    enabled: sessionID !== "" && runID !== "" && detailTurn > 0,
   });
   const turns = useMemo(() => {
     const grouped = new Map<number, { llm: number; tools: number; problems: number }>();
@@ -84,10 +93,12 @@ export function TimeMachinePage() {
     setSessionID(entity.id);
     setRunID("");
     setForkTurn(0);
+    setDetailTurn(0);
   };
   const chooseRun = (entity: EntityDescriptor) => {
     setRunID(entity.id);
     setForkTurn(0);
+    setDetailTurn(0);
   };
   const manifest = replay.data?.manifest;
   const proof = replay.data?.exact_proof;
@@ -130,8 +141,45 @@ export function TimeMachinePage() {
       <div className="turn-picker">
         {turns.map(([turn, summary]) => <button key={turn} type="button" className={forkTurn === turn ? "selected" : ""} onClick={() => setForkTurn(turn)}>
           <strong>Turn {turn}</strong><span>{summary.llm} LLM · {summary.tools} tools</span>{summary.problems > 0 && <em>{summary.problems} problems</em>}
+          <span className="turn-inspect" role="button" tabIndex={0} onClick={(event) => { event.stopPropagation(); setDetailTurn(turn); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.stopPropagation(); setDetailTurn(turn); } }}>查看原文</span>
         </button>)}
       </div>
+    </section>}
+
+    {runID && detailTurn > 0 && <section className="panel turn-detail-panel">
+      <div className="panel-heading">
+        <div><p className="eyebrow">VERBATIM EVIDENCE</p><h3>Turn {detailTurn} 原文明细</h3></div>
+        <div className="turn-detail-controls">
+          <label className="checkbox-field"><input type="checkbox" checked={includeRaw} onChange={(event) => setIncludeRaw(event.target.checked)} /><span>显示原始流式载荷</span></label>
+          <button type="button" className="button-link" onClick={() => setDetailTurn(0)}>收起</button>
+        </div>
+      </div>
+      {turnDetail.isPending && <div className="empty">正在读取原文…</div>}
+      {turnDetail.isError && <div className="source-error"><strong>原文不可用</strong><span>{turnDetail.error.message}</span></div>}
+      {turnDetail.data?.turn_detail && <div className="turn-detail-body">
+        {(turnDetail.data.turn_detail.requests ?? []).map((request) => <article key={`req-${request.sequence}`} className="turn-detail-block">
+          <header><span className="turn-detail-tag req">请求</span><small>{request.message_count} 条消息 · {request.tool_count} 个工具</small></header>
+          {request.system && <details><summary>System Prompt</summary><pre>{request.system}</pre></details>}
+          {(request.messages ?? []).map((message, index) => <div key={index} className="turn-detail-message">
+            <span className={`turn-detail-role ${message.role}`}>{message.role}{message.name ? ` · ${message.name}` : ""}</span>
+            <pre>{message.content || "（空）"}</pre>
+          </div>)}
+        </article>)}
+        {(turnDetail.data.turn_detail.responses ?? []).map((response) => <article key={`resp-${response.sequence}`} className="turn-detail-block">
+          <header><span className="turn-detail-tag resp">模型回复</span><small>{response.tool_call_count} 个工具调用</small></header>
+          <pre>{response.content || "（无正文）"}</pre>
+          {response.raw && <details><summary>原始流式载荷</summary><pre>{response.raw}</pre></details>}
+        </article>)}
+        {(turnDetail.data.turn_detail.tools ?? []).map((tool) => <article key={`tool-${tool.sequence}-${tool.index}`} className="turn-detail-block">
+          <header><span className="turn-detail-tag tool">工具 · {tool.name}</span><small>{tool.duration_ms} ms</small></header>
+          {tool.arguments && <details open><summary>入参</summary><pre>{tool.arguments}</pre></details>}
+          <details open><summary>结果</summary><pre>{tool.result || "（空）"}</pre></details>
+        </article>)}
+        {(turnDetail.data.turn_detail.requests?.length ?? 0) === 0
+          && (turnDetail.data.turn_detail.responses?.length ?? 0) === 0
+          && (turnDetail.data.turn_detail.tools?.length ?? 0) === 0
+          && <div className="empty">该 Turn 没有可展示的原文。</div>}
+      </div>}
     </section>}
 
     {runID && <div className="time-machine-experiment-grid">

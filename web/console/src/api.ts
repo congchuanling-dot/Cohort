@@ -328,6 +328,33 @@ export interface ReplayRuntimeView {
     proof_hash: string;
     report_path: string;
   }>;
+  // turn_detail 仅在请求 ?turn=N 时返回，包含该 turn 的原文明细，供排查每一步实际内容。
+  turn_detail?: ReplayTurnDetail;
+}
+
+export interface ReplayTurnDetail {
+  turn: number;
+  requests?: Array<{
+    sequence: number;
+    system?: string;
+    message_count: number;
+    messages?: Array<{ role: string; name?: string; content?: string }>;
+    tool_count: number;
+  }>;
+  responses?: Array<{
+    sequence: number;
+    content?: string;
+    tool_call_count: number;
+    raw?: string;
+  }>;
+  tools?: Array<{
+    sequence: number;
+    index: number;
+    name: string;
+    arguments?: string;
+    result?: string;
+    duration_ms: number;
+  }>;
 }
 
 export interface TuningReport {
