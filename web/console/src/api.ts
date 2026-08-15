@@ -440,9 +440,27 @@ export interface SettingsResource {
 let csrfToken = "";
 
 async function decode<T>(response: Response): Promise<T> {
-  const payload = (await response.json()) as T & { error?: string };
+  // 后端错误多为 JSON（{"error": ...}），但静态 404、代理层错误等可能是纯文本或 HTML。
+  // 直接 response.json() 会在非 JSON 时抛 "Unexpected token"，掩盖真实原因。
+  // 因此先取文本，再尝试解析，解析失败时回退到可读的状态与正文摘要。
+  const raw = await response.text();
+  let payload: (T & { error?: string }) | undefined;
+  if (raw) {
+    try {
+      payload = JSON.parse(raw) as T & { error?: string };
+    } catch {
+      payload = undefined;
+    }
+  }
   if (!response.ok) {
-    throw new Error(payload.error || `${response.status} ${response.statusText}`);
+    if (payload?.error) {
+      throw new Error(payload.error);
+    }
+    const detail = raw.trim().slice(0, 200);
+    throw new Error(detail ? `${response.status} ${response.statusText}：${detail}` : `${response.status} ${response.statusText}`);
+  }
+  if (payload === undefined) {
+    throw new Error("服务器返回了无法解析的响应（期望 JSON）。");
   }
   return payload;
 }
