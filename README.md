@@ -41,7 +41,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/cohort_control_center.png" alt="Cohort Control Center overview" width="900">
+  <img src="docs/1785215163755.jpeg" alt="Cohort preview" width="860">
 </p>
 
 <p align="center">
@@ -124,6 +124,16 @@ cohort
 
 Cohort 同时提供面向日常任务的终端体验，以及面向运行治理、证据检查和人工审批的本地控制中心。
 两者读取同一份本地运行状态，不依赖云端控制面。
+
+### Control Center
+
+<p align="center">
+  <img src="docs/cohort_control_center.png" alt="Cohort Control Center overview" width="900">
+</p>
+
+<p align="center">
+  <sub>统一查看本地数据源、Agent Sessions、评测结果、反思队列、因果追踪和待审批操作。</sub>
+</p>
 
 ### 命令行 Agent
 
