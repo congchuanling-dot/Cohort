@@ -30,6 +30,11 @@
 - SOP: `sops/browser_sop.md`
 - 场景：浏览器打开网页、等待加载、读取页面、点击、输入、CDP JSON 路由、页面变化判断、截图/OCR 兜底。
 
+## Reddit Shadow DOM 表单自动化
+
+- SOP: `sops/reddit_shadow_dom_form.md`
+- 场景：Reddit 新版（shreddit web components）发帖，标题/正文/flair/发帖按钮位于 shadow root，普通 selector 不可达，需穿透 shadow root 或用截图+OCR 兜底。
+
 ## Desktop Computer Use
 
 - SOP: `sops/desktop_sop.md`
