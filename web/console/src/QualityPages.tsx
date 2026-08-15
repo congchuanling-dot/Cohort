@@ -9,7 +9,7 @@ export function QualityOverviewPage() {
   if (quality.isError) return <QualityError detail={quality.error.message} />;
   const data = quality.data;
   return <section className="page-stack">
-    <header className="page-heading"><div><p className="eyebrow">AGENT QUALITY</p><h2>质量与稳定性</h2><p>评测结果、回归趋势和失败证据统一视图。</p></div><div className="hero-actions"><Link className="button-link" to="/quality/stability">稳定性分析</Link><Link className="button-link" to="/quality/tuning">运行调优</Link></div></header>
+    <header className="page-heading"><div><p className="eyebrow">AGENT QUALITY</p><h2>质量与稳定性</h2><p>评测结果、回归趋势和失败证据统一视图。</p></div><div className="hero-actions"><Link className="button-link" to="/quality/stability">稳定性分析</Link><Link className="button-link" to="/quality/tuning">运行调优</Link><Link className="button-link" to="/quality/resources">本地资源</Link></div></header>
     <div className="quality-metrics">
       <QualityMetric label="Runs" value={data.summary.runs} />
       <QualityMetric label="Pass Rate" value={`${data.summary.average_pass_rate.toFixed(1)}%`} tone={data.summary.average_pass_rate >= 90 ? "good" : "warn"} />

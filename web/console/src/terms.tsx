@@ -1,6 +1,8 @@
 // terms.tsx 提供轻量的术语解释能力：一个纯 CSS tooltip 组件 + 集中维护的术语表。
 // 目标是消除控制台里“一堆缩写没人解释”的问题，不引入任何第三方 tooltip 依赖。
 
+import { useState, type ReactNode } from "react";
+
 // GLOSSARY 集中维护术语的中文解释。键为稳定标识，供 <Term id> 引用。
 export const GLOSSARY: Record<string, string> = {
   exact_proof: "精确回放证明：离线重放这次运行的每一步请求/响应/工具，逐帧比对哈希，验证记录未被篡改、可如实复现。",
@@ -25,7 +27,7 @@ export const GLOSSARY: Record<string, string> = {
 
 // Term 在一段文字旁渲染一个信息角标，悬浮显示解释。
 // 传 id 用术语表里的解释，或直接传 tip 自定义。
-export function Term({ children, id, tip }: { children: React.ReactNode; id?: string; tip?: string }) {
+export function Term({ children, id, tip }: { children: ReactNode; id?: string; tip?: string }) {
   const text = tip ?? (id ? GLOSSARY[id] : "");
   if (!text) return <>{children}</>;
   return <span className="term">
@@ -35,4 +37,20 @@ export function Term({ children, id, tip }: { children: React.ReactNode; id?: st
       <span className="term-tip" role="tooltip">{text}</span>
     </span>
   </span>;
+}
+
+// CopyButton 复制一段文本（如 hash、ID、JSON）到剪贴板，并短暂显示“已复制”。
+// 长指纹、内部 ID 在界面上常被截断，手动选中很痛苦，一键复制是高频刚需。
+export function CopyButton({ value, label = "复制" }: { value: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  };
+  return <button type="button" className="copy-button" onClick={copy} title="复制到剪贴板">{copied ? "已复制" : label}</button>;
 }

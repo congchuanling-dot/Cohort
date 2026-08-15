@@ -10,7 +10,7 @@ import {
   ReplayRuntimeView,
   TraceRuntimeView,
 } from "./api";
-import { Term } from "./terms";
+import { Term, CopyButton } from "./terms";
 
 // replayabilityLabel 把后端原始枚举值转成用户可读的中文，避免界面直接暴露 exact_only/forkable。
 function replayabilityLabel(value: string): string {
@@ -151,7 +151,7 @@ export function TimeMachinePage() {
           </dl>
           {manifest.replay_block_reason && <p className="drawer-error">{manifest.replay_block_reason}</p>}
           {proof.first_divergence && <p className="drawer-error"><Term id="divergence">Turn {proof.first_divergence.turn ?? "-"}</Term>: {proof.first_divergence.reason}</p>}
-          <code className="proof-hash"><Term id="proof_hash">证明</Term> {proof.proof_hash}</code>
+          <code className="proof-hash"><Term id="proof_hash">证明</Term> <span className="proof-hash-value">{proof.proof_hash}</span><CopyButton value={proof.proof_hash ?? ""} /></code>
         </>}
       </section>
     </div>

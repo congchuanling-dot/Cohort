@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, Link } from "react-router-dom";
 import {
   ActionPreparation, ActionSpec, apiGet, apiPost, CapabilityResource, DashboardSnapshot, initializeSession,
   DataSourceHealth, DeliveryItem, EntityDescriptor, EvalRun, HermesResource, InputField, LSPResource, MCPServerSummary,
@@ -289,6 +289,7 @@ function DomainPanels({
 }) {
   const failure = (errors ?? []).find((item) => item != null);
   return <div className="domain-stack">
+    <div className="quality-breadcrumb"><Link to="/quality">质量中心</Link><span>/</span><strong>本地资源</strong></div>
     {failure != null && <InlineError label="部分本地数据加载失败，下方内容可能不完整" error={failure} />}
     <section className="panel" id="deliveries">
       <div className="panel-heading"><div><p className="eyebrow">EVIDENCE-DRIVEN DELIVERY</p><h3>Deliveries</h3></div><button type="button" onClick={() => runAction("delivery")}>Delivery 动作</button></div>
