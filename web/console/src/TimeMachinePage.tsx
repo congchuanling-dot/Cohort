@@ -10,6 +10,28 @@ import {
   ReplayRuntimeView,
   TraceRuntimeView,
 } from "./api";
+import { Term } from "./terms";
+
+// replayabilityLabel 把后端原始枚举值转成用户可读的中文，避免界面直接暴露 exact_only/forkable。
+function replayabilityLabel(value: string): string {
+  switch (value) {
+    case "forkable":
+      return "可分叉";
+    case "exact_only":
+      return "仅精确回放";
+    default:
+      return value || "未知";
+  }
+}
+
+// forkBlockReason 说明分叉按钮为什么灰着，逐条列出未满足的前置条件，避免用户面对一个无声禁用的按钮。
+function forkBlockReason(replayability: string, verified: boolean | undefined, forkTurn: number): string {
+  const reasons: string[] = [];
+  if (replayability !== "forkable") reasons.push("该 Bundle 只能精确回放、不可分叉（通常因工作区快照缺失）");
+  if (!verified) reasons.push("证据尚未通过精确回放校验（VERIFIED）");
+  if (forkTurn <= 0) reasons.push("尚未在上方选择一个分叉 Turn");
+  return "暂不能分叉：" + reasons.join("；");
+}
 
 export function TimeMachinePage() {
   const queryClient = useQueryClient();
@@ -111,31 +133,31 @@ export function TimeMachinePage() {
     </header>
 
     <div className="time-machine-selector">
-      <EntityColumn title="1. 选择 Session" entities={sessions.data?.entities ?? []} selectedID={sessionID} loading={sessions.isPending} onSelect={chooseSession} />
-      <EntityColumn title="2. 选择 Replay Run" entities={bundles.data?.entities ?? []} selectedID={runID} loading={bundles.isPending} disabled={!sessionID} onSelect={chooseRun} />
+      <EntityColumn title="1. 选择 Session" entities={sessions.data?.entities ?? []} selectedID={sessionID} loading={sessions.isPending} error={sessions.isError ? sessions.error : null} onSelect={chooseSession} />
+      <EntityColumn title="2. 选择 Replay Run" entities={bundles.data?.entities ?? []} selectedID={runID} loading={bundles.isPending} error={bundles.isError ? bundles.error : null} disabled={!sessionID} onSelect={chooseRun} />
       <section className="panel replay-proof-card">
-        <div className="panel-heading"><h3>3. Exact Proof</h3>{proof && <span className={`risk ${proof.verified ? "ok" : "warn"}`}>{proof.verified ? "VERIFIED" : "DIVERGED"}</span>}</div>
+        <div className="panel-heading"><h3><Term id="exact_proof">3. Exact Proof</Term></h3>{proof && <span className={`risk ${proof.verified ? "ok" : "warn"}`}>{proof.verified ? "VERIFIED" : "DIVERGED"}</span>}</div>
         {!runID && <div className="empty">选择一个 Replay Run 后自动校验证据。</div>}
         {replay.isPending && runID && <div className="empty">正在离线校验 Bundle…</div>}
         {replay.isError && <div className="source-error"><strong>Replay 不可用</strong><span>{replay.error.message}</span></div>}
         {proof && manifest && <>
           <dl className="replay-proof-grid">
-            <div><dt>状态</dt><dd>{manifest.replayability}</dd></div>
-            <div><dt>Frames</dt><dd>{proof.frame_count}</dd></div>
-            <div><dt>Turns</dt><dd>{proof.turn_count}</dd></div>
+            <div><dt><Term id="replayability">状态</Term></dt><dd>{replayabilityLabel(manifest.replayability)}</dd></div>
+            <div><dt><Term id="frames">Frames</Term></dt><dd>{proof.frame_count}</dd></div>
+            <div><dt><Term id="turn">Turns</Term></dt><dd>{proof.turn_count}</dd></div>
             <div><dt>LLM / Tools</dt><dd>{proof.llm_calls} / {proof.tool_calls}</dd></div>
             <div><dt>模型</dt><dd>{manifest.model || "unknown"}</dd></div>
-            <div><dt>Workspace</dt><dd>{manifest.git.dirty ? "snapshot" : "clean"}</dd></div>
+            <div><dt><Term id="worktree">Workspace</Term></dt><dd>{manifest.git.dirty ? "snapshot" : "clean"}</dd></div>
           </dl>
           {manifest.replay_block_reason && <p className="drawer-error">{manifest.replay_block_reason}</p>}
-          {proof.first_divergence && <p className="drawer-error">Turn {proof.first_divergence.turn ?? "-"}: {proof.first_divergence.reason}</p>}
-          <code className="proof-hash">{proof.proof_hash}</code>
+          {proof.first_divergence && <p className="drawer-error"><Term id="divergence">Turn {proof.first_divergence.turn ?? "-"}</Term>: {proof.first_divergence.reason}</p>}
+          <code className="proof-hash"><Term id="proof_hash">证明</Term> {proof.proof_hash}</code>
         </>}
       </section>
     </div>
 
     {runID && <section className="panel fork-studio">
-      <div className="panel-heading"><div><p className="eyebrow">INTERVENTION POINT</p><h3>4. 点击一个 Turn 作为分叉点</h3></div><span className="safe-pill">{forkTurn ? `Fork at Turn ${forkTurn}` : "尚未选择"}</span></div>
+      <div className="panel-heading"><div><p className="eyebrow">INTERVENTION POINT</p><h3>4. 点击一个 Turn 作为<Term id="fork">分叉点</Term></h3></div><span className="safe-pill">{forkTurn ? `Fork at Turn ${forkTurn}` : "尚未选择"}</span></div>
       {trace.isPending && <div className="empty">正在读取因果轨迹…</div>}
       {trace.isError && <div className="source-error"><strong>轨迹不可用</strong><span>{trace.error.message}</span></div>}
       <div className="turn-picker">
@@ -187,12 +209,12 @@ export function TimeMachinePage() {
         <div className="panel-heading"><div><p className="eyebrow">COUNTERFACTUAL</p><h3>5. 设置干预变量</h3></div></div>
         <label><span>候选模型 Profile</span><select value={profileID} onChange={(event) => setProfileID(event.target.value)}><option value="">沿用当前模型</option>{(profiles.data?.entities ?? []).map((profile) => <option key={profile.id} value={profile.id}>{profile.title} · {profile.subtitle}</option>)}</select></label>
         <label><span>候选 System Prompt</span><textarea value={systemPrompt} onChange={(event) => setSystemPrompt(event.target.value)} placeholder="留空：沿用录制 Prompt。填写后只改变分叉实验的 System Prompt。" /></label>
-        <label><span>重复 Trial：{repeat}</span><input type="range" min="1" max="10" value={repeat} onChange={(event) => setRepeat(Number(event.target.value))} /></label>
-        <label className="checkbox-field"><input type="checkbox" checked={keepWorktrees} onChange={(event) => setKeepWorktrees(event.target.checked)} /><span>保留隔离 Worktree 供人工检查</span></label>
+        <label><span>重复 <Term id="trial">Trial</Term>：{repeat}</span><input type="range" min="1" max="10" value={repeat} onChange={(event) => setRepeat(Number(event.target.value))} /></label>
+        <label className="checkbox-field"><input type="checkbox" checked={keepWorktrees} onChange={(event) => setKeepWorktrees(event.target.checked)} /><span>保留隔离 <Term id="worktree">Worktree</Term> 供人工检查</span></label>
         <button className="primary execute-button" type="button" disabled={!canFork || fork.isPending} onClick={() => fork.mutate()}>
           {fork.isPending ? "正在创建 Replay Operation…" : "启动分叉实验"}
         </button>
-        {manifest?.replayability !== "forkable" && manifest && <p className="form-error">该 Bundle 只能 Exact Replay，不能执行 Fork。</p>}
+        {!canFork && manifest && <p className="form-error">{forkBlockReason(manifest.replayability, proof?.verified, forkTurn)}</p>}
         {fork.error && <p className="form-error">{fork.error.message}</p>}
         {fork.data && <p className="good-text">Operation 已启动，可在 Operations 页面查看实时状态。</p>}
       </section>
@@ -209,11 +231,12 @@ export function TimeMachinePage() {
   </section>;
 }
 
-function EntityColumn({ title, entities, selectedID, loading, disabled, onSelect }: {
+function EntityColumn({ title, entities, selectedID, loading, error, disabled, onSelect }: {
   title: string;
   entities: EntityDescriptor[];
   selectedID: string;
   loading: boolean;
+  error?: unknown;
   disabled?: boolean;
   onSelect: (entity: EntityDescriptor) => void;
 }) {
@@ -224,11 +247,12 @@ function EntityColumn({ title, entities, selectedID, loading, disabled, onSelect
     <div className="panel-heading"><h3>{title}</h3><span className="risk read">{entities.length}</span></div>
     <input value={search} disabled={disabled} onChange={(event) => setSearch(event.target.value)} placeholder="按标题、模型或状态搜索" />
     <div>
+      {error != null && <div className="source-error"><strong>列表加载失败</strong><span>{error instanceof Error ? error.message : String(error)}</span></div>}
       {filtered.map((entity) => <button key={`${entity.kind}:${entity.id}`} type="button" className={selectedID === entity.id ? "selected" : ""} onClick={() => onSelect(entity)}>
         <span><strong>{entity.title}</strong><small>{entity.subtitle}</small></span><em>{entity.status}</em>
       </button>)}
       {loading && <p className="empty">正在读取本地数据…</p>}
-      {!loading && !disabled && filtered.length === 0 && <p className="empty">没有可选对象</p>}
+      {!loading && !disabled && error == null && filtered.length === 0 && <p className="empty">没有可选对象</p>}
       {disabled && <p className="empty">先选择 Session</p>}
     </div>
   </section>;
