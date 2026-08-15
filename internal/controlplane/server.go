@@ -635,7 +635,43 @@ func (s *Server) validMutation(r *http.Request, w http.ResponseWriter) bool {
 }
 
 func (s *Server) validOrigin(r *http.Request) bool {
-	return constantTimeEqual(strings.TrimSuffix(r.Header.Get("Origin"), "/"), s.origin)
+	origin := strings.TrimSuffix(strings.TrimSpace(r.Header.Get("Origin")), "/")
+	if origin == "" {
+		return false
+	}
+	if constantTimeEqual(origin, s.origin) {
+		return true
+	}
+	// 允许 loopback 别名：监听器把 s.origin 记成 127.0.0.1，但用户可能用 localhost
+	// 或 [::1] 打开。它们都指向本机、同端口、同协议，等价可信，不应被 CSRF 校验误杀。
+	return sameLoopbackOrigin(origin, s.origin)
+}
+
+// sameLoopbackOrigin 判断两个 Origin 是否为同协议、同端口的本机回环地址别名。
+func sameLoopbackOrigin(candidate, expected string) bool {
+	candURL, err := url.Parse(candidate)
+	if err != nil {
+		return false
+	}
+	expURL, err := url.Parse(expected)
+	if err != nil {
+		return false
+	}
+	if candURL.Scheme != expURL.Scheme || candURL.Port() != expURL.Port() {
+		return false
+	}
+	return isLoopbackHost(candURL.Hostname()) && isLoopbackHost(expURL.Hostname())
+}
+
+// isLoopbackHost 覆盖 localhost 主机名与所有回环 IP（127.0.0.0/8、::1）。
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }
 
 func (s *Server) securityHeaders(next http.Handler) http.Handler {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -475,6 +476,39 @@ type staticDataSourceProvider struct{}
 
 func (staticDataSourceProvider) Sources(context.Context, bool) ([]SourceHealth, error) {
 	return []SourceHealth{{Kind: "sessions", Label: "Sessions", State: SourceReady, Count: 2}}, nil
+}
+
+func TestValidOriginAcceptsLoopbackAliases_BitsUT(t *testing.T) {
+	server := &Server{origin: "http://127.0.0.1:18779"}
+	accept := []string{
+		"http://127.0.0.1:18779",  // 精确匹配
+		"http://127.0.0.1:18779/", // 尾部斜杠
+		"http://localhost:18779",  // localhost 别名
+		"http://[::1]:18779",      // IPv6 回环
+	}
+	for _, origin := range accept {
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/data-sources", nil)
+		request.Header.Set("Origin", origin)
+		if !server.validOrigin(request) {
+			t.Fatalf("expected origin %q to be accepted as loopback alias", origin)
+		}
+	}
+	reject := []string{
+		"",                          // 缺失
+		"https://127.0.0.1:18779",   // 协议不同
+		"http://127.0.0.1:9999",     // 端口不同
+		"http://evil.invalid:18779", // 非回环主机
+		"http://10.0.0.5:18779",     // 非回环 IP
+	}
+	for _, origin := range reject {
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/data-sources", nil)
+		if origin != "" {
+			request.Header.Set("Origin", origin)
+		}
+		if server.validOrigin(request) {
+			t.Fatalf("expected origin %q to be rejected", origin)
+		}
+	}
 }
 
 func TestServerRejectsNonLoopbackListen_BitsUT(t *testing.T) {
