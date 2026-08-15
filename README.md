@@ -41,11 +41,13 @@
 </p>
 
 <p align="center">
-  <img src="docs/1785215163755.jpeg" alt="Cohort preview" width="860">
+  <img src="docs/cohort_control_center.png" alt="Cohort Control Center overview" width="900">
 </p>
 
 <p align="center">
   <a href="#30-秒看懂-cohort">30 秒看懂</a>
+  ·
+  <a href="#产品界面与真实演示">产品演示</a>
   ·
   <a href="#核心能力">核心能力</a>
   ·
@@ -117,6 +119,40 @@ cohort
 
 > 我们并不缺新的聊天框。  
 > 我们缺的是一个能解释“发生了什么”、验证“有没有被篡改”、实验“怎样会更好”的 Agent Runtime。
+
+## 产品界面与真实演示
+
+Cohort 同时提供面向日常任务的终端体验，以及面向运行治理、证据检查和人工审批的本地控制中心。
+两者读取同一份本地运行状态，不依赖云端控制面。
+
+### 命令行 Agent
+
+<p align="center">
+  <img src="docs/cohort_cli.png" alt="Cohort command-line agent running an interactive task" width="860">
+</p>
+
+<p align="center">
+  <sub>在终端中查看模型、工作区、Session 和工具状态，并以流式方式执行真实任务。</sub>
+</p>
+
+### Time Machine
+
+<p align="center">
+  <img src="docs/cohort_time_machine.png" alt="Cohort Time Machine replay and intervention view" width="900">
+</p>
+
+<p align="center">
+  <sub>选择历史 Session 和 Replay Run，校验证据完整性，并从指定 Turn 创建隔离的反事实实验。</sub>
+</p>
+
+### 浏览器自动化
+
+<p align="center">
+  <a href="docs/cohort_browser_automation_demo.mp4"><strong>▶ 查看 4 分 22 秒真实浏览器自动化演示（MP4）</strong></a>
+</p>
+
+演示展示 Cohort 通过 Chrome Bridge 完成页面读取、Shadow DOM 定位、真实 CDP 输入、
+动作后验证和结果确认。公开版本已裁除终端原文，并对本机路径和账号信息做脱敏处理。
 
 ## 核心能力
 

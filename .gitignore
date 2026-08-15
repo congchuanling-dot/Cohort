@@ -14,6 +14,7 @@
 /.cohort/evals/runs/
 /.cohort/evals/sessions/
 /.cohort/evals/stability/
+/.cohort/replay-worktrees/
 /.cohort/desktop/
 /.cohort/screenshots/
 /.cohort/hermes/worktrees/
@@ -40,7 +41,21 @@
 /cohort_source_onboarding_feishu.xml
 /cohort_resume_interview_feishu.xml
 /debug-llm-stream-slow.md
+/docs/Cohort核心技术全解.md
+/docs/Cohort简历与面试题库.md
+
+# 本地 AI 文档生成与预览中间产物
+/cohort_core_*.xml
+/cohort_core_technical_*20260815.md
+/cohort_original_expanded_chunk_*.md
+/cohort_*preview*.jpg
 
 # Agent 运行时记忆与 Hermes 事件日志（运行时自动再生，勿提交）
 /memory/
 /.cohort/hermes/*.jsonl
+
+# README 演示的未脱敏原始素材，只提交 docs/cohort_* 的发布版本
+/docs/d9b87b67-da91-4ba4-b86d-f28703e04071.png
+/docs/49323f2f-0e72-48eb-a116-24cffc0ae885.png
+/docs/7550dc35-07d4-48a8-bce8-55afb3f50dc2.png
+/docs/fad87e58d50c935c5d30b66b9c0e06f0_raw.mp4
