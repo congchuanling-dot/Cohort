@@ -41,6 +41,10 @@
 | 16 | Agent 因果追踪图 | `[完成]` | 从脱敏事件流关联 LLM、tool、permission、route 和 file change，输出机器可读 DAG、最长加权关键路径、异常与瓶颈，并生成无外部依赖的交互式 HTML。 |
 | 17 | 证据驱动多 Agent 交付 | `[完成]` | 契约/DAG、隔离 Builder、Evidence/Integration、独立 Verifier、定向返修、Review、人工批准、事务合并、复验、故障恢复与 Reflection 已完成。 |
 
+### 可选 MCP 示例
+
+- `[完成]` Parallel Search HTTP MCP：`docs/examples/parallel-search.mcp.json` 与 [操作说明](parallel_search_mcp.md)。不默认启用 Server，不修改模型和权限默认值。验收包括源码构建、CLI import/probe，以及隔离匿名 search/fetch 经现有 Registry/Runner 返回 URL 和摘录；请求检查覆盖 User-Agent 与无认证头。
+
 ### 延后项
 
 - Skill 包生态扩展：继续补更多团队专用 Skill 和安装/发布体验。
