@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "parallel": {
+      "type": "http",
+      "url": "https://search.parallel.ai/mcp",
+      "headers": {
+        "User-Agent": "Cohort (https://github.com/congchuanling-dot/Cohort)"
+      }
+    }
+  }
+}

@@ -45,6 +45,12 @@ MCP 是让 Cohort 接飞书、GitHub、数据库、内部平台的标准工具�
 内部治理仍由 Cohort 的命名空间、权限、日志、上下文裁剪和风险分级兜底。
 ```
 
+## 可选 Parallel Search 示例范围与验收
+
+目标：通过现有 HTTP MCP import 提供可运行的 Parallel Search 配置示例；不内置或默认启用第三方 Server，不改模型配置和权限默认值。示例仅使用匿名 `https://search.parallel.ai/mcp`，通过配置头发送 Cohort User-Agent。
+
+验收条件：从源码构建 CLI，在隔离用户目录导入示例并发现 `web_search` / `web_fetch`；通过现有 Tool Registry 和 Runner 调用两种工具，得到可用的 URL / 内容；观察发现、搜索、抓取请求的 URL、User-Agent 和无认证头。离线回归验证 import 合并、权限门禁与结果的不可信标记。操作说明见 [Parallel Search MCP](parallel_search_mcp.md)。
+
 ## 1. 为什么 Cohort 需要 MCP
 
 没有 MCP 时，每接一个系统都要写一套 Go 工具：
