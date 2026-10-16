@@ -41,6 +41,10 @@
 | 16 | Agent 因果追踪图 | `[完成]` | 从脱敏事件流关联 LLM、tool、permission、route 和 file change，输出机器可读 DAG、最长加权关键路径、异常与瓶颈，并生成无外部依赖的交互式 HTML。 |
 | 17 | 证据驱动多 Agent 交付 | `[完成]` | 契约/DAG、隔离 Builder、Evidence/Integration、独立 Verifier、定向返修、Review、人工批准、事务合并、复验、故障恢复与 Reflection 已完成。 |
 
+### 可选百智 MCP 文档示例
+
+- `[部分完成]` [百智 MCP](baizhi_mcp.md) 与 `docs/examples/baizhi.mcp.json`：使用已有 HTTP JSON import，不改零默认 Server 或权限策略。本地验收限于实际 CLI 导入/导出/移除和受控 Store 的 CLI 模块、Manager/MCPTool/Registry 合成链路；完整 CLI 启动、真实百智服务与生产模型未验收。
+
 ### 延后项
 
 - Skill 包生态扩展：继续补更多团队专用 Skill 和安装/发布体验。

@@ -36,6 +36,7 @@
 | 状态 | 文档 | 用途 |
 | --- | --- | --- |
 | `[维护]` | [usage.md](usage.md) | 安装、CLI、REPL、MCP、session 和 context 的实际操作方式。 |
+| `[维护]` | [baizhi_mcp.md](baizhi_mcp.md) | 显式导入百智认证 HTTP MCP；合成验证与真实服务未验收边界。 |
 | `[维护]` | [testing.md](testing.md) | 单元测试、端到端和手工验收步骤。 |
 | `[维护]` | [agent_evaluation.md](agent_evaluation.md) | Agent 评测协议、内置 suite、评分、基线、Dashboard 和 CI 使用方式。 |
 | `[完成]` | [causal_trace_graph.md](causal_trace_graph.md) | 本地因果 DAG、关键路径分析与离线交互式 HTML。 |

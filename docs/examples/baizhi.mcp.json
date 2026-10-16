@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "baizhi": {
+      "type": "http",
+      "url": "https://agent-toolkit.app.baizhi.cloud/mcp",
+      "headers": {
+        "Authorization": "Bearer ${BAIZHI_API_KEY}"
+      }
+    }
+  }
+}

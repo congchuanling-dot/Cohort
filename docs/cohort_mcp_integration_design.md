@@ -45,6 +45,12 @@ MCP 是让 Cohort 接飞书、GitHub、数据库、内部平台的标准工具�
 内部治理仍由 Cohort 的命名空间、权限、日志、上下文裁剪和风险分级兜底。
 ```
 
+## 可选百智 MCP 文档示例的范围与验收
+
+目标：为需要网页搜索、网页读取与结构化提取的用户提供百智（Baizhi）认证 HTTP 配置及中文操作说明。只使用现有 `.mcp.json` import、Store、Manager、MCPTool 与 Tool Registry；不内置或默认装配服务，不改模型、权限、传输或凭据逻辑。
+
+验收范围：示例 JSON 只保存固定服务 URL 和 `Bearer ${BAIZHI_API_KEY}` 引用；用当前源码构建的 CLI 在任务项目/本地 scope 导入、合并、导出与移除；通过参数化 Store 和合成 loopback MCP 验证实际 CLI 模块的配置列表/发现，以及 Manager → MCPTool → Registry 注册与调度。合成服务不是百智，工具 schema、结果和授权输入均为夹具；不调用真实模型或百智。当前完整 CLI 启动的用户级读取、真实百智服务及生产模型行为未验收，因此此接入不标为已完成能力。现有空变量展开与 HTTP Close 行为保持，不增加通用修复。操作说明见 [百智 MCP](baizhi_mcp.md)。
+
 ## 1. 为什么 Cohort 需要 MCP
 
 没有 MCP 时，每接一个系统都要写一套 Go 工具：

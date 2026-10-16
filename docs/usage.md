@@ -683,6 +683,8 @@ go run . mcp remove --scope local github
 
 MCP 工具会自动变成 `mcp_<server>_<tool>` 并进入 Agent Tool Registry。没有显式项目规则的外部工具默认按 `R2 + ask` 处理；用户可选择一次、同参数 session 或同参数 project 授权。名称明确包含删除、审批、授权和支付语义的工具默认 `R3 + deny`。显式配置为 `R1 + allow` 的只读工具才会直接执行。
 
+可选的百智（Baizhi）认证 HTTP 配置与操作说明见 [百智 MCP](baizhi_mcp.md)。它使用现有 JSON import，不添加默认 Server，不修改模型或权限策略；真实服务尚未验收。
+
 ### 4.6.1 能力边界拓展
 
 `capability` 命令用于记录“当前 Cohort 做不到什么”，并把补能力流程推进到可验证的项目级 Skill 候选。它不需要 API Key，也不会自动安装 pip/npm/brew 依赖。
